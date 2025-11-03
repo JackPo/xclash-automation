@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(find:*)",
+      "Bash(\"C:\\Program Files\\BlueStacks_nxt\\hd-adb.exe\" devices)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
