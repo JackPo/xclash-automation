@@ -521,5 +521,123 @@ After extensive testing of multiple OCR solutions, results were disappointing:
 
 ---
 
+## Map Panning with Arrow Keys (2025-11-03)
+
+### CONFIRMED: Arrow Keys Work for Panning
+
+**Testing Results**:
+- ✅ **Arrow keys (Up/Down/Left/Right) successfully pan the map in XClash**
+- ✅ Tested with win32api keyboard simulation
+- ✅ Map movement is smooth and responsive
+
+### CRITICAL INVESTIGATION: Background Input Attempts
+
+**Goal**: Send arrow keys to BlueStacks WITHOUT bringing window to foreground
+
+**BlueStacks Window Hierarchy Found**:
+```
+[V] HWND:26346302 Class:Qt672QWindowIcon               Title:"BlueStacks App Player"
+  [V] HWND: 1903006 Class:Qt672QWindowIcon             Title:"HD-Player"
+    [V] HWND:  591764 Class:BlueStacksApp              Title:"游戏窗口"
+  [V] HWND:  591764 Class:BlueStacksApp                Title:"游戏窗口"
+```
+
+### Failed Windows-Based Approaches (ALL TESTED):
+
+#### 1. ❌ PostMessage/SendMessage to Main Window
+**Script**: `send_arrow_background.py`
+**Method**:
+- `SendMessage(hwnd, WM_KEYDOWN, vk_code, lparam)`
+- Proper lparam construction: scan code, extended key flag (bit 24), repeat count
+- Both PostMessage and SendMessage tried
+
+**Result**: Map does NOT move. Window does NOT come to foreground.
+
+#### 2. ❌ SendMessage with WM_ACTIVATE Trick
+**Script**: `send_arrow_activate.py`
+**Method**:
+- Send `WM_ACTIVATE` with `WA_CLICKACTIVE` (value 2) first
+- Wait 1 second for activation to take effect
+- Then send WM_KEYDOWN/WM_KEYUP with proper lparam
+
+**Result**: Map does NOT move. Window does NOT come to foreground.
+
+#### 3. ❌ SendMessage to Child Windows
+**Script**: `send_to_child_windows.py`
+**Method**:
+- Use `EnumChildWindows()` to find child windows
+- Target `BlueStacksApp` class specifically (HWND: 591764)
+- Send WM_KEYDOWN/WM_KEYUP to child window directly
+- Also tried sending to ALL child windows simultaneously
+
+**Result**: Map does NOT move. Window does NOT come to foreground.
+
+#### 4. ❌ SendInput with Scancodes (DirectInput Compatible)
+**Script**: `send_arrow_directinput.py`
+**Method**:
+- Use ctypes to call `user32.SendInput()` directly
+- Construct INPUT structure with KeyBdInput
+- Use hardware scan codes (MapVirtualKey)
+- Set flags: `KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY`
+- This is the recommended approach for DirectInput games
+
+**Result**: Map does NOT move. Window does NOT come to foreground.
+
+### Analysis of Failures
+
+**Why Nothing Worked**:
+1. **BlueStacks uses Qt framework** (Qt672QWindowIcon) - may have custom input handling
+2. **Game window is separate Android system** - not a native Windows app
+3. **BlueStacks intentionally blocks background input** - security/anti-cheat feature
+4. **No 'plrNativeInputWindowClass' found** - older BlueStacks versions had this, not BlueStacks 5
+5. **Windows SendInput only works for foreground window** - by design
+6. **PostMessage/SendMessage require app to process messages** - BlueStacks ignores them when inactive
+
+### ✅ ONLY Working Solution: `send_arrow_proper.py`
+
+**Method**:
+- `win32gui.SetForegroundWindow(hwnd)` - Brings BlueStacks to front
+- `win32api.keybd_event(vk, 0, 0, 0)` - Simulates physical keyboard press
+- `win32api.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)` - Simulates physical keyboard release
+
+**Result**: ✅ Map DOES move. Window IS brought to foreground.
+
+**Trade-off**: BlueStacks MUST be visible and in focus during automation.
+
+### Scripts Created:
+- `send_arrow_proper.py` - ✅ **WORKING** - Brings window to foreground and sends arrow keys
+- `send_arrow_background.py` - ❌ Failed: SendMessage to main window
+- `send_arrow_activate.py` - ❌ Failed: WM_ACTIVATE trick
+- `send_to_child_windows.py` - ❌ Failed: SendMessage to child windows
+- `send_arrow_directinput.py` - ❌ Failed: SendInput with scancodes
+- `find_child_windows.py` - Utility: List child windows
+- `find_all_nested_windows.py` - Utility: Recursive window hierarchy
+- `find_all_bluestacks_windows.py` - Utility: Find all BlueStacks-related windows
+- `test_keyboard_input.py` - Fixed unicode encoding issue
+
+### Research References:
+- Stack Overflow: "PyWin32 PostMessage won't send keystrokes without focus on BlueStacks"
+- Stack Overflow: "Send input to Bluestacks app running in background"
+- Stack Overflow: "How to send keystrokes to background window using pywinauto"
+- Windows API: SendInput, SendMessage, PostMessage documentation
+- DirectInput vs SendInput technical differences
+
+### Status:
+**4 Windows API approaches tested - none successful yet for background input.**
+
+**Known Working**: `send_arrow_proper.py` with SetForegroundWindow + keybd_event
+
+**Still investigating** - arrow keys DO work when window has focus, so there must be a way to trigger the same input pathway without bringing window to foreground.
+
+### Potential Next Approaches to Try:
+- WM_CHAR messages instead of WM_KEYDOWN/WM_KEYUP
+- Different message timing/delays
+- Finding additional nested child windows we haven't discovered yet
+- Windows hooks or low-level keyboard hooks
+- Spy++ analysis to see what messages actually get sent when arrow key works
+- Testing if specific focus states can be simulated
+
+---
+
 **Last Updated**: 2025-11-03
-**Status**: OCR testing complete - all methods failed (<50% accuracy). Decided to build custom CNN instead. Currently blocked on zoom calibration for data collection. Need to debug adb pinch gestures before proceeding.
+**Status**: OCR testing complete - all methods failed (<50% accuracy). Decided to build custom CNN instead. Currently blocked on zoom calibration for data collection. Arrow key panning confirmed working but requires window focus.
