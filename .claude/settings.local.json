@@ -1,10 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir:*)",
-      "Bash(findstr:*)",
-      "Bash(find:*)",
-      "Bash(\"C:\\Program Files\\BlueStacks_nxt\\hd-adb.exe\" devices)"
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -c:*)",
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -m pip install paddlepaddle)",
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -c \"\nfrom paddleocr import PaddleOCR\nfrom pathlib import Path\n\nprint(''Initializing PaddleOCR...'')\nocr = PaddleOCR(lang=''en'')\n\n# Test on one castle cutout\nprint(''\\nTesting on castle_001 (should be 3):'')\nresult = ocr.ocr(''castle_cutouts/castle_001_1098_1198.png'')\n\nif result and result[0]:\n    for line in result[0]:\n        bbox, (text, confidence) = line\n        print(f''  Text: [{text}], Confidence: {confidence:.2f}'')\nelse:\n    print(''  No text detected'')\n\")",
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -c \"\nfrom paddleocr import PaddleOCR\n\nocr = PaddleOCR(lang=''en'')\n\n# Test on one castle cutout  \nresult = ocr.ocr(''castle_cutouts/castle_001_1098_1198.png'')\n\nprint(''PaddleOCR result:'', result)\nprint(''Type:'', type(result))\n\nif result and result[0]:\n    print(f''Found {len(result[0])} text regions'')\n    for item in result[0]:\n        print(f''  Item: {item}'')\n\")",
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -m pip uninstall -y torch torchvision)",
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu)",
+      "Bash(\"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -c \"\nfrom paddleocr import PaddleOCR\nprint(''PaddleOCR import successful!'')\n\nocr = PaddleOCR(lang=''en'')\nresult = ocr.ocr(''castle_cutouts/castle_001_1098_1198.png'')\n\nif result and len(result) > 0:\n    page_result = result[0]\n    rec_texts = page_result.get(''rec_texts'', [])\n    print(f''Detected {len(rec_texts)} text regions:'')\n    for i, text in enumerate(rec_texts):\n        print(f''  {i+1}. [{text}]'')\nelse:\n    print(''No text detected'')\n\" 2)",
+      "Bash(timeout 120 \"C:\\Users\\mail\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -c:*)"
     ],
     "deny": [],
     "ask": []
