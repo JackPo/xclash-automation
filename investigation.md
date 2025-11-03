@@ -203,5 +203,43 @@ The player positions visible on screen (names under castles) are most likely:
 
 ---
 
+## Zoom Functionality (WORKING)
+
+### Implementation: `discover_zoom_adb.py`
+Successfully implemented zoom in/out using **minitouch** for true multi-touch pinch gestures.
+
+**How it works:**
+- Uses minitouch to simulate two-finger pinch gestures via ADB
+- Pinch-in (fingers move together) = zoom out
+- Pinch-out (fingers move apart) = zoom in
+- Takes screenshots and runs OCR after each zoom step
+
+**Requirements:**
+- minitouch installed at `/data/local/tmp/minitouch` (use `setup_minitouch.py`)
+- ADB connection to BlueStacks
+
+**Usage:**
+```bash
+python discover_zoom_adb.py
+```
+
+**Configuration:**
+- Zoom sensitivity: Fingers start 560px apart, end 200px apart (reduced for gentler zoom)
+- Movement steps: 3 steps per zoom
+- Wait time: 15ms between steps, 1 second after zoom
+- Minitouch coordinate space: 32767x32767
+
+**Test Results:**
+- ✅ Successfully zooms in/out on game map
+- ✅ OCR detects 500-700 chars at close zoom, 0-100 at far zoom
+- ✅ Player names readable at close/medium zoom levels
+
+**Failed Approaches (Removed):**
+- ADB swipe gestures (too simple, not true pinch)
+- Keyboard shortcuts via pyautogui (window activation issues)
+- Manual intervention approaches
+
+---
+
 **Last Updated**: 2025-11-02
-**Status**: Player data confirmed visible on screen but NOT in accessible file system. Likely stored in memory/network only.
+**Status**: Player data confirmed visible on screen but NOT in accessible file system. Likely stored in memory/network only. Zoom functionality working with minitouch.
