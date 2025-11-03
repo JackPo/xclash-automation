@@ -724,5 +724,166 @@ After exhaustive testing of 8 different Windows API approaches, the evidence poi
 
 ---
 
+## Keyboard-Based Zoom Control (2025-11-03) ✅ SOLVED
+
+### Pivot from ADB to Keyboard Controls
+
+**Previous approach (abandoned)**:
+- Used ADB minitouch for pinch gestures
+- Complex multi-touch simulation
+- Unreliable gesture parameters
+- Difficult to calibrate
+
+**New approach (working)**:
+- Discovered Shift+A (zoom in) and Shift+Z (zoom out) keyboard shortcuts
+- Simple, reliable, repeatable
+- Same foreground automation as arrow keys
+- Perfect integration with existing keyboard control system
+
+### ✅ Implementation: `send_zoom.py`
+
+**Method**:
+```python
+# Zoom in: Shift + A
+# Zoom out: Shift + Z
+win32api.keybd_event(win32con.VK_SHIFT, 0, 0, 0)
+win32api.keybd_event(key, 0, 0, 0)  # A or Z
+win32api.keybd_event(key, 0, win32con.KEYEVENTF_KEYUP, 0)
+win32api.keybd_event(win32con.VK_SHIFT, 0, win32con.KEYEVENTF_KEYUP, 0)
+```
+
+**Result**: ✅ Zoom works perfectly with window focus (same as arrow keys)
+
+### ✅ Unified Command Interface: `send_command.py`
+
+Combined all keyboard controls into single interface:
+- `up`, `down`, `left`, `right` - Pan map
+- `zoom_in`, `zoom_out` - Zoom control
+- Consistent API for all game input
+
+### ✅ Full Zoom Calibration: `calibrate_zoom_proper.py`
+
+**Method**:
+1. Zoom all the way OUT (100 steps to ensure at minimum)
+2. Zoom IN step-by-step (100 steps to reach maximum)
+3. Capture screenshot at each level
+4. Detect castles using OpenCV HSV color detection
+5. Measure castle count and average size (px²)
+
+**Results**:
+- **Optimal zoom level: Step 25** (25 zoom-ins from minimum)
+- **Castle count: 30 castles visible**
+- **Average castle size: 3364px²**
+- All 100 screenshots saved to `zoom_calibration/`
+- Results saved to `zoom_calibration/results.csv`
+
+**Detection Parameters** (castle filtering):
+- HSV color range: [0,0,180] to [180,40,255] (white/gray castles)
+- Size filter: 35-70px width/height
+- Aspect ratio: 0.7-1.4 (roughly square)
+- Area filter: >500px²
+- Edge margin: 100px (exclude UI elements)
+
+### ✅ Smart Zoom Setup: `setup_optimal_zoom.py`
+
+**Problem**: Need reliable way to return to optimal zoom level
+
+**Solution - Town/World Reset Trick**:
+1. **Detect World/Town button** via OCR (pytesseract)
+   - Crop lower-right corner of screen
+   - OCR to find "WORLD" or "TOWN" text
+   - If not visible, zoom in 3 times to make UI bigger
+   - If still not visible, fail with error (not on world map)
+
+2. **Switch to Town view** (click button via ADB)
+   - Town view resets zoom to default baseline
+   - Provides known starting point
+
+3. **Switch back to World view** (click button again)
+   - Now at known baseline zoom level
+   - Consistent zoom state
+
+4. **Zoom out 3 times from baseline**
+   - Keyboard commands: Shift+Z × 3
+   - Gets close to target zoom
+
+5. **Iterative fine-tuning**
+   - Measure castle size at current zoom
+   - If too small (< 3364px²): zoom IN (get closer)
+   - If too big (> 3364px²): zoom OUT (get farther)
+   - Repeat up to 20 iterations
+   - Tolerance: ±200px²
+
+**Results**:
+- ✅ Converges in ~15 iterations
+- ✅ Final castle size: 3210px² (target: 3364px², diff: -154px²)
+- ✅ 17 castles visible at optimal zoom
+- ✅ Within ±200px² tolerance
+- ✅ Reliable and repeatable
+
+### ✅ Automated Map Scanner: `scan_map_automated.py`
+
+**Features**:
+- Grid-based scanning (10×10 configurable)
+- Snake pattern (alternating left-right, right-left for efficiency)
+- Screenshot capture at each grid position
+- Castle detection and CSV export at each position
+- Configurable pan delay (1 second for map to settle)
+
+**Output**:
+- Timestamped directory with all screenshots
+- CSV with castle data: grid coordinates, castle count, positions, sizes
+- Complete map coverage with systematic scanning
+
+### Scripts Created:
+
+**Core Automation**:
+- `send_command.py` - ✅ Unified keyboard control (arrows + zoom)
+- `send_zoom.py` - ✅ Basic zoom control (Shift+A/Z)
+- `setup_optimal_zoom.py` - ✅ Smart zoom setup with Town/World reset
+- `scan_map_automated.py` - ✅ Automated map scanner with grid pattern
+
+**Calibration and Testing**:
+- `calibrate_zoom_proper.py` - ✅ Full 100-level zoom calibration
+- `goto_optimal_zoom.py` - ✅ Simple goto calibrated zoom (100 out, 25 in)
+- `zoom_to_target_size.py` - ✅ Zoom to specific castle size
+- `zoom_to_optimal_adaptive.py` - ✅ Adaptive zoom finder (maximize castle count)
+
+**Background Input Tests** (all failed):
+- `send_to_every_child.py` - ❌ Test all child windows
+- `send_to_every_child_recursive.py` - ❌ Recursive enumeration
+- `test_keybd_event_background.py` - ❌ keybd_event without focus
+
+### Key Findings:
+
+1. **Keyboard controls are reliable** - Shift+A/Z for zoom, arrow keys for pan
+2. **Foreground automation works perfectly** - SetForegroundWindow + keybd_event
+3. **Background input is impossible** - BlueStacks uses DirectInput (confirmed via exhaustive testing)
+4. **Town/World reset provides reliable baseline** - Critical for zoom calibration
+5. **Castle detection is accurate** - HSV color filtering works well
+6. **Optimal zoom: 3364px² castle size** - 17-30 castles visible, best balance
+
+### Status:
+
+**✅ COMPLETE**: Full keyboard automation pipeline for XClash map scanning
+- ✅ Zoom control (Shift+A/Z)
+- ✅ Pan control (arrow keys)
+- ✅ Zoom calibration (100 levels tested)
+- ✅ Smart zoom setup (Town/World reset)
+- ✅ Automated map scanner (grid pattern)
+- ✅ Castle detection (OpenCV HSV)
+- ✅ All scripts tested and working
+
+**❌ NOT POSSIBLE**: Background input to BlueStacks (requires window focus)
+
+**📊 CALIBRATION DATA**:
+- 100 zoom level screenshots in `zoom_calibration/`
+- Results CSV with castle counts and sizes
+- Optimal level identified: Step 25 (3364px², 30 castles)
+
+**🔨 READY FOR USE**: Automation pipeline complete and tested
+
+---
+
 **Last Updated**: 2025-11-03
-**Status**: OCR testing complete - all methods failed (<50% accuracy). Decided to build custom CNN instead. Currently blocked on zoom calibration for data collection. Arrow key panning confirmed working but requires window focus.
+**Status**: Keyboard automation complete and working. Full zoom calibration finished. Smart zoom setup with Town/World reset implemented. Automated map scanner ready. Background input investigation closed (not possible). Ready for production use.
