@@ -401,5 +401,125 @@ Based on 40+ screenshots in `zoom_discovery_adb/`:
 
 ---
 
-**Last Updated**: 2025-11-02
-**Status**: Castle detection working with 32 castles detected. Cutouts include full castle + label. OCR accuracy needs improvement (40.6%). Ready to iterate on OCR configuration.
+## OCR Testing and Failure Analysis (2025-11-03)
+
+### Comprehensive OCR Testing Results
+
+After extensive testing of multiple OCR solutions, results were disappointing:
+
+**Test Setup**:
+- 32 castle cutouts with ground truth labels (manually verified with Claude vision API)
+- Ground truth saved in `castle_database.csv`
+- Test scripts: `test_ocr_methods.py`, `test_paddle_rec_only.py`, `test_easyocr_improved.py`
+
+**Results**:
+1. **EasyOCR (original)**: 43.8% accuracy (14/32) - BEST PERFORMER
+   - Method: 3x scaling, allowlist=0-9
+   - Time: 0.111s per image
+   - Preprocessing: Simple PIL resize
+
+2. **PaddleOCR (full pipeline)**: 40.6% accuracy (13/32)
+   - Method: Default detection + recognition
+   - Time: 1.290s per image (much slower)
+   - Issue: Detection stage failing on small isolated digits
+
+3. **Tesseract (optimized)**: 28.1% accuracy (9/32)
+   - Method: Multiple PSM modes, 6x scaling
+   - Configuration: `--psm 7/8/10 --oem 3 -c tessedit_char_whitelist=0123456789`
+   - Issue: Low confidence on small text
+
+4. **PaddleOCR (rec-only)**: 18.8% accuracy (6/32)
+   - Method: TextRecognition class, Otsu preprocessing
+   - Attempted to bypass detection stage
+   - Issue: Worse than full pipeline
+
+5. **EasyOCR + Otsu preprocessing**: 9.4% accuracy (3/32) - WORST
+   - Method: Otsu thresholding before OCR
+   - Issue: Preprocessing destroyed text quality
+
+**Key Finding**: Traditional OCR is FAILING at a task simpler than MNIST digit recognition!
+- Castle level numbers are clear, high-contrast text (black on white pill)
+- Constrained domain: Only numbers 1-30
+- Yet best accuracy is only 43.8%
+
+### Decision: Build Custom CNN
+
+**Rationale**:
+- OCR is overengineered for this simple task
+- We have 32 labeled samples (can expand with data collection)
+- Problem is simpler than MNIST (only 30 classes vs 10)
+- Expected CNN accuracy: 90-95%+
+
+**Plan**:
+1. **Data Collection** (IN PROGRESS):
+   - Calibrate zoom level to match original screenshot
+   - Pan around map, capture 10-20 screenshots
+   - Run castle detection on all screenshots
+   - Label with Claude vision API (ground truth)
+   - Expected: 100-300+ samples total
+
+2. **Dataset Preparation**:
+   - Split: 70% train / 15% validation / 15% test
+   - Data augmentation: rotation, brightness, noise
+   - Target: ~100 samples per class if possible
+
+3. **CNN Architecture**:
+   - Simple 3-4 layer CNN (LeNet/MobileNet style)
+   - Input: Grayscale 64x32 label region
+   - Output: 30 classes (levels 1-30)
+   - Loss: CrossEntropyLoss
+   - Optimizer: Adam
+
+4. **Integration**:
+   - Save model weights
+   - Update `detect_castles_and_numbers.py`
+   - Replace OCR with CNN inference
+   - Target: <10ms per prediction
+
+### Current Status: Zoom Calibration (BLOCKED)
+
+**Goal**: Calibrate game zoom to match original screenshot (where 32 castles were found)
+
+**Method**: Automated pinch gestures via adb to zoom in/out until castle sizes match
+
+**Issue**: Zoom gestures not working
+- Created `auto_calibrate_zoom.py` to automatically adjust zoom
+- Script runs indefinitely but zoom doesn't change
+- Verified we're on world map view (not home base)
+- Suspect: Pinch gesture parameters may be incorrect for this zoom level
+
+**Scripts Created**:
+- `calibrate_zoom.py` - Manual zoom checker (compares castle sizes)
+- `auto_zoom.py` - Zoom in/out N steps
+- `auto_calibrate_zoom.py` - Fully automated calibration loop (BLOCKED)
+
+**Next Steps**:
+1. Debug pinch gesture parameters manually
+2. Test zoom in/out directly via adb to verify gestures work
+3. Once gestures work, resume automated calibration
+4. Proceed with data collection plan
+
+### Files from OCR Testing Phase
+
+**Test Scripts**:
+- `test_ocr_methods.py` - Tests Tesseract, EasyOCR, PaddleOCR
+- `test_paddle_rec_only.py` - PaddleOCR recognition-only mode
+- `test_easyocr_improved.py` - EasyOCR with Otsu preprocessing
+- `test_easyocr_scales.py` - Test different scaling factors
+- `template_matching_ocr.py` - Attempted template matching (0% accuracy)
+
+**Data Files**:
+- `castle_database.csv` - Ground truth labels (32 castles, 100% accurate)
+- `ocr_performance.csv` - OCR test results comparison
+- `castle_cutouts/` - 32 castle cutouts with labels
+- `dataset/` - Folder for expanded dataset (in progress)
+
+**Debug Images**:
+- `OCR_INPUT_*.png` - Various preprocessed images sent to OCR
+- `debug_*.png` - Preprocessing pipeline outputs
+- `test_scaled*.png` - Scaled versions for testing
+
+---
+
+**Last Updated**: 2025-11-03
+**Status**: OCR testing complete - all methods failed (<50% accuracy). Decided to build custom CNN instead. Currently blocked on zoom calibration for data collection. Need to debug adb pinch gestures before proceeding.
