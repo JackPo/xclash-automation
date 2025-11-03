@@ -583,6 +583,39 @@ After extensive testing of multiple OCR solutions, results were disappointing:
 
 **Result**: Map does NOT move. Window does NOT come to foreground.
 
+#### 5. ❌ Admin Privilege Elevation (TESTED AND RULED OUT)
+**Hypothesis**: BlueStacks runs with admin privileges, Python script needs elevation to bypass UIPI
+**Method**:
+- Opened Command Prompt as Administrator
+- Ran `python send_arrow_background.py left` with elevated privileges
+- Tested if privilege level matching would allow SendMessage to work
+
+**Result**: Map does NOT move. Window does NOT come to foreground.
+
+**Conclusion**: Admin privilege mismatch is NOT the root cause. This rules out Windows UIPI (User Interface Privilege Isolation) as the blocking mechanism.
+
+#### 6. ❌ AttachThreadInput
+**Script**: `send_arrow_attachthread.py`
+**Method**:
+- Use `AttachThreadInput()` to attach current thread's input to BlueStacks thread
+- This shares input state between threads (focus, keyboard state, etc.)
+- Send WM_KEYDOWN/WM_KEYUP while threads are attached
+- Detach when done
+
+**Result**:
+- AttachThreadInput succeeded (returned True)
+- GetLastError = 0 (success)
+- Map does NOT move. Window does NOT come to foreground.
+
+#### 7. ❌ WM_SYSKEYDOWN and Multiple Window Targeting
+**Script**: `send_arrow_wmchar.py`
+**Method**:
+- Try WM_SYSKEYDOWN/WM_SYSKEYUP (system key messages) instead of WM_KEYDOWN/WM_KEYUP
+- Send to main window AND all child windows simultaneously
+- Use proper lparam with context code bit set (bit 29)
+
+**Result**: Map does NOT move. Window does NOT come to foreground.
+
 ### Analysis of Failures
 
 **Why Nothing Worked**:
@@ -630,12 +663,16 @@ After extensive testing of multiple OCR solutions, results were disappointing:
 **Still investigating** - arrow keys DO work when window has focus, so there must be a way to trigger the same input pathway without bringing window to foreground.
 
 ### Potential Next Approaches to Try:
+- ❌ ~~Admin privilege elevation~~ - TESTED, ruled out
 - WM_CHAR messages instead of WM_KEYDOWN/WM_KEYUP
 - Different message timing/delays
-- Finding additional nested child windows we haven't discovered yet
-- Windows hooks or low-level keyboard hooks
-- Spy++ analysis to see what messages actually get sent when arrow key works
-- Testing if specific focus states can be simulated
+- Journal playback hooks (WH_JOURNALPLAYBACK)
+- Raw Input API
+- UI Automation framework
+- Finding if there are deeper nested windows beyond BlueStacksApp
+- Spy++ or similar tools to monitor what messages are actually received
+- Try AttachThreadInput to share input state
+- Test if game uses DirectInput and needs different approach
 
 ---
 
