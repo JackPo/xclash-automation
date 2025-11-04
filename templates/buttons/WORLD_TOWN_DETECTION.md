@@ -142,42 +142,35 @@ This 43.51% pixel difference creates the ~22-23 percentage point gap (99.96% vs 
 
 ## Clicking Logic
 
-The button is a **toggle** - clicking switches between states.
+The button is a **simple toggle** - clicking at the same position toggles between states.
 
-### Button Layout (Left to Right)
-```
-[  TOWN Icon  ] [  WORLD Icon  ]
-   (castle)         (map)
-```
+### VERIFIED WORKING METHOD
 
-### Click Positions (Fractional Offsets)
-Based on detected button position (x, y):
+**Click position: x_frac=0.75, y_frac=0.5** (75% from left, middle height)
 
-**To switch TO TOWN (when currently in WORLD):**
-- Click on **LEFT side** (TOWN/castle icon)
-- Fractional offsets to try:
-  - Primary: x_frac=0.18, y_frac=0.7
-  - Backup 1: x_frac=0.1, y_frac=0.8
-  - Backup 2: x_frac=0.02, y_frac=0.6
-
-**To switch TO WORLD (when currently in TOWN):**
-- Click on **RIGHT side** (WORLD/map icon)
-- Fractional offsets to try:
-  - Primary: x_frac=0.82, y_frac=0.7
-  - Backup 1: x_frac=0.9, y_frac=0.8
-  - Backup 2: x_frac=0.98, y_frac=0.6
+This single position works from BOTH states:
+- **WORLD → TOWN**: Click at x_frac=0.75 → switches to TOWN
+- **TOWN → WORLD**: Click at x_frac=0.75 → switches to WORLD
 
 ### Click Calculation
 ```python
-# Assuming detected button at (x, y) with size (w, h)
-# To click TOWN icon (left):
-click_x = x + w * 0.18
-click_y = y + h * 0.7
+# Assuming detected button at (x, y) with template size (template_w, template_h)
+click_x = x + template_w * 0.75
+click_y = y + template_h * 0.5
 
-# To click WORLD icon (right):
-click_x = x + w * 0.82
-click_y = y + h * 0.7
+# For standard 400x250 button at (2160, 1190):
+# click_x = 2160 + 400 * 0.75 = 2460
+# click_y = 1190 + 250 * 0.5 = 1315
 ```
+
+### Button Layout
+```
+[  TOWN/UNION Icon  ] [  WORLD Icon (CLICK HERE)  ]
+      (castle)              (map) <- x_frac=0.75
+```
+
+The button shows both states side-by-side, with the currently active state highlighted.
+Clicking at x_frac=0.75 (right side) toggles between them regardless of current state.
 
 ## Implementation
 

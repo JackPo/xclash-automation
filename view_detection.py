@@ -227,31 +227,28 @@ class ViewSwitcher:
 
     def _click_toggle(self, match: TemplateMatch, target_state: ViewState) -> None:
         """
-        Click the toggle button to switch to target state.
+        Click the toggle button to switch states.
+
+        The button is a simple toggle - clicking at x_frac=0.75 (right side)
+        toggles between WORLD and TOWN states regardless of current state.
 
         Args:
             match: Current button match result
-            target_state: Desired state to switch to
+            target_state: Desired state to switch to (used for logging only)
         """
         # Get button dimensions
         template_h, template_w = self.detector.button_matcher.template_shape
         x, y = match.top_left
 
-        # Determine which side to click based on target state
-        if target_state == ViewState.WORLD:
-            # Click right side (WORLD icon)
-            x_fracs = [0.82, 0.9, 0.98]
-        else:
-            # Click left side (TOWN icon)
-            x_fracs = [0.18, 0.1, 0.02]
+        # Simple toggle: always click at 75% from left (right side)
+        # This position toggles between WORLD <-> TOWN
+        x_frac = 0.75
+        y_frac = 0.5
 
-        y_fracs = [0.7, 0.8, 0.6]
+        target_x = int(x + template_w * x_frac)
+        target_y = int(y + template_h * y_frac)
 
-        # Try primary position (usually works)
-        target_x = int(x + template_w * x_fracs[0])
-        target_y = int(y + template_h * y_fracs[0])
-
-        print(f"    Clicking at ({target_x}, {target_y}) [confidence: {match.score:.3f}]")
+        print(f"    Toggling at ({target_x}, {target_y}) [x_frac={x_frac}, confidence: {match.score:.3f}]")
         self.adb.tap(target_x, target_y)
 
 
