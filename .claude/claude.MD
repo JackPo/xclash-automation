@@ -43,11 +43,14 @@ Key components:
 Use the `view_detection.py` utility for switching between WORLD and TOWN views.
 
 ```python
-from view_detection import switch_to_view, ViewState
+from view_detection import switch_to_view, ViewState, detect_current_view
 from find_player import ADBController, Config
 
 config = Config()
 adb = ADBController(config)
+
+# Detect current view
+current = detect_current_view(adb)  # Returns CURRENT view (e.g., ViewState.WORLD)
 
 # Switch to WORLD view
 switch_to_view(adb, ViewState.WORLD)
@@ -56,7 +59,14 @@ switch_to_view(adb, ViewState.WORLD)
 switch_to_view(adb, ViewState.TOWN)
 ```
 
-**How it works**:
+**⚠️ CRITICAL Understanding:**
+- The button shows your DESTINATION (where you CAN GO), not your current state
+- When IN World view → button displays "TOWN"
+- When IN Town view → button displays "WORLD"
+- The API handles this inversion automatically
+- `ViewState.WORLD` means you ARE CURRENTLY in World view
+
+**How clicking works**:
 - Clicks at position (2460, 1315) which is x_frac=0.75, y_frac=0.5 of the button
 - This single position toggles between WORLD ↔ TOWN states
 - No need to click different sides - same position works for both directions

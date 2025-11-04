@@ -4,12 +4,20 @@ World/Town View Detection Utility
 Clean, reusable API for detecting and switching between WORLD and TOWN views
 using template matching on the lower-right toggle button.
 
+IMPORTANT: The toggle button shows your DESTINATION (where you can switch TO),
+not your current location:
+  - When IN World view → button shows "TOWN" (can switch to town)
+  - When IN Town view → button shows "WORLD" (can switch to world)
+
+This module handles the inversion automatically, so ViewState.WORLD means
+you ARE CURRENTLY in World view (button shows TOWN).
+
 Usage Examples:
-    # Simple detection
+    # Simple detection (returns CURRENT view, not button label)
     from view_detection import detect_current_view, ViewState
     state = detect_current_view(adb_controller)
     if state == ViewState.WORLD:
-        print("In World view")
+        print("Currently in World view")  # Button shows TOWN
 
     # Simple switching
     from view_detection import switch_to_view
@@ -19,7 +27,7 @@ Usage Examples:
     from view_detection import ViewDetector, ViewSwitcher
     detector = ViewDetector()
     result = detector.detect_from_adb(adb_controller)
-    print(f"State: {result.state}, Confidence: {result.confidence:.2f}")
+    print(f"Currently in: {result.state}, Confidence: {result.confidence:.2f}")
 """
 
 from enum import Enum

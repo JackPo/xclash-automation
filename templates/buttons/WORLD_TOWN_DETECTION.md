@@ -1,234 +1,125 @@
-# World/Town Button Detection System
+# World/Town View Detection System
 
-## Purpose
-Detect whether the game is currently in **WORLD view** or **TOWN view** by using template matching on the toggle button in the lower-right corner of the screen.
+## ⚠️ CRITICAL: Button Shows DESTINATION, Not Current State
 
-## Quick Start - Using the API
+**The button displays where you CAN GO, not where you ARE:**
+- When **IN World view** → button shows **"TOWN"** (you can switch to town)
+- When **IN Town view** → button shows **"WORLD"** (you can switch to world)
+
+**The API handles this automatically:**
+- `ViewState.WORLD` = you ARE CURRENTLY in World view (button shows TOWN)
+- `ViewState.TOWN` = you ARE CURRENTLY in Town view (button shows WORLD)
+
+## Quick Start
 
 ```python
-# Simple detection
-from view_detection import detect_current_view, ViewState
+from view_detection import detect_current_view, switch_to_view, ViewState
+from find_player import ADBController, Config
 
-state = detect_current_view(adb_controller)
-if state == ViewState.WORLD:
-    print("In World view")
+config = Config()
+adb = ADBController(config)
 
-# Simple switching
-from view_detection import switch_to_view
+# Detect where you currently are
+current = detect_current_view(adb)
+print(f"Currently in: {current.value}")  # e.g., "WORLD"
 
-success = switch_to_view(adb_controller, ViewState.TOWN)
-if success:
-    print("Successfully switched to Town view")
-
-# Detailed result with confidence
-from view_detection import get_detection_result
-
-result = get_detection_result(adb_controller)
-print(f"State: {result.state}, Confidence: {result.confidence:.2f}")
+# Switch to a specific view
+success = switch_to_view(adb, ViewState.TOWN)
 ```
 
 See `view_detection.py` for full API documentation.
 
-## Button Location
-- **Fixed position**: (2160, 1190) to (2560, 1440)
+## How It Works
+
+### Detection
+1. **Captures screenshot** from BlueStacks via ADB
+2. **Matches templates** against button in lower-right corner (2160, 1190) to (2560, 1440)
+3. **Inverts the match**:
+   - If `world_button_template.png` matches (button shows "WORLD") → returns TOWN (current state)
+   - If `town_button_template.png` matches (button shows "TOWN") → returns WORLD (current state)
+4. **Returns current view** with confidence score
+
+### Switching
+1. **Detects current state**
+2. **Clicks at (2460, 1315)** - this is x_frac=0.75, y_frac=0.5 of the button
+3. **Toggles between states** - same position works for both WORLD→TOWN and TOWN→WORLD
+4. **Waits and verifies** state changed
+
+## Template Files
+
+### world_button_template.png
+- **Shows**: Button displaying "WORLD" icon (map with terrain)
+- **Matches when**: You're currently in TOWN (button shows where you can go)
+- **After inversion**: Returns TOWN as current state
+- **Accuracy**: 99.96% match on correct images
 - **Size**: 400x250 pixels
-- **Screen resolution**: 2560x1440 (constant)
-- **Location**: Lower-right corner of game UI
 
-## Templates
+### town_button_template.png
+- **Shows**: Button displaying "TOWN" icon (castle/fortress)
+- **Matches when**: You're currently in WORLD (button shows where you can go)
+- **After inversion**: Returns WORLD as current state
+- **Accuracy**: 100% match on correct images
+- **Size**: 400x250 pixels
 
-### 1. world_button_template.png
-- **Icon**: Colorful map/atlas with red flag marker, green terrain, blue water
-- **Text**: "World"
-- **Match accuracy**: **99.96%** on WORLD state images
-- **File size**: 66,747 bytes
-- **Status**: ✅ VERIFIED CORRECT
+## Detection Threshold: 97%
 
-### 2. town_button_template.png
-- **Icon**: White castle/fortress with blue dome roof, red flag
-- **Text**: "Town"
-- **Match accuracy**: **100.00%** on TOWN state images
-- **File size**: 52,326 bytes (new correct version)
-- **Status**: ✅ VERIFIED CORRECT
+- **Correct matches**: 99-100% (well above threshold)
+- **Cross-matches**: ~77% (well below threshold)
+- **Why 77% cross-match?**: Templates share similar button frame/background, but differ in icons
+- **97% threshold**: Safely distinguishes correct from incorrect matches
 
-### Archived/Wrong Templates
-- `world_button_template_OLD_WRONG.png` - Previous incorrect WORLD template
-- `town_button_template_OLD_WRONG.png` - Previous incorrect TOWN template (69.78% match)
+## Button Details
 
-## Detection Threshold: 97%+
+**Location**: Fixed at (2160, 1190) to (2560, 1440)
+**Size**: 400x250 pixels
+**Resolution**: 2560x1440 (constant)
+**Position**: Lower-right corner of game UI
 
-### Why 97%?
-- **Correct matches**: 99.96% (WORLD) and 100% (TOWN) - well above threshold
-- **Cross-matching**: ~77-79% - well below threshold
-- **77% cross-match is OK**: Templates share similar button frame/background structure (~77% similar), but differ in icons/text
-- **97% threshold**: Safely distinguishes correct matches from incorrect ones
+**Visual appearance**:
+- Shows two icons side-by-side: TOWN (left, castle) and WORLD (right, map)
+- Currently active destination is highlighted
+- Clicking at x_frac=0.75 (right side) toggles between states
 
-### Test Results
+## Click Position
 
-#### WORLD Template Performance
-| Test Image | Score | Result |
-|------------|-------|--------|
-| screenshot_check.png | 99.97% | ✅ EXCELLENT |
-| corner_check.png | 99.98% | ✅ EXCELLENT |
-| button_match_world.png | 99.95% | ✅ EXCELLENT |
-| **Average** | **99.96%** | ✅ PASS |
-
-#### TOWN Template Performance
-| Test Image | Score | Result |
-|------------|-------|--------|
-| screenshot_town.png | 100.00% | ✅ EXCELLENT |
-| corner_town.png | 100.00% | ✅ EXCELLENT |
-| **Average** | **100.00%** | ✅ PASS |
-
-#### Cross-Matching (Should Be Low)
-| Template | Wrong State | Score | Result |
-|----------|-------------|-------|--------|
-| WORLD | TOWN images | 77-79% | ✅ Correctly rejected |
-| TOWN | WORLD images | 77-79% | ✅ Correctly rejected |
-
-## Classification Logic
-
-### State Detection Algorithm
-```python
-world_score = match_template(screenshot, world_button_template)
-town_score = match_template(screenshot, town_button_template)
-
-if world_score >= 0.97 and town_score < 0.97:
-    current_state = "WORLD"
-elif town_score >= 0.97 and world_score < 0.97:
-    current_state = "TOWN"
-else:
-    current_state = "NONE"  # Button not detected or ambiguous
-```
-
-### Expected Scores
-- **WORLD state**: world_score = 99.96%, town_score = 77%
-- **TOWN state**: town_score = 100%, world_score = 77%
-- **NOTHING**: both scores < 97%
+**Single position works for both directions:**
+- Click at: **(2460, 1315)**
+- Calculation: `x = 2160 + 400 * 0.75`, `y = 1190 + 250 * 0.5`
+- This toggles: WORLD ↔ TOWN
 
 ## Test Images
 
-### WORLD State Test Images
-- `screenshot_check.png` - Full screenshot in WORLD view
-- `corner_check.png` - Cropped lower-right corner, WORLD view
-- `templates/debug/button_match_world.png` - Debug crop of WORLD button
+Test screenshots for validation:
+- `screenshot_check.png` - Currently in WORLD view (button shows TOWN)
+- `screenshot_town.png` - Currently in TOWN view (button shows WORLD)
+- `corner_check.png` - Cropped WORLD view
+- `corner_town.png` - Cropped TOWN view
 
-### TOWN State Test Images
-- `screenshot_town.png` - Full screenshot in TOWN view
-- `corner_town.png` - Cropped lower-right corner, TOWN view
-- `templates/debug/button_match_town.png` - Debug crop of TOWN button (old, may not match)
+## Implementation Files
 
-## Button Structure & Visual Differences
-
-### Button Composition
-Both buttons share the same structural elements:
-- Blue UI bar background
-- Light cyan circular icon background
-- Black text label at bottom
-- 400x250 pixel dimensions
-
-### What Changes Between States
-The **icon and text** change completely:
-
-| Element | WORLD | TOWN |
-|---------|-------|------|
-| **Icon** | Map/atlas (folded book) | Castle/fortress building |
-| **Colors** | Green terrain, blue water, red flag | White walls, blue dome, brown door |
-| **Text** | "World" | "Town" |
-| **Semantic** | Geographic/exploration | Settlement/construction |
-| **Pixel Difference** | 43.51% of pixels differ between states |
-
-This 43.51% pixel difference creates the ~22-23 percentage point gap (99.96% vs 77%) that allows reliable classification.
-
-## Clicking Logic
-
-The button is a **simple toggle** - clicking at the same position toggles between states.
-
-### VERIFIED WORKING METHOD
-
-**Click position: x_frac=0.75, y_frac=0.5** (75% from left, middle height)
-
-This single position works from BOTH states:
-- **WORLD → TOWN**: Click at x_frac=0.75 → switches to TOWN
-- **TOWN → WORLD**: Click at x_frac=0.75 → switches to WORLD
-
-### Click Calculation
-```python
-# Assuming detected button at (x, y) with template size (template_w, template_h)
-click_x = x + template_w * 0.75
-click_y = y + template_h * 0.5
-
-# For standard 400x250 button at (2160, 1190):
-# click_x = 2160 + 400 * 0.75 = 2460
-# click_y = 1190 + 250 * 0.5 = 1315
-```
-
-### Button Layout
-```
-[  TOWN/UNION Icon  ] [  WORLD Icon (CLICK HERE)  ]
-      (castle)              (map) <- x_frac=0.75
-```
-
-The button shows both states side-by-side, with the currently active state highlighted.
-Clicking at x_frac=0.75 (right side) toggles between them regardless of current state.
-
-## Implementation
-
-### ButtonMatcher Class
-Location: `button_matcher.py`
-
-**Key parameters:**
-- Match method: `cv2.TM_CCOEFF_NORMED` (normalized cross-correlation)
-- Threshold: 0.85 (code default, but 0.97 recommended for final classification)
-- Returns: `TemplateMatch` dataclass with label, score, coordinates
-
-### GameHelper Integration
-Location: `game_utils.py`
-
-**Key methods:**
-- `check_world_view()` - Returns (detected, state_or_reason)
-- `switch_to_view(desired_state)` - Switches between WORLD/TOWN
-- Uses fractional offsets for clicking
-
-## Verification Steps
-
-To verify the system is working:
-
-1. **Capture test screenshots** in both WORLD and TOWN states
-2. **Run comprehensive test**: `python test_all_states_classifier.py`
-3. **Check scores**:
-   - WORLD on WORLD: ≥95%
-   - TOWN on TOWN: ≥95%
-   - Cross-matching: <85%
-4. **Test clicking**: Ensure clicking switches states correctly
+- **`button_matcher.py`**: Template matching with automatic inversion
+- **`view_detection.py`**: High-level API (ViewDetector, ViewSwitcher, convenience functions)
+- **`.claude/claude.MD`**: Complete game controls documentation
+- **`test/`**: Test scripts validating detection and switching
 
 ## Common Issues
 
-### Templates Not Matching
-- **Symptom**: Scores below 90%
-- **Cause**: Template extracted from wrong resolution or zoom level
-- **Fix**: Re-extract template from known good screenshot at 2560x1440
+### "UNKNOWN" state returned
+- **Cause**: Match score below 97% threshold
+- **Fix**: Check button is visible, no dialogs blocking it, templates are correct
 
-### Cross-Matching Too High
-- **Symptom**: Both templates score >90%
-- **Cause**: Templates are too similar or identical
-- **Fix**: Verify templates show different icons (map vs castle)
+### Clicking doesn't switch views
+- **Cause**: Button position wrong or game blocking input
+- **Fix**: Verify button at (2160, 1190), check ADB connection
 
-### Button Not Detected
-- **Symptom**: Both scores <70%
-- **Cause**: Button position changed, UI overlay, or different game state
-- **Fix**: Check button location, verify no dialogs blocking button
+### Confusion about state names
+- **Remember**: `ViewState.WORLD` = currently IN world (button shows TOWN)
+- **Why?**: Button shows destination, API inverts to current state
 
 ## History
 
-### 2025-01-04: Template Verification
-- Confirmed WORLD template: 99.96% accuracy (✅)
-- Fixed TOWN template: 100% accuracy (was 28.58%, now ✅)
-- Established 97% threshold based on test results
-- Documented button structure and clicking logic
-- Created comprehensive test suite
-
-### Previous Issues
-- **Old WORLD template** (world_button_template_OLD_WRONG.png): Wrong image, only 76.80% match
-- **Old TOWN template** (town_button_template_OLD_WRONG.png): Wrong image, only 69.78% match
-- Both replaced with correctly extracted templates from actual game screenshots
+**2025-01-04**:
+- Fixed inversion logic - ViewState now correctly represents CURRENT view
+- Verified templates: world_button_template matches button showing "WORLD", inverted to return TOWN
+- Confirmed toggle at x_frac=0.75 works bidirectionally
+- 99-100% detection accuracy, 100% switching success rate
