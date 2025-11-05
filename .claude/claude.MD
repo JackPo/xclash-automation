@@ -37,6 +37,44 @@ Key components:
 - Screen resolution: 2560x1440 (constant)
 - Python path: `C:\Users\mail\AppData\Local\Programs\Python\Python312\python.exe`
 
+## ⚠️ DEPRECATED APPROACHES
+
+The following approaches have been deprecated due to complexity and unreliable results:
+
+### 1. Map Tiling & Stitching (DEPRECATED)
+**Status**: Abandoned as of 2025-11-05
+
+**Affected files**:
+- `capture_full_map.py` - Grid-based tile capture
+- `stitch_test_3x3.py` - 3×3 stitching test
+- `stitch_full_map.py` - Full map stitching
+- `map_tiles/` directory - Captured tiles
+
+**Reasons for deprecation**:
+- Tile stitching too complex (OpenCV feature matching unreliable)
+- Inconsistent overlap detection between tiles
+- Template matching produced poor alignment
+- Better alternatives needed for map analysis
+
+**Do not use**: Grid-based screenshot tiling, tile stitching, panorama creation
+
+### 2. Castle Size Matching (DEPRECATED)
+**Status**: Abandoned as of 2025-11-05
+
+**What's deprecated**:
+- Template matching based on exact castle pixel sizes
+- Scale-dependent castle detection
+- Zoom-level-dependent castle templates
+- Any code that matches castles by comparing exact dimensions
+
+**Reasons for deprecation**:
+- Too brittle - sensitive to zoom levels
+- Required precise zoom calibration
+- Failed with slight size variations
+- Not robust for real-world gameplay scenarios
+
+**Do not use**: Size-based castle matching, scale-dependent templates
+
 ## Game Controls
 
 ### World/Town View Switching (ADB)
@@ -104,30 +142,21 @@ win32api.keybd_event(VK_RIGHT, 0, win32con.KEYEVENT_KEYUP, 0)  # Release
 - ADB input commands do NOT work for arrow keys in this game
 
 ### Zoom In/Out (Windows API)
-Zoom uses Windows keyboard input (I/O keys) with foreground focus.
+Zoom uses Windows keyboard input (Shift+A/Shift+Z) with foreground focus.
 
 Location: `send_zoom.py`
 
 ```python
-import win32api
-import win32con
-import win32gui
+# Zoom in: Shift+A
+python send_zoom.py in
 
-hwnd = win32gui.FindWindow(None, "BlueStacks App Player")
-win32gui.SetForegroundWindow(hwnd)
-
-# Zoom in: Press 'I' key
-win32api.keybd_event(0x49, 0, 0, 0)  # 0x49 = 'I'
-win32api.keybd_event(0x49, 0, win32con.KEYEVENT_KEYUP, 0)
-
-# Zoom out: Press 'O' key
-win32api.keybd_event(0x4F, 0, 0, 0)  # 0x4F = 'O'
-win32api.keybd_event(0x4F, 0, win32con.KEYEVENT_KEYUP, 0)
+# Zoom out: Shift+Z
+python send_zoom.py out
 ```
 
 **Key points**:
-- 'I' key = Zoom IN
-- 'O' key = Zoom OUT
+- Shift+A = Zoom IN
+- Shift+Z = Zoom OUT
 - Requires foreground focus like arrow keys
 - ADB input does NOT work for zoom
 
@@ -160,5 +189,5 @@ adb.swipe(x1, y1, x2, y2, duration_ms=300)
 | World/Town Toggle | ADB tap | No | `view_detection.py` |
 | UI Clicking | ADB tap | No | `adb.tap(x, y)` |
 | Arrow Keys | Win32 API | Yes | `send_arrow_proper.py` |
-| Zoom In/Out | Win32 API (I/O keys) | Yes | `send_zoom.py` |
+| Zoom In/Out | Win32 API (Shift+A/Z) | Yes | `send_zoom.py` |
 | Map Dragging | ADB swipe | No | `adb.swipe(x1, y1, x2, y2)` |

@@ -36,6 +36,7 @@ from typing import Optional, Tuple
 from pathlib import Path
 import time
 import numpy as np
+import cv2
 
 from button_matcher import ButtonMatcher, TemplateMatch
 
@@ -342,3 +343,142 @@ def get_detection_result(adb_controller) -> ViewDetectionResult:
     """
     detector = _get_detector()
     return detector.detect_from_adb(adb_controller)
+
+
+# ============================================================================
+# Minimap Detection - Detects if zoomed out enough to see world map
+# ============================================================================
+
+# Minimap constants (from extract_minimap.py auto-detection)
+MINIMAP_X = 2334
+MINIMAP_Y = 0
+MINIMAP_W = 226
+MINIMAP_H = 226
+MINIMAP_TEMPLATE_PATH = Path(__file__).parent / "templates" / "minimap_base.png"
+
+_minimap_template: Optional[np.ndarray] = None
+
+
+def _load_minimap_template() -> np.ndarray:
+    """Load minimap template (cached)."""
+    global _minimap_template
+    if _minimap_template is None:
+        _minimap_template = cv2.imread(str(MINIMAP_TEMPLATE_PATH))
+        if _minimap_template is None:
+            raise FileNotFoundError(f"Minimap template not found: {MINIMAP_TEMPLATE_PATH}")
+    return _minimap_template
+
+
+def detect_minimap_present(
+    adb_controller,
+    threshold: float = 0.7,
+    temp_path: str = "temp_minimap_check.png"
+) -> bool:
+    """
+    Detect if minimap is visible in upper-right corner.
+
+    The minimap ONLY appears when:
+    - In WORLD view (button shows "TOWN")
+    - Zoomed out sufficiently
+
+    Args:
+        adb_controller: ADBController instance
+        threshold: Minimum template match score (0.7 recommended)
+        temp_path: Temporary screenshot path
+
+    Returns:
+        True if minimap detected, False otherwise
+
+    Example:
+        from view_detection import detect_minimap_present
+
+        if detect_minimap_present(adb):
+            print("Minimap visible - in World view and zoomed out")
+    """
+    # Take screenshot
+    adb_controller.screenshot(temp_path)
+    frame = cv2.imread(temp_path)
+    if frame is None:
+        return False
+
+    # Extract minimap region
+    minimap_roi = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]
+
+    # Load template
+    template = _load_minimap_template()
+
+    # Direct similarity comparison (same size images)
+    # Convert to grayscale for more robust comparison
+    roi_gray = cv2.cvtColor(minimap_roi, cv2.COLOR_BGR2GRAY)
+    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+    # Compute normalized correlation coefficient
+    correlation = cv2.matchTemplate(roi_gray, template_gray, cv2.TM_CCOEFF_NORMED)[0, 0]
+
+    return correlation >= threshold
+
+
+def is_world_view_with_minimap(
+    adb_controller,
+    view_threshold: float = 0.97,
+    minimap_threshold: float = 0.7
+) -> bool:
+    """
+    Check if in WORLD view AND minimap is visible (zoomed out).
+
+    This is the ideal state for zoom calibration and map analysis.
+
+    Args:
+        adb_controller: ADBController instance
+        view_threshold: Threshold for view detection
+        minimap_threshold: Threshold for minimap detection
+
+    Returns:
+        True if both conditions met, False otherwise
+
+    Example:
+        from view_detection import is_world_view_with_minimap
+
+        if is_world_view_with_minimap(adb):
+            print("Ready for zoom calibration!")
+    """
+    # Check 1: Are we in WORLD view?
+    view_state = detect_current_view(adb_controller)
+    if view_state != ViewState.WORLD:
+        return False
+
+    # Check 2: Is minimap visible?
+    return detect_minimap_present(adb_controller, threshold=minimap_threshold)
+
+
+if __name__ == "__main__":
+    import sys
+    from find_player import ADBController, Config
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        config = Config()
+        adb = ADBController(config)
+
+        # Take screenshot
+        adb.screenshot("temp_test.png")
+        frame = cv2.imread("temp_test.png")
+
+        # View detection
+        detector = ViewDetector()
+        result = detector.detect_from_frame(frame)
+
+        print("VIEW DETECTION:")
+        print(f"  State: {result.state.value}")
+        print(f"  Score: {result.confidence:.4f}")
+
+        # Minimap detection
+        minimap_roi = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]
+        template = _load_minimap_template()
+
+        roi_gray = cv2.cvtColor(minimap_roi, cv2.COLOR_BGR2GRAY)
+        template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+        correlation = cv2.matchTemplate(roi_gray, template_gray, cv2.TM_CCOEFF_NORMED)[0, 0]
+
+        print("\nMINIMAP DETECTION:")
+        print(f"  Score: {correlation:.4f}")
+        print(f"  Present: {correlation >= 0.7}")
