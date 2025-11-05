@@ -46,8 +46,13 @@ def send_zoom(direction):
     # Bring window to foreground
     print(f"Bringing BlueStacks to foreground...")
     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
-    time.sleep(0.3)
+    time.sleep(0.1)
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except:
+        # Windows may block foreground switch, but that's OK
+        pass
+    time.sleep(0.2)
 
     # Send Shift+A or Shift+Z
     print(f"Sending Shift+{chr(vk)} (zoom {direction})...")
