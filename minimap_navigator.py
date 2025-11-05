@@ -122,17 +122,23 @@ class MinimapNavigator:
         Initialize navigator with calibration data.
 
         Args:
-            calibration_file: Path to zoom_calibration_matrix.json
-                            If None, looks in current directory
+            calibration_file: Path to zoom_calibration_matrix_clean.json
+                            If None, uses cleaned calibration file
         """
         if calibration_file is None:
-            calibration_file = Path(__file__).parent / "zoom_calibration_matrix.json"
+            calibration_file = Path(__file__).parent / "zoom_calibration_matrix_clean.json"
 
         cleaner = CalibrationCleaner(calibration_file)
         self.calibration_data = cleaner.load_calibration()
 
         if not self.calibration_data:
             raise ValueError(f"No calibration data loaded from {calibration_file}")
+
+        # Build sorted list of levels by area for zoom detection
+        self._levels_by_area = sorted(
+            self.calibration_data.items(),
+            key=lambda x: x[1].viewport_area
+        )
 
     def calculate_movement(
         self,
@@ -240,6 +246,88 @@ class MinimapNavigator:
         """Get list of all available zoom levels."""
         return sorted(self.calibration_data.keys())
 
+    def detect_zoom_level(self, viewport_area: int, tolerance: int = 10) -> Optional[int]:
+        """
+        Detect current zoom level from viewport area.
+
+        Args:
+            viewport_area: Current viewport area in pixels
+            tolerance: Tolerance in pixels for matching (default: 10)
+
+        Returns:
+            Detected zoom level, or None if no match found
+        """
+        # Find closest matching level
+        best_match = None
+        best_diff = float('inf')
+
+        for level, data in self.calibration_data.items():
+            diff = abs(data.viewport_area - viewport_area)
+            if diff < best_diff:
+                best_diff = diff
+                best_match = level
+
+        if best_diff <= tolerance:
+            return best_match
+        return None
+
+    def calculate_zoom_adjustment(
+        self,
+        current_area: int,
+        target_area: int,
+        tolerance: int = 10
+    ) -> Dict[str, int]:
+        """
+        Calculate how many zoom in/out steps needed to reach target area.
+
+        Args:
+            current_area: Current viewport area in pixels
+            target_area: Target viewport area in pixels
+            tolerance: Tolerance for matching areas (default: 10)
+
+        Returns:
+            {'zoom_in': N, 'zoom_out': M, 'current_level': X, 'target_level': Y}
+            Only zoom_in OR zoom_out will be non-zero
+
+        Raises:
+            ValueError: If current or target area doesn't match any zoom level
+        """
+        current_level = self.detect_zoom_level(current_area, tolerance)
+        target_level = self.detect_zoom_level(target_area, tolerance)
+
+        if current_level is None:
+            raise ValueError(f"Current area {current_area} doesn't match any zoom level")
+        if target_level is None:
+            raise ValueError(f"Target area {target_area} doesn't match any zoom level")
+
+        # Calculate steps needed
+        steps = target_level - current_level
+
+        if steps > 0:
+            # Need to zoom out (higher level = more zoomed out)
+            return {
+                'zoom_in': 0,
+                'zoom_out': steps,
+                'current_level': current_level,
+                'target_level': target_level
+            }
+        elif steps < 0:
+            # Need to zoom in
+            return {
+                'zoom_in': abs(steps),
+                'zoom_out': 0,
+                'current_level': current_level,
+                'target_level': target_level
+            }
+        else:
+            # Already at correct zoom
+            return {
+                'zoom_in': 0,
+                'zoom_out': 0,
+                'current_level': current_level,
+                'target_level': target_level
+            }
+
 
 def main():
     """Demo/test of minimap navigator."""
@@ -248,7 +336,7 @@ def main():
     print("Minimap Navigator - Calibration Summary")
     print("=" * 60)
     print(f"Available zoom levels: {nav.list_zoom_levels()}")
-    print(f"Total levels: {len(nav.calibration_data)}")
+    print(f"Total unique levels: {len(nav.calibration_data)}")
     print()
 
     # Show sample data for a few zoom levels
@@ -264,6 +352,36 @@ def main():
             print(f"    LEFT:  dx={data.left_dx:+.1f}")
             print(f"    UP:    dy={data.up_dy:+.1f}")
             print(f"    DOWN:  dy={data.down_dy:+.1f}")
+
+    # Demo zoom level detection
+    print("\n" + "=" * 60)
+    print("Demo Zoom Level Detection:")
+    print("-" * 60)
+    test_areas = [85, 207, 420, 1000, 1550]
+    for area in test_areas:
+        detected = nav.detect_zoom_level(area)
+        if detected is not None:
+            data = nav.get_zoom_data(detected)
+            print(f"Area {area:4d} pixels -> Level {detected:2d} (actual: {data.viewport_area} pixels)")
+        else:
+            print(f"Area {area:4d} pixels -> No match found")
+
+    # Demo zoom adjustment
+    print("\n" + "=" * 60)
+    print("Demo Zoom Adjustment:")
+    print("-" * 60)
+    current_area = 207  # Level 8
+    target_area = 1000  # Level 30
+    adjustment = nav.calculate_zoom_adjustment(current_area, target_area)
+    print(f"Current: {current_area} pixels (Level {adjustment['current_level']})")
+    print(f"Target: {target_area} pixels (Level {adjustment['target_level']})")
+    print(f"Adjustment needed:")
+    if adjustment['zoom_out'] > 0:
+        print(f"  ZOOM OUT: {adjustment['zoom_out']} steps")
+    elif adjustment['zoom_in'] > 0:
+        print(f"  ZOOM IN: {adjustment['zoom_in']} steps")
+    else:
+        print(f"  Already at target zoom level")
 
     # Demo movement calculation
     print("\n" + "=" * 60)
