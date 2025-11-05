@@ -20,6 +20,7 @@ class TemplateMatch:
     center: Tuple[int, int]
     top_left: Tuple[int, int]
     bottom_right: Tuple[int, int]
+    template_key: str = ""  # Original template key before inversion (e.g., "TOWN_ZOOMED")
 
 
 class ButtonMatcher:
@@ -45,7 +46,7 @@ class ButtonMatcher:
         roi_margin: Tuple[int, int] = (80, 80),
     ) -> None:
         base_dir = Path(__file__).resolve().parent
-        self.template_dir = template_dir or (base_dir / "templates" / "buttons")
+        self.template_dir = template_dir or (base_dir / "templates" / "ground_truth")
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
         self.threshold = threshold
         self.roi_margin = roi_margin
@@ -55,7 +56,7 @@ class ButtonMatcher:
         if not self.templates:
             raise FileNotFoundError(
                 f"No button templates found in {self.template_dir}. "
-                "Expected world_button_template.png and town_button_template.png"
+                "Expected world_button.png and town_button.png"
             )
 
         shapes = {img.shape for img in self.templates.values()}
@@ -68,11 +69,18 @@ class ButtonMatcher:
     def _load_templates(self) -> Dict[str, np.ndarray]:
         templates: Dict[str, np.ndarray] = {}
         for label in ("world", "town"):
-            path = self.template_dir / f"{label}_button_template.png"
+            path = self.template_dir / f"{label}_button.png"
             image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
             if image is None:
                 continue
             templates[label.upper()] = image
+
+        # Load zoomed-out town button variant (appears when minimap is visible)
+        town_zoomed_path = self.template_dir / "town_button_zoomed_out.png"
+        town_zoomed = cv2.imread(str(town_zoomed_path), cv2.IMREAD_GRAYSCALE)
+        if town_zoomed is not None:
+            templates["TOWN_ZOOMED"] = town_zoomed
+
         return templates
 
     @staticmethod
@@ -87,11 +95,12 @@ class ButtonMatcher:
         Our templates match the button image:
         - world_button_template matches button showing "WORLD" → return TOWN (current)
         - town_button_template matches button showing "TOWN" → return WORLD (current)
+        - town_button_zoomed_out matches button showing "TOWN" (when minimap visible) → return WORLD (current)
         """
         if button_label == "WORLD":
             return "TOWN"  # Matched WORLD button → currently in TOWN
-        elif button_label == "TOWN":
-            return "WORLD"  # Matched TOWN button → currently in WORLD
+        elif button_label == "TOWN" or button_label == "TOWN_ZOOMED":
+            return "WORLD"  # Matched TOWN button (any variant) → currently in WORLD
         return button_label
 
     def match(
@@ -142,6 +151,7 @@ class ButtonMatcher:
                     center=center,
                     top_left=top_left,
                     bottom_right=bottom_right,
+                    template_key=label  # Store original template key (e.g., "TOWN_ZOOMED")
                 )
                 if best is None or candidate.score > best.score:
                     best = candidate

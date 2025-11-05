@@ -49,6 +49,18 @@ class ViewState(Enum):
 
 
 @dataclass
+class MinimapViewport:
+    """Yellow rectangle position and size in minimap."""
+    x: int
+    y: int
+    width: int
+    height: int
+    area: int
+    center_x: int
+    center_y: int
+
+
+@dataclass
 class ViewDetectionResult:
     """
     Structured result from view detection.
@@ -57,10 +69,14 @@ class ViewDetectionResult:
         state: The detected view state (WORLD, TOWN, or UNKNOWN)
         confidence: Match confidence score (0.0-1.0)
         match: Full template match result if detected, None otherwise
+        minimap_present: True if zoomed-out button variant detected (indicates minimap visible)
+        minimap_viewport: Yellow rectangle in minimap (position/zoom indicator), None if not detected
     """
     state: ViewState
     confidence: float
     match: Optional[TemplateMatch] = None
+    minimap_present: bool = False
+    minimap_viewport: Optional[MinimapViewport] = None
 
 
 class ViewDetector:
@@ -78,7 +94,7 @@ class ViewDetector:
     def __init__(
         self,
         button_matcher: Optional[ButtonMatcher] = None,
-        threshold: float = 0.97
+        threshold: float = 0.90
     ):
         """
         Initialize ViewDetector.
@@ -88,7 +104,7 @@ class ViewDetector:
             threshold: Minimum score for positive detection (0.97 recommended)
         """
         if button_matcher is None:
-            template_dir = Path(__file__).parent / "templates" / "buttons"
+            template_dir = Path(__file__).parent / "templates" / "ground_truth"
             debug_dir = Path(__file__).parent / "templates" / "debug"
             button_matcher = ButtonMatcher(
                 template_dir=template_dir,
@@ -121,14 +137,28 @@ class ViewDetector:
             return ViewDetectionResult(
                 state=ViewState.UNKNOWN,
                 confidence=match.score if match else 0.0,
-                match=match
+                match=match,
+                minimap_present=False,
+                minimap_viewport=None
             )
 
         self._last_match = match
+
+        # Check if this is the zoomed-out button variant (TOWN_ZOOMED)
+        # This button ONLY appears when minimap is visible
+        minimap_present = (match.template_key == "TOWN_ZOOMED")
+
+        # Detect yellow viewport rectangle in minimap if present
+        minimap_viewport = None
+        if minimap_present:
+            minimap_viewport = self._detect_minimap_viewport(frame)
+
         return ViewDetectionResult(
             state=ViewState(match.label),
             confidence=match.score,
-            match=match
+            match=match,
+            minimap_present=minimap_present,
+            minimap_viewport=minimap_viewport
         )
 
     def detect_from_adb(
@@ -158,14 +188,62 @@ class ViewDetector:
             return ViewDetectionResult(
                 state=ViewState.UNKNOWN,
                 confidence=match.score if match else 0.0,
-                match=match
+                match=match,
+                minimap_present=False
             )
 
         self._last_match = match
+
+        # Check if this is the zoomed-out button variant (TOWN_ZOOMED)
+        # This button ONLY appears when minimap is visible
+        minimap_present = (match.template_key == "TOWN_ZOOMED")
+
         return ViewDetectionResult(
             state=ViewState(match.label),
             confidence=match.score,
-            match=match
+            match=match,
+            minimap_present=minimap_present
+        )
+
+    def _detect_minimap_viewport(self, frame: np.ndarray) -> Optional[MinimapViewport]:
+        """
+        Detect yellow viewport rectangle in minimap.
+
+        Returns position, size, and area of the yellow rectangle which indicates:
+        - Position: Where you are on the world map
+        - Area: Zoom level (larger area = more zoomed out, smaller area = more zoomed in)
+        """
+        # Extract minimap region
+        minimap = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]
+
+        # Convert to HSV for yellow detection
+        hsv = cv2.cvtColor(minimap, cv2.COLOR_BGR2HSV)
+
+        # Yellow color range
+        lower_yellow = np.array([20, 100, 100])
+        upper_yellow = np.array([30, 255, 255])
+
+        # Create mask for yellow
+        yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+
+        # Find contours
+        contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if not contours:
+            return None
+
+        # Get the largest yellow contour (should be the viewport rectangle)
+        largest = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest)
+
+        return MinimapViewport(
+            x=x,
+            y=y,
+            width=w,
+            height=h,
+            area=w * h,
+            center_x=x + w // 2,
+            center_y=y + h // 2
         )
 
     @property
@@ -354,7 +432,7 @@ MINIMAP_X = 2334
 MINIMAP_Y = 0
 MINIMAP_W = 226
 MINIMAP_H = 226
-MINIMAP_TEMPLATE_PATH = Path(__file__).parent / "templates" / "minimap_base.png"
+MINIMAP_TEMPLATE_PATH = Path(__file__).parent / "templates" / "ground_truth" / "minimap_base.png"
 
 _minimap_template: Optional[np.ndarray] = None
 
@@ -470,6 +548,17 @@ if __name__ == "__main__":
         print("VIEW DETECTION:")
         print(f"  State: {result.state.value}")
         print(f"  Score: {result.confidence:.4f}")
+        print(f"  Minimap Present (from button): {result.minimap_present}")
+        if result.minimap_viewport:
+            vp = result.minimap_viewport
+            minimap_total_area = MINIMAP_W * MINIMAP_H
+            zoom_pct = (vp.area / minimap_total_area) * 100
+            print(f"\n  Minimap Viewport (Yellow Rectangle):")
+            print(f"    Position: ({vp.x}, {vp.y})")
+            print(f"    Size: {vp.width}x{vp.height}")
+            print(f"    Area: {vp.area} pixels ({zoom_pct:.1f}% of minimap)")
+            print(f"    Center: ({vp.center_x}, {vp.center_y})")
+            print(f"    Zoom: {'OUT' if zoom_pct > 50 else 'IN'} (larger area = more zoomed out)")
 
         # Minimap detection
         minimap_roi = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]
