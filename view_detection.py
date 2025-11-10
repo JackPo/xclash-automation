@@ -51,13 +51,18 @@ class ViewState(Enum):
 @dataclass
 class MinimapViewport:
     """Yellow rectangle position and size in minimap."""
-    x: int
-    y: int
+    x: int  # Bounding box top-left X
+    y: int  # Bounding box top-left Y
     width: int
     height: int
     area: int
     center_x: int
     center_y: int
+    # 4 corner coordinates
+    top_left: Tuple[int, int]
+    top_right: Tuple[int, int]
+    bottom_left: Tuple[int, int]
+    bottom_right: Tuple[int, int]
 
 
 @dataclass
@@ -207,24 +212,43 @@ class ViewDetector:
 
     def _detect_minimap_viewport(self, frame: np.ndarray) -> Optional[MinimapViewport]:
         """
-        Detect yellow viewport rectangle in minimap.
+        Detect cyan viewport rectangle in minimap.
 
-        Returns position, size, and area of the yellow rectangle which indicates:
-        - Position: Where you are on the world map
-        - Area: Zoom level (larger area = more zoomed out, smaller area = more zoomed in)
+        This rectangle is THE KEY METRIC for zoom level calibration and adjustment.
+
+        **ZOOM CALIBRATION USE CASE**:
+        When adjusting zoom levels, THIS viewport rectangle area percentage is what
+        you're looking for. The size of this rectangle directly indicates zoom level:
+
+        - Small rectangle (< 1% of minimap) = Very ZOOMED IN (close view, good for OCR)
+        - Medium rectangle (5-25% of minimap) = Medium zoom
+        - Large rectangle (> 30% of minimap) = ZOOMED OUT (wide map view)
+
+        **Returns**:
+        MinimapViewport with:
+        - Position: (x, y) top-left corner in minimap coordinates
+        - Size: width × height in pixels
+        - Area: Total pixels (compare to 226×226 = 51,076 minimap total)
+        - Center: Center point for navigation reference
+        - 4 Corners: All corner coordinates for precise boundary detection
+
+        **Color Detection**:
+        - Cyan/bright blue rectangle: HSV(22-26, 180-230, 160-240)
+        - High saturation and value to filter out map background
         """
         # Extract minimap region
         minimap = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]
 
-        # Convert to HSV for yellow detection
+        # Convert to HSV for viewport detection
         hsv = cv2.cvtColor(minimap, cv2.COLOR_BGR2HSV)
 
-        # Yellow color range
-        lower_yellow = np.array([20, 100, 100])
-        upper_yellow = np.array([30, 255, 255])
+        # Viewport rectangle color range (bright cyan)
+        # H=22-26, S=180-230, V=160-240
+        lower_viewport = np.array([22, 180, 160])
+        upper_viewport = np.array([26, 230, 240])
 
-        # Create mask for yellow
-        yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        # Create mask for viewport rectangle
+        yellow_mask = cv2.inRange(hsv, lower_viewport, upper_viewport)
 
         # Find contours
         contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -232,8 +256,10 @@ class ViewDetector:
         if not contours:
             return None
 
-        # Get the largest yellow contour (should be the viewport rectangle)
+        # Get the largest contour (yellow rectangle outline)
         largest = max(contours, key=cv2.contourArea)
+
+        # Get bounding box from contour - this includes the hollow interior
         x, y, w, h = cv2.boundingRect(largest)
 
         return MinimapViewport(
@@ -243,7 +269,11 @@ class ViewDetector:
             height=h,
             area=w * h,
             center_x=x + w // 2,
-            center_y=y + h // 2
+            center_y=y + h // 2,
+            top_left=(x, y),
+            top_right=(x + w, y),
+            bottom_left=(x, y + h),
+            bottom_right=(x + w, y + h)
         )
 
     @property
@@ -558,7 +588,12 @@ if __name__ == "__main__":
             print(f"    Size: {vp.width}x{vp.height}")
             print(f"    Area: {vp.area} pixels ({zoom_pct:.1f}% of minimap)")
             print(f"    Center: ({vp.center_x}, {vp.center_y})")
-            print(f"    Zoom: {'OUT' if zoom_pct > 50 else 'IN'} (larger area = more zoomed out)")
+            print(f"    Corners:")
+            print(f"      Top-Left: {vp.top_left}")
+            print(f"      Top-Right: {vp.top_right}")
+            print(f"      Bottom-Left: {vp.bottom_left}")
+            print(f"      Bottom-Right: {vp.bottom_right}")
+            print(f"    Zoom: {'OUT' if zoom_pct > 25 else 'IN'} (larger rectangle = more zoomed OUT)")
 
         # Minimap detection
         minimap_roi = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]

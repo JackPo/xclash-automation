@@ -71,7 +71,7 @@ cv2.imwrite('templates/ground_truth/button_name.png', button)
 
 ## Current Templates (Native 4K)
 
-All templates extracted from 3840x2160 screenshots:
+All templates extracted from 3840x2160 screenshots at **240x240 pixels (square)**:
 
 ### town_button.png
 - **Size**: 240x240 (square)
@@ -80,16 +80,18 @@ All templates extracted from 3840x2160 screenshots:
 - **When it appears**: Currently in WORLD view (button shows where you CAN GO)
 
 ### town_button_zoomed_out.png
-- **Size**: 210x240 (taller than wide)
-- **Extracted from**: (290, 260) to (500, 500) in 500x500 corner
-- **Shows**: Map icon with "Town" text (zoomed out view)
+- **Size**: 240x240 (square)
+- **Extracted from**: (260, 260) to (500, 500) in 500x500 corner
+- **Shows**: Map icon with "Town" text (zoomed out view with minimap visible)
 - **When it appears**: Currently in WORLD view with minimap visible
 
 ### world_button.png
-- **Size**: 210x260 (taller than wide)
-- **Extracted from**: (290, 240) to (500, 500) in 500x500 corner
+- **Size**: 240x240 (square)
+- **Extracted from**: (260, 260) to (500, 500) in 500x500 corner
 - **Shows**: Map icon with "World" text
 - **When it appears**: Currently in TOWN view (button shows where you CAN GO)
+
+**All templates are identical 240x240 size for consistent matching**
 
 ## Template Matching
 
@@ -101,15 +103,18 @@ The button shows your DESTINATION, not current state:
 
 ### Coordinate System
 
-**Important**: Templates are at 4K scale, but button_matcher.py needs updating for 4K coordinates.
+**Templates are at 4K scale (3840x2160)**:
+- Button at bottom-right: extract last 240x240 pixels (all templates are square)
+- Click position: (3780, 2040) - scales from 2560x1440 → 3840x2160
+- X fraction: 0.75 (75% across button width)
+- Y fraction: 0.50 (50% down button height)
 
-**Old system (2560x1440)**:
-- Button at bottom-right: extract last 160x160 pixels
-- Click position: (2460, 1315)
+### Template Scores
 
-**New system (3840x2160)**:
-- Button at bottom-right: extract last ~240x240 pixels (varies by button)
-- Click position: TBD (needs scaling from old coordinates)
+All templates achieve near-perfect scores with excellent separation:
+- **Best match**: 0.9999-1.0000 (99.99%-100%)
+- **Second best**: 0.9613-0.9665 (96.13%-96.65%)
+- **Separation**: 3.35%-3.87% (excellent discrimination)
 
 ## Key Lessons Learned
 
