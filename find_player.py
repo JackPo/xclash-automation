@@ -21,7 +21,7 @@ import pytesseract
 class Config:
     # ADB settings
     ADB_PATH = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
-    DEVICE = "emulator-5554"  # Actual device name
+    DEVICE = "127.0.0.1:5556"  # Actual device (port changes on restart, use 127.0.0.1:5556 or emulator-5554)
     PACKAGE = "com.xman.na.gp"
 
     # Tesseract path (adjust if needed)
@@ -30,6 +30,13 @@ class Config:
     # Screen dimensions (BlueStacks default)
     SCREEN_WIDTH = 2560
     SCREEN_HEIGHT = 1440
+
+    # Actual render resolution (BlueStacks native 4K)
+    RENDER_WIDTH = 3840  # Native 4K resolution
+    RENDER_HEIGHT = 2160
+
+    # Auto-crop screenshots to SCREEN_WIDTH x SCREEN_HEIGHT
+    AUTO_CROP = True  # Crop center region to match templates/coordinates
 
     # Map navigation settings
     # These are initial estimates - may need tuning
@@ -100,12 +107,31 @@ class ADBController:
 
     def screenshot(self, local_path):
         """Capture screenshot and save locally."""
+        import cv2
+        import numpy as np
+
         # Capture to device
         remote_path = "/sdcard/screenshot.png"
         self._execute(["shell", "screencap", "-p", remote_path])
 
         # Pull to local
         self._execute(["pull", remote_path, str(local_path)])
+
+        # Auto-crop if enabled and resolution doesn't match
+        if self.config.AUTO_CROP:
+            img = cv2.imread(str(local_path))
+            if img is not None and img.shape[1] != self.config.SCREEN_WIDTH:
+                # Crop center to match expected resolution
+                h, w = img.shape[:2]
+                target_w = self.config.SCREEN_WIDTH
+                target_h = self.config.SCREEN_HEIGHT
+
+                # Calculate crop region (center)
+                x_offset = (w - target_w) // 2
+                y_offset = (h - target_h) // 2
+
+                cropped = img[y_offset:y_offset+target_h, x_offset:x_offset+target_w]
+                cv2.imwrite(str(local_path), cropped)
 
         return local_path
 
