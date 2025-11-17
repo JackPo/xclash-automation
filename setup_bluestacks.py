@@ -22,32 +22,37 @@ def find_active_device():
     """Find active BlueStacks device by scanning ports."""
     print("Scanning for BlueStacks device...")
 
-    # Try connecting to common ports
-    ports = [5556, 5555, 5554, 5557, 5558]
+    # First restart ADB server to get clean state
+    print("  Restarting ADB server...")
+    run_adb(["kill-server"], capture=False)
+    time.sleep(0.5)
+    run_adb(["start-server"], capture=False)
+    time.sleep(1.0)
 
+    # Check for emulator-XXXX devices FIRST (these are the stable ones)
+    success, stdout, _ = run_adb(["devices"])
+    if "emulator-" in stdout:
+        lines = stdout.strip().split('\n')[1:]  # Skip header
+        for line in lines:
+            if "\tdevice" in line and "emulator-" in line:
+                device = line.split()[0]
+                print(f"  Found {device} (online)")
+                return device
+
+    # Also try connecting to IP ports (but these may go offline)
+    ports = [5556, 5555, 5554, 5557, 5558]
     for port in ports:
         print(f"  Trying 127.0.0.1:{port}...", end=" ")
         success, _, _ = run_adb(["connect", f"127.0.0.1:{port}"])
         if success:
-            # Verify it's actually online
             time.sleep(0.5)
             success, stdout, _ = run_adb(["devices"])
-            if f"127.0.0.1:{port}" in stdout and "device" in stdout:
+            if f"127.0.0.1:{port}\tdevice" in stdout:
                 print("OK - Connected!")
                 return f"127.0.0.1:{port}"
             print("offline")
         else:
             print("refused")
-
-    # Also check for emulator-XXXX devices
-    success, stdout, _ = run_adb(["devices"])
-    if "emulator-" in stdout:
-        lines = stdout.strip().split('\n')[1:]  # Skip header
-        for line in lines:
-            if "device" in line and "emulator-" in line:
-                device = line.split()[0]
-                print(f"  Found {device}")
-                return device
 
     return None
 
@@ -55,7 +60,7 @@ def get_current_resolution(device):
     """Get current screen resolution."""
     success, stdout, _ = run_adb(["-s", device, "shell", "wm", "size"])
     if success:
-        # Parse "Physical size: 1920x1080" or "Override size: 3088x1440"
+        # Parse "Physical size: 1920x1080" or "Override size: 3840x2160"
         for line in stdout.split('\n'):
             if 'size:' in line.lower():
                 parts = line.split(':')
@@ -66,22 +71,27 @@ def get_current_resolution(device):
     return None
 
 def set_resolution(device):
-    """Reset to native 4K resolution."""
-    print(f"\nResetting to native 4K resolution (3840x2160)...")
+    """Set to 4K resolution (via 3088x1440 first)."""
+    print(f"\nSetting resolution to 4K (3840x2160)...")
 
-    # Reset to native resolution (3840x2160)
-    success, _, _ = run_adb(["-s", device, "shell", "wm", "size", "reset"])
+    # First set to 3088x1440
+    run_adb(["-s", device, "shell", "wm", "size", "3088x1440"])
+    time.sleep(1)
+
+    # Then set to 4K
+    success, _, _ = run_adb(["-s", device, "shell", "wm", "size", "3840x2160"])
     if not success:
-        print("  ERROR: Failed to reset size")
+        print("  ERROR: Failed to set size")
+        return False
+    time.sleep(1)
+
+    # Set density to 560
+    success, _, _ = run_adb(["-s", device, "shell", "wm", "density", "560"])
+    if not success:
+        print("  ERROR: Failed to set density")
         return False
 
-    # Reset to native density (560)
-    success, _, _ = run_adb(["-s", device, "shell", "wm", "density", "reset"])
-    if not success:
-        print("  ERROR: Failed to reset density")
-        return False
-
-    print("  OK - Native 4K resolution restored")
+    print("  OK - Resolution set to 4K")
     return True
 
 def verify_resolution(device):
@@ -119,44 +129,20 @@ def main():
     if current_res:
         print(f"  Current resolution: {current_res}")
 
-    # Reset to native 4K resolution
+    # Set resolution
     print(f"\nTarget configuration:")
-    print(f"  Resolution: 3840x2160 (native 4K)")
-    print(f"  Density: 560 DPI (native)")
-    print(f"  Note: Native 4K resolution, no scaling")
+    print(f"  Resolution: 3840x2160 (4K)")
+    print(f"  Density: 560 DPI")
 
     if set_resolution(device):
         verify_resolution(device)
 
-        # Update config file
-        print("\nUpdating find_player.py config...")
-        try:
-            with open('find_player.py', 'r') as f:
-                content = f.read()
-
-            # Update DEVICE line
-            import re
-            content = re.sub(
-                r'DEVICE = "[^"]*"',
-                f'DEVICE = "{device}"',
-                content
-            )
-
-            with open('find_player.py', 'w') as f:
-                f.write(content)
-            print("  OK - Config updated")
-        except Exception as e:
-            print(f"  ERROR: Could not update config: {e}")
-
         print("\n" + "=" * 60)
         print("Setup complete!")
         print("=" * 60)
-        print("\nBenefits:")
-        print("  - Native 4K rendering (3840x2160)")
-        print("  - Extremely sharp text (2.25x pixels vs 2560x1440)")
-        print("  - Better OCR accuracy")
-        print("  - Improved template matching")
-        print("\nNote: Native 4K resolution with auto-crop to 2560x1440 for templates.")
+        print("\nConfiguration:")
+        print("  - Resolution: 3840x2160 (4K)")
+        print("  - All templates and coordinates use 3840x2160")
     else:
         print("\nERROR: Setup failed!")
         sys.exit(1)
