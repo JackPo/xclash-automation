@@ -87,7 +87,7 @@ def set_resolution(device):
     5. Set density to 560 DPI
     """
     print(f"\nSetting resolution to 4K (3840x2160)...")
-    print(f"  (Using required two-step process: 3088x1440 → 4K)")
+    print(f"  (Using required two-step process: 3088x1440 -> 4K)")
 
     # Step 1: First set to 3088x1440 (REQUIRED intermediate step)
     # DO NOT SKIP THIS - direct 4K setting does not work!
