@@ -71,21 +71,37 @@ def get_current_resolution(device):
     return None
 
 def set_resolution(device):
-    """Set to 4K resolution (via 3088x1440 first)."""
-    print(f"\nSetting resolution to 4K (3840x2160)...")
+    """
+    Set to 4K resolution (via 3088x1440 first).
 
-    # First set to 3088x1440
+    CRITICAL: The two-step resolution process is REQUIRED.
+    Setting directly to 4K does NOT work reliably - the resolution
+    will not stick properly. You MUST set to 3088x1440 first, then
+    immediately set to 3840x2160. This has been empirically verified.
+
+    Process:
+    1. Set to 3088x1440 (intermediate step)
+    2. Wait 1 second
+    3. Set to 3840x2160 (final 4K resolution)
+    4. Wait 1 second
+    5. Set density to 560 DPI
+    """
+    print(f"\nSetting resolution to 4K (3840x2160)...")
+    print(f"  (Using required two-step process: 3088x1440 → 4K)")
+
+    # Step 1: First set to 3088x1440 (REQUIRED intermediate step)
+    # DO NOT SKIP THIS - direct 4K setting does not work!
     run_adb(["-s", device, "shell", "wm", "size", "3088x1440"])
     time.sleep(1)
 
-    # Then set to 4K
+    # Step 2: Then set to 4K (this only works after the 3088x1440 step)
     success, _, _ = run_adb(["-s", device, "shell", "wm", "size", "3840x2160"])
     if not success:
         print("  ERROR: Failed to set size")
         return False
     time.sleep(1)
 
-    # Set density to 560
+    # Step 3: Set density to 560
     success, _, _ = run_adb(["-s", device, "shell", "wm", "density", "560"])
     if not success:
         print("  ERROR: Failed to set density")
