@@ -80,7 +80,8 @@ class HandshakeIconMatcher:
             threshold: Maximum difference score (default 0.05 for strict matching with TM_SQDIFF_NORMED)
                       Lower values = stricter matching. Score < threshold means match found.
         """
-        base_dir = Path(__file__).resolve().parent
+        # Get project root (parent of utils/)
+        base_dir = Path(__file__).resolve().parent.parent
 
         if template_path is None:
             template_path = base_dir / "templates" / "ground_truth" / "handshake_iter2.png"

@@ -1,8 +1,85 @@
-# XClash Player Finder - Three-Phase Approach
+# XClash - Clash of Clans Automation
 
-Automated tools for finding players in XClash by scanning the world map using OCR (Optical Character Recognition).
+Automation scripts for Clash of Clans using BlueStacks Android emulator.
 
-## 🎯 Project Goal
+## 🚀 Quick Start (Main Scripts)
+
+### Handshake Auto-Clicker
+The primary active script - auto-clicks handshake icons every 3 seconds:
+```bash
+# Recommended: Simple one-shot clicker (run in Windows Task Scheduler)
+python handshake_simple.py
+
+# Alternative: Full config-based clicker
+python scripts/run_handshake_clicker.py
+```
+
+**Setup Windows Task Scheduler** (recommended):
+1. Open Task Scheduler
+2. Create Basic Task: "Clash Handshake Clicker"
+3. Trigger: Repeat every 3 seconds
+4. Action: `C:\Users\mail\AppData\Local\Programs\Python\Python312\python.exe`
+5. Arguments: `C:\Users\mail\xclash\handshake_simple.py`
+6. Start in: `C:\Users\mail\xclash`
+
+### Setup BlueStacks (One-time)
+Configure BlueStacks to 4K resolution:
+```bash
+python scripts/setup_bluestacks.py
+```
+
+## 📁 Project Structure
+
+```
+xclash/
+├── handshake_simple.py   # Simple handshake clicker (RECOMMENDED) ⭐
+│
+├── scripts/              # Main executable scripts
+│   ├── run_handshake_clicker.py    # Config-based handshake clicker
+│   ├── setup_bluestacks.py         # Configure BlueStacks to 4K
+│   └── benchmark_handshake_timing.py
+│
+├── utils/                # Reusable utility modules
+│   ├── adb_helper.py              # ADB operations (screenshot, tap, etc.)
+│   ├── handshake_icon_matcher.py  # Handshake detection
+│   ├── view_detection.py          # World/Town view switching
+│   ├── minimap_navigator.py       # Minimap & zoom control
+│   ├── windows_screenshot_helper.py
+│   ├── button_matcher.py
+│   ├── game_utils.py
+│   ├── send_zoom.py               # Zoom in/out (Shift+A/Z)
+│   └── send_arrow_proper.py       # Arrow key input
+│
+├── deprecated/           # Old/test scripts (80+ archived files)
+│
+└── templates/            # Template images for matching
+    └── ground_truth/     # Production templates (4K resolution)
+        ├── handshake_icon_4k.png
+        └── minimap_base_4k.png
+```
+
+## ⚙️ Configuration
+
+- **ADB Path:** `C:\Program Files\BlueStacks_nxt\hd-adb.exe`
+- **Device:** Auto-detected (usually `emulator-5554`)
+- **Resolution:** 3840x2160 (4K) - **ALL templates are 4K**
+- **Python:** `C:\Users\mail\AppData\Local\Programs\Python\Python312\python.exe`
+
+## 🛠️ Development Notes
+
+- **All coordinates are 4K (3840x2160)** - don't use other resolutions
+- **Use `utils/adb_helper.py`** for all ADB operations
+- **Templates go in `templates/ground_truth/`** with `_4k.png` suffix
+- **Deprecated code in `deprecated/`** - reference only, don't modify
+
+---
+
+# Archive: Old Player Finder Documentation
+
+<details>
+<summary>Click to expand old three-phase player finder docs (mostly deprecated)</summary>
+
+## 🎯 Original Project Goal (Archived)
 
 Find specific players on the XClash world map using a smart three-phase approach:
 1. **Phase 1**: Interactive calibration to discover game mechanics
@@ -460,3 +537,4 @@ Once Phase 1 complete, we'll:
 ---
 
 **Ready to start? Run `python calibrate_interactive.py` 🎯**
+</details>

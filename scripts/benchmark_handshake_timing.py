@@ -4,9 +4,12 @@ Benchmark handshake loop timing to identify bottleneck.
 """
 import time
 import cv2
+import sys
 from pathlib import Path
-from adb_helper import ADBHelper
-from handshake_icon_matcher import HandshakeIconMatcher
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.adb_helper import ADBHelper
+from utils.handshake_icon_matcher import HandshakeIconMatcher
 
 
 def main():

@@ -30,9 +30,13 @@ import json
 import argparse
 from pathlib import Path
 
-from adb_helper import ADBHelper
-from handshake_icon_matcher import HandshakeIconMatcher
-from action_chain_runner import ActionChainRunner, ActionStep
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.adb_helper import ADBHelper
+from utils.handshake_icon_matcher import HandshakeIconMatcher
+from deprecated.action_chain_runner import ActionChainRunner, ActionStep
 
 
 def load_config(config_path: Path) -> dict:

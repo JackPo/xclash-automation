@@ -24,3 +24,8 @@
 2025-11-17 17:43:32,415 - INFO - Found handshake: score=1.000, center=(3165, 1843)
 2025-11-17 17:43:32,558 - INFO - Clicked at (3165, 1843)
 2025-11-17 17:43:32,558 - INFO - Chain completed: SUCCESS
+2025-11-18 14:24:50,579 - INFO - Registered matcher: handshake
+2025-11-18 14:24:53,723 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-18 14:24:53,723 - INFO - Executing action chain with 1 steps
+2025-11-18 14:24:53,723 - INFO - Step 1/1: find
+2025-11-18 14:24:53,723 - INFO - Chain completed: SUCCESS
