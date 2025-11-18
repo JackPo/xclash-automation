@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "segments": [
+    {
+      "box_2d": [
+        40,
+        394,
+        582,
+        739
+      ],
+      "label": "handshake",
+      "box_2d_normalized": [
+        40,
+        394,
+        582,
+        739
+      ],
+      "box_2d_pixels": [
+        119,
+        9,
+        224,
+        136
+      ]
+    }
+  ],
+  "image_size": [
+    304,
+    235
+  ],
+  "raw_response": "[\n  {\"box_2d\": [40, 394, 582, 739], \"label\": \"handshake\"}\n]"
+}
