@@ -1,0 +1,24 @@
+{
+  "description": "Handshake icon detection and click configuration",
+  "matchers": {
+    "handshake": {
+      "template_path": "templates/ground_truth/handshake_iter2.png",
+      "threshold": 0.99,
+      "comment": "Fixed location presence detection at (3088, 1780)"
+    }
+  },
+  "action_chain": [
+    {
+      "action": "find",
+      "matcher": "handshake",
+      "click_on_match": true,
+      "required": false,
+      "comment": "Find handshake and click if detected"
+    }
+  ],
+  "settings": {
+    "screenshot_path": "temp_handshake_check.png",
+    "log_file": "handshake_clicker.log",
+    "debug_mode": true
+  }
+}
