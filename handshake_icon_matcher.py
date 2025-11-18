@@ -1,8 +1,12 @@
 """
 Handshake icon template matcher for Union button detection.
 
-Uses cv2.TM_CCORR_NORMED for reliable matching across compression artifacts.
+Uses cv2.TM_SQDIFF_NORMED for pixel-difference based matching at fixed location.
 Template extracted from 4K screenshot at coordinates (3088, 1780) with size 155x127.
+
+TM_SQDIFF_NORMED provides strong binary separation:
+- Handshake present: score ~0.01 (LOW difference = good match)
+- Handshake absent: score ~0.5+ (HIGH difference = no match)
 
 Usage:
     from handshake_icon_matcher import HandshakeIconMatcher
@@ -65,7 +69,7 @@ class HandshakeIconMatcher:
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.99,
+        threshold: float = 0.05,
     ) -> None:
         """
         Initialize handshake icon presence detector.
@@ -73,7 +77,8 @@ class HandshakeIconMatcher:
         Args:
             template_path: Path to handshake template (default: templates/ground_truth/handshake_iter2.png)
             debug_dir: Directory for debug output (default: templates/debug/)
-            threshold: Minimum confidence score (default 0.99 for strict matching)
+            threshold: Maximum difference score (default 0.05 for strict matching with TM_SQDIFF_NORMED)
+                      Lower values = stricter matching. Score < threshold means match found.
         """
         base_dir = Path(__file__).resolve().parent
 
@@ -125,12 +130,13 @@ class HandshakeIconMatcher:
         else:
             roi_gray = roi
 
-        # Match template against this EXACT region
-        result = cv2.matchTemplate(roi_gray, self.template, cv2.TM_CCORR_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(result)
+        # Match template against this EXACT region using squared difference
+        # TM_SQDIFF_NORMED: Lower score = better match (opposite of correlation methods)
+        result = cv2.matchTemplate(roi_gray, self.template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, _, _ = cv2.minMaxLoc(result)
 
-        score = float(max_val)
-        is_present = score >= self.threshold
+        score = float(min_val)
+        is_present = score <= self.threshold  # Inverted: lower score = better match
 
         if save_debug and is_present:
             self._save_debug_crop(roi, score)
