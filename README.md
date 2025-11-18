@@ -6,15 +6,23 @@ Automation scripts for Clash of Clans using BlueStacks Android emulator.
 
 ### Handshake Auto-Clicker
 The primary active script - auto-clicks handshake icons every 3 seconds:
-```bash
-# Recommended: Simple one-shot clicker (run in Windows Task Scheduler)
-python handshake_simple.py
 
-# Alternative: Full config-based clicker
-python scripts/run_handshake_clicker.py
+**Option 1: Daemon (runs continuously)** ⭐ EASIEST
+```bash
+python handshake_daemon.py
+
+# Custom interval (e.g., every 5 seconds)
+python handshake_daemon.py --interval 5
+
+# Press Ctrl+C to stop
 ```
 
-**Setup Windows Task Scheduler** (recommended):
+**Option 2: One-shot (run via Windows Task Scheduler)**
+```bash
+python handshake_simple.py
+```
+
+Setup Windows Task Scheduler:
 1. Open Task Scheduler
 2. Create Basic Task: "Clash Handshake Clicker"
 3. Trigger: Repeat every 3 seconds
@@ -32,7 +40,8 @@ python scripts/setup_bluestacks.py
 
 ```
 xclash/
-├── handshake_simple.py   # Simple handshake clicker (RECOMMENDED) ⭐
+├── handshake_daemon.py   # Daemon - runs continuously (RECOMMENDED) ⭐
+├── handshake_simple.py   # One-shot clicker (for Task Scheduler)
 │
 ├── scripts/              # Main executable scripts
 │   ├── run_handshake_clicker.py    # Config-based handshake clicker
