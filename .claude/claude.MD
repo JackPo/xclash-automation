@@ -100,6 +100,29 @@ if adb.ensure_connected():
 
 **DO NOT** use scattered screenshot methods - always use `adb_helper.py`.
 
+## Template Storage
+
+**CRITICAL: All templates MUST be saved to `templates/ground_truth/` directory.**
+
+### Template Naming Convention
+- Use descriptive names with resolution suffix: `<element_name>_4k.png`
+- Examples:
+  - `handshake_icon_4k.png` - Handshake/alliance icon (62x29 @ 4K)
+  - `minimap_base_4k.png` - Minimap template
+  - `world_button_4k.png` - World view button
+  - `town_button_4k.png` - Town view button
+
+### Current Templates
+Located in `templates/ground_truth/`:
+- `minimap_base_4k.png` - Base minimap template for detection
+- `handshake_icon_4k.png` - Alliance/handshake icon (position: 3457, 1180, size: 62x29)
+
+**When extracting new templates:**
+1. Extract from full 4K screenshot (3840x2160)
+2. Save to `templates/ground_truth/`
+3. Use descriptive name with `_4k` suffix
+4. Document coordinates and size in this file
+
 ## ⚠️ DEPRECATED APPROACHES
 
 The following approaches have been deprecated due to complexity and unreliable results:

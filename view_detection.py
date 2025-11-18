@@ -233,8 +233,8 @@ class ViewDetector:
         - 4 Corners: All corner coordinates for precise boundary detection
 
         **Color Detection**:
-        - Cyan/bright blue rectangle: HSV(22-26, 180-230, 160-240)
-        - High saturation and value to filter out map background
+        - Yellow/olive rectangle: HSV(25-40, 40-110, 20-32) at 4K resolution
+        - Dark yellow tone due to low brightness value (V=20-32)
         """
         # Extract minimap region
         minimap = frame[MINIMAP_Y:MINIMAP_Y+MINIMAP_H, MINIMAP_X:MINIMAP_X+MINIMAP_W]
@@ -242,10 +242,10 @@ class ViewDetector:
         # Convert to HSV for viewport detection
         hsv = cv2.cvtColor(minimap, cv2.COLOR_BGR2HSV)
 
-        # Viewport rectangle color range (bright cyan)
-        # H=22-26, S=180-230, V=160-240
-        lower_viewport = np.array([22, 180, 160])
-        upper_viewport = np.array([26, 230, 240])
+        # Viewport rectangle color range (dark yellow/olive at 4K)
+        # H=25-40, S=40-110, V=20-32
+        lower_viewport = np.array([25, 40, 20])
+        upper_viewport = np.array([40, 110, 32])
 
         # Create mask for viewport rectangle
         yellow_mask = cv2.inRange(hsv, lower_viewport, upper_viewport)
@@ -457,11 +457,11 @@ def get_detection_result(adb_controller) -> ViewDetectionResult:
 # Minimap Detection - Detects if zoomed out enough to see world map
 # ============================================================================
 
-# Minimap constants (from extract_minimap.py auto-detection)
-MINIMAP_X = 2334
-MINIMAP_Y = 0
-MINIMAP_W = 226
-MINIMAP_H = 226
+# Minimap constants (updated for 4K resolution: 3840x2160)
+MINIMAP_X = 3261  # From 750x750 search: offset 171 from x=3090
+MINIMAP_Y = 155
+MINIMAP_W = 426
+MINIMAP_H = 426
 MINIMAP_TEMPLATE_PATH = Path(__file__).parent / "templates" / "ground_truth" / "minimap_base.png"
 
 _minimap_template: Optional[np.ndarray] = None

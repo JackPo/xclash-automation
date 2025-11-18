@@ -1,0 +1,84 @@
+==========================================================================================
+DETAILED LEVEL CROP ANALYSIS
+==========================================================================================
+
+level_00_center_531_369.png
+  Current size: 50px wide x 25px tall
+  Center: (531, 369)
+  Current bounds: [404:429, 506:556]
+
+  DIMENSION ANALYSIS:
+    Height: FULL (25px captured)
+    Width: FULL (50px captured)
+
+  CONTENT ANALYSIS:
+    Non-zero pixels: 1242/1250 (99.4%)
+    Has content at top edge: True
+    Has content at bottom edge: True
+    Has content at left edge: True
+    Has content at right edge: True
+
+level_01_center_91_1310.png
+  Current size: 50px wide x 25px tall
+  Center: (91, 1310)
+  Current bounds: [1345:1370, 66:116]
+
+  DIMENSION ANALYSIS:
+    Height: FULL (25px captured)
+    Width: FULL (50px captured)
+
+  CONTENT ANALYSIS:
+    Non-zero pixels: 1250/1250 (100.0%)
+    Has content at top edge: True
+    Has content at bottom edge: True
+    Has content at left edge: True
+    Has content at right edge: True
+
+level_02_center_1982_190.png
+  Current size: 50px wide x 25px tall
+  Center: (1982, 190)
+  Current bounds: [225:250, 1957:2007]
+
+  DIMENSION ANALYSIS:
+    Height: FULL (25px captured)
+    Width: FULL (50px captured)
+
+  CONTENT ANALYSIS:
+    Non-zero pixels: 1250/1250 (100.0%)
+    Has content at top edge: True
+    Has content at bottom edge: True
+    Has content at left edge: True
+    Has content at right edge: True
+
+level_03_center_1422_265.png
+  Current size: 50px wide x 25px tall
+  Center: (1422, 265)
+  Current bounds: [300:325, 1397:1447]
+
+  DIMENSION ANALYSIS:
+    Height: FULL (25px captured)
+    Width: FULL (50px captured)
+
+  CONTENT ANALYSIS:
+    Non-zero pixels: 1250/1250 (100.0%)
+    Has content at top edge: True
+    Has content at bottom edge: True
+    Has content at left edge: True
+    Has content at right edge: True
+
+level_04_center_87_1394.png
+  Current size: 50px wide x 11px tall
+  Center: (87, 1394)
+  Current bounds: [1429:1454, 62:112]
+
+  DIMENSION ANALYSIS:
+    Height: TRUNCATED! 11px captured, 14px missing
+    Missing space: 14px at bottom
+    Width: FULL (50px captured)
+
+  CONTENT ANALYSIS:
+    Non-zero pixels: 550/550 (100.0%)
+    Has content at top edge: True
+    Has content at bottom edge: True
+    Has content at left edge: True
+    Has content at right edge: True

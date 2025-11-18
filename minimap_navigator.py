@@ -115,7 +115,7 @@ class MinimapNavigator:
     given zoom level.
     """
 
-    MINIMAP_SIZE = 226  # Minimap is 226×226 pixels
+    MINIMAP_SIZE = 426  # Minimap is 426×426 pixels at 4K (square)
 
     def __init__(self, calibration_file: Optional[Path | str] = None):
         """

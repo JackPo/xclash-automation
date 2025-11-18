@@ -1,0 +1,36 @@
+{
+  "iteration": 2,
+  "agent_role": "EXTRACTION_AGENT",
+  "status": "COMPLETE",
+  "gemini_call": {
+    "prompt": "the white handshake icon on the Union button at the bottom button bar, second from right between Hero and World buttons",
+    "source_image": "current_screenshot_llm.png",
+    "success": true,
+    "confidence": 0.98,
+    "bounding_box": {
+      "x": 901,
+      "y": 917,
+      "width": 36,
+      "height": 32
+    },
+    "reasoning": "I located the Union button at the bottom button bar, second from right between the Hero and World buttons as requested. The handshake icon is white and located in the middle of the button.",
+    "visual_description": "It is a white icon of two hands shaking, representing a partnership or agreement."
+  },
+  "output": {
+    "template_path": "templates/ground_truth/agent_iteration_2.png",
+    "dimensions": "36x32",
+    "location_on_screen": {
+      "x": 901,
+      "y": 917
+    }
+  },
+  "notes": [
+    "Iteration 2 with MORE SPECIFIC location instructions",
+    "Explicitly told Gemini to look at BOTTOM button bar",
+    "Specified position: second from right, between Hero and World",
+    "Gemini now found correct region (y=917 is in bottom UI, not game world)",
+    "Much smaller bounding box (36x32) vs iteration 1 (96x96) - more precise",
+    "High confidence: 0.98",
+    "Ready for Agent 2 validation"
+  ]
+}

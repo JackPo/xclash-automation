@@ -1,0 +1,16 @@
+{
+  "original_size": {
+    "width": 2361,
+    "height": 1343
+  },
+  "borders": {
+    "top_border_pixels": 1,
+    "left_border_pixels": 1,
+    "right_border_pixels": 1,
+    "bottom_border_pixels": 1
+  },
+  "content_size": {
+    "width": 2359,
+    "height": 1341
+  }
+}

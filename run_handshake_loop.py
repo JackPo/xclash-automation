@@ -60,7 +60,7 @@ def main():
             print(f"\n[Iteration {iteration}] {time.strftime('%H:%M:%S')}")
 
             try:
-                # Take screenshot
+                # Take screenshot (disable LLM scaling for speed)
                 full_path, _ = adb.take_screenshot('temp_handshake_loop.png', scale_for_llm=False)
                 import cv2
                 frame = cv2.imread(full_path)

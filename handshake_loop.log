@@ -1,0 +1,61 @@
+2025-11-17 17:45:30,643 - INFO - Registered matcher: handshake
+2025-11-17 17:45:33,807 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:45:33,807 - INFO - Executing action chain with 1 steps
+2025-11-17 17:45:33,807 - INFO - Step 1/1: find
+2025-11-17 17:45:33,859 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:45:34,012 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:45:34,012 - INFO - Chain completed: SUCCESS
+2025-11-17 17:45:40,080 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:45:40,080 - INFO - Executing action chain with 1 steps
+2025-11-17 17:45:40,084 - INFO - Step 1/1: find
+2025-11-17 17:45:40,129 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:45:40,313 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:45:40,314 - INFO - Chain completed: SUCCESS
+2025-11-17 17:45:46,322 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:45:46,322 - INFO - Executing action chain with 1 steps
+2025-11-17 17:45:46,322 - INFO - Step 1/1: find
+2025-11-17 17:45:46,363 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:45:46,520 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:45:46,520 - INFO - Chain completed: SUCCESS
+2025-11-17 17:45:52,713 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:45:52,713 - INFO - Executing action chain with 1 steps
+2025-11-17 17:45:52,714 - INFO - Step 1/1: find
+2025-11-17 17:45:52,752 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:45:52,897 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:45:52,897 - INFO - Chain completed: SUCCESS
+2025-11-17 17:45:58,811 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:45:58,811 - INFO - Executing action chain with 1 steps
+2025-11-17 17:45:58,811 - INFO - Step 1/1: find
+2025-11-17 17:45:58,850 - INFO - Found handshake: score=1.000, center=(3165, 1843)
+2025-11-17 17:45:59,008 - INFO - Clicked at (3165, 1843)
+2025-11-17 17:45:59,008 - INFO - Chain completed: SUCCESS
+2025-11-17 17:46:05,151 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:46:05,151 - INFO - Executing action chain with 1 steps
+2025-11-17 17:46:05,151 - INFO - Step 1/1: find
+2025-11-17 17:46:05,188 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:46:05,346 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:46:05,347 - INFO - Chain completed: SUCCESS
+2025-11-17 17:46:11,192 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:46:11,192 - INFO - Executing action chain with 1 steps
+2025-11-17 17:46:11,192 - INFO - Step 1/1: find
+2025-11-17 17:46:11,230 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:46:11,391 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:46:11,391 - INFO - Chain completed: SUCCESS
+2025-11-17 17:46:17,325 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:46:17,326 - INFO - Executing action chain with 1 steps
+2025-11-17 17:46:17,326 - INFO - Step 1/1: find
+2025-11-17 17:46:17,362 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:46:17,525 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:46:17,525 - INFO - Chain completed: SUCCESS
+2025-11-17 17:46:23,687 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:46:23,687 - INFO - Executing action chain with 1 steps
+2025-11-17 17:46:23,687 - INFO - Step 1/1: find
+2025-11-17 17:46:23,730 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:46:23,877 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:46:23,877 - INFO - Chain completed: SUCCESS
+2025-11-17 17:46:29,913 - INFO - Screenshot captured: (2160, 3840, 3)
+2025-11-17 17:46:29,914 - INFO - Executing action chain with 1 steps
+2025-11-17 17:46:29,914 - INFO - Step 1/1: find
+2025-11-17 17:46:29,954 - INFO - Found handshake: score=0.982, center=(2635, 2088)
+2025-11-17 17:46:30,123 - INFO - Clicked at (2635, 2088)
+2025-11-17 17:46:30,123 - INFO - Chain completed: SUCCESS

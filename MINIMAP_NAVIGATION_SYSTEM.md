@@ -6,6 +6,13 @@ Complete minimap-based navigation system for Clash of Clans automation using cal
 
 **CRITICAL: This system is the result of extensive calibration and testing. DO NOT re-calibrate or modify the calibration data without understanding the full system.**
 
+**⚠️ 4K RESOLUTION UPDATE (2025-11-10):**
+- Screen resolution updated: 2560×1440 → **3840×2160 (4K)**
+- Minimap size updated: 226×226 → **426×426 pixels**
+- Minimap location updated: (2334, 0) → **(3261, 155)**
+- HSV color range updated for viewport detection
+- **CALIBRATION DATA NEEDS REGENERATION** - Current data is for old 226×226 minimap
+
 ---
 
 ## Architecture
@@ -92,8 +99,9 @@ Navigation Functions:
 
 ### Viewport Area
 
-- **Minimap Size**: 226×226 pixels (constant)
-- **Viewport Rectangle**: Cyan/bright blue rectangle in minimap
+- **Minimap Size**: 426×426 pixels at 4K (formerly 226×226 at 2560×1440)
+- **Viewport Rectangle**: Dark yellow/olive rectangle in minimap
+- **HSV Color Range**: H=25-40, S=40-110, V=20-32 (at 4K resolution)
 - **Area = width × height** (in pixels)
 - **Used for zoom detection** (most reliable metric)
 
@@ -290,9 +298,12 @@ print("Navigation complete!")
 
 ### DO NOT Re-Calibrate Unless:
 
-1. **Screen resolution changes** (currently 2560×1440)
+1. **Screen resolution changes** (currently **3840×2160 - 4K**)
 2. **Game updates** change minimap behavior
-3. **Minimap size changes** (currently 226×226)
+3. **Minimap size changes** (currently **426×426 at 4K**)
+
+**⚠️ RE-CALIBRATION REQUIRED:**
+The current calibration data is for the old 2560×1440 resolution. After 4K update (2025-11-10), calibration needs to be regenerated.
 
 **Re-calibration takes 21.7 minutes and requires manual supervision.**
 
@@ -325,13 +336,13 @@ print("Navigation complete!")
 
 ### Coordinate Systems
 
-1. **Minimap Coordinates**: (0, 0) to (226, 226)
+1. **Minimap Coordinates**: (0, 0) to (426, 426) at 4K
    - Used for viewport center positions
    - Used for navigation calculations
 
-2. **Screen Coordinates**: (0, 0) to (2560, 1440)
+2. **Screen Coordinates**: (0, 0) to (3840, 2160) at 4K
    - Used for button clicking
-   - Minimap location: (2334, 0)
+   - Minimap location: (3261, 155)
 
 3. **Viewport Coordinates**: Relative to minimap
    - `viewport.x, viewport.y` = top-left corner in minimap
@@ -406,6 +417,14 @@ python minimap_navigator.py
 
 ## Version History
 
+- **2025-11-10**: 4K Resolution Update
+  - Screen resolution updated: 2560×1440 → 3840×2160 (4K)
+  - Minimap size updated: 226×226 → 426×426 pixels
+  - Minimap location updated: (2334, 0) → (3261, 155)
+  - HSV color range updated: H=25-40, S=40-110, V=20-32
+  - Updated view_detection.py and minimap_navigator.py constants
+  - ⚠️ Calibration data needs regeneration for 4K
+
 - **2025-11-05**: Initial calibration and system creation
   - 40 zoom levels calibrated (21.7 minutes)
   - 7 duplicates removed
@@ -441,7 +460,8 @@ python minimap_navigator.py
 2. Verify `zoom_calibration_matrix_clean.json` exists and has 33 levels
 3. Run `python minimap_navigator.py` to test system
 4. Check that minimap is visible (WORLD view only)
-5. Verify screen resolution is 2560×1440
+5. Verify screen resolution is **3840×2160 (4K)**
+6. Verify minimap extraction location is **(3261, 155)** for 4K
 
 **Last resort:** Re-run calibration (21.7 minutes):
 ```bash

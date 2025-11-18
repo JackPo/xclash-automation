@@ -1,0 +1,210 @@
+================================================================================
+LEVEL NUMBER CROP ANALYSIS - EXECUTIVE SUMMARY
+================================================================================
+
+ANALYSIS DATE: 2025-11-05
+CROP FORMULA EXAMINED: frame[cy+35:cy+60, cx-25:cx+25]
+CROP DIMENSIONS: 50px wide x 25px tall
+
+================================================================================
+QUICK FINDINGS
+================================================================================
+
+Levels 0, 1, 2, 3: FULLY VISIBLE
+  - All four crops capture the COMPLETE level number bar
+  - Full 25px height captured
+  - No truncation issues
+  - Status: GOOD
+
+Level 4: TRUNCATED
+  - Only 11px of 25px height captured
+  - Missing 14px at the BOTTOM
+  - The level bar extends beyond current crop boundary
+  - Status: NEEDS ADJUSTMENT
+
+
+================================================================================
+DETAILED BREAKDOWN
+================================================================================
+
+IMAGE 1: level_00_center_531_369.png
+  Actual size: 50x25px
+  Expected:   50x25px
+  Status: ✓ COMPLETE - Entire level bar visible
+
+IMAGE 2: level_01_center_91_1310.png
+  Actual size: 50x25px
+  Expected:   50x25px
+  Status: ✓ COMPLETE - Entire level bar visible
+
+IMAGE 3: level_02_center_1982_190.png
+  Actual size: 50x25px
+  Expected:   50x25px
+  Status: ✓ COMPLETE - Entire level bar visible
+
+IMAGE 4: level_03_center_1422_265.png
+  Actual size: 50x25px
+  Expected:   50x25px
+  Status: ✓ COMPLETE - Entire level bar visible
+
+IMAGE 5: level_04_center_87_1394.png
+  Actual size: 50x11px
+  Expected:   50x25px
+  Status: ✗ TRUNCATED - 14px missing at bottom
+
+
+================================================================================
+SPACE REQUIREMENTS PER DIRECTION
+================================================================================
+
+For Level 00-03 (Working Correctly):
+  ┌─────────────────────────────────────┐
+  │ TOP (above center):                 │
+  │ Current: cy+35 (14px below center)  │
+  │ Needed:  cy+35 or higher            │
+  │ Status:  SUFFICIENT                 │
+  └─────────────────────────────────────┘
+
+  ┌─────────────────────────────────────┐
+  │ BOTTOM (below center):              │
+  │ Current: cy+60 (26px below center)  │
+  │ Needed:  cy+60 or higher            │
+  │ Status:  SUFFICIENT                 │
+  └─────────────────────────────────────┘
+
+  ┌─────────────────────────────────────┐
+  │ LEFT/RIGHT:                         │
+  │ Width: cx-25:cx+25 (50px total)     │
+  │ Status:  SUFFICIENT                 │
+  └─────────────────────────────────────┘
+
+For Level 04 (Problem Case):
+  ┌─────────────────────────────────────┐
+  │ TOP (above center):                 │
+  │ Current: cy+35 (14px)               │
+  │ Needed:  cy+25 (24px) for safety    │
+  │ Deficit: +10px MORE space above     │
+  └─────────────────────────────────────┘
+
+  ┌─────────────────────────────────────┐
+  │ BOTTOM (below center):              │
+  │ Current: cy+60 (26px)               │
+  │ Needed:  cy+75 (41px) to capture    │
+  │ Deficit: +15px MORE space below     │
+  │ ROOT CAUSE: Bar extends beyond      │
+  │             current bottom boundary │
+  └─────────────────────────────────────┘
+
+  ┌─────────────────────────────────────┐
+  │ LEFT/RIGHT:                         │
+  │ Width: cx-25:cx+25 (50px)           │
+  │ Status:  SUFFICIENT                 │
+  └─────────────────────────────────────┘
+
+
+================================================================================
+RECOMMENDATION
+================================================================================
+
+CURRENT FORMULA (INSUFFICIENT):
+  crop = frame[cy+35:cy+60, cx-25:cx+25]
+
+  This extracts:
+  - Height: 25px (cy+60 - (cy+35) = 25)
+  - Width:  50px (cx+25 - (cx-25) = 50)
+  - Problem: Does not account for cases where level bar extends
+             beyond normal boundaries (like level_04)
+
+
+RECOMMENDED FORMULA (ROBUST):
+  crop = frame[cy+25:cy+75, cx-25:cx+25]
+
+  This extracts:
+  - Height: 50px (cy+75 - (cy+25) = 50)
+  - Width:  50px (cx+25 - (cx-25) = 50)
+  - Benefit: Symmetric 25px above and below center
+            Handles edge cases like level_04
+            Still works fine for normal cases (extra space unused)
+
+
+CHANGES REQUIRED:
+  - TOP offset:    Change from +35 to +25 (increase by 10px)
+  - BOTTOM offset: Change from +60 to +75 (increase by 15px)
+  - TOTAL height:  Change from 25px to 50px
+
+
+================================================================================
+EDGE CASE ANALYSIS
+================================================================================
+
+Why does Level 04 have a problem?
+
+Level 04 center is at Y=1394
+Current crop: frame[1429:1454, 62:112]
+  - Bottom boundary: 1454
+  - Image height at this location: appears to be ~1440
+  - Result: 1454 - 1429 = 25 requested, but only 11 rows available
+  - Missing: 14 pixels (hit image boundary)
+
+Solution: Extend the search area higher up (toward smaller Y values)
+  - Instead of starting at cy+35, start at cy+25
+  - Instead of ending at cy+60, extend to cy+75
+  - This gives more flexibility for different castle positions
+
+
+================================================================================
+VALIDATION
+================================================================================
+
+When you implement the new formula:
+
+1. BACKWARD COMPATIBILITY:
+   Levels 0-3 should still work correctly
+   (They'll just have extra blank space at top/bottom)
+
+2. FORWARD COMPATIBILITY:
+   Level 4 should now capture the full 50px height
+   All future level captures should be more robust
+
+3. CONSISTENT SIZE:
+   All crops will be exactly 50x50 pixels
+   Easier for downstream processing
+
+
+================================================================================
+FILES CREATED FOR REFERENCE
+================================================================================
+
+1. LEVEL_CROP_ANALYSIS_REPORT.md
+   - Detailed analysis of each image
+   - Recommendations with visual tables
+
+2. CROP_ADJUSTMENT_GUIDE.txt (this file)
+   - Quick reference guide
+   - Space requirement calculations
+
+3. vis_level_*.png (5 visualization files)
+   - Visual representation of current vs recommended crop areas
+   - Color coded: Blue=current, Green=recommended, Red=missing
+
+
+================================================================================
+IMPLEMENTATION CHECKLIST
+================================================================================
+
+[ ] Update crop extraction formula in your detection code
+    OLD: frame[cy+35:cy+60, cx-25:cx+25]
+    NEW: frame[cy+25:cy+75, cx-25:cx+25]
+
+[ ] Test with existing levels (0-3) to verify they still work
+
+[ ] Re-extract level_04 crop using new formula
+
+[ ] Verify level_04 now shows full 50px height (not 11px)
+
+[ ] Update any OCR or detection pipelines that depend on crop size
+
+[ ] Document the change in your code comments
+
+
+================================================================================

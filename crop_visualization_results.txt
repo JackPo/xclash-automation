@@ -1,0 +1,60 @@
+level_00_center_531_369.png
+--------------------------------------------------------------------------------
+Requested crop: frame[404:429, 506:556]
+  = frame[404:429, ...] (height=25px)
+Actual image received: 50px wide x 25px tall
+
+STATUS: Image captures full requested height (25px)
+All edges show content (99-100% fill)
+
+level_01_center_91_1310.png
+--------------------------------------------------------------------------------
+Requested crop: frame[1345:1370, 66:116]
+  = frame[1345:1370, ...] (height=25px)
+Actual image received: 50px wide x 25px tall
+
+STATUS: Image captures full requested height (25px)
+All edges show content (99-100% fill)
+
+level_02_center_1982_190.png
+--------------------------------------------------------------------------------
+Requested crop: frame[225:250, 1957:2007]
+  = frame[225:250, ...] (height=25px)
+Actual image received: 50px wide x 25px tall
+
+STATUS: Image captures full requested height (25px)
+All edges show content (99-100% fill)
+
+level_03_center_1422_265.png
+--------------------------------------------------------------------------------
+Requested crop: frame[300:325, 1397:1447]
+  = frame[300:325, ...] (height=25px)
+Actual image received: 50px wide x 25px tall
+
+STATUS: Image captures full requested height (25px)
+All edges show content (99-100% fill)
+
+level_04_center_87_1394.png
+--------------------------------------------------------------------------------
+Requested crop: frame[1429:1454, 62:112]
+  = frame[1429:1454, ...] (height=25px)
+Actual image received: 50px wide x 11px tall
+
+PROBLEM DETECTED:
+  Expected height: 25px
+  Actual height:   11px
+  Missing:         14px
+
+ROOT CAUSE:
+  The crop extends BELOW the image bounds
+  Current bottom edge: 1454
+  Image height at that location: appears to be only 1440
+  We need MORE pixels BELOW the current center
+
+SOLUTION:
+  Current offset from center Y: +35 below
+  Missing 14px of height
+  To capture full bar, extend the crop:
+    - Keep current top: cy+35 or move UP (less offset)
+    - Extend bottom: need at least cy+1454
+    - OR increase the offset: use cy+60 and add more to bottom
