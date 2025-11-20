@@ -9,17 +9,17 @@ The primary active script - auto-clicks handshake icons every 3 seconds:
 
 **Option 1: Daemon (runs continuously)** ⭐ EASIEST
 ```bash
-python handshake_daemon.py
+python scripts/handshake_daemon.py
 
 # Custom interval (e.g., every 5 seconds)
-python handshake_daemon.py --interval 5
+python scripts/handshake_daemon.py --interval 5
 
 # Press Ctrl+C to stop
 ```
 
 **Option 2: One-shot (run via Windows Task Scheduler)**
 ```bash
-python handshake_simple.py
+python scripts/handshake_simple.py
 ```
 
 Setup Windows Task Scheduler:
@@ -27,7 +27,7 @@ Setup Windows Task Scheduler:
 2. Create Basic Task: "Clash Handshake Clicker"
 3. Trigger: Repeat every 3 seconds
 4. Action: `C:\Users\mail\AppData\Local\Programs\Python\Python312\python.exe`
-5. Arguments: `C:\Users\mail\xclash\handshake_simple.py`
+5. Arguments: `C:\Users\mail\xclash\scripts\handshake_simple.py`
 6. Start in: `C:\Users\mail\xclash`
 
 ### Setup BlueStacks (One-time)
@@ -40,12 +40,11 @@ python scripts/setup_bluestacks.py
 
 ```
 xclash/
-├── handshake_daemon.py   # Daemon - runs continuously (RECOMMENDED) ⭐
-├── handshake_simple.py   # One-shot clicker (for Task Scheduler)
-│
 ├── scripts/              # Main executable scripts
-│   ├── run_handshake_clicker.py    # Config-based handshake clicker
+│   ├── handshake_daemon.py         # Daemon - runs continuously ⭐
+│   ├── handshake_simple.py         # One-shot clicker (Task Scheduler)
 │   ├── setup_bluestacks.py         # Configure BlueStacks to 4K
+│   ├── run_handshake_clicker.py    # Config-based handshake clicker
 │   └── benchmark_handshake_timing.py
 │
 ├── utils/                # Reusable utility modules
