@@ -45,7 +45,7 @@ def main():
 
         # Initialize handshake matcher
         matcher = HandshakeIconMatcher(
-            threshold=0.05,  # TM_SQDIFF_NORMED: lower = better match, threshold is MAX difference
+            threshold=0.99,  # TM_SQDIFF_NORMED: lower = better match, threshold is MAX difference (use 0.99 to match simple script)
             debug_dir=Path('templates/debug')
         )
 
@@ -69,7 +69,7 @@ def main():
                     print(f"  [CLICK] Icon detected! Diff={score:.4f} at fixed position (3165, 1843)")
                     matcher.click(adb)
                 else:
-                    print(f"  [SKIP] Icon not present (diff={score:.4f} > 0.05)")
+                    print(f"  [SKIP] Icon not present (diff={score:.4f} > 0.99)")
 
             except Exception as e:
                 print(f"  [ERROR] {e}")
