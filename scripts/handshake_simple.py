@@ -7,7 +7,7 @@ import sys
 import cv2
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
 from utils.handshake_icon_matcher import HandshakeIconMatcher
