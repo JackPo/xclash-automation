@@ -62,20 +62,20 @@ All templates and coordinates are calibrated for 3840x2160 resolution.
 
 ### Taking Screenshots
 
-Use the centralized `adb_helper.py` utility for all ADB operations:
+Use the centralized `utils/adb_helper.py` utility for all ADB operations:
 
 **Command-line usage:**
 ```bash
 # Take screenshot (creates both full 4K + LLM-friendly scaled version)
-python adb_helper.py screenshot output.png
+python utils/adb_helper.py screenshot output.png
 
 # Check ADB connection and resolution
-python adb_helper.py check
+python utils/adb_helper.py check
 ```
 
 **Python usage:**
 ```python
-from adb_helper import ADBHelper
+from utils.adb_helper import ADBHelper
 
 adb = ADBHelper()  # Auto-detects and connects to device
 
@@ -98,7 +98,7 @@ if adb.ensure_connected():
 - High-quality LANCZOS resampling for scaling
 - Returns paths to both files
 
-**DO NOT** use scattered screenshot methods - always use `adb_helper.py`.
+**DO NOT** use scattered screenshot methods - always use `utils/adb_helper.py`.
 
 ## Template Storage
 
@@ -308,10 +308,10 @@ python send_zoom.py out
 - ADB input does NOT work for zoom
 
 ### Clicking/Tapping (ADB)
-For clicking UI elements, use the centralized `adb_helper.py`:
+For clicking UI elements, use the centralized `utils/adb_helper.py`:
 
 ```python
-from adb_helper import ADBHelper
+from utils.adb_helper import ADBHelper
 
 adb = ADBHelper()  # Auto-connects to device
 
@@ -327,15 +327,15 @@ adb.swipe(x1, y1, x2, y2, duration=300)
 - No foreground focus required
 - Coordinates are absolute (3840x2160 for 4K screen)
 - For World/Town toggle: use `view_detection.py` utility instead of raw tapping
-- Always use `adb_helper.py` for ADB operations
+- Always use `utils/adb_helper.py` for ADB operations
 
 ### Summary Table
 
 | Control | Method | Focus Required | Implementation |
 |---------|--------|----------------|----------------|
-| Screenshots | ADB exec-out | No | `adb_helper.py screenshot <path>` |
+| Screenshots | ADB exec-out | No | `utils/adb_helper.py screenshot <path>` |
 | World/Town Toggle | ADB tap | No | `view_detection.py` |
-| UI Clicking | ADB tap | No | `adb_helper.py` → `adb.tap(x, y)` |
+| UI Clicking | ADB tap | No | `utils/adb_helper.py` → `adb.tap(x, y)` |
 | Arrow Keys | Win32 API | Yes | `send_arrow_proper.py` |
 | Zoom In/Out | Win32 API (Shift+A/Z) | Yes | `send_zoom.py` |
-| Map Dragging | ADB swipe | No | `adb_helper.py` → `adb.swipe(...)` |
+| Map Dragging | ADB swipe | No | `utils/adb_helper.py` → `adb.swipe(...)` |
