@@ -3,7 +3,6 @@
 ADB Helper - Centralized ADB management for XClash automation.
 
 Provides robust device detection, connection management, and screenshot utilities.
-Automatically saves both full-resolution and LLM-friendly scaled screenshots.
 
 Usage:
     python adb_helper.py screenshot <output_path>
@@ -12,7 +11,7 @@ Usage:
     # From Python code:
     from adb_helper import ADBHelper
     adb = ADBHelper()
-    full_path, llm_path = adb.take_screenshot("screenshot.png")
+    adb.take_screenshot("screenshot.png")
 """
 
 import subprocess
@@ -141,20 +140,17 @@ class ADBHelper:
 
         return False
 
-    def take_screenshot(self, output_path, scale_for_llm=True, llm_scale=0.5):
+    def take_screenshot(self, output_path):
         """
         Capture screenshot from device.
 
-        Saves both full-resolution and optionally an LLM-friendly scaled version.
         Uses exec-out screencap for direct binary capture (no device temp files).
 
         Args:
-            output_path: Path to save full-resolution screenshot
-            scale_for_llm: If True, also save scaled version for LLM viewing
-            llm_scale: Scale factor for LLM version (default 0.5 = 50%)
+            output_path: Path to save screenshot
 
         Returns:
-            Tuple of (full_path, llm_path) where llm_path is None if scale_for_llm=False
+            Path to saved screenshot
 
         Raises:
             RuntimeError: If ADB connection fails or screenshot capture fails
@@ -182,24 +178,7 @@ class ADBHelper:
             # Save full resolution
             output_path.write_bytes(result.stdout)
 
-            llm_path = None
-            if scale_for_llm:
-                # Load image and create scaled version
-                img = Image.open(io.BytesIO(result.stdout))
-
-                # Calculate scaled dimensions
-                width, height = img.size
-                new_width = int(width * llm_scale)
-                new_height = int(height * llm_scale)
-
-                # Scale with high-quality resampling
-                img_scaled = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-                # Save with _llm suffix
-                llm_path = output_path.parent / f"{output_path.stem}_llm{output_path.suffix}"
-                img_scaled.save(llm_path, optimize=True)
-
-            return str(output_path), str(llm_path) if llm_path else None
+            return str(output_path)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Screenshot capture failed: {e.stderr.decode() if e.stderr else str(e)}")
@@ -269,11 +248,6 @@ def main():
     # Screenshot command
     screenshot_parser = subparsers.add_parser("screenshot", help="Take screenshot")
     screenshot_parser.add_argument("output", help="Output path for screenshot")
-    screenshot_parser.add_argument(
-        "--no-scale",
-        action="store_true",
-        help="Don't create LLM-friendly scaled version"
-    )
 
     # Check command
     subparsers.add_parser("check", help="Check ADB connection status")
@@ -302,14 +276,9 @@ def main():
         elif args.command == "screenshot":
             print(f"Capturing screenshot from {adb.device}...")
 
-            full_path, llm_path = adb.take_screenshot(
-                args.output,
-                scale_for_llm=not args.no_scale
-            )
+            path = adb.take_screenshot(args.output)
 
-            print(f"Full resolution: {full_path}")
-            if llm_path:
-                print(f"LLM version: {llm_path}")
+            print(f"Saved: {path}")
 
             sys.exit(0)
 
