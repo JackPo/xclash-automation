@@ -48,11 +48,11 @@ corner = frame[y1:h, x1:w]
 cv2.imwrite('temp_corner_500x500.png', corner)
 ```
 
-### Step 3: Use Image Agent to Find Button Boundaries
+### Step 3: Use Read Tool to Find Button Boundaries
 
 ```python
-# Use Task tool with image agent to examine temp_corner_500x500.png
-# Agent identifies exact x_start, y_start where button begins
+# Use Read tool to examine temp_corner_500x500.png
+# Identifies exact x_start, y_start where button begins
 # Button always goes to corner at (500, 500)
 ```
 
@@ -120,7 +120,7 @@ All templates achieve near-perfect scores with excellent separation:
 
 1. **NEVER use auto-crop when extracting templates**
 2. **Always work with full 3840x2160 screenshots**
-3. **Use image agents to identify exact button boundaries** - don't guess coordinates
+3. **Use Read tool to identify exact button boundaries** - don't guess coordinates
 4. **Extract to absolute corner (500, 500)** in the 500x500 region
 5. **Buttons are NOT square** - they vary from 210x240 to 240x260
 6. **Templates must match the native game resolution** for accurate detection
