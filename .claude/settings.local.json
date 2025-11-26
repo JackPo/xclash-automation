@@ -9,7 +9,9 @@
       "Bash(timeout /t 10 /nobreak)",
       "Bash(python:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nAdd handshake icon auto-clicker with fixed-location detection\n\n- HandshakeIconMatcher: Binary presence detector at fixed coordinates\n  - Checks ONLY at (3088, 1780) with 155x127 size\n  - Requires score >= 0.99 for strict matching\n  - ALWAYS clicks at (3165, 1843) - no coordinate variation\n  - Uses TM_CCORR_NORMED for reliable matching\n\n- run_handshake_loop.py: Continuous background checker\n  - Runs every 3 seconds by default\n  - Takes screenshot, checks fixed location, clicks if present\n  - Logs all detections and skips\n\n- action_chain_runner.py: Generalizable template matching framework\n  - Single screenshot for multiple template checks\n  - Support for action sequences and conditional logic\n  - Logging for debugging\n\n- Fixed coordinates (4K resolution):\n  - Detection region: (3088, 1780) to (3243, 1907)\n  - Click position: (3165, 1843)\n  - Template: templates/ground_truth/handshake_iter2.png\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd treasure map detection to icon auto-clicker daemon\n\n- utils/treasure_map_matcher.py: Fixed-location treasure map detector\n  - FIXED coordinates (4K): (2096, 1540) size 158x162\n  - Click position: (2175, 1621)\n  - Same TM_SQDIFF_NORMED matching as handshake (threshold 0.05)\n\n- scripts/handshake_daemon.py: Now detects BOTH icons\n  - Handshake icon at (3165, 1843)\n  - Treasure map icon at (2175, 1621)\n  - Single screenshot per iteration, checks both templates\n  - Clicks immediately when either is detected\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

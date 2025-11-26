@@ -1,32 +1,5 @@
 # Claude Instructions for xclash Project
 
-## CRITICAL: Image Viewing Policy
-
-**NEVER use the Read tool directly to view images (PNG, JPG, etc.)** - this causes system crashes.
-
-**ALWAYS use the Task tool with a general-purpose agent to view images** instead.
-
-### Example - WRONG ❌:
-```
-Read(screenshot.png)  # This will crash!
-```
-
-### Example - CORRECT ✓:
-```
-Task(
-  subagent_type="general-purpose",
-  model="haiku",
-  description="View screenshot",
-  prompt="Please read and examine the file 'screenshot.png' and describe what you see..."
-)
-```
-
-This applies to ALL image files including:
-- Screenshots (.png)
-- Debug visualizations (.png)
-- Templates (.png)
-- Any other image formats (.jpg, .jpeg, etc.)
-
 ## Project Context
 
 This is an automation project for Clash of Clans using BlueStacks Android emulator.

@@ -1,0 +1,25 @@
+{
+  "image": "harvest_surprise_chat_notification.png",
+  "image_size": [
+    3840,
+    2160
+  ],
+  "prompt": "the box that says harvest surprise box",
+  "label": "harvest surprise box",
+  "normalized": [
+    506,
+    400,
+    623,
+    606
+  ],
+  "pixels": {
+    "x": 1536,
+    "y": 1092,
+    "width": 791,
+    "height": 253
+  },
+  "center": {
+    "x": 1931,
+    "y": 1218
+  }
+}
