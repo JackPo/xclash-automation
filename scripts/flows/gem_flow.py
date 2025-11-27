@@ -10,5 +10,5 @@ def gem_flow(adb):
     Args:
         adb: ADBHelper instance
     """
-    adb.tap(787, 427)
+    adb.tap(1405, 696)
     print("    [GEM] Clicked harvest bubble")

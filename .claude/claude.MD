@@ -95,7 +95,7 @@ Located in `templates/ground_truth/`:
 - `corn_harvest_bubble_4k.png` - Corn harvest bubble (position: 1884,1260, size: 99x74, threshold: 0.05)
 - `gold_coin_tight_4k.png` - Gold coin bubble, tight crop (position: 1369,800, size: 53x43, threshold: 0.06)
 - `iron_bar_tight_4k.png` - Iron bar bubble, tight crop (position: 1617,351, size: 46x32, threshold: 0.06)
-- `gem_tight_4k.png` - Gem bubble, tight crop (position: 770,398, size: 34x42, threshold: 0.06)
+- `gem_tight_4k.png` - Gem bubble, tight crop (position: 1378,677, size: 54x26, threshold: 0.06)
 
 **Dialog Templates (search-based):**
 - `harvest_surprise_box_4k.png` - Surprise box dialog (791x253, moves vertically)
@@ -358,7 +358,7 @@ python scripts/icon_daemon.py --interval 5
 | Corn | `corn_harvest_matcher.py` | 0.05 | (1932, 1297) | `corn_harvest_flow` |
 | Gold | `gold_coin_matcher.py` | 0.06 | (1395, 835) | `gold_coin_flow` |
 | Iron | `iron_bar_matcher.py` | 0.08 | (1639, 377) | `iron_bar_flow` |
-| Gem | `gem_matcher.py` | 0.06 | (787, 427) | `gem_flow` |
+| Gem | `gem_matcher.py` | 0.06 | (1405, 696) | `gem_flow` |
 
 ### Flows
 
