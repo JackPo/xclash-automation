@@ -4,9 +4,9 @@ Corn harvest bubble matcher for farm harvest detection.
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 
 FIXED specs (4K resolution):
-- Extraction position: (1911, 1277)
+- Extraction position: (1015, 869)
 - Size: 67x57 pixels
-- Click position: (1944, 1305) - center of template
+- Click position: (1048, 897) - center of template
 """
 from __future__ import annotations
 
@@ -23,18 +23,18 @@ class CornHarvestMatcher:
     """
 
     # HARDCODED coordinates - these NEVER change
-    ICON_X = 1911
-    ICON_Y = 1277
+    ICON_X = 1015
+    ICON_Y = 869
     ICON_WIDTH = 67
     ICON_HEIGHT = 57
-    CLICK_X = 1944
-    CLICK_Y = 1305
+    CLICK_X = 1048
+    CLICK_Y = 897
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.08,
+        threshold: float = 0.05,
     ) -> None:
         """
         Initialize corn harvest bubble detector.
