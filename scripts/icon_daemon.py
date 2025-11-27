@@ -29,9 +29,10 @@ from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
 from utils.gold_coin_matcher import GoldCoinMatcher
 from utils.harvest_box_matcher import HarvestBoxMatcher
+from utils.iron_bar_matcher import IronBarMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow
 
 
 class IconDaemon:
@@ -50,6 +51,7 @@ class IconDaemon:
         self.corn_matcher = None
         self.gold_matcher = None
         self.harvest_box_matcher = None
+        self.iron_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -89,7 +91,7 @@ class IconDaemon:
         print(f"  Corn harvest matcher: {self.corn_matcher.template_path.name}")
 
         self.gold_matcher = GoldCoinMatcher(
-            threshold=0.1,
+            threshold=0.05,
             debug_dir=debug_dir
         )
         print(f"  Gold coin matcher: {self.gold_matcher.template_path.name}")
@@ -99,6 +101,12 @@ class IconDaemon:
             debug_dir=debug_dir
         )
         print(f"  Harvest box matcher: {self.harvest_box_matcher.template_path.name}")
+
+        self.iron_matcher = IronBarMatcher(
+            threshold=0.05,
+            debug_dir=debug_dir
+        )
+        print(f"  Iron bar matcher: {self.iron_matcher.template_path.name}")
 
     def _run_flow(self, flow_name: str, flow_func):
         """
@@ -129,7 +137,7 @@ class IconDaemon:
     def run(self):
         """Main detection loop."""
         print(f"\nStarting detection loop (interval: {self.interval}s)")
-        print("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box")
+        print("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron")
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
@@ -181,6 +189,14 @@ class IconDaemon:
                     self._run_flow("harvest_box", harvest_box_flow)
                 else:
                     print(f"  [HARVEST]   Not present (diff={harvest_score:.4f})")
+
+                # Check iron bar
+                iron_present, iron_score = self.iron_matcher.is_present(frame)
+                if iron_present:
+                    print(f"  [IRON]      Detected (diff={iron_score:.4f})")
+                    self._run_flow("iron_bar", iron_bar_flow)
+                else:
+                    print(f"  [IRON]      Not present (diff={iron_score:.4f})")
 
             except Exception as e:
                 print(f"  [ERROR] {e}")

@@ -1,13 +1,17 @@
 """
-Harvest Box flow - clicks the harvest box icon, then finds and clicks the surprise box dialog.
+Harvest Box flow - complete harvest sequence.
 
 Step 1: Click the harvest box icon at fixed position (2177, 1618)
 Step 2: Wait briefly for dialog to appear
 Step 3: Find harvest_surprise_box_4k.png vertically (it moves) and click it
+Step 4: Click Open button at fixed position (1918, 1254)
+Step 5: Click Back button at fixed position (1407, 2055)
 
 Templates:
 - Trigger icon: templates/ground_truth/harvest_box_4k.png (154x157 at 2100,1540)
 - Dialog box: templates/ground_truth/harvest_surprise_box_4k.png (791x253, moves vertically)
+- Open button: templates/ground_truth/open_button_4k.png (242x99 at 1797,1205)
+- Back button: templates/ground_truth/back_button_4k.png (142x136 at 1336,1987)
 """
 
 from pathlib import Path
@@ -20,14 +24,20 @@ SURPRISE_BOX_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "gro
 # Matching threshold for dialog - looser because text inside changes
 MATCH_THRESHOLD = 0.7
 
-# Fixed click position for the harvest box icon
+# Fixed click positions
 HARVEST_ICON_CLICK_X = 2177
 HARVEST_ICON_CLICK_Y = 1618
+
+OPEN_BUTTON_X = 1918
+OPEN_BUTTON_Y = 1254
+
+BACK_BUTTON_X = 1407
+BACK_BUTTON_Y = 2055
 
 
 def harvest_box_flow(adb, screenshot_helper=None):
     """
-    Click harvest box icon, then find and click the Harvest Surprise Box dialog.
+    Complete harvest box flow: icon -> surprise box -> open -> back.
 
     Args:
         adb: ADBHelper instance
@@ -37,7 +47,7 @@ def harvest_box_flow(adb, screenshot_helper=None):
         True if successful, False otherwise
     """
     # Step 1: Click the harvest box icon
-    print(f"    [HARVEST] Clicking icon at ({HARVEST_ICON_CLICK_X}, {HARVEST_ICON_CLICK_Y})")
+    print(f"    [HARVEST] Step 1: Clicking icon at ({HARVEST_ICON_CLICK_X}, {HARVEST_ICON_CLICK_Y})")
     adb.tap(HARVEST_ICON_CLICK_X, HARVEST_ICON_CLICK_Y)
 
     # Step 2: Wait for dialog to appear
@@ -71,7 +81,7 @@ def harvest_box_flow(adb, screenshot_helper=None):
     result = cv2.matchTemplate(frame_gray, template_gray, cv2.TM_CCOEFF_NORMED)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-    print(f"    [HARVEST] Dialog match score: {max_val:.3f} (threshold: {MATCH_THRESHOLD})")
+    print(f"    [HARVEST] Step 2: Dialog match score: {max_val:.3f} (threshold: {MATCH_THRESHOLD})")
 
     if max_val < MATCH_THRESHOLD:
         print(f"    [HARVEST] Dialog not found (score {max_val:.3f} < {MATCH_THRESHOLD})")
@@ -83,7 +93,18 @@ def harvest_box_flow(adb, screenshot_helper=None):
     center_x = top_left[0] + template_w // 2
     center_y = top_left[1] + template_h // 2
 
-    print(f"    [HARVEST] Dialog found at ({top_left[0]}, {top_left[1]}), clicking ({center_x}, {center_y})")
+    print(f"    [HARVEST] Step 3: Clicking surprise box at ({center_x}, {center_y})")
     adb.tap(center_x, center_y)
 
+    # Step 4: Click Open button
+    time.sleep(0.5)
+    print(f"    [HARVEST] Step 4: Clicking Open at ({OPEN_BUTTON_X}, {OPEN_BUTTON_Y})")
+    adb.tap(OPEN_BUTTON_X, OPEN_BUTTON_Y)
+
+    # Step 5: Click Back button
+    time.sleep(0.5)
+    print(f"    [HARVEST] Step 5: Clicking Back at ({BACK_BUTTON_X}, {BACK_BUTTON_Y})")
+    adb.tap(BACK_BUTTON_X, BACK_BUTTON_Y)
+
+    print("    [HARVEST] Flow complete")
     return True

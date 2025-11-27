@@ -1,13 +1,13 @@
 """
-Gold coin bubble matcher for gold harvest detection.
+Iron bar bubble matcher for iron harvest detection.
 
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
-Template extracted from 4K screenshot at coordinates (1347, 788) with size 96x95.
+Template extracted from 4K screenshot at coordinates (1601, 343) with size 77x69.
 
 FIXED specs (4K resolution):
-- Extraction position: (1347, 788)
-- Size: 96x95 pixels
-- Click position: (1395, 835) - center of template
+- Extraction position: (1601, 343)
+- Size: 77x69 pixels
+- Click position: (1639, 377) - center of template
 """
 from __future__ import annotations
 
@@ -18,18 +18,18 @@ import cv2
 import numpy as np
 
 
-class GoldCoinMatcher:
+class IronBarMatcher:
     """
-    Presence detector for gold coin bubble at FIXED location.
+    Presence detector for iron bar bubble at FIXED location.
     """
 
     # HARDCODED coordinates - these NEVER change
-    ICON_X = 1347
-    ICON_Y = 788
-    ICON_WIDTH = 96
-    ICON_HEIGHT = 95
-    CLICK_X = 1395
-    CLICK_Y = 835
+    ICON_X = 1601
+    ICON_Y = 343
+    ICON_WIDTH = 77
+    ICON_HEIGHT = 69
+    CLICK_X = 1639
+    CLICK_Y = 377
 
     def __init__(
         self,
@@ -38,17 +38,17 @@ class GoldCoinMatcher:
         threshold: float = 0.05,
     ) -> None:
         """
-        Initialize gold coin bubble detector.
+        Initialize iron bar bubble detector.
 
         Args:
-            template_path: Path to template (default: templates/ground_truth/gold_coin_bubble_4k.png)
+            template_path: Path to template (default: templates/ground_truth/iron_bar_bubble_4k.png)
             debug_dir: Directory for debug output
             threshold: Maximum difference score (default 0.05 for strict matching)
         """
         base_dir = Path(__file__).resolve().parent.parent
 
         if template_path is None:
-            template_path = base_dir / "templates" / "ground_truth" / "gold_coin_bubble_4k.png"
+            template_path = base_dir / "templates" / "ground_truth" / "iron_bar_bubble_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
@@ -66,7 +66,7 @@ class GoldCoinMatcher:
         save_debug: bool = False,
     ) -> tuple[bool, float]:
         """
-        Check if gold coin bubble is present at FIXED location.
+        Check if iron bar bubble is present at FIXED location.
 
         Args:
             frame: BGR image frame from screenshot
@@ -100,7 +100,7 @@ class GoldCoinMatcher:
         return is_present, score
 
     def click(self, adb_helper) -> None:
-        """Click at the FIXED gold coin bubble center position."""
+        """Click at the FIXED iron bar bubble center position."""
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
 
     def _save_debug_crop(self, roi: np.ndarray, score: float) -> None:
@@ -108,7 +108,7 @@ class GoldCoinMatcher:
         try:
             if roi.size == 0:
                 return
-            debug_path = self.debug_dir / f"gold_present_{score:.3f}.png"
+            debug_path = self.debug_dir / f"iron_present_{score:.3f}.png"
             cv2.imwrite(str(debug_path), roi)
         except Exception:
             pass
