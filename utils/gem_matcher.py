@@ -5,8 +5,8 @@ Uses cv2.TM_SQDIFF_NORMED at fixed location.
 Template tightly cropped to just the gem icon (no bubble border).
 
 FIXED specs (4K resolution):
-- Extraction position: (1378, 677) - tight crop of gem only
-- Size: 54x26 pixels (gem icon only)
+- Extraction position: (1378, 652) - tight crop of gem only
+- Size: 54x51 pixels (gem icon only)
 - Click position: (1405, 696)
 """
 from __future__ import annotations
@@ -26,9 +26,9 @@ class GemMatcher:
     # HARDCODED coordinates - these NEVER change
     # Tight crop from bubble at (1367, 673) to (1443, 719)
     ICON_X = 1378
-    ICON_Y = 677
+    ICON_Y = 652
     ICON_WIDTH = 54
-    ICON_HEIGHT = 26  # Tight crop - gem icon only
+    ICON_HEIGHT = 51  # Tight crop - gem icon only
     CLICK_X = 1405
     CLICK_Y = 696
 

@@ -95,7 +95,7 @@ Located in `templates/ground_truth/`:
 - `corn_harvest_bubble_4k.png` - Corn harvest bubble (position: 1884,1260, size: 99x74, threshold: 0.05)
 - `gold_coin_tight_4k.png` - Gold coin bubble, tight crop (position: 1369,800, size: 53x43, threshold: 0.06)
 - `iron_bar_tight_4k.png` - Iron bar bubble, tight crop (position: 1617,351, size: 46x32, threshold: 0.06)
-- `gem_tight_4k.png` - Gem bubble, tight crop (position: 1378,677, size: 54x26, threshold: 0.06)
+- `gem_tight_4k.png` - Gem bubble, tight crop (position: 1378,652, size: 54x51, threshold: 0.06)
 
 **Dialog Templates (search-based):**
 - `harvest_surprise_box_4k.png` - Surprise box dialog (791x253, moves vertically)
