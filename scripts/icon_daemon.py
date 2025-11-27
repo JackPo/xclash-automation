@@ -13,6 +13,8 @@ Currently detects:
 - Harvest box icon
 - Iron bar bubble
 - Gem bubble
+- Cabbage bubble
+- Equipment enhancement bubble (crossed swords)
 
 Press Ctrl+C to stop.
 
@@ -38,9 +40,12 @@ from utils.gold_coin_matcher import GoldCoinMatcher
 from utils.harvest_box_matcher import HarvestBoxMatcher
 from utils.iron_bar_matcher import IronBarMatcher
 from utils.gem_matcher import GemMatcher
+from utils.cabbage_matcher import CabbageMatcher
+from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
+from utils.world_button_matcher import WorldButtonMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow
 
 
 class IconDaemon:
@@ -62,6 +67,9 @@ class IconDaemon:
         self.harvest_box_matcher = None
         self.iron_matcher = None
         self.gem_matcher = None
+        self.cabbage_matcher = None
+        self.equipment_enhancement_matcher = None
+        self.world_button_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -122,6 +130,15 @@ class IconDaemon:
         self.gem_matcher = GemMatcher(debug_dir=debug_dir)
         print(f"  Gem matcher: {self.gem_matcher.template_path.name} (threshold={self.gem_matcher.threshold})")
 
+        self.cabbage_matcher = CabbageMatcher(debug_dir=debug_dir)
+        print(f"  Cabbage matcher: {self.cabbage_matcher.template_path.name} (threshold={self.cabbage_matcher.threshold})")
+
+        self.equipment_enhancement_matcher = EquipmentEnhancementMatcher(debug_dir=debug_dir)
+        print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.template_path.name} (threshold={self.equipment_enhancement_matcher.threshold})")
+
+        self.world_button_matcher = WorldButtonMatcher(debug_dir=debug_dir)
+        print(f"  World button matcher: {self.world_button_matcher.template_path.name} (threshold={self.world_button_matcher.threshold})")
+
     def _run_flow(self, flow_name: str, flow_func):
         """
         Run a flow in a thread-safe way.
@@ -155,7 +172,7 @@ class IconDaemon:
     def run(self):
         """Main detection loop."""
         self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
-        self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem")
+        self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World")
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
@@ -175,9 +192,12 @@ class IconDaemon:
                 harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
                 iron_present, iron_score = self.iron_matcher.is_present(frame)
                 gem_present, gem_score = self.gem_matcher.is_present(frame)
+                cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
+                equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
+                world_present, world_score = self.world_button_matcher.is_present(frame)
 
                 # Always print scores to stdout
-                print(f"[{iteration}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f}")
+                print(f"[{iteration}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} W:{world_score:.3f}")
 
                 # Log and trigger flows
                 if handshake_present:
@@ -188,11 +208,12 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
                     self._run_flow("treasure_map", treasure_map_flow)
 
-                if corn_present:
+                # Corn, Gold, Iron, Cabbage only activate in TOWN view (world button visible)
+                if corn_present and world_present:
                     self.logger.info(f"[{iteration}] CORN detected (diff={corn_score:.4f})")
                     self._run_flow("corn_harvest", corn_harvest_flow)
 
-                if gold_present:
+                if gold_present and world_present:
                     self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
                     self._run_flow("gold_coin", gold_coin_flow)
 
@@ -200,13 +221,25 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
                     self._run_flow("harvest_box", harvest_box_flow)
 
-                if iron_present:
+                if iron_present and world_present:
                     self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
                     self._run_flow("iron_bar", iron_bar_flow)
 
-                if gem_present:
+                if gem_present and world_present:
                     self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
                     self._run_flow("gem", gem_flow)
+
+                if cabbage_present and world_present:
+                    self.logger.info(f"[{iteration}] CABBAGE detected (diff={cabbage_score:.4f})")
+                    self._run_flow("cabbage", cabbage_flow)
+
+                if equip_present and world_present:
+                    self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
+                    self._run_flow("equipment_enhancement", equipment_enhancement_flow)
+
+                # World button detection - log only (indicates we're in TOWN view)
+                if world_present:
+                    self.logger.info(f"[{iteration}] WORLD BUTTON visible (in TOWN view) (diff={world_score:.4f})")
 
             except Exception as e:
                 self.logger.error(f"[{iteration}] ERROR: {e}")

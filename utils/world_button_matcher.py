@@ -1,13 +1,13 @@
 """
-Gem bubble matcher for gem harvest detection.
+World button matcher for detecting when we're in TOWN view.
 
+When the "World" button is visible, we are currently in TOWN view.
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
-Template tightly cropped to just the gem icon (no bubble border).
 
 FIXED specs (4K resolution):
-- Extraction position: (1378, 652) - tight crop of gem only
-- Size: 54x51 pixels (gem icon only)
-- Click position: (1405, 696)
+- Position: (3600, 1920) to corner (3840, 2160)
+- Size: 240x240 pixels
+- This button appears when player is in TOWN view
 """
 from __future__ import annotations
 
@@ -18,38 +18,37 @@ import cv2
 import numpy as np
 
 
-class GemMatcher:
+class WorldButtonMatcher:
     """
-    Presence detector for gem bubble at FIXED location.
+    Presence detector for World button at FIXED location.
+    When present, player is in TOWN view.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    # Tight crop from bubble at (1367, 673) to (1443, 719)
-    ICON_X = 1378
-    ICON_Y = 652
-    ICON_WIDTH = 54
-    ICON_HEIGHT = 51  # Tight crop - gem icon only
-    CLICK_X = 1405
-    CLICK_Y = 696
+    # HARDCODED coordinates for 4K (3840x2160)
+    # 240x240 from corner
+    ICON_X = 3600
+    ICON_Y = 1920
+    ICON_WIDTH = 240
+    ICON_HEIGHT = 240
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.13,
+        threshold: float = 0.01,
     ) -> None:
         """
-        Initialize gem bubble detector.
+        Initialize world button detector.
 
         Args:
-            template_path: Path to template (default: templates/ground_truth/gem_tight_4k.png)
+            template_path: Path to template (default: templates/ground_truth/world_button.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score (default 0.06 for tight template)
+            threshold: Maximum difference score
         """
         base_dir = Path(__file__).resolve().parent.parent
 
         if template_path is None:
-            template_path = base_dir / "templates" / "ground_truth" / "gem_tight_4k.png"
+            template_path = base_dir / "templates" / "ground_truth" / "world_button_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
@@ -67,7 +66,7 @@ class GemMatcher:
         save_debug: bool = False,
     ) -> tuple[bool, float]:
         """
-        Check if gem bubble is present at FIXED location.
+        Check if World button is present at FIXED location.
 
         Args:
             frame: BGR image frame from screenshot
@@ -100,16 +99,12 @@ class GemMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
-        """Click at the FIXED gem bubble center position."""
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
-
     def _save_debug_crop(self, roi: np.ndarray, score: float) -> None:
         """Save ROI region for debugging."""
         try:
             if roi.size == 0:
                 return
-            debug_path = self.debug_dir / f"gem_present_{score:.3f}.png"
+            debug_path = self.debug_dir / f"world_button_present_{score:.3f}.png"
             cv2.imwrite(str(debug_path), roi)
         except Exception:
             pass
