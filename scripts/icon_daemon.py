@@ -27,9 +27,11 @@ from utils.adb_helper import ADBHelper
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
+from utils.gold_coin_matcher import GoldCoinMatcher
+from utils.harvest_box_matcher import HarvestBoxMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow
 
 
 class IconDaemon:
@@ -46,6 +48,8 @@ class IconDaemon:
         self.handshake_matcher = None
         self.treasure_matcher = None
         self.corn_matcher = None
+        self.gold_matcher = None
+        self.harvest_box_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -67,7 +71,7 @@ class IconDaemon:
         debug_dir = Path('templates/debug')
 
         self.handshake_matcher = HandshakeIconMatcher(
-            threshold=0.05,
+            threshold=0.04,
             debug_dir=debug_dir
         )
         print(f"  Handshake matcher: {self.handshake_matcher.template_path.name}")
@@ -83,6 +87,18 @@ class IconDaemon:
             debug_dir=debug_dir
         )
         print(f"  Corn harvest matcher: {self.corn_matcher.template_path.name}")
+
+        self.gold_matcher = GoldCoinMatcher(
+            threshold=0.1,
+            debug_dir=debug_dir
+        )
+        print(f"  Gold coin matcher: {self.gold_matcher.template_path.name}")
+
+        self.harvest_box_matcher = HarvestBoxMatcher(
+            threshold=0.1,
+            debug_dir=debug_dir
+        )
+        print(f"  Harvest box matcher: {self.harvest_box_matcher.template_path.name}")
 
     def _run_flow(self, flow_name: str, flow_func):
         """
@@ -113,7 +129,7 @@ class IconDaemon:
     def run(self):
         """Main detection loop."""
         print(f"\nStarting detection loop (interval: {self.interval}s)")
-        print("Detecting: Handshake, Treasure map, Corn harvest")
+        print("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box")
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
@@ -149,6 +165,22 @@ class IconDaemon:
                     self._run_flow("corn_harvest", corn_harvest_flow)
                 else:
                     print(f"  [CORN]      Not present (diff={corn_score:.4f})")
+
+                # Check gold coin
+                gold_present, gold_score = self.gold_matcher.is_present(frame)
+                if gold_present:
+                    print(f"  [GOLD]      Detected (diff={gold_score:.4f})")
+                    self._run_flow("gold_coin", gold_coin_flow)
+                else:
+                    print(f"  [GOLD]      Not present (diff={gold_score:.4f})")
+
+                # Check harvest box
+                harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
+                if harvest_present:
+                    print(f"  [HARVEST]   Detected (diff={harvest_score:.4f})")
+                    self._run_flow("harvest_box", harvest_box_flow)
+                else:
+                    print(f"  [HARVEST]   Not present (diff={harvest_score:.4f})")
 
             except Exception as e:
                 print(f"  [ERROR] {e}")
