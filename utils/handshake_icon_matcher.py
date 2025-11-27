@@ -69,7 +69,7 @@ class HandshakeIconMatcher:
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.05,
+        threshold: float = 0.04,
     ) -> None:
         """
         Initialize handshake icon presence detector.
@@ -77,7 +77,7 @@ class HandshakeIconMatcher:
         Args:
             template_path: Path to handshake template (default: templates/ground_truth/handshake_iter2.png)
             debug_dir: Directory for debug output (default: templates/debug/)
-            threshold: Maximum difference score (default 0.05 for strict matching with TM_SQDIFF_NORMED)
+            threshold: Maximum difference score (default 0.04 for strict matching with TM_SQDIFF_NORMED)
                       Lower values = stricter matching. Score < threshold means match found.
         """
         # Get project root (parent of utils/)

@@ -2,12 +2,12 @@
 Iron bar bubble matcher for iron harvest detection.
 
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
-Template extracted from 4K screenshot at coordinates (1601, 343) with size 77x69.
+Template tightly cropped to just the iron bar icon (no bubble border).
 
 FIXED specs (4K resolution):
-- Extraction position: (1601, 343)
-- Size: 77x69 pixels
-- Click position: (1639, 377) - center of template
+- Extraction position: (1617, 351) - tight crop of iron bars only
+- Size: 46x32 pixels (iron bar icon only)
+- Click position: (1639, 377)
 """
 from __future__ import annotations
 
@@ -24,10 +24,11 @@ class IronBarMatcher:
     """
 
     # HARDCODED coordinates - these NEVER change
-    ICON_X = 1601
-    ICON_Y = 343
-    ICON_WIDTH = 77
-    ICON_HEIGHT = 69
+    # Tight crop: original (1601,343) + crop offset (16,8)
+    ICON_X = 1617
+    ICON_Y = 351
+    ICON_WIDTH = 46
+    ICON_HEIGHT = 32  # Tight crop - iron bar icon only
     CLICK_X = 1639
     CLICK_Y = 377
 
@@ -35,20 +36,20 @@ class IronBarMatcher:
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.05,
+        threshold: float = 0.08,
     ) -> None:
         """
         Initialize iron bar bubble detector.
 
         Args:
-            template_path: Path to template (default: templates/ground_truth/iron_bar_bubble_4k.png)
+            template_path: Path to template (default: templates/ground_truth/iron_bar_tight_4k.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score (default 0.05 for strict matching)
+            threshold: Maximum difference score (default 0.08 for tight template)
         """
         base_dir = Path(__file__).resolve().parent.parent
 
         if template_path is None:
-            template_path = base_dir / "templates" / "ground_truth" / "iron_bar_bubble_4k.png"
+            template_path = base_dir / "templates" / "ground_truth" / "iron_bar_tight_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")

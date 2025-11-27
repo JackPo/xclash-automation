@@ -5,18 +5,19 @@ Step 1: Click the harvest box icon at fixed position (2177, 1618)
 Step 2: Wait briefly for dialog to appear
 Step 3: Find harvest_surprise_box_4k.png vertically (it moves) and click it
 Step 4: Click Open button at fixed position (1918, 1254)
-Step 5: Click Back button at fixed position (1407, 2055)
+Step 5: Use back_from_chat_flow to close all dialogs
 
 Templates:
 - Trigger icon: templates/ground_truth/harvest_box_4k.png (154x157 at 2100,1540)
 - Dialog box: templates/ground_truth/harvest_surprise_box_4k.png (791x253, moves vertically)
 - Open button: templates/ground_truth/open_button_4k.png (242x99 at 1797,1205)
-- Back button: templates/ground_truth/back_button_4k.png (142x136 at 1336,1987)
 """
 
 from pathlib import Path
 import time
 import cv2
+
+from .back_from_chat_flow import back_from_chat_flow
 
 # Template for the dialog box (moves vertically)
 SURPRISE_BOX_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "harvest_surprise_box_4k.png"
@@ -30,9 +31,6 @@ HARVEST_ICON_CLICK_Y = 1618
 
 OPEN_BUTTON_X = 1918
 OPEN_BUTTON_Y = 1254
-
-BACK_BUTTON_X = 1407
-BACK_BUTTON_Y = 2055
 
 
 def harvest_box_flow(adb, screenshot_helper=None):
@@ -51,7 +49,7 @@ def harvest_box_flow(adb, screenshot_helper=None):
     adb.tap(HARVEST_ICON_CLICK_X, HARVEST_ICON_CLICK_Y)
 
     # Step 2: Wait for dialog to appear
-    time.sleep(1.0)
+    time.sleep(0.5)
 
     # Step 3: Find and click the surprise box dialog
     if screenshot_helper:
@@ -101,10 +99,10 @@ def harvest_box_flow(adb, screenshot_helper=None):
     print(f"    [HARVEST] Step 4: Clicking Open at ({OPEN_BUTTON_X}, {OPEN_BUTTON_Y})")
     adb.tap(OPEN_BUTTON_X, OPEN_BUTTON_Y)
 
-    # Step 5: Click Back button
+    # Step 5: Close all dialogs using back_from_chat_flow
     time.sleep(0.5)
-    print(f"    [HARVEST] Step 5: Clicking Back at ({BACK_BUTTON_X}, {BACK_BUTTON_Y})")
-    adb.tap(BACK_BUTTON_X, BACK_BUTTON_Y)
+    print("    [HARVEST] Step 5: Closing dialogs with back_from_chat_flow")
+    back_from_chat_flow(adb, screenshot_helper)
 
     print("    [HARVEST] Flow complete")
     return True

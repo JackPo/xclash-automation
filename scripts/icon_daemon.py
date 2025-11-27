@@ -8,18 +8,24 @@ When an icon is detected, kicks off a flow handler in a separate thread.
 Currently detects:
 - Handshake icon (Union button)
 - Treasure map icon (bouncing scroll on barracks)
+- Corn harvest bubble
+- Gold coin bubble
+- Harvest box icon
+- Iron bar bubble
 
 Press Ctrl+C to stop.
 
 Usage:
-    python icon_daemon.py [--interval SECONDS]
+    python icon_daemon.py [--interval SECONDS] [--debug]
 """
 
 import sys
 import time
 import argparse
 import threading
+import logging
 from pathlib import Path
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -40,8 +46,9 @@ class IconDaemon:
     Daemon that detects icons and triggers non-blocking flows.
     """
 
-    def __init__(self, interval: float = 3.0):
+    def __init__(self, interval: float = 3.0, debug: bool = False):
         self.interval = interval
+        self.debug = debug
         self.adb = None
         self.windows_helper = None
 
@@ -57,9 +64,27 @@ class IconDaemon:
         self.active_flows = set()
         self.flow_lock = threading.Lock()
 
+        # Setup logging
+        self.log_dir = Path('logs')
+        self.log_dir.mkdir(exist_ok=True)
+        self.log_file = self.log_dir / f"daemon_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+        # Configure logging
+        log_level = logging.DEBUG if debug else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s [%(levelname)s] %(message)s',
+            handlers=[
+                logging.FileHandler(self.log_file),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger('IconDaemon')
+
     def initialize(self):
         """Initialize all components."""
-        print("Initializing icon daemon...")
+        self.logger.info("Initializing icon daemon...")
+        self.logger.info(f"Log file: {self.log_file}")
 
         # ADB
         self.adb = ADBHelper()
@@ -72,41 +97,24 @@ class IconDaemon:
         # Matchers
         debug_dir = Path('templates/debug')
 
-        self.handshake_matcher = HandshakeIconMatcher(
-            threshold=0.04,
-            debug_dir=debug_dir
-        )
-        print(f"  Handshake matcher: {self.handshake_matcher.template_path.name}")
+        # Matchers use their own default thresholds - edit thresholds in the matcher files
+        self.handshake_matcher = HandshakeIconMatcher(debug_dir=debug_dir)
+        print(f"  Handshake matcher: {self.handshake_matcher.template_path.name} (threshold={self.handshake_matcher.threshold})")
 
-        self.treasure_matcher = TreasureMapMatcher(
-            threshold=0.05,
-            debug_dir=debug_dir
-        )
-        print(f"  Treasure map matcher: {self.treasure_matcher.template_path.name}")
+        self.treasure_matcher = TreasureMapMatcher(debug_dir=debug_dir)
+        print(f"  Treasure map matcher: {self.treasure_matcher.template_path.name} (threshold={self.treasure_matcher.threshold})")
 
-        self.corn_matcher = CornHarvestMatcher(
-            threshold=0.05,
-            debug_dir=debug_dir
-        )
-        print(f"  Corn harvest matcher: {self.corn_matcher.template_path.name}")
+        self.corn_matcher = CornHarvestMatcher(debug_dir=debug_dir)
+        print(f"  Corn harvest matcher: {self.corn_matcher.template_path.name} (threshold={self.corn_matcher.threshold})")
 
-        self.gold_matcher = GoldCoinMatcher(
-            threshold=0.05,
-            debug_dir=debug_dir
-        )
-        print(f"  Gold coin matcher: {self.gold_matcher.template_path.name}")
+        self.gold_matcher = GoldCoinMatcher(debug_dir=debug_dir)
+        print(f"  Gold coin matcher: {self.gold_matcher.template_path.name} (threshold={self.gold_matcher.threshold})")
 
-        self.harvest_box_matcher = HarvestBoxMatcher(
-            threshold=0.1,
-            debug_dir=debug_dir
-        )
-        print(f"  Harvest box matcher: {self.harvest_box_matcher.template_path.name}")
+        self.harvest_box_matcher = HarvestBoxMatcher(debug_dir=debug_dir)
+        print(f"  Harvest box matcher: {self.harvest_box_matcher.template_path.name} (threshold={self.harvest_box_matcher.threshold})")
 
-        self.iron_matcher = IronBarMatcher(
-            threshold=0.05,
-            debug_dir=debug_dir
-        )
-        print(f"  Iron bar matcher: {self.iron_matcher.template_path.name}")
+        self.iron_matcher = IronBarMatcher(debug_dir=debug_dir)
+        print(f"  Iron bar matcher: {self.iron_matcher.template_path.name} (threshold={self.iron_matcher.threshold})")
 
     def _run_flow(self, flow_name: str, flow_func):
         """
@@ -118,14 +126,18 @@ class IconDaemon:
         """
         def wrapper():
             try:
+                self.logger.info(f"FLOW START: {flow_name}")
                 flow_func(self.adb)
+                self.logger.info(f"FLOW END: {flow_name}")
+            except Exception as e:
+                self.logger.error(f"FLOW ERROR: {flow_name} - {e}")
             finally:
                 with self.flow_lock:
                     self.active_flows.discard(flow_name)
 
         with self.flow_lock:
             if flow_name in self.active_flows:
-                print(f"    [SKIP] {flow_name} already running")
+                self.logger.debug(f"SKIP: {flow_name} already running")
                 return False
 
             self.active_flows.add(flow_name)
@@ -136,70 +148,57 @@ class IconDaemon:
 
     def run(self):
         """Main detection loop."""
-        print(f"\nStarting detection loop (interval: {self.interval}s)")
-        print("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron")
+        self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
+        self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron")
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
         iteration = 0
         while True:
             iteration += 1
-            print(f"\n[{iteration}] {time.strftime('%H:%M:%S')}")
 
             try:
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
 
-                # Check handshake
+                # Check all icons
                 handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
-                if handshake_present:
-                    print(f"  [HANDSHAKE] Detected (diff={handshake_score:.4f})")
-                    self._run_flow("handshake", handshake_flow)
-                else:
-                    print(f"  [HANDSHAKE] Not present (diff={handshake_score:.4f})")
-
-                # Check treasure map
                 treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
-                if treasure_present:
-                    print(f"  [TREASURE]  Detected (diff={treasure_score:.4f})")
-                    self._run_flow("treasure_map", treasure_map_flow)
-                else:
-                    print(f"  [TREASURE]  Not present (diff={treasure_score:.4f})")
-
-                # Check corn harvest
                 corn_present, corn_score = self.corn_matcher.is_present(frame)
-                if corn_present:
-                    print(f"  [CORN]      Detected (diff={corn_score:.4f})")
-                    self._run_flow("corn_harvest", corn_harvest_flow)
-                else:
-                    print(f"  [CORN]      Not present (diff={corn_score:.4f})")
-
-                # Check gold coin
                 gold_present, gold_score = self.gold_matcher.is_present(frame)
-                if gold_present:
-                    print(f"  [GOLD]      Detected (diff={gold_score:.4f})")
-                    self._run_flow("gold_coin", gold_coin_flow)
-                else:
-                    print(f"  [GOLD]      Not present (diff={gold_score:.4f})")
-
-                # Check harvest box
                 harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
-                if harvest_present:
-                    print(f"  [HARVEST]   Detected (diff={harvest_score:.4f})")
-                    self._run_flow("harvest_box", harvest_box_flow)
-                else:
-                    print(f"  [HARVEST]   Not present (diff={harvest_score:.4f})")
-
-                # Check iron bar
                 iron_present, iron_score = self.iron_matcher.is_present(frame)
+
+                # Always print scores to stdout
+                print(f"[{iteration}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f}")
+
+                # Log and trigger flows
+                if handshake_present:
+                    self.logger.info(f"[{iteration}] HANDSHAKE detected (diff={handshake_score:.4f})")
+                    self._run_flow("handshake", handshake_flow)
+
+                if treasure_present:
+                    self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
+                    self._run_flow("treasure_map", treasure_map_flow)
+
+                if corn_present:
+                    self.logger.info(f"[{iteration}] CORN detected (diff={corn_score:.4f})")
+                    self._run_flow("corn_harvest", corn_harvest_flow)
+
+                if gold_present:
+                    self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
+                    self._run_flow("gold_coin", gold_coin_flow)
+
+                if harvest_present:
+                    self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
+                    self._run_flow("harvest_box", harvest_box_flow)
+
                 if iron_present:
-                    print(f"  [IRON]      Detected (diff={iron_score:.4f})")
+                    self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
                     self._run_flow("iron_bar", iron_bar_flow)
-                else:
-                    print(f"  [IRON]      Not present (diff={iron_score:.4f})")
 
             except Exception as e:
-                print(f"  [ERROR] {e}")
+                self.logger.error(f"[{iteration}] ERROR: {e}")
 
             time.sleep(self.interval)
 
@@ -214,10 +213,15 @@ def main():
         default=3.0,
         help="Check interval in seconds (default: 3.0)"
     )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help="Enable debug logging (logs all scores, not just detections)"
+    )
 
     args = parser.parse_args()
 
-    daemon = IconDaemon(interval=args.interval)
+    daemon = IconDaemon(interval=args.interval, debug=args.debug)
 
     try:
         daemon.initialize()
