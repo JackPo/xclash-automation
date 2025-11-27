@@ -26,9 +26,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.adb_helper import ADBHelper
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
+from utils.corn_harvest_matcher import CornHarvestMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-from flows import handshake_flow, treasure_map_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow
 
 
 class IconDaemon:
@@ -44,6 +45,7 @@ class IconDaemon:
         # Matchers
         self.handshake_matcher = None
         self.treasure_matcher = None
+        self.corn_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -76,6 +78,12 @@ class IconDaemon:
         )
         print(f"  Treasure map matcher: {self.treasure_matcher.template_path.name}")
 
+        self.corn_matcher = CornHarvestMatcher(
+            threshold=0.05,
+            debug_dir=debug_dir
+        )
+        print(f"  Corn harvest matcher: {self.corn_matcher.template_path.name}")
+
     def _run_flow(self, flow_name: str, flow_func):
         """
         Run a flow in a thread-safe way.
@@ -105,7 +113,7 @@ class IconDaemon:
     def run(self):
         """Main detection loop."""
         print(f"\nStarting detection loop (interval: {self.interval}s)")
-        print("Detecting: Handshake, Treasure map")
+        print("Detecting: Handshake, Treasure map, Corn harvest")
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
@@ -133,6 +141,14 @@ class IconDaemon:
                     self._run_flow("treasure_map", treasure_map_flow)
                 else:
                     print(f"  [TREASURE]  Not present (diff={treasure_score:.4f})")
+
+                # Check corn harvest
+                corn_present, corn_score = self.corn_matcher.is_present(frame)
+                if corn_present:
+                    print(f"  [CORN]      Detected (diff={corn_score:.4f})")
+                    self._run_flow("corn_harvest", corn_harvest_flow)
+                else:
+                    print(f"  [CORN]      Not present (diff={corn_score:.4f})")
 
             except Exception as e:
                 print(f"  [ERROR] {e}")
