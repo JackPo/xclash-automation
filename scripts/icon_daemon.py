@@ -12,6 +12,7 @@ Currently detects:
 - Gold coin bubble
 - Harvest box icon
 - Iron bar bubble
+- Gem bubble
 
 Press Ctrl+C to stop.
 
@@ -36,9 +37,10 @@ from utils.corn_harvest_matcher import CornHarvestMatcher
 from utils.gold_coin_matcher import GoldCoinMatcher
 from utils.harvest_box_matcher import HarvestBoxMatcher
 from utils.iron_bar_matcher import IronBarMatcher
+from utils.gem_matcher import GemMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow
 
 
 class IconDaemon:
@@ -59,6 +61,7 @@ class IconDaemon:
         self.gold_matcher = None
         self.harvest_box_matcher = None
         self.iron_matcher = None
+        self.gem_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -116,6 +119,9 @@ class IconDaemon:
         self.iron_matcher = IronBarMatcher(debug_dir=debug_dir)
         print(f"  Iron bar matcher: {self.iron_matcher.template_path.name} (threshold={self.iron_matcher.threshold})")
 
+        self.gem_matcher = GemMatcher(debug_dir=debug_dir)
+        print(f"  Gem matcher: {self.gem_matcher.template_path.name} (threshold={self.gem_matcher.threshold})")
+
     def _run_flow(self, flow_name: str, flow_func):
         """
         Run a flow in a thread-safe way.
@@ -149,7 +155,7 @@ class IconDaemon:
     def run(self):
         """Main detection loop."""
         self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
-        self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron")
+        self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem")
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
@@ -168,9 +174,10 @@ class IconDaemon:
                 gold_present, gold_score = self.gold_matcher.is_present(frame)
                 harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
                 iron_present, iron_score = self.iron_matcher.is_present(frame)
+                gem_present, gem_score = self.gem_matcher.is_present(frame)
 
                 # Always print scores to stdout
-                print(f"[{iteration}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f}")
+                print(f"[{iteration}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f}")
 
                 # Log and trigger flows
                 if handshake_present:
@@ -196,6 +203,10 @@ class IconDaemon:
                 if iron_present:
                     self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
                     self._run_flow("iron_bar", iron_bar_flow)
+
+                if gem_present:
+                    self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
+                    self._run_flow("gem", gem_flow)
 
             except Exception as e:
                 self.logger.error(f"[{iteration}] ERROR: {e}")

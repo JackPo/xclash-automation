@@ -87,8 +87,26 @@ if adb.ensure_connected():
 
 ### Current Templates
 Located in `templates/ground_truth/`:
+
+**Icon Detection Templates (fixed positions):**
+- `handshake_iter2.png` - Alliance/handshake icon (position: 3088,1780, size: 155x127, threshold: 0.04)
+- `treasure_map_4k.png` - Bouncing scroll treasure map (position: 2096,1540, size: 158x162, threshold: 0.05)
+- `harvest_box_4k.png` - Harvest box notification (position: 2100,1540, size: 154x157, threshold: 0.1)
+- `corn_harvest_bubble_4k.png` - Corn harvest bubble (position: 1884,1260, size: 99x74, threshold: 0.05)
+- `gold_coin_tight_4k.png` - Gold coin bubble, tight crop (position: 1369,800, size: 53x43, threshold: 0.06)
+- `iron_bar_tight_4k.png` - Iron bar bubble, tight crop (position: 1617,351, size: 46x32, threshold: 0.06)
+- `gem_tight_4k.png` - Gem bubble, tight crop (position: 770,398, size: 34x42, threshold: 0.06)
+
+**Dialog Templates (search-based):**
+- `harvest_surprise_box_4k.png` - Surprise box dialog (791x253, moves vertically)
+- `open_button_4k.png` - Open button in dialogs (242x99)
+- `back_button_4k.png` - Dark back button (142x136)
+- `back_button_light_4k.png` - Light back button (142x136)
+
+**View Detection:**
 - `minimap_base_4k.png` - Base minimap template for detection
-- `handshake_icon_4k.png` - Alliance/handshake icon (position: 3457, 1180, size: 62x29)
+- `world_button.png` - World view button
+- `town_button.png` - Town view button
 
 **When extracting new templates:**
 1. Extract from full 4K screenshot (3840x2160)
@@ -312,3 +330,51 @@ adb.swipe(x1, y1, x2, y2, duration=300)
 | Arrow Keys | Win32 API | Yes | `send_arrow_proper.py` |
 | Zoom In/Out | Win32 API (Shift+A/Z) | Yes | `send_zoom.py` |
 | Map Dragging | ADB swipe | No | `utils/adb_helper.py` → `adb.swipe(...)` |
+
+## Icon Daemon
+
+The icon daemon (`scripts/icon_daemon.py`) runs continuously, detecting clickable icons and triggering flows.
+
+### Running the Daemon
+
+```bash
+# Normal mode - only logs detections
+python scripts/icon_daemon.py
+
+# Debug mode - logs all scores every iteration
+python scripts/icon_daemon.py --debug
+
+# Custom interval (default 3 seconds)
+python scripts/icon_daemon.py --interval 5
+```
+
+### Currently Detected Icons
+
+| Icon | Matcher | Threshold | Click Position | Flow |
+|------|---------|-----------|----------------|------|
+| Handshake | `handshake_icon_matcher.py` | 0.04 | (3165, 1843) | `handshake_flow` |
+| Treasure Map | `treasure_map_matcher.py` | 0.05 | (2175, 1621) | `treasure_map_flow` |
+| Harvest Box | `harvest_box_matcher.py` | 0.1 | (2177, 1618) | `harvest_box_flow` |
+| Corn | `corn_harvest_matcher.py` | 0.05 | (1932, 1297) | `corn_harvest_flow` |
+| Gold | `gold_coin_matcher.py` | 0.06 | (1395, 835) | `gold_coin_flow` |
+| Iron | `iron_bar_matcher.py` | 0.08 | (1639, 377) | `iron_bar_flow` |
+| Gem | `gem_matcher.py` | 0.06 | (787, 427) | `gem_flow` |
+
+### Flows
+
+Flows are in `scripts/flows/`:
+- `handshake_flow.py` - Click handshake icon
+- `treasure_map_flow.py` - Click treasure map
+- `harvest_box_flow.py` - Full harvest sequence (icon → surprise box → open → back)
+- `corn_harvest_flow.py` - Click corn bubble
+- `gold_coin_flow.py` - Click gold bubble
+- `iron_bar_flow.py` - Click iron bubble
+- `gem_flow.py` - Click gem bubble
+- `back_from_chat_flow.py` - Generic back action (clicks back button until gone)
+
+### Matcher Thresholds
+
+Thresholds are defined in each matcher file (single source of truth):
+- `TM_SQDIFF_NORMED`: Lower score = better match. Threshold is maximum allowed score.
+- Typical thresholds: 0.04-0.06 for icons, 0.1 for larger templates
+- Edit thresholds in `utils/*_matcher.py` files, NOT in `icon_daemon.py`

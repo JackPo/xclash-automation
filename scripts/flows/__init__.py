@@ -11,6 +11,7 @@ from .harvest_box_flow import harvest_box_flow
 from .corn_harvest_flow import corn_harvest_flow
 from .gold_coin_flow import gold_coin_flow
 from .iron_bar_flow import iron_bar_flow
+from .gem_flow import gem_flow
 from .back_from_chat_flow import back_from_chat_flow
 
-__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'back_from_chat_flow']
+__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'back_from_chat_flow']
