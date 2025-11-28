@@ -280,7 +280,7 @@ When user is idle for 5+ minutes, daemon automatically:
 | Icon | Matcher | Threshold | Click Position | Flow |
 |------|---------|-----------|----------------|------|
 | Handshake | `handshake_icon_matcher.py` | 0.04 | (3165, 1843) | `handshake_flow` |
-| Treasure Map | `treasure_map_matcher.py` | 0.05 | (2175, 1621) | `treasure_map_flow` |
+| Treasure Map | `treasure_map_matcher.py` | 0.05 | (2175, 1621) | `treasure_map_flow` (Step 1 working, Step 2+ needs testing) |
 | Harvest Box | `harvest_box_matcher.py` | 0.1 | (2177, 1618) | `harvest_box_flow` |
 | Corn | `corn_harvest_matcher.py` | 0.05 | (1932, 1297) | `corn_harvest_flow` |
 | Gold | `gold_coin_matcher.py` | 0.06 | (1395, 835) | `gold_coin_flow` |
