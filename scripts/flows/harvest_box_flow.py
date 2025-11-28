@@ -17,6 +17,7 @@ from pathlib import Path
 import time
 import cv2
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from .back_from_chat_flow import back_from_chat_flow
 
 # Template for the dialog box (moves vertically)
@@ -39,7 +40,7 @@ def harvest_box_flow(adb, screenshot_helper=None):
 
     Args:
         adb: ADBHelper instance
-        screenshot_helper: WindowsScreenshotHelper instance (optional)
+        screenshot_helper: WindowsScreenshotHelper instance (optional, will create one if not provided)
 
     Returns:
         True if successful, False otherwise
@@ -52,14 +53,9 @@ def harvest_box_flow(adb, screenshot_helper=None):
     time.sleep(0.5)
 
     # Step 3: Find and click the surprise box dialog
-    if screenshot_helper:
-        frame = screenshot_helper.get_screenshot_cv2()
-    else:
-        import tempfile
-        import os
-        tmp_path = os.path.join(tempfile.gettempdir(), "harvest_check.png")
-        adb.take_screenshot(tmp_path)
-        frame = cv2.imread(tmp_path)
+    # ALWAYS use Windows screenshot - never ADB (different pixel values, won't match templates)
+    win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
+    frame = win.get_screenshot_cv2()
 
     if frame is None:
         print("    [HARVEST] Failed to get screenshot")

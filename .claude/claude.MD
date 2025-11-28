@@ -32,12 +32,16 @@ win = WindowsScreenshotHelper()
 frame = win.get_screenshot_cv2()  # Returns BGR numpy array
 ```
 
-**Why**: Templates are captured with Windows screenshots. ADB screenshots have different pixel values and will NOT match templates (scores will be ~0.07 instead of 0.00).
+**Why**:
+1. Templates are captured with Windows screenshots. ADB screenshots have different pixel values and will NOT match templates (scores will be ~0.07 instead of 0.00).
+2. ADB screenshots are SLOW - performance issues with real-time detection.
 
 **Rules**:
 - Detection/matching: Use `WindowsScreenshotHelper`
 - Template capture: Use `WindowsScreenshotHelper`
 - Actions (tap, swipe): Use `ADBHelper`
+
+**NEVER use `adb.take_screenshot()` in production flows.** No fallbacks. If WindowsScreenshotHelper fails, let it error.
 
 ## Project Context
 
