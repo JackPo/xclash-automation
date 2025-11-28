@@ -27,10 +27,11 @@ class TreasureChatNotificationMatcher:
     """
 
     # Search region - banner can appear at different Y positions
+    # Banner found at Y ~600-800, so search from Y=500 to cover all positions
     SEARCH_X = 1500
-    SEARCH_Y = 1200
+    SEARCH_Y = 500
     SEARCH_WIDTH = 820  # Wide enough for 768px template + some margin
-    SEARCH_HEIGHT = 500  # Vertical search range
+    SEARCH_HEIGHT = 800  # Vertical search range (500 to 1300)
 
     # Click offset from banner top-left to Kingdom link
     CLICK_OFFSET_X = 508  # 2040 - 1532 = 508 pixels right of banner left edge
