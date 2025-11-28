@@ -13,11 +13,15 @@ Sequence:
 9. Click blue circle to collect treasure
 10. Click back button to exit
 11. Return to town and verify
+
+NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
+Templates are captured with Windows screenshots - ADB has different pixel values.
 """
 import time
 
 import cv2
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.treasure_chat_notification_matcher import TreasureChatNotificationMatcher
 from utils.treasure_dig_matchers import (
     TreasureDiggingMarkerMatcher,
@@ -94,10 +98,10 @@ def treasure_map_flow(adb):
 def _wait_and_click_chat_notification(adb) -> bool:
     """Wait for chat notification and click Kingdom link."""
     notification_matcher = TreasureChatNotificationMatcher()
+    win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
-        screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-        frame = cv2.imread(screenshot_path)
+        frame = win.get_screenshot_cv2()
 
         if frame is None:
             time.sleep(CHECK_INTERVAL)
@@ -122,10 +126,10 @@ def _wait_and_click_chat_notification(adb) -> bool:
 def _wait_and_click_digging_marker(adb) -> bool:
     """Wait for treasure digging marker and click it."""
     marker_matcher = TreasureDiggingMarkerMatcher()
+    win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
-        screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-        frame = cv2.imread(screenshot_path)
+        frame = win.get_screenshot_cv2()
 
         if frame is None:
             time.sleep(CHECK_INTERVAL)
@@ -149,10 +153,10 @@ def _wait_and_click_digging_marker(adb) -> bool:
 def _wait_and_click_gather(adb) -> bool:
     """Wait for Gather button and click it."""
     gather_matcher = GatherButtonMatcher()
+    win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
-        screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-        frame = cv2.imread(screenshot_path)
+        frame = win.get_screenshot_cv2()
 
         if frame is None:
             time.sleep(CHECK_INTERVAL)
@@ -177,10 +181,10 @@ def _select_character_and_march(adb) -> bool:
     """Select rightmost idle character and click March."""
     zz_matcher = ZzSleepIconMatcher()
     march_matcher = MarchButtonMatcher()
+    win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
-        screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-        frame = cv2.imread(screenshot_path)
+        frame = win.get_screenshot_cv2()
 
         if frame is None:
             time.sleep(CHECK_INTERVAL)
@@ -198,8 +202,7 @@ def _select_character_and_march(adb) -> bool:
                 time.sleep(0.5)
 
                 # Take new screenshot and click March
-                screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-                frame = cv2.imread(screenshot_path)
+                frame = win.get_screenshot_cv2()
                 march_present, _ = march_matcher.is_present(frame)
 
                 if march_present:
@@ -222,6 +225,7 @@ def _select_character_and_march(adb) -> bool:
 def _wait_and_collect_treasure(adb) -> bool:
     """Wait for treasure to be ready and collect it, keep clicking until circle turns white."""
     ready_matcher = TreasureReadyCircleMatcher()
+    win = WindowsScreenshotHelper()
 
     start_time = time.time()
     check_count = 0
@@ -229,8 +233,7 @@ def _wait_and_collect_treasure(adb) -> bool:
     # Phase 1: Wait for blue circle to appear
     while (time.time() - start_time) < MAX_MARCH_WAIT_SECONDS:
         check_count += 1
-        screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-        frame = cv2.imread(screenshot_path)
+        frame = win.get_screenshot_cv2()
 
         if frame is None:
             time.sleep(MARCH_PROGRESS_CHECK_INTERVAL)
@@ -246,8 +249,7 @@ def _wait_and_collect_treasure(adb) -> bool:
             # Phase 2: Keep clicking until blue circle is gone (turns white = collected)
             time.sleep(0.5)
             for click_attempt in range(10):
-                screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-                frame = cv2.imread(screenshot_path)
+                frame = win.get_screenshot_cv2()
 
                 if frame is None:
                     time.sleep(0.5)
@@ -279,10 +281,10 @@ def _wait_and_collect_treasure(adb) -> bool:
 def _click_back_until_gone(adb) -> None:
     """Click back button repeatedly until it's no longer visible."""
     back_matcher = BackButtonMatcher()
+    win = WindowsScreenshotHelper()
 
     for click_num in range(BACK_BUTTON_MAX_CLICKS):
-        screenshot_path = adb.take_screenshot("treasure_flow_check.png")
-        frame = cv2.imread(screenshot_path)
+        frame = win.get_screenshot_cv2()
 
         if frame is None:
             time.sleep(CHECK_INTERVAL)
