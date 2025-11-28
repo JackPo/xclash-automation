@@ -47,10 +47,10 @@ from utils.iron_bar_matcher import IronBarMatcher
 from utils.gem_matcher import GemMatcher
 from utils.cabbage_matcher import CabbageMatcher
 from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
-from utils.world_button_matcher import WorldButtonMatcher
 from utils.back_button_matcher import BackButtonMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
+from utils.view_state_detector import detect_view, go_to_town, ViewState
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow
 
@@ -76,7 +76,6 @@ class IconDaemon:
         self.gem_matcher = None
         self.cabbage_matcher = None
         self.equipment_enhancement_matcher = None
-        self.world_button_matcher = None
         self.back_button_matcher = None
 
         # Track active flows to prevent re-triggering
@@ -149,9 +148,6 @@ class IconDaemon:
         self.equipment_enhancement_matcher = EquipmentEnhancementMatcher(debug_dir=debug_dir)
         print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.template_path.name} (threshold={self.equipment_enhancement_matcher.threshold})")
 
-        self.world_button_matcher = WorldButtonMatcher(debug_dir=debug_dir)
-        print(f"  World button matcher: {self.world_button_matcher.template_path.name} (threshold={self.world_button_matcher.threshold})")
-
         self.back_button_matcher = BackButtonMatcher(debug_dir=debug_dir)
         print(f"  Back button matcher: dark+light templates (threshold={self.back_button_matcher.threshold})")
 
@@ -186,9 +182,8 @@ class IconDaemon:
         return True
 
     def _switch_to_town(self):
-        """Switch to town view using view_detection."""
-        from view_detection import switch_to_view, ViewState
-        success = switch_to_view(self.adb, ViewState.TOWN)
+        """Switch to town view using view_state_detector."""
+        success = go_to_town(self.adb, debug=False)
         if success:
             self.logger.info("IDLE SWITCH: Successfully switched to TOWN view")
         else:
@@ -219,37 +214,31 @@ class IconDaemon:
                 gem_present, gem_score = self.gem_matcher.is_present(frame)
                 cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
                 equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
-                world_present, world_score = self.world_button_matcher.is_present(frame)
+                # Get view state using view_state_detector
+                view_state_enum, view_score = detect_view(frame)
+                view_state = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
                 back_present, back_score = self.back_button_matcher.is_present(frame)
+
+                # For backwards compatibility with flow checks
+                world_present = (view_state == "TOWN")
+                town_present = (view_state == "WORLD")
 
                 # Get idle time
                 idle_secs = get_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
 
-                # Always print scores to stdout
-                print(f"[{iteration}] idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} W:{world_score:.3f} B:{back_score:.3f}")
+                # Always print scores to stdout with view state
+                print(f"[{iteration}] [{view_state}] idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
-                # Idle recovery - every 5 min when idle 5+ min
+                # Idle recovery - every 5 min when idle 5+ min, go to town
                 if idle_secs >= self.IDLE_THRESHOLD:
                     current_time = time.time()
                     if current_time - self.last_idle_check_time >= self.IDLE_CHECK_INTERVAL:
                         self.last_idle_check_time = current_time
 
-                        # Priority 1: If back button visible, we're in chat - click back
-                        if back_present:
-                            self.logger.info(f"[{iteration}] IDLE RECOVERY: Back button detected (score={back_score:.3f}), clicking to exit chat...")
-                            self.back_button_matcher.click(self.adb)
-                            time.sleep(0.5)
-
-                        # Priority 2: If no world AND no back, menu is gone - click back location
-                        elif not world_present and not back_present:
-                            self.logger.info(f"[{iteration}] IDLE RECOVERY: Menu gone, clicking back location to recover...")
-                            self.adb.tap(self.back_button_matcher.CLICK_X, self.back_button_matcher.CLICK_Y)
-                            time.sleep(0.5)
-
-                        # Priority 3: If no world button, switch to town
-                        if not world_present:
-                            self.logger.info(f"[{iteration}] IDLE RECOVERY: Not in town, switching...")
+                        # Not in town - navigate there (handles CHAT, WORLD, UNKNOWN)
+                        if view_state != "TOWN":
+                            self.logger.info(f"[{iteration}] IDLE RECOVERY: In {view_state}, navigating to TOWN...")
                             self._switch_to_town()
 
                 # Log and trigger flows
@@ -290,9 +279,11 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
-                # World button detection - log only (indicates we're in TOWN view)
-                if world_present:
-                    self.logger.info(f"[{iteration}] WORLD BUTTON visible (in TOWN view) (diff={world_score:.4f})")
+                # Log view state for debugging
+                if view_state == "TOWN":
+                    self.logger.info(f"[{iteration}] View: TOWN (world button visible, score={view_score:.4f})")
+                elif view_state == "WORLD":
+                    self.logger.info(f"[{iteration}] View: WORLD (town button visible, score={view_score:.4f})")
 
             except Exception as e:
                 self.logger.error(f"[{iteration}] ERROR: {e}")

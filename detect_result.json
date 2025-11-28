@@ -1,25 +1,25 @@
 {
-  "image": "harvest_surprise_chat_notification.png",
+  "image": "view_check.png",
   "image_size": [
     3840,
     2160
   ],
-  "prompt": "the box that says harvest surprise box",
-  "label": "harvest surprise box",
+  "prompt": "the World or Town button in the lower right corner - it's a circular button with either a map icon (World) or house icon (Town)",
+  "label": "World or Town button",
   "normalized": [
-    506,
-    400,
-    623,
-    606
+    885,
+    935,
+    994,
+    995
   ],
   "pixels": {
-    "x": 1536,
-    "y": 1092,
-    "width": 791,
-    "height": 253
+    "x": 3590,
+    "y": 1911,
+    "width": 230,
+    "height": 236
   },
   "center": {
-    "x": 1931,
-    "y": 1218
+    "x": 3705,
+    "y": 2029
   }
 }

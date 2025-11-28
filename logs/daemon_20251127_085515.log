@@ -1,0 +1,13 @@
+2025-11-27 08:55:15,452 [INFO] Initializing icon daemon...
+2025-11-27 08:55:15,453 [INFO] Log file: logs\daemon_20251127_085515.log
+2025-11-27 08:55:22,034 [INFO] Starting detection loop (interval: 3.0s)
+2025-11-27 08:55:22,034 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage
+2025-11-27 08:55:54,058 [INFO] [11] CORN detected (diff=0.0357)
+2025-11-27 08:55:54,059 [INFO] FLOW START: corn_harvest
+2025-11-27 08:55:54,059 [INFO] [11] GOLD detected (diff=0.0549)
+2025-11-27 08:55:54,059 [INFO] FLOW START: gold_coin
+2025-11-27 08:55:54,060 [INFO] [11] IRON detected (diff=0.0750)
+2025-11-27 08:55:54,060 [INFO] FLOW START: iron_bar
+2025-11-27 08:55:54,242 [INFO] FLOW END: iron_bar
+2025-11-27 08:55:54,246 [INFO] FLOW END: corn_harvest
+2025-11-27 08:55:54,253 [INFO] FLOW END: gold_coin

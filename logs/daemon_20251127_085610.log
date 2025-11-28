@@ -1,0 +1,4 @@
+2025-11-27 08:56:10,065 [INFO] Initializing icon daemon...
+2025-11-27 08:56:10,065 [INFO] Log file: logs\daemon_20251127_085610.log
+2025-11-27 08:56:13,623 [INFO] Starting detection loop (interval: 3.0s)
+2025-11-27 08:56:13,623 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, World

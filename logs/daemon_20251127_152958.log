@@ -1,0 +1,22 @@
+2025-11-27 15:29:58,347 [INFO] Initializing icon daemon...
+2025-11-27 15:29:58,348 [INFO] Log file: logs\daemon_20251127_152958.log
+2025-11-27 15:30:04,939 [INFO] Starting detection loop (interval: 3.0s)
+2025-11-27 15:30:04,939 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World
+2025-11-27 15:30:05,111 [INFO] [1] CORN detected (diff=0.0819)
+2025-11-27 15:30:05,112 [INFO] FLOW START: corn_harvest
+2025-11-27 15:30:05,112 [INFO] [1] GOLD detected (diff=0.0561)
+2025-11-27 15:30:05,113 [INFO] FLOW START: gold_coin
+2025-11-27 15:30:05,113 [INFO] [1] IRON detected (diff=0.0751)
+2025-11-27 15:30:05,117 [INFO] FLOW START: iron_bar
+2025-11-27 15:30:05,117 [INFO] [1] WORLD BUTTON visible (in TOWN view) (diff=0.0000)
+2025-11-27 15:30:05,294 [INFO] FLOW END: gold_coin
+2025-11-27 15:30:05,297 [INFO] FLOW END: corn_harvest
+2025-11-27 15:30:05,304 [INFO] FLOW END: iron_bar
+2025-11-27 15:30:08,325 [INFO] [2] CORN detected (diff=0.0819)
+2025-11-27 15:30:08,326 [INFO] FLOW START: corn_harvest
+2025-11-27 15:30:08,326 [INFO] [2] WORLD BUTTON visible (in TOWN view) (diff=0.0000)
+2025-11-27 15:30:08,534 [INFO] FLOW END: corn_harvest
+2025-11-27 15:30:11,507 [INFO] [3] CORN detected (diff=0.0819)
+2025-11-27 15:30:11,508 [INFO] FLOW START: corn_harvest
+2025-11-27 15:30:11,508 [INFO] [3] WORLD BUTTON visible (in TOWN view) (diff=0.0000)
+2025-11-27 15:30:11,681 [INFO] FLOW END: corn_harvest

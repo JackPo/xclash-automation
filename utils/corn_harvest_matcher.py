@@ -34,7 +34,7 @@ class CornHarvestMatcher:
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.05,
+        threshold: float = 0.06,
     ) -> None:
         """
         Initialize corn harvest bubble detector.

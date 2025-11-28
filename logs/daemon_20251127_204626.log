@@ -1,0 +1,140 @@
+2025-11-27 20:46:26,643 [INFO] Initializing icon daemon...
+2025-11-27 20:46:26,644 [INFO] Log file: logs\daemon_20251127_204626.log
+2025-11-27 20:46:33,225 [INFO] Starting detection loop (interval: 3.0s)
+2025-11-27 20:46:33,225 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World
+2025-11-27 20:46:33,411 [INFO] [1] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:46:36,605 [INFO] [2] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:46:39,774 [INFO] [3] CABBAGE detected (diff=0.0388)
+2025-11-27 20:46:39,775 [INFO] FLOW START: cabbage
+2025-11-27 20:46:39,775 [INFO] [3] EQUIPMENT ENHANCEMENT detected (diff=0.0186)
+2025-11-27 20:46:39,779 [INFO] FLOW START: equipment_enhancement
+2025-11-27 20:46:39,780 [INFO] [3] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:46:40,282 [INFO] FLOW END: equipment_enhancement
+2025-11-27 20:46:40,290 [INFO] FLOW END: cabbage
+2025-11-27 20:46:42,971 [INFO] [4] CORN detected (diff=0.0576)
+2025-11-27 20:46:42,971 [INFO] FLOW START: corn_harvest
+2025-11-27 20:46:42,972 [INFO] [4] GOLD detected (diff=0.0549)
+2025-11-27 20:46:42,972 [INFO] FLOW START: gold_coin
+2025-11-27 20:46:42,972 [INFO] [4] IRON detected (diff=0.0750)
+2025-11-27 20:46:42,973 [INFO] FLOW START: iron_bar
+2025-11-27 20:46:42,973 [INFO] [4] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:46:43,192 [INFO] FLOW END: iron_bar
+2025-11-27 20:46:43,207 [INFO] FLOW END: corn_harvest
+2025-11-27 20:46:43,209 [INFO] FLOW END: gold_coin
+2025-11-27 20:46:46,146 [INFO] [5] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:46:49,334 [INFO] [6] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:46:52,509 [INFO] [7] HANDSHAKE detected (diff=0.0321)
+2025-11-27 20:46:52,510 [INFO] FLOW START: handshake
+2025-11-27 20:46:52,510 [INFO] [7] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:46:52,698 [INFO] FLOW END: handshake
+2025-11-27 20:46:55,707 [INFO] [8] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:46:58,906 [INFO] [9] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:02,092 [INFO] [10] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:05,271 [INFO] [11] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:08,446 [INFO] [12] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:11,638 [INFO] [13] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:14,808 [INFO] [14] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:18,007 [INFO] [15] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:21,209 [INFO] [16] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:24,420 [INFO] [17] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:27,611 [INFO] [18] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:30,820 [INFO] [19] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:47:37,212 [INFO] [21] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:47:40,414 [INFO] [22] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:47:46,811 [INFO] [24] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:47:50,015 [INFO] [25] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:47:53,204 [INFO] [26] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:47:56,377 [INFO] [27] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:47:59,600 [INFO] [28] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:02,779 [INFO] [29] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:05,970 [INFO] [30] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:09,135 [INFO] [31] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:12,300 [INFO] [32] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:15,471 [INFO] [33] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:18,640 [INFO] [34] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:21,837 [INFO] [35] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:25,008 [INFO] [36] HANDSHAKE detected (diff=0.0356)
+2025-11-27 20:48:25,009 [INFO] FLOW START: handshake
+2025-11-27 20:48:25,009 [INFO] [36] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:25,174 [INFO] FLOW END: handshake
+2025-11-27 20:48:28,214 [INFO] [37] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:31,402 [INFO] [38] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:34,572 [INFO] [39] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:37,785 [INFO] [40] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:40,970 [INFO] [41] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:44,149 [INFO] [42] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:47,340 [INFO] [43] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:50,540 [INFO] [44] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:53,717 [INFO] [45] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:48:56,904 [INFO] [46] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:49:00,122 [INFO] [47] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:49:03,313 [INFO] [48] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:49:06,504 [INFO] [49] View: WORLD (town button visible, score=0.0003)
+2025-11-27 20:49:09,682 [INFO] [50] CABBAGE detected (diff=0.0181)
+2025-11-27 20:49:09,683 [INFO] FLOW START: cabbage
+2025-11-27 20:49:09,683 [INFO] [50] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:10,190 [INFO] FLOW END: cabbage
+2025-11-27 20:49:12,890 [INFO] [51] CORN detected (diff=0.0548)
+2025-11-27 20:49:12,891 [INFO] FLOW START: corn_harvest
+2025-11-27 20:49:12,891 [INFO] [51] GOLD detected (diff=0.0549)
+2025-11-27 20:49:12,892 [INFO] FLOW START: gold_coin
+2025-11-27 20:49:12,892 [INFO] [51] IRON detected (diff=0.0750)
+2025-11-27 20:49:12,892 [INFO] FLOW START: iron_bar
+2025-11-27 20:49:12,892 [INFO] [51] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:13,110 [INFO] FLOW END: iron_bar
+2025-11-27 20:49:13,131 [INFO] FLOW END: gold_coin
+2025-11-27 20:49:13,151 [INFO] FLOW END: corn_harvest
+2025-11-27 20:49:16,070 [INFO] [52] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:19,234 [INFO] [53] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:22,409 [INFO] [54] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:49:25,613 [INFO] [55] View: WORLD (town button visible, score=0.0007)
+2025-11-27 20:49:28,830 [INFO] [56] View: WORLD (town button visible, score=0.0001)
+2025-11-27 20:49:32,015 [INFO] [57] View: WORLD (town button visible, score=0.0001)
+2025-11-27 20:49:35,204 [INFO] [58] View: WORLD (town button visible, score=0.0001)
+2025-11-27 20:49:38,379 [INFO] [59] View: WORLD (town button visible, score=0.0001)
+2025-11-27 20:49:41,582 [INFO] [60] View: WORLD (town button visible, score=0.0073)
+2025-11-27 20:49:44,771 [INFO] [61] CABBAGE detected (diff=0.0497)
+2025-11-27 20:49:44,772 [INFO] FLOW START: cabbage
+2025-11-27 20:49:44,773 [INFO] [61] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:45,272 [INFO] FLOW END: cabbage
+2025-11-27 20:49:47,955 [INFO] [62] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:51,137 [INFO] [63] GOLD detected (diff=0.0567)
+2025-11-27 20:49:51,138 [INFO] FLOW START: gold_coin
+2025-11-27 20:49:51,138 [INFO] [63] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:49:51,295 [INFO] FLOW END: gold_coin
+2025-11-27 20:49:54,300 [INFO] [64] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:03,925 [INFO] [67] View: WORLD (town button visible, score=0.0000)
+2025-11-27 20:50:23,118 [INFO] [73] CABBAGE detected (diff=0.0008)
+2025-11-27 20:50:23,119 [INFO] FLOW START: cabbage
+2025-11-27 20:50:23,119 [INFO] [73] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:23,619 [INFO] FLOW END: cabbage
+2025-11-27 20:50:26,328 [INFO] [74] GOLD detected (diff=0.0564)
+2025-11-27 20:50:26,329 [INFO] FLOW START: gold_coin
+2025-11-27 20:50:26,329 [INFO] [74] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:26,512 [INFO] FLOW END: gold_coin
+2025-11-27 20:50:29,515 [INFO] [75] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:32,707 [INFO] [76] IRON detected (diff=0.0750)
+2025-11-27 20:50:32,708 [INFO] FLOW START: iron_bar
+2025-11-27 20:50:32,708 [INFO] [76] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:32,901 [INFO] FLOW END: iron_bar
+2025-11-27 20:50:35,908 [INFO] [77] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:39,106 [INFO] [78] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:42,277 [INFO] [79] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:45,472 [INFO] [80] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:48,669 [INFO] [81] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:51,838 [INFO] [82] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:55,011 [INFO] [83] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:58,203 [INFO] [84] CABBAGE detected (diff=0.0069)
+2025-11-27 20:50:58,204 [INFO] FLOW START: cabbage
+2025-11-27 20:50:58,204 [INFO] [84] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:50:58,682 [INFO] FLOW END: cabbage
+2025-11-27 20:51:01,401 [INFO] [85] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:51:04,576 [INFO] [86] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:51:07,779 [INFO] [87] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:51:10,980 [INFO] [88] GOLD detected (diff=0.0549)
+2025-11-27 20:51:10,981 [INFO] FLOW START: gold_coin
+2025-11-27 20:51:10,981 [INFO] [88] IRON detected (diff=0.0750)
+2025-11-27 20:51:10,981 [INFO] FLOW START: iron_bar
+2025-11-27 20:51:10,982 [INFO] [88] View: TOWN (world button visible, score=0.0000)
+2025-11-27 20:51:11,173 [INFO] FLOW END: iron_bar
+2025-11-27 20:51:11,246 [INFO] FLOW END: gold_coin
