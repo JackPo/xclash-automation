@@ -16,8 +16,13 @@ Sequence:
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 Templates are captured with Windows screenshots - ADB has different pixel values.
+
+DEBUG: This flow saves screenshots at every step to templates/debug/treasure_flow/
 """
 import time
+import logging
+from pathlib import Path
+from datetime import datetime
 
 import cv2
 
@@ -32,6 +37,13 @@ from utils.treasure_dig_matchers import (
 )
 from utils.back_button_matcher import BackButtonMatcher
 
+# Setup logger
+logger = logging.getLogger("treasure_map_flow")
+
+# Debug output directory
+DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "treasure_flow"
+DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
 # Fixed click coordinates for treasure map icon (4K resolution)
 CLICK_X = 2175
 CLICK_Y = 1621
@@ -45,6 +57,20 @@ MAX_MARCH_WAIT_SECONDS = 600  # 10 minutes max wait for march
 BACK_BUTTON_MAX_CLICKS = 5  # Max back button clicks to exit
 
 
+def _save_debug_screenshot(frame, name: str) -> str:
+    """Save screenshot for debugging. Returns path."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = DEBUG_DIR / f"{timestamp}_{name}.png"
+    cv2.imwrite(str(path), frame)
+    return str(path)
+
+
+def _log(msg: str):
+    """Log to both logger and stdout."""
+    logger.info(msg)
+    print(f"    [FLOW] {msg}")
+
+
 def treasure_map_flow(adb):
     """
     Handle full treasure hunting sequence.
@@ -55,43 +81,65 @@ def treasure_map_flow(adb):
     Returns:
         bool: True if treasure was collected, False otherwise
     """
-    print(f"    [FLOW] Treasure map: clicking icon ({CLICK_X}, {CLICK_Y})")
+    flow_start = time.time()
+    _log(f"=== TREASURE FLOW START ===")
+    _log(f"Clicking treasure map icon at ({CLICK_X}, {CLICK_Y})")
     adb.tap(CLICK_X, CLICK_Y)
+
+    # Take screenshot right after clicking icon
+    win = WindowsScreenshotHelper()
+    time.sleep(0.3)
+    frame = win.get_screenshot_cv2()
+    if frame is not None:
+        _save_debug_screenshot(frame, "01_after_icon_click")
 
     # Step 1: Wait for and click chat notification
     time.sleep(INITIAL_DELAY)
+    _log("Step 1: Looking for chat notification...")
     if not _wait_and_click_chat_notification(adb):
+        _log(f"FAILED at Step 1 (chat notification) after {time.time() - flow_start:.1f}s")
         return False
 
     # Step 2: Wait for map to load and click on treasure
     time.sleep(2.0)  # Wait for map navigation
+    _log("Step 2: Looking for digging marker...")
     if not _wait_and_click_digging_marker(adb):
+        _log(f"FAILED at Step 2 (digging marker) after {time.time() - flow_start:.1f}s")
         return False
 
     # Step 3: Click Gather button
     time.sleep(1.0)
+    _log("Step 3: Looking for Gather button...")
     if not _wait_and_click_gather(adb):
+        _log(f"FAILED at Step 3 (gather button) after {time.time() - flow_start:.1f}s")
         return False
 
     # Step 4: Select character (rightmost Zz) and click March
     time.sleep(0.5)
+    _log("Step 4: Looking for march screen...")
     if not _select_character_and_march(adb):
+        _log(f"FAILED at Step 4 (march screen) after {time.time() - flow_start:.1f}s")
         return False
 
     # Step 5: Wait for march to complete and collect treasure
+    _log("Step 5: Waiting for treasure to be ready...")
     if not _wait_and_collect_treasure(adb):
+        _log(f"FAILED at Step 5 (collect treasure) after {time.time() - flow_start:.1f}s")
         return False
 
     # Step 6: Click back button to exit
     time.sleep(1.0)
+    _log("Step 6: Clicking back button to exit...")
     _click_back_until_gone(adb)
 
     # Step 7: Return to town and verify
     time.sleep(1.0)
+    _log("Step 7: Returning to town...")
     if not _return_to_town(adb):
-        print("    [FLOW] Warning: Could not verify return to town")
+        _log("Warning: Could not verify return to town")
 
-    print("    [FLOW] Treasure collected successfully!")
+    elapsed = time.time() - flow_start
+    _log(f"=== TREASURE FLOW SUCCESS === (took {elapsed:.1f}s)")
     return True
 
 
@@ -104,22 +152,27 @@ def _wait_and_click_chat_notification(adb) -> bool:
         frame = win.get_screenshot_cv2()
 
         if frame is None:
+            _log(f"  Chat check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
             time.sleep(CHECK_INTERVAL)
             continue
 
         is_present, score, found_pos = notification_matcher.is_present(frame)
 
+        # Save every attempt for debugging
+        _save_debug_screenshot(frame, f"02_chat_check_{attempt+1}_score{score:.3f}")
+
+        _log(f"  Chat check {attempt+1}/{MAX_ATTEMPTS}: present={is_present}, score={score:.4f}, pos={found_pos}")
+
         if is_present and found_pos:
             click_x, click_y = notification_matcher.get_click_position(found_pos)
-            print(f"    [FLOW] Chat notification found at {found_pos}, score={score:.4f}")
-            print(f"    [FLOW] Clicking Kingdom link at ({click_x}, {click_y})")
+            _save_debug_screenshot(frame, f"03_chat_FOUND_score{score:.3f}")
+            _log(f"  Chat notification FOUND at {found_pos}, clicking Kingdom link at ({click_x}, {click_y})")
             adb.tap(click_x, click_y)
             return True
 
-        print(f"    [FLOW] Waiting for chat notification... ({attempt + 1}/{MAX_ATTEMPTS})")
         time.sleep(CHECK_INTERVAL)
 
-    print("    [FLOW] Chat notification not found")
+    _log(f"  Chat notification NOT FOUND after {MAX_ATTEMPTS} attempts")
     return False
 
 
@@ -132,21 +185,26 @@ def _wait_and_click_digging_marker(adb) -> bool:
         frame = win.get_screenshot_cv2()
 
         if frame is None:
+            _log(f"  Marker check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
             time.sleep(CHECK_INTERVAL)
             continue
 
         is_present, score = marker_matcher.is_present(frame)
 
+        # Save every attempt for debugging
+        _save_debug_screenshot(frame, f"04_marker_check_{attempt+1}_score{score:.3f}")
+
+        _log(f"  Marker check {attempt+1}/{MAX_ATTEMPTS}: present={is_present}, score={score:.4f}, threshold={marker_matcher.threshold}")
+
         if is_present:
-            print(f"    [FLOW] Digging marker found, score={score:.4f}")
-            print(f"    [FLOW] Clicking treasure at ({marker_matcher.CLICK_X}, {marker_matcher.CLICK_Y})")
+            _save_debug_screenshot(frame, f"05_marker_FOUND_score{score:.3f}")
+            _log(f"  Digging marker FOUND, clicking at ({marker_matcher.CLICK_X}, {marker_matcher.CLICK_Y})")
             marker_matcher.click(adb)
             return True
 
-        print(f"    [FLOW] Waiting for digging marker... ({attempt + 1}/{MAX_ATTEMPTS})")
         time.sleep(CHECK_INTERVAL)
 
-    print("    [FLOW] Digging marker not found")
+    _log(f"  Digging marker NOT FOUND after {MAX_ATTEMPTS} attempts")
     return False
 
 
@@ -159,21 +217,26 @@ def _wait_and_click_gather(adb) -> bool:
         frame = win.get_screenshot_cv2()
 
         if frame is None:
+            _log(f"  Gather check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
             time.sleep(CHECK_INTERVAL)
             continue
 
         is_present, score = gather_matcher.is_present(frame)
 
+        # Save every attempt for debugging
+        _save_debug_screenshot(frame, f"06_gather_check_{attempt+1}_score{score:.3f}")
+
+        _log(f"  Gather check {attempt+1}/{MAX_ATTEMPTS}: present={is_present}, score={score:.4f}, threshold={gather_matcher.threshold}")
+
         if is_present:
-            print(f"    [FLOW] Gather button found, score={score:.4f}")
-            print(f"    [FLOW] Clicking Gather at ({gather_matcher.CLICK_X}, {gather_matcher.CLICK_Y})")
+            _save_debug_screenshot(frame, f"07_gather_FOUND_score{score:.3f}")
+            _log(f"  Gather button FOUND, clicking at ({gather_matcher.CLICK_X}, {gather_matcher.CLICK_Y})")
             gather_matcher.click(adb)
             return True
 
-        print(f"    [FLOW] Waiting for Gather button... ({attempt + 1}/{MAX_ATTEMPTS})")
         time.sleep(CHECK_INTERVAL)
 
-    print("    [FLOW] Gather button not found")
+    _log(f"  Gather button NOT FOUND after {MAX_ATTEMPTS} attempts")
     return False
 
 
@@ -187,38 +250,47 @@ def _select_character_and_march(adb) -> bool:
         frame = win.get_screenshot_cv2()
 
         if frame is None:
+            _log(f"  March check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
             time.sleep(CHECK_INTERVAL)
             continue
 
         # First check if March button is visible (indicates we're on march screen)
         march_present, march_score = march_matcher.is_present(frame)
 
+        # Save every attempt for debugging
+        _save_debug_screenshot(frame, f"08_march_check_{attempt+1}_score{march_score:.3f}")
+
+        _log(f"  March check {attempt+1}/{MAX_ATTEMPTS}: present={march_present}, score={march_score:.4f}, threshold={march_matcher.threshold}")
+
         if march_present:
+            _save_debug_screenshot(frame, f"09_march_FOUND_score{march_score:.3f}")
+
             # Find and click rightmost Zz icon
             zz_pos = zz_matcher.find_rightmost_zz(frame)
             if zz_pos:
-                print(f"    [FLOW] Found rightmost Zz at ({zz_pos[0]}, {zz_pos[1]})")
+                _log(f"  Found rightmost Zz at ({zz_pos[0]}, {zz_pos[1]}), clicking...")
                 adb.tap(zz_pos[0], zz_pos[1])
                 time.sleep(0.5)
 
                 # Take new screenshot and click March
                 frame = win.get_screenshot_cv2()
+                if frame is not None:
+                    _save_debug_screenshot(frame, "10_after_zz_click")
                 march_present, _ = march_matcher.is_present(frame)
 
                 if march_present:
-                    print(f"    [FLOW] Clicking March at ({march_matcher.CLICK_X}, {march_matcher.CLICK_Y})")
+                    _log(f"  Clicking March at ({march_matcher.CLICK_X}, {march_matcher.CLICK_Y})")
                     march_matcher.click(adb)
                     return True
             else:
                 # No Zz found, maybe all characters are busy - just click March anyway
-                print("    [FLOW] No Zz icon found, clicking March anyway")
+                _log("  No Zz icon found, clicking March anyway")
                 march_matcher.click(adb)
                 return True
 
-        print(f"    [FLOW] Waiting for march screen... ({attempt + 1}/{MAX_ATTEMPTS})")
         time.sleep(CHECK_INTERVAL)
 
-    print("    [FLOW] March screen not found")
+    _log(f"  March screen NOT FOUND after {MAX_ATTEMPTS} attempts")
     return False
 
 
@@ -229,6 +301,9 @@ def _wait_and_collect_treasure(adb) -> bool:
 
     start_time = time.time()
     check_count = 0
+    last_screenshot_time = 0
+
+    _log(f"  Waiting up to {MAX_MARCH_WAIT_SECONDS}s for blue circle (threshold={ready_matcher.threshold})")
 
     # Phase 1: Wait for blue circle to appear
     while (time.time() - start_time) < MAX_MARCH_WAIT_SECONDS:
@@ -240,10 +315,18 @@ def _wait_and_collect_treasure(adb) -> bool:
             continue
 
         is_present, score = ready_matcher.is_present(frame)
+        elapsed = int(time.time() - start_time)
+
+        # Save screenshot every 30 seconds during wait
+        if time.time() - last_screenshot_time >= 30:
+            _save_debug_screenshot(frame, f"11_waiting_{elapsed}s_score{score:.3f}")
+            last_screenshot_time = time.time()
+            _log(f"  Waiting... {elapsed}s elapsed, check #{check_count}, score={score:.4f}")
 
         if is_present:
-            print(f"    [FLOW] Blue circle found! score={score:.4f}")
-            print(f"    [FLOW] Clicking to collect at ({ready_matcher.CLICK_X}, {ready_matcher.CLICK_Y})")
+            _save_debug_screenshot(frame, f"12_blue_circle_FOUND_score{score:.3f}")
+            _log(f"  Blue circle FOUND after {elapsed}s! score={score:.4f}")
+            _log(f"  Clicking to collect at ({ready_matcher.CLICK_X}, {ready_matcher.CLICK_Y})")
             ready_matcher.click(adb)
 
             # Phase 2: Keep clicking until blue circle is gone (turns white = collected)
@@ -256,25 +339,25 @@ def _wait_and_collect_treasure(adb) -> bool:
                     continue
 
                 still_blue, score = ready_matcher.is_present(frame)
+                _save_debug_screenshot(frame, f"13_collect_click_{click_attempt+1}_score{score:.3f}")
 
                 if not still_blue:
-                    print(f"    [FLOW] Circle turned white - treasure collected!")
+                    _save_debug_screenshot(frame, "14_treasure_COLLECTED")
+                    _log(f"  Circle turned white - treasure COLLECTED!")
                     return True
 
-                print(f"    [FLOW] Still blue (score={score:.4f}), clicking again...")
+                _log(f"  Still blue (score={score:.4f}), clicking again ({click_attempt+1}/10)...")
                 ready_matcher.click(adb)
                 time.sleep(0.5)
 
             # After 10 attempts, assume collected
-            print("    [FLOW] Assuming treasure collected after multiple clicks")
+            _log("  Assuming treasure collected after 10 click attempts")
             return True
 
-        elapsed = int(time.time() - start_time)
-        if check_count % 10 == 0:  # Only log every 10 checks to reduce spam
-            print(f"    [FLOW] Waiting for treasure... ({elapsed}s elapsed, check #{check_count})")
         time.sleep(MARCH_PROGRESS_CHECK_INTERVAL)
 
-    print(f"    [FLOW] Timed out waiting for treasure after {MAX_MARCH_WAIT_SECONDS}s")
+    _save_debug_screenshot(frame, f"15_TIMEOUT_after_{MAX_MARCH_WAIT_SECONDS}s")
+    _log(f"  TIMEOUT waiting for treasure after {MAX_MARCH_WAIT_SECONDS}s")
     return False
 
 
@@ -291,16 +374,18 @@ def _click_back_until_gone(adb) -> None:
             continue
 
         is_present, score = back_matcher.is_present(frame)
+        _save_debug_screenshot(frame, f"16_back_check_{click_num+1}_score{score:.3f}")
+        _log(f"  Back check {click_num+1}: present={is_present}, score={score:.4f}")
 
         if not is_present:
-            print(f"    [FLOW] Back button gone after {click_num} clicks")
+            _log(f"  Back button gone after {click_num} clicks")
             return
 
-        print(f"    [FLOW] Clicking back button (click #{click_num + 1})")
+        _log(f"  Clicking back button (click #{click_num + 1})")
         back_matcher.click(adb)
         time.sleep(0.5)
 
-    print(f"    [FLOW] Back button still visible after {BACK_BUTTON_MAX_CLICKS} clicks")
+    _log(f"  Back button still visible after {BACK_BUTTON_MAX_CLICKS} clicks")
 
 
 def _return_to_town(adb) -> bool:
