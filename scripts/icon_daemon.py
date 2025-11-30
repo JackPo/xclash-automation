@@ -38,7 +38,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
-from utils.stamina_extractor import StaminaExtractor
+from utils.qwen_ocr import QwenOCR
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
@@ -53,7 +53,7 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.view_state_detector import detect_view, go_to_town, ViewState
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow
 
 
 class IconDaemon:
@@ -67,8 +67,9 @@ class IconDaemon:
         self.adb = None
         self.windows_helper = None
 
-        # Stamina extractor
-        self.stamina_extractor = None
+        # Stamina OCR (Qwen2.5-VL-3B)
+        self.qwen_ocr = None
+        self.STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h at 4K
 
         # Matchers
         self.handshake_matcher = None
@@ -90,6 +91,9 @@ class IconDaemon:
         self.last_idle_check_time = 0
         self.IDLE_THRESHOLD = 300  # 5 minutes before triggering
         self.IDLE_CHECK_INTERVAL = 300  # 5 minutes between checks
+
+        # Elite zombie rally - stamina threshold
+        self.ELITE_ZOMBIE_STAMINA_THRESHOLD = 118
 
         # Setup logging
         self.log_dir = Path('logs')
@@ -121,9 +125,9 @@ class IconDaemon:
         self.windows_helper = WindowsScreenshotHelper()
         print("  Windows screenshot helper initialized")
 
-        # Stamina extractor
-        self.stamina_extractor = StaminaExtractor()
-        print("  Stamina extractor initialized (Tesseract OCR)")
+        # Stamina OCR (Qwen2.5-VL-3B on GPU)
+        self.qwen_ocr = QwenOCR()
+        print("  Qwen OCR initialized (GPU)")
 
         # Matchers
         debug_dir = Path('templates/debug')
@@ -212,8 +216,8 @@ class IconDaemon:
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
 
-                # Extract stamina
-                stamina = self.stamina_extractor.extract_stamina(frame)
+                # Extract stamina using Qwen OCR
+                stamina = self.qwen_ocr.extract_number(frame, self.STAMINA_REGION)
                 stamina_str = str(stamina) if stamina is not None else "?"
 
                 # Check all icons
@@ -252,6 +256,12 @@ class IconDaemon:
                         if view_state != "TOWN":
                             self.logger.info(f"[{iteration}] IDLE RECOVERY: In {view_state}, navigating to TOWN...")
                             self._switch_to_town()
+
+                # Elite zombie rally - stamina >= 118 and idle 5+ min
+                if stamina is not None and stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD:
+                    if idle_secs >= self.IDLE_THRESHOLD:
+                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
+                        self._run_flow("elite_zombie", elite_zombie_flow)
 
                 # Log and trigger flows
                 if handshake_present:

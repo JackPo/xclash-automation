@@ -52,7 +52,7 @@ Key components:
 - Device: `emulator-5554` (auto-detected, may vary)
 - Screen resolution: **3840x2160 (4K)** - FINAL resolution for all automation
 - Python path: `C:\Users\mail\AppData\Local\Programs\Python\Python312\python.exe`
-- Tesseract OCR: `C:\Program Files\Tesseract-OCR\tesseract.exe`
+- OCR: Qwen2.5-VL-3B-Instruct on GPU (4-bit quantized)
 
 ## BlueStacks Setup
 
@@ -206,6 +206,20 @@ ADB screenshots have different pixel values than Windows screenshots, causing te
 
 **Use instead**: `utils/view_state_detector.py`
 
+### 5. Traditional OCR Tools (DEPRECATED)
+**Status**: Abandoned as of 2025-11-30
+
+**Do not use** for game UI text extraction:
+- **Tesseract OCR**: Inconsistent, requires preprocessing, fails on stylized fonts
+- **EasyOCR**: Slow (~5s per image), inaccurate on small UI text
+- **PaddleOCR**: Complex dependencies, mediocre accuracy
+- **Windows OCR API**: Can't handle decorative game fonts
+- **`utils/stamina_extractor.py`**: Old Tesseract-based extractor (deprecated)
+
+**Use instead**: `utils/qwen_ocr.py` - Qwen2.5-VL-3B vision model on GPU
+
+**Why Qwen wins**: Vision-language models understand context, not just pixel patterns. They read stylized game text reliably without preprocessing.
+
 ## Game Controls
 
 ### World/Town View Switching
@@ -253,30 +267,77 @@ adb.swipe(x1, y1, x2, y2, duration=300)
 | Zoom In/Out | Win32 API (Shift+A/Z) | Yes | `send_zoom.py` |
 | Map Dragging | ADB swipe | No | `adb_helper.swipe(...)` |
 
-## Stamina Extraction
+## OCR with Qwen2.5-VL-3B
 
-The daemon extracts stamina using Tesseract OCR from the top-left UI region.
+The daemon uses **Qwen2.5-VL-3B-Instruct** for OCR, running on GPU with 4-bit quantization.
+
+### Why Qwen Instead of Traditional OCR
+
+**Traditional OCR tools failed miserably:**
+- **Tesseract**: Inconsistent results, required heavy preprocessing, still failed on game fonts
+- **EasyOCR**: Slow, inaccurate on stylized game text
+- **PaddleOCR**: Complex setup, mediocre results on small UI text
+- **Windows OCR API**: Couldn't handle the game's decorative fonts
+
+**Qwen2.5-VL-3B** is a vision-language model that actually understands what it's looking at. It reads game UI text reliably without any preprocessing.
+
+### GPU Configuration (GTX 1080 / Pascal Architecture)
+
+**CRITICAL**: GTX 1080 (Pascal) runs float16 at 1/64th speed. Must use float32 for compute:
 
 ```python
-from utils.stamina_extractor import StaminaExtractor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+import torch
+
+# 4-bit quantization with float32 compute (REQUIRED for Pascal GPUs)
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float32,  # NOT float16!
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4",
+)
+
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    "Qwen/Qwen2.5-VL-3B-Instruct",
+    quantization_config=quantization_config,
+    device_map="cuda",
+)
+```
+
+**Performance:**
+- Model load: ~5 seconds (first time only, singleton pattern)
+- Inference: ~1-2 seconds per image
+- VRAM usage: ~4GB with 4-bit quantization
+
+### Usage
+
+```python
+from utils.qwen_ocr import QwenOCR
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 win = WindowsScreenshotHelper()
 frame = win.get_screenshot_cv2()
 
-extractor = StaminaExtractor()
-stamina = extractor.extract_stamina(frame)  # Returns int or None
+ocr = QwenOCR()  # Singleton - loads model once
+
+# Extract text
+text = ocr.extract_text(frame, region=(x, y, w, h))
+
+# Extract number (for stamina, etc)
+number = ocr.extract_number(frame, region=(69, 203, 96, 60))
 ```
 
-**Configuration:**
+### Stamina Region
 - Coordinates (4K): (69, 203) size 96x60
-- Tesseract config: `--psm 7 -c tessedit_char_whitelist=0123456789`
-- No preprocessing needed - works directly on raw crop
+- Returns integer or None if extraction fails
 
-**Tesseract Installation:**
-- Download from: https://github.com/UB-Mannheim/tesseract/wiki
-- Install to: `C:\Program Files\Tesseract-OCR\`
-- Required for stamina extraction in daemon
+### Dependencies
+
+```bash
+pip install transformers torch bitsandbytes accelerate
+```
+
+**Note**: `bitsandbytes` is required for 4-bit quantization. Install it explicitly.
 
 ## Icon Daemon
 
@@ -302,17 +363,34 @@ When user is idle for 5+ minutes, daemon automatically:
 2. If not in TOWN, navigates to TOWN using `go_to_town()`
 3. Handles CHAT/WORLD/UNKNOWN states automatically
 
+### Elite Zombie Rally (Stamina-based)
+
+When stamina >= 118 AND user idle for 5+ minutes:
+1. Navigate to WORLD view
+2. Click magnifying glass (search)
+3. Click Elite Zombie tab
+4. Click plus button 5 times (increase level)
+5. Click Search button
+6. Click Rally button
+7. Select LEFTMOST idle hero (with Zz icon)
+8. Click Team Up button
+
+**Hero Selection:**
+- Elite Zombie: Uses **leftmost** idle hero (`hero_selector.find_leftmost_idle()`)
+- Treasure Map: Uses **rightmost** idle hero (`hero_selector.find_rightmost_idle()`)
+
 ### Currently Detected Icons
 
 | Icon | Matcher | Threshold | Click Position | Flow |
 |------|---------|-----------|----------------|------|
 | Handshake | `handshake_icon_matcher.py` | 0.04 | (3165, 1843) | `handshake_flow` |
-| Treasure Map | `treasure_map_matcher.py` | 0.05 | (2175, 1621) | `treasure_map_flow` (Step 1 working, Step 2+ needs testing) |
+| Treasure Map | `treasure_map_matcher.py` | 0.05 | (2175, 1621) | `treasure_map_flow` |
 | Harvest Box | `harvest_box_matcher.py` | 0.1 | (2177, 1618) | `harvest_box_flow` ✓ |
 | Corn | `corn_harvest_matcher.py` | 0.05 | (1932, 1297) | `corn_harvest_flow` |
 | Gold | `gold_coin_matcher.py` | 0.06 | (1395, 835) | `gold_coin_flow` |
 | Iron | `iron_bar_matcher.py` | 0.08 | (1639, 377) | `iron_bar_flow` |
 | Gem | `gem_matcher.py` | 0.06 | (1405, 696) | `gem_flow` |
+| Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
 
 ### Matcher Thresholds
 
