@@ -52,6 +52,7 @@ Key components:
 - Device: `emulator-5554` (auto-detected, may vary)
 - Screen resolution: **3840x2160 (4K)** - FINAL resolution for all automation
 - Python path: `C:\Users\mail\AppData\Local\Programs\Python\Python312\python.exe`
+- Tesseract OCR: `C:\Program Files\Tesseract-OCR\tesseract.exe`
 
 ## BlueStacks Setup
 
@@ -124,6 +125,7 @@ Located in `templates/ground_truth/`:
 - `gold_coin_tight_4k.png` - Gold coin bubble, tight crop (position: 1369,800, size: 53x43, threshold: 0.06)
 - `iron_bar_tight_4k.png` - Iron bar bubble, tight crop (position: 1617,351, size: 46x32, threshold: 0.06)
 - `gem_tight_4k.png` - Gem bubble, tight crop (position: 1378,652, size: 54x51, threshold: 0.06)
+- `stamina_number_4k.png` - Stamina number region for OCR (position: 69,203, size: 96x60)
 
 **Dialog Templates (search-based):**
 - `harvest_surprise_box_4k.png` - Surprise box dialog (791x253, moves vertically)
@@ -250,6 +252,31 @@ adb.swipe(x1, y1, x2, y2, duration=300)
 | Arrow Keys | Win32 API | Yes | `send_arrow_proper.py` |
 | Zoom In/Out | Win32 API (Shift+A/Z) | Yes | `send_zoom.py` |
 | Map Dragging | ADB swipe | No | `adb_helper.swipe(...)` |
+
+## Stamina Extraction
+
+The daemon extracts stamina using Tesseract OCR from the top-left UI region.
+
+```python
+from utils.stamina_extractor import StaminaExtractor
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+win = WindowsScreenshotHelper()
+frame = win.get_screenshot_cv2()
+
+extractor = StaminaExtractor()
+stamina = extractor.extract_stamina(frame)  # Returns int or None
+```
+
+**Configuration:**
+- Coordinates (4K): (69, 203) size 96x60
+- Tesseract config: `--psm 7 -c tessedit_char_whitelist=0123456789`
+- No preprocessing needed - works directly on raw crop
+
+**Tesseract Installation:**
+- Download from: https://github.com/UB-Mannheim/tesseract/wiki
+- Install to: `C:\Program Files\Tesseract-OCR\`
+- Required for stamina extraction in daemon
 
 ## Icon Daemon
 

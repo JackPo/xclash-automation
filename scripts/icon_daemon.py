@@ -38,6 +38,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
+from utils.stamina_extractor import StaminaExtractor
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
@@ -65,6 +66,9 @@ class IconDaemon:
         self.debug = debug
         self.adb = None
         self.windows_helper = None
+
+        # Stamina extractor
+        self.stamina_extractor = None
 
         # Matchers
         self.handshake_matcher = None
@@ -116,6 +120,10 @@ class IconDaemon:
         # Windows screenshot helper
         self.windows_helper = WindowsScreenshotHelper()
         print("  Windows screenshot helper initialized")
+
+        # Stamina extractor
+        self.stamina_extractor = StaminaExtractor()
+        print("  Stamina extractor initialized (Tesseract OCR)")
 
         # Matchers
         debug_dir = Path('templates/debug')
@@ -204,6 +212,10 @@ class IconDaemon:
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
 
+                # Extract stamina
+                stamina = self.stamina_extractor.extract_stamina(frame)
+                stamina_str = str(stamina) if stamina is not None else "?"
+
                 # Check all icons
                 handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
                 treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
@@ -227,8 +239,8 @@ class IconDaemon:
                 idle_secs = get_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
 
-                # Always print scores to stdout with view state
-                print(f"[{iteration}] [{view_state}] idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                # Always print scores to stdout with view state and stamina
+                print(f"[{iteration}] [{view_state}] Stamina:{stamina_str} idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Idle recovery - every 5 min when idle 5+ min, go to town
                 if idle_secs >= self.IDLE_THRESHOLD:
