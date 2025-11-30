@@ -130,8 +130,17 @@ Located in `templates/ground_truth/`:
 **Dialog Templates (search-based):**
 - `harvest_surprise_box_4k.png` - Surprise box dialog (791x253, moves vertically)
 - `open_button_4k.png` - Open button in dialogs (242x99)
-- `back_button_4k.png` - Dark back button (142x136)
-- `back_button_light_4k.png` - Light back button (142x136)
+- `back_button_union_4k.png` - Back button (position: 1345,2002, size: 107x111, threshold: 0.06)
+
+**Union Gifts Flow Templates:**
+- `union_button_4k.png` - Union button on bottom bar (click: 3165, 2033)
+- `union_rally_gifts_button_4k.png` - Union Rally Gifts menu item (click: 2175, 1193)
+- `loot_chest_tab_4k.png` - Loot Chest tab (click: 1622, 545)
+- `rare_gifts_tab_4k.png` - Rare Gifts tab (click: 2202, 548)
+- `claim_all_button_4k.png` - Claim All button (Loot Chest: 1879,2051, Rare Gifts: 2217,2049)
+
+**Anchor Templates:**
+- `dog_house_4k.png` - Dog house for town view alignment verification (position: 1605,882, size: 172x197, threshold: 0.1)
 
 **When extracting new templates:**
 1. Use `WindowsScreenshotHelper` to capture screenshot
@@ -361,7 +370,20 @@ python scripts/icon_daemon.py --interval 5
 When user is idle for 5+ minutes, daemon automatically:
 1. Detects current view state
 2. If not in TOWN, navigates to TOWN using `go_to_town()`
-3. Handles CHAT/WORLD/UNKNOWN states automatically
+3. If in TOWN, checks dog house alignment. If misaligned, resets view (WORLD → TOWN)
+4. Handles CHAT/WORLD/UNKNOWN states automatically
+
+### Harvest Action Requirements
+
+Harvest actions (corn, gold, iron, gem, cabbage, equipment) require ALL of:
+1. **TOWN view** - must see World button (not in WORLD/CHAT)
+2. **5+ minutes idle** - won't trigger while user is active
+3. **Dog house aligned** - town view must not be panned
+
+**Immediate actions** (no idle/alignment check):
+- Handshake flow
+- Treasure map (digging) flow
+- Harvest box flow
 
 ### Elite Zombie Rally (Stamina-based)
 

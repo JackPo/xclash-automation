@@ -51,7 +51,8 @@ from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
 from utils.back_button_matcher import BackButtonMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
-from utils.view_state_detector import detect_view, go_to_town, ViewState
+from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
+from utils.dog_house_matcher import DogHouseMatcher
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow
 
@@ -82,6 +83,7 @@ class IconDaemon:
         self.cabbage_matcher = None
         self.equipment_enhancement_matcher = None
         self.back_button_matcher = None
+        self.dog_house_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -161,7 +163,10 @@ class IconDaemon:
         print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.template_path.name} (threshold={self.equipment_enhancement_matcher.threshold})")
 
         self.back_button_matcher = BackButtonMatcher(debug_dir=debug_dir)
-        print(f"  Back button matcher: dark+light templates (threshold={self.back_button_matcher.threshold})")
+        print(f"  Back button matcher: {self.back_button_matcher.template_path.name} (threshold={BackButtonMatcher.THRESHOLD})")
+
+        self.dog_house_matcher = DogHouseMatcher(debug_dir=debug_dir)
+        print(f"  Dog house matcher: {self.dog_house_matcher.template_path.name} (threshold={self.dog_house_matcher.threshold})")
 
     def _run_flow(self, flow_name: str, flow_func):
         """
@@ -246,7 +251,7 @@ class IconDaemon:
                 # Always print scores to stdout with view state and stamina
                 print(f"[{iteration}] [{view_state}] Stamina:{stamina_str} idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
-                # Idle recovery - every 5 min when idle 5+ min, go to town
+                # Idle recovery - every 5 min when idle 5+ min, go to town and ensure alignment
                 if idle_secs >= self.IDLE_THRESHOLD:
                     current_time = time.time()
                     if current_time - self.last_idle_check_time >= self.IDLE_CHECK_INTERVAL:
@@ -256,6 +261,16 @@ class IconDaemon:
                         if view_state != "TOWN":
                             self.logger.info(f"[{iteration}] IDLE RECOVERY: In {view_state}, navigating to TOWN...")
                             self._switch_to_town()
+                        else:
+                            # In TOWN - check if dog house is aligned
+                            is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                            if not is_aligned:
+                                self.logger.info(f"[{iteration}] IDLE RECOVERY: Town view misaligned (dog_score={dog_score:.4f}), resetting view...")
+                                # Go to WORLD then back to TOWN to reset alignment
+                                go_to_world(self.adb, debug=False)
+                                time.sleep(1.0)
+                                go_to_town(self.adb, debug=False)
+                                self.logger.info(f"[{iteration}] IDLE RECOVERY: View reset complete")
 
                 # Elite zombie rally - stamina >= 118 and idle 5+ min
                 if stamina is not None and stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD:
@@ -272,12 +287,20 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
                     self._run_flow("treasure_map", treasure_map_flow)
 
-                # Corn, Gold, Iron, Cabbage only activate in TOWN view (world button visible)
-                if corn_present and world_present:
+                # Harvest actions: require TOWN view, 5min idle, and dog house aligned
+                # Check alignment once for all harvest actions
+                harvest_idle_ok = idle_secs >= self.IDLE_THRESHOLD
+                harvest_aligned = False
+                if harvest_idle_ok and world_present:
+                    is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                    harvest_aligned = is_aligned
+
+                # Corn, Gold, Iron, Gem, Cabbage, Equip only activate when idle 5+ min and aligned
+                if corn_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] CORN detected (diff={corn_score:.4f})")
                     self._run_flow("corn_harvest", corn_harvest_flow)
 
-                if gold_present and world_present:
+                if gold_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
                     self._run_flow("gold_coin", gold_coin_flow)
 
@@ -285,19 +308,19 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
                     self._run_flow("harvest_box", harvest_box_flow)
 
-                if iron_present and world_present:
+                if iron_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
                     self._run_flow("iron_bar", iron_bar_flow)
 
-                if gem_present and world_present:
+                if gem_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
                     self._run_flow("gem", gem_flow)
 
-                if cabbage_present and world_present:
+                if cabbage_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] CABBAGE detected (diff={cabbage_score:.4f})")
                     self._run_flow("cabbage", cabbage_flow)
 
-                if equip_present and world_present:
+                if equip_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
