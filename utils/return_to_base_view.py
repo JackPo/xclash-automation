@@ -21,8 +21,8 @@ from utils.adb_helper import ADBHelper
 BACK_BUTTON_CLICK = (1407, 2055)
 CORN_HARVEST_CLICK = (1932, 1297)  # Center of screen, dismisses most popups
 
-MAX_BACK_CLICKS = 10
-MAX_RECOVERY_ATTEMPTS = 3
+MAX_BACK_CLICKS = 5
+MAX_RECOVERY_ATTEMPTS = 5
 
 
 def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper = None,
@@ -31,10 +31,10 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     Return to TOWN or WORLD view from any state.
 
     Strategy:
-    1. Click back button while visible (max 10 clicks)
+    1. Click back button while visible (max 5 clicks)
     2. Check if in known view (TOWN/WORLD)
     3. If stuck, click corn harvest location to dismiss popups
-    4. After 3 failed recovery attempts, kill and restart app
+    4. After 5 failed recovery attempts, kill and restart app
 
     Args:
         adb: ADBHelper instance
