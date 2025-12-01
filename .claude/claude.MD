@@ -182,6 +182,33 @@ go_to_world(adb, debug=True)  # Navigate to WORLD from anywhere
 - WORLD → TOWN: click toggle button (3720, 2040)
 - CHAT → exit: click back button (1407, 2055), then re-detect
 
+## Robust Flow Recovery
+
+Use `utils/return_to_base_view.py` at the end of flows to ensure reliable return to TOWN/WORLD:
+
+```python
+from utils.return_to_base_view import return_to_base_view
+from utils.adb_helper import ADBHelper
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+adb = ADBHelper()
+win = WindowsScreenshotHelper()
+success = return_to_base_view(adb, win, debug=True)
+```
+
+**Recovery Strategy** (5 attempts max):
+1. Click back button while visible (max 5 clicks per attempt)
+2. Check if in TOWN/WORLD view - if yes, done
+3. If stuck in unknown state, click corn harvest location (1932, 1297) to dismiss popups
+4. If still stuck after 5 attempts, kill xclash and restart:
+   - Force stop `com.xman.na.gp`
+   - Wait 2s, start app
+   - Wait 30s for load
+   - Run `setup_bluestacks.py`
+   - Navigate to TOWN
+
+**Returns**: `True` if reached TOWN/WORLD, `False` if had to restart app
+
 ## ⚠️ DEPRECATED APPROACHES
 
 The following approaches have been deprecated due to complexity and unreliable results:
@@ -401,7 +428,7 @@ When stamina >= 118 AND user idle for 5+ minutes:
 - Elite Zombie: Uses **leftmost** idle hero (`hero_selector.find_leftmost_idle()`)
 - Treasure Map: Uses **rightmost** idle hero (`hero_selector.find_rightmost_idle()`)
 
-### Fing Hero Flow (Scheduled + Continuous Idle)
+### Hero Upgrade Arms Race Flow (Scheduled + Continuous Idle)
 
 **Trigger**: At 2:00 AM Pacific, if user was continuously idle for 3h 45m before that time.
 
@@ -414,9 +441,9 @@ When stamina >= 118 AND user idle for 5+ minutes:
 4. For each tile with red dot:
    - Click tile center
    - Check if upgrade button is available (green) or unavailable (gray)
-   - If available: click upgrade button at (1919, 1829)
-   - Click back to return to hero grid
-5. Click back to exit hero grid
+   - If available: click upgrade button at (1919, 1829), then return to base view
+   - If unavailable: click back to return to hero grid
+5. Use `return_to_base_view()` to exit and get back to TOWN/WORLD
 
 **Red Dot Detection**:
 - Method: Count red pixels in upper-right 40x40 region of each tile
@@ -463,7 +490,7 @@ When stamina >= 118 AND user idle for 5+ minutes:
 | Iron | `iron_bar_matcher.py` | 0.08 | (1639, 377) | `iron_bar_flow` |
 | Gem | `gem_matcher.py` | 0.06 | (1405, 696) | `gem_flow` |
 | Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
-| Fing Hero | Scheduled (2 AM) | 3h 45m idle | (2272, 2038) | `fing_hero_flow` |
+| Hero Upgrade | Scheduled (2 AM) | 3h 45m idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
 
 ### Matcher Thresholds
 
