@@ -28,6 +28,7 @@ env/
 *.jpg
 *.jpeg
 !templates/**/*.png
+!docs/**/*.png
 *.log
 logs/
 

@@ -417,6 +417,10 @@ These flows detect standard UI popups and work on any account:
 
 **IMPORTANT**: These flows click at **fixed coordinates** based on the original developer's town layout. They will click in the **wrong locations** on your account unless you recalibrate them.
 
+**Reference town layout** (this is how the developer's town is arranged):
+
+![Town Layout Example](docs/town_layout_example.png)
+
 | Icon | Matcher | Flow | Conditions |
 |------|---------|------|------------|
 | Corn Bubble | `corn_harvest_matcher.py` | `corn_harvest_flow.py` | 5 min idle + aligned |
