@@ -6,7 +6,7 @@ import sys
 import json
 import re
 
-api_key = 'AIzaSyBLvR_ZZ3scSldj_LX-Oax6ycG26U3rQ0A'
+from config import GOOGLE_API_KEY as api_key
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel('gemini-2.0-flash-exp')
 

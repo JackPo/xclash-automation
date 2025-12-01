@@ -9,7 +9,7 @@ from PIL import Image
 import json
 import cv2
 
-API_KEY = 'AIzaSyBLvR_ZZ3scSldj_LX-Oax6ycG26U3rQ0A'
+from config import GOOGLE_API_KEY as API_KEY
 
 client = genai.Client(api_key=API_KEY)
 

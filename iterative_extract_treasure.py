@@ -11,11 +11,10 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-API_KEY = 'AIzaSyBLvR_ZZ3scSldj_LX-Oax6ycG26U3rQ0A'
+from config import GOOGLE_API_KEY as API_KEY
 
 def segment_with_gemini(image_path, prompt):
     """Use Gemini to get bounding box for an object."""
-    os.environ["GOOGLE_API_KEY"] = API_KEY
     client = genai.Client(api_key=API_KEY)
 
     img = Image.open(image_path)

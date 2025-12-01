@@ -1,1 +1,40 @@
+# Local configuration (contains API keys)
+config_local.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Debug/temp files
+*.png
+*.jpg
+*.jpeg
+!templates/**/*.png
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
 nul
+
+# Claude settings (may contain personal preferences)
+.claude/settings.local.json

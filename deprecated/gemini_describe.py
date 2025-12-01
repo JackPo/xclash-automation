@@ -4,7 +4,8 @@ from PIL import Image
 import google.generativeai as genai
 import sys
 
-api_key = sys.argv[2] if len(sys.argv) > 2 else 'AIzaSyBLvR_ZZ3scSldj_LX-Oax6ycG26U3rQ0A'
+from config import GOOGLE_API_KEY
+api_key = sys.argv[2] if len(sys.argv) > 2 else GOOGLE_API_KEY
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel('gemini-2.0-flash-exp')
 

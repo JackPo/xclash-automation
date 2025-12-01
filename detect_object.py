@@ -14,7 +14,7 @@ import cv2
 import sys
 import os
 
-API_KEY = 'AIzaSyBLvR_ZZ3scSldj_LX-Oax6ycG26U3rQ0A'
+from config import GOOGLE_API_KEY as API_KEY
 
 def detect_object(image_path: str, object_description: str, output_dir: str = "."):
     """
