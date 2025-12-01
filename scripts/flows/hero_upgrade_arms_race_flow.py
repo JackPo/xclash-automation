@@ -25,7 +25,7 @@ import time
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.hero_tile_detector import detect_tiles_with_red_dots
 from utils.upgrade_button_matcher import UpgradeButtonMatcher
-from .back_from_chat_flow import back_from_chat_flow
+from utils.return_to_base_view import return_to_base_view
 
 # Fing Hero button position
 FING_HERO_BUTTON_CLICK = (2272, 2038)
@@ -104,18 +104,9 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
             time.sleep(0.5)
             upgrades_done += 1
 
-            # Click back repeatedly until we reach town/world view
-            print(f"    [HERO_UPGRADE]   Upgrade clicked - clicking back until town/world view")
-            from utils.view_state_detector import detect_view, ViewState
-            for _ in range(10):  # Max 10 back clicks
-                time.sleep(0.5)
-                frame = win.get_screenshot_cv2()
-                view_state, _ = detect_view(frame)
-                if view_state in (ViewState.TOWN, ViewState.WORLD):
-                    print(f"    [HERO_UPGRADE]   Reached {view_state.value} view")
-                    break
-                print(f"    [HERO_UPGRADE]   Clicking back...")
-                adb.tap(*BACK_BUTTON_CLICK)
+            # Use robust return_to_base_view to get back to TOWN/WORLD
+            print(f"    [HERO_UPGRADE]   Upgrade clicked - returning to base view...")
+            return_to_base_view(adb, win, debug=True)
 
             print(f"    [HERO_UPGRADE] Flow complete - {upgrades_done} upgrade performed")
             return True
@@ -130,13 +121,9 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
         # Re-take screenshot for next iteration (grid may have changed)
         frame = win.get_screenshot_cv2()
 
-    # Step 5: Exit hero grid
-    print(f"    [HERO_UPGRADE] Step 4: Exiting hero grid")
-    adb.tap(*BACK_BUTTON_CLICK)
-    time.sleep(0.5)
-
-    # Use back_from_chat_flow to ensure we're back to main view
-    back_from_chat_flow(adb, win)
+    # Step 5: Exit hero grid and return to base view
+    print(f"    [HERO_UPGRADE] Step 4: Returning to base view...")
+    return_to_base_view(adb, win, debug=True)
 
     print(f"    [HERO_UPGRADE] Flow complete - {upgrades_done} upgrades performed")
     return True
