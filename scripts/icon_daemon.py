@@ -209,13 +209,16 @@ class IconDaemon:
         self.afk_rewards_matcher = AfkRewardsMatcher(debug_dir=debug_dir)
         print(f"  AFK rewards matcher: {self.afk_rewards_matcher.template_path.name} (threshold={self.afk_rewards_matcher.threshold})")
 
-        # Startup recovery - ensure we're in a good state when daemon starts
+        # Startup recovery - ensure xclash is running and in a good state
+        self.logger.info("STARTUP: Checking if xclash is running...")
+        if not self._is_xclash_in_foreground():
+            self.logger.info("STARTUP: xclash not in foreground, starting app...")
+            self._start_xclash()
+
+        # Now ensure we're in TOWN/WORLD state
         self.logger.info("STARTUP: Running return_to_base_view to ensure TOWN/WORLD state...")
-        success = return_to_base_view(self.adb, self.windows_helper, debug=True)
-        if success:
-            self.logger.info("STARTUP: Successfully reached base view")
-        else:
-            self.logger.warning("STARTUP: Had to restart app to reach base view")
+        return_to_base_view(self.adb, self.windows_helper, debug=True)
+        self.logger.info("STARTUP: Ready")
 
     def _run_flow(self, flow_name: str, flow_func):
         """
