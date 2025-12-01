@@ -246,6 +246,62 @@ KEY_PAN_LEFT = 'left'
 KEY_PAN_RIGHT = 'right'
 ```
 
+### Town Layout Coordinates (Required for Harvest Flows)
+
+**Important**: The resource harvest flows (corn, gold, iron, gem, cabbage, equipment) click at **fixed coordinates** based on your town layout. You **must calibrate these** for your account or they will click in the wrong locations.
+
+```python
+# Dog house - alignment anchor (must be visible for harvest flows to trigger)
+DOG_HOUSE_POSITION = (1605, 882)    # x, y - where dog house should appear
+DOG_HOUSE_SIZE = (172, 197)         # width, height of detection region
+
+# Resource bubble positions: {'region': (x, y, w, h), 'click': (x, y)}
+CORN_BUBBLE = {'region': (1015, 869, 67, 57), 'click': (1048, 897)}
+GOLD_BUBBLE = {'region': (1369, 800, 53, 43), 'click': (1395, 835)}
+IRON_BUBBLE = {'region': (1617, 351, 46, 32), 'click': (1639, 377)}
+GEM_BUBBLE = {'region': (1378, 652, 54, 51), 'click': (1405, 696)}
+CABBAGE_BUBBLE = {'region': (1267, 277, 67, 57), 'click': (1300, 305)}
+EQUIPMENT_BUBBLE = {'region': (1246, 859, 67, 57), 'click': (1279, 887)}
+```
+
+**To calibrate for your town:**
+
+1. Take a screenshot:
+   ```bash
+   python -c "from utils.windows_screenshot_helper import WindowsScreenshotHelper; import cv2; cv2.imwrite('screenshot.png', WindowsScreenshotHelper().get_screenshot_cv2())"
+   ```
+
+2. Use Gemini to find coordinates (requires `GOOGLE_API_KEY`):
+   ```bash
+   python detect_object.py screenshot.png "the corn harvest bubble"
+   ```
+
+3. Update `config_local.py` with your coordinates
+
+### Detection Thresholds
+
+Adjust if detection is too sensitive (false positives) or not sensitive enough (missing icons):
+
+```python
+THRESHOLDS = {
+    'dog_house': 0.1,      # View alignment check
+    'corn': 0.06,          # Resource bubbles
+    'gold': 0.06,
+    'iron': 0.08,
+    'gem': 0.13,
+    'cabbage': 0.05,
+    'equipment': 0.06,
+    'handshake': 0.04,     # UI icons
+    'treasure_map': 0.05,
+    'harvest_box': 0.1,
+    'afk_rewards': 0.06,
+    'back_button': 0.06,
+}
+```
+
+Lower threshold = stricter matching (fewer false positives, may miss real icons)
+Higher threshold = looser matching (catches more icons, may have false positives)
+
 ## Usage
 
 ### Running the Daemon
