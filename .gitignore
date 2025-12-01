@@ -63,3 +63,13 @@ nul
 
 # Claude settings
 .claude/
+
+# Deprecated code (keep local, not on GitHub)
+deprecated/
+
+# Old discovery/calibration directories
+zoom_discovery/
+zoom_discovery_adb/
+zoom_discovery_v2/
+castle_cutouts/
+level_crops/
