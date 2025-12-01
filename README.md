@@ -50,15 +50,14 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 |-----------|---------|-------------|
 | **CPU** | Any x86_64 (Intel/AMD) | 4+ cores |
 | **RAM** | 8GB | 16GB+ (BlueStacks uses 4GB) |
-| **GPU** | NVIDIA GTX 1060 6GB | RTX 3060 12GB+ |
-| **VRAM** | 6GB (for Qwen 3B model) | 8GB+ |
+| **GPU** | NVIDIA with ~4GB VRAM | Any CUDA-capable GPU |
 | **Storage** | 10GB free | 20GB+ (model cache) |
 
 **GPU Requirements for Qwen OCR:**
-- The Qwen2.5-VL-3B-Instruct model requires ~5-6GB VRAM
+- The Qwen2.5-VL-3B-Instruct model runs on modest NVIDIA GPUs
 - CUDA-capable NVIDIA GPU required (no AMD/Intel GPU support)
 - If you don't have a compatible GPU, the daemon will still work but stamina-based triggers (Elite Zombie) won't function
-- Tested on: RTX 3060, RTX 3080, RTX 4090
+- Tested on: Quadro P4000
 
 ### Software
 - **OS**: Windows 10/11
