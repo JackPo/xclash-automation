@@ -1,8 +1,9 @@
 # Local configuration (contains API keys)
 config_local.py
 
-# Python
+# Python bytecode
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -23,20 +24,42 @@ env/
 *.swp
 *.swo
 
-# Debug/temp files
+# Debug/temp files - images
 *.png
 *.jpg
 *.jpeg
 !templates/ground_truth/**/*.png
 !docs/**/*.png
+
+# Old deprecated templates (not needed)
+templates/castles/
+templates/minimap/
+
+# Logs
 *.log
 logs/
+
+# Data files (should not be in repo)
+*.csv
+*.mmap
+*.data
+*.pcapng
+
+# Temp/debug directories
 screenshots/
+Documents/
+calibration_findings/
+zoom_calibration/
+launch_data/
+
+# Binary files
+minitouch
+*.bytes
 
 # OS
 .DS_Store
 Thumbs.db
 nul
 
-# Claude settings (personal preferences and project config)
+# Claude settings
 .claude/

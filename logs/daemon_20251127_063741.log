@@ -1,7 +1,0 @@
-2025-11-27 06:37:41,401 [INFO] Initializing icon daemon...
-2025-11-27 06:37:41,401 [INFO] Log file: logs\daemon_20251127_063741.log
-2025-11-27 06:37:47,986 [INFO] Starting detection loop (interval: 3.0s)
-2025-11-27 06:37:47,986 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem
-2025-11-27 06:37:48,209 [INFO] [1] GEM detected (diff=0.0003)
-2025-11-27 06:37:48,210 [INFO] FLOW START: gem
-2025-11-27 06:37:48,406 [INFO] FLOW END: gem

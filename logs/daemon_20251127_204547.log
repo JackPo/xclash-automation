@@ -1,9 +1,0 @@
-2025-11-27 20:45:47,141 [INFO] Initializing icon daemon...
-2025-11-27 20:45:47,141 [INFO] Log file: logs\daemon_20251127_204547.log
-2025-11-27 20:45:53,720 [INFO] Starting detection loop (interval: 3.0s)
-2025-11-27 20:45:53,721 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World
-2025-11-27 20:45:57,107 [INFO] [2] HANDSHAKE detected (diff=0.0350)
-2025-11-27 20:45:57,107 [INFO] FLOW START: handshake
-2025-11-27 20:45:57,107 [INFO] [2] View: WORLD (town button visible, score=0.0000)
-2025-11-27 20:45:57,273 [INFO] FLOW END: handshake
-2025-11-27 20:46:00,336 [INFO] [3] View: WORLD (town button visible, score=0.0000)

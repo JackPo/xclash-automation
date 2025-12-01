@@ -1,7 +1,0 @@
-2025-11-27 19:34:36,162 [INFO] Initializing icon daemon...
-2025-11-27 19:34:36,163 [INFO] Log file: logs\daemon_20251127_193436.log
-2025-11-27 19:34:42,749 [INFO] Starting detection loop (interval: 3.0s)
-2025-11-27 19:34:42,749 [INFO] Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World
-2025-11-27 19:34:42,956 [INFO] [1] WORLD BUTTON visible (in TOWN view) (diff=0.0003)
-2025-11-27 19:34:46,151 [INFO] [2] WORLD BUTTON visible (in TOWN view) (diff=0.0003)
-2025-11-27 19:34:49,337 [INFO] [3] WORLD BUTTON visible (in TOWN view) (diff=0.0003)
