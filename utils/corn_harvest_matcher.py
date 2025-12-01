@@ -3,10 +3,7 @@ Corn harvest bubble matcher for farm harvest detection.
 
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 
-FIXED specs (4K resolution):
-- Extraction position: (1015, 869)
-- Size: 67x57 pixels
-- Click position: (1048, 897) - center of template
+Coordinates loaded from config.CORN_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
@@ -16,25 +13,28 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from config import CORN_BUBBLE, THRESHOLDS
+
 
 class CornHarvestMatcher:
     """
-    Presence detector for corn harvest bubble at FIXED location.
+    Presence detector for corn harvest bubble at configurable location.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    ICON_X = 1015
-    ICON_Y = 869
-    ICON_WIDTH = 67
-    ICON_HEIGHT = 57
-    CLICK_X = 1048
-    CLICK_Y = 897
+    # Load from config (can be overridden in config_local.py)
+    ICON_X = CORN_BUBBLE['region'][0]
+    ICON_Y = CORN_BUBBLE['region'][1]
+    ICON_WIDTH = CORN_BUBBLE['region'][2]
+    ICON_HEIGHT = CORN_BUBBLE['region'][3]
+    CLICK_X = CORN_BUBBLE['click'][0]
+    CLICK_Y = CORN_BUBBLE['click'][1]
+    DEFAULT_THRESHOLD = THRESHOLDS.get('corn', 0.06)
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.06,
+        threshold: float = None,
     ) -> None:
         """
         Initialize corn harvest bubble detector.
@@ -42,7 +42,7 @@ class CornHarvestMatcher:
         Args:
             template_path: Path to template (default: templates/ground_truth/corn_harvest_bubble_4k.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score (default 0.05 for strict matching)
+            threshold: Maximum difference score (default from config.THRESHOLDS)
         """
         base_dir = Path(__file__).resolve().parent.parent
 
@@ -51,7 +51,7 @@ class CornHarvestMatcher:
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
 

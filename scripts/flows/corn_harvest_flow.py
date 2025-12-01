@@ -1,15 +1,18 @@
 """
-Corn harvest flow - just clicks the corn bubble.
+Corn harvest flow - clicks the corn bubble.
 """
+import time
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from utils.corn_harvest_matcher import CornHarvestMatcher
 
 
 def corn_harvest_flow(adb):
-    """
-    Click the corn harvest bubble.
-
-    Args:
-        adb: ADBHelper instance
-    """
-    # Click at fixed position (center of detected bubble)
-    adb.tap(1151, 967)
+    """Click the corn harvest bubble."""
+    matcher = CornHarvestMatcher()
+    matcher.click(adb)
+    time.sleep(0.3)
     print("    [CORN] Clicked harvest bubble")

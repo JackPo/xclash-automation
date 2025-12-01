@@ -4,10 +4,7 @@ Gold coin bubble matcher for gold harvest detection.
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 Template tightly cropped to just the coin icon (no bubble border).
 
-FIXED specs (4K resolution):
-- Extraction position: (1369, 800) - tight crop of coin only
-- Size: 53x43 pixels (coin icon only)
-- Click position: (1395, 835)
+Coordinates loaded from config.GOLD_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
@@ -17,26 +14,28 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from config import GOLD_BUBBLE, THRESHOLDS
+
 
 class GoldCoinMatcher:
     """
-    Presence detector for gold coin bubble at FIXED location.
+    Presence detector for gold coin bubble at configurable location.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    # Tight crop: original (1347,788) + crop offset (22,12)
-    ICON_X = 1369
-    ICON_Y = 800
-    ICON_WIDTH = 53
-    ICON_HEIGHT = 43  # Tight crop - coin icon only
-    CLICK_X = 1395
-    CLICK_Y = 835
+    # Load from config (can be overridden in config_local.py)
+    ICON_X = GOLD_BUBBLE['region'][0]
+    ICON_Y = GOLD_BUBBLE['region'][1]
+    ICON_WIDTH = GOLD_BUBBLE['region'][2]
+    ICON_HEIGHT = GOLD_BUBBLE['region'][3]
+    CLICK_X = GOLD_BUBBLE['click'][0]
+    CLICK_Y = GOLD_BUBBLE['click'][1]
+    DEFAULT_THRESHOLD = THRESHOLDS.get('gold', 0.06)
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.06,
+        threshold: float = None,
     ) -> None:
         """
         Initialize gold coin bubble detector.
@@ -44,16 +43,16 @@ class GoldCoinMatcher:
         Args:
             template_path: Path to template (default: templates/ground_truth/gold_coin_tight_4k.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score (default 0.06 for tight template)
+            threshold: Maximum difference score (default from config.THRESHOLDS)
         """
         base_dir = Path(__file__).resolve().parent.parent
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
         if template_path is None:
             template_path = base_dir / "templates" / "ground_truth" / "gold_coin_tight_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,35 +1,32 @@
 """
-Dog House Matcher - Fixed-location town view anchor detection.
+Dog House Matcher - Configurable town view anchor detection.
 
 Used to verify the town view is in the correct position before harvesting resources.
 If the dog house is not at the expected location, the view may be panned and
 clicking on resource bubbles would hit the wrong coordinates.
 
-Fixed position (4K resolution):
-- Position: (1605, 882)
-- Size: 172x197
-- Template: templates/ground_truth/dog_house_4k.png
-
-Detection uses TM_SQDIFF_NORMED with threshold 0.1.
+Coordinates loaded from config - override in config_local.py for your town layout.
 """
 
 import cv2
 import numpy as np
 from pathlib import Path
 
+from config import DOG_HOUSE_POSITION, DOG_HOUSE_SIZE, THRESHOLDS
+
 
 class DogHouseMatcher:
-    """Detect dog house at fixed position to verify town view alignment."""
+    """Detect dog house at configurable position to verify town view alignment."""
 
     # Template path
     TEMPLATE_PATH = Path('templates/ground_truth/dog_house_4k.png')
 
-    # Fixed position (4K resolution)
-    POSITION = (1605, 882)  # x, y
-    SIZE = (172, 197)  # width, height
+    # Load from config (can be overridden in config_local.py)
+    POSITION = DOG_HOUSE_POSITION  # (x, y)
+    SIZE = DOG_HOUSE_SIZE  # (width, height)
 
-    # Detection threshold (TM_SQDIFF_NORMED - lower = better match)
-    THRESHOLD = 0.1
+    # Detection threshold from config
+    THRESHOLD = THRESHOLDS.get('dog_house', 0.1)
 
     def __init__(self, threshold: float = None, debug_dir: Path = None):
         """

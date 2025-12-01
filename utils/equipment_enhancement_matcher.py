@@ -3,10 +3,7 @@ Equipment enhancement bubble matcher (crossed swords icon).
 
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 
-FIXED specs (4K resolution):
-- Extraction position: (1246, 859)
-- Size: 67x57 pixels
-- Click position: (1279, 887)
+Coordinates loaded from config.EQUIPMENT_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
@@ -16,25 +13,28 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from config import EQUIPMENT_BUBBLE, THRESHOLDS
+
 
 class EquipmentEnhancementMatcher:
     """
-    Presence detector for equipment enhancement bubble at FIXED location.
+    Presence detector for equipment enhancement bubble at configurable location.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    ICON_X = 1246
-    ICON_Y = 859
-    ICON_WIDTH = 67
-    ICON_HEIGHT = 57
-    CLICK_X = 1279
-    CLICK_Y = 887
+    # Load from config (can be overridden in config_local.py)
+    ICON_X = EQUIPMENT_BUBBLE['region'][0]
+    ICON_Y = EQUIPMENT_BUBBLE['region'][1]
+    ICON_WIDTH = EQUIPMENT_BUBBLE['region'][2]
+    ICON_HEIGHT = EQUIPMENT_BUBBLE['region'][3]
+    CLICK_X = EQUIPMENT_BUBBLE['click'][0]
+    CLICK_Y = EQUIPMENT_BUBBLE['click'][1]
+    DEFAULT_THRESHOLD = THRESHOLDS.get('equipment', 0.06)
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.06,
+        threshold: float = None,
     ) -> None:
         """
         Initialize equipment enhancement bubble detector.
@@ -42,16 +42,16 @@ class EquipmentEnhancementMatcher:
         Args:
             template_path: Path to template (default: templates/ground_truth/sword_tight_4k.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score
+            threshold: Maximum difference score (default from config.THRESHOLDS)
         """
         base_dir = Path(__file__).resolve().parent.parent
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
         if template_path is None:
             template_path = base_dir / "templates" / "ground_truth" / "sword_tight_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
 

@@ -49,3 +49,47 @@ Any values set here will override the defaults in config.py.
 # KEY_PAN_DOWN = 'down'
 # KEY_PAN_LEFT = 'left'
 # KEY_PAN_RIGHT = 'right'
+
+# =============================================================================
+# TOWN LAYOUT COORDINATES (calibrate these for your town!)
+# =============================================================================
+# These coordinates MUST match your town layout. The defaults are for the
+# developer's town and will click WRONG LOCATIONS on your account.
+#
+# To find your coordinates:
+# 1. Take a screenshot: python -c "from utils.windows_screenshot_helper import WindowsScreenshotHelper; import cv2; cv2.imwrite('screenshot.png', WindowsScreenshotHelper().get_screenshot_cv2())"
+# 2. Use Gemini to find the element: python detect_object.py screenshot.png "the corn harvest bubble"
+# 3. Update the coordinates below
+
+# Dog house - alignment anchor (must be visible for harvest flows to trigger)
+# DOG_HOUSE_POSITION = (1605, 882)
+# DOG_HOUSE_SIZE = (172, 197)
+
+# Resource bubble positions: {'region': (x, y, w, h), 'click': (x, y)}
+# CORN_BUBBLE = {'region': (1015, 869, 67, 57), 'click': (1048, 897)}
+# GOLD_BUBBLE = {'region': (1369, 800, 53, 43), 'click': (1395, 835)}
+# IRON_BUBBLE = {'region': (1617, 351, 46, 32), 'click': (1639, 377)}
+# GEM_BUBBLE = {'region': (1378, 652, 54, 51), 'click': (1405, 696)}
+# CABBAGE_BUBBLE = {'region': (1267, 277, 67, 57), 'click': (1300, 305)}
+# EQUIPMENT_BUBBLE = {'region': (1246, 859, 67, 57), 'click': (1279, 887)}
+
+# =============================================================================
+# DETECTION THRESHOLDS (adjust if detection is too sensitive or not sensitive enough)
+# =============================================================================
+# Lower = stricter matching (fewer false positives, may miss real icons)
+# Higher = looser matching (catches more icons, may have false positives)
+#
+# THRESHOLDS = {
+#     'dog_house': 0.1,
+#     'corn': 0.06,
+#     'gold': 0.06,
+#     'iron': 0.08,
+#     'gem': 0.13,
+#     'cabbage': 0.05,
+#     'equipment': 0.06,
+#     'handshake': 0.04,
+#     'treasure_map': 0.05,
+#     'harvest_box': 0.1,
+#     'afk_rewards': 0.06,
+#     'back_button': 0.06,
+# }

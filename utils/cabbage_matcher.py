@@ -3,10 +3,7 @@ Cabbage bubble matcher for cabbage harvest detection.
 
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 
-FIXED specs (4K resolution):
-- Extraction position: (1267, 277)
-- Size: 67x57 pixels
-- Click position: (1300, 305) - center of bubble
+Coordinates loaded from config.CABBAGE_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
@@ -16,25 +13,28 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from config import CABBAGE_BUBBLE, THRESHOLDS
+
 
 class CabbageMatcher:
     """
-    Presence detector for cabbage bubble at FIXED location.
+    Presence detector for cabbage bubble at configurable location.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    ICON_X = 1267
-    ICON_Y = 277
-    ICON_WIDTH = 67
-    ICON_HEIGHT = 57
-    CLICK_X = 1300
-    CLICK_Y = 305
+    # Load from config (can be overridden in config_local.py)
+    ICON_X = CABBAGE_BUBBLE['region'][0]
+    ICON_Y = CABBAGE_BUBBLE['region'][1]
+    ICON_WIDTH = CABBAGE_BUBBLE['region'][2]
+    ICON_HEIGHT = CABBAGE_BUBBLE['region'][3]
+    CLICK_X = CABBAGE_BUBBLE['click'][0]
+    CLICK_Y = CABBAGE_BUBBLE['click'][1]
+    DEFAULT_THRESHOLD = THRESHOLDS.get('cabbage', 0.05)
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.05,
+        threshold: float = None,
     ) -> None:
         """
         Initialize cabbage bubble detector.
@@ -42,16 +42,16 @@ class CabbageMatcher:
         Args:
             template_path: Path to template (default: templates/ground_truth/cabbage_tight_4k.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score (default 0.06)
+            threshold: Maximum difference score (default from config.THRESHOLDS)
         """
         base_dir = Path(__file__).resolve().parent.parent
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
         if template_path is None:
             template_path = base_dir / "templates" / "ground_truth" / "cabbage_tight_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
 

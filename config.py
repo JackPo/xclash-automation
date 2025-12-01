@@ -42,6 +42,62 @@ UNKNOWN_STATE_TIMEOUT = 60         # Seconds in UNKNOWN state before recovery
 # Screen regions (4K resolution: 3840x2160)
 STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
 
+# =============================================================================
+# TOWN LAYOUT COORDINATES (4K resolution)
+# These vary by user's town arrangement. Override in config_local.py for your layout.
+# Use detect_object.py to find positions: python detect_object.py screenshot.png "the corn bubble"
+# =============================================================================
+
+# Dog house - used as alignment anchor for harvest detection
+DOG_HOUSE_POSITION = (1605, 882)
+DOG_HOUSE_SIZE = (172, 197)
+
+# Resource bubble positions: {'region': (x, y, w, h), 'click': (x, y)}
+CORN_BUBBLE = {
+    'region': (1015, 869, 67, 57),
+    'click': (1048, 897)
+}
+GOLD_BUBBLE = {
+    'region': (1369, 800, 53, 43),
+    'click': (1395, 835)
+}
+IRON_BUBBLE = {
+    'region': (1617, 351, 46, 32),
+    'click': (1639, 377)
+}
+GEM_BUBBLE = {
+    'region': (1378, 652, 54, 51),
+    'click': (1405, 696)
+}
+CABBAGE_BUBBLE = {
+    'region': (1267, 277, 67, 57),
+    'click': (1300, 305)
+}
+EQUIPMENT_BUBBLE = {
+    'region': (1246, 859, 67, 57),
+    'click': (1279, 887)
+}
+
+# =============================================================================
+# DETECTION THRESHOLDS (TM_SQDIFF_NORMED - lower score = better match)
+# Threshold is maximum score to consider a match. Typical: 0.04-0.10
+# =============================================================================
+
+THRESHOLDS = {
+    'dog_house': 0.1,
+    'corn': 0.06,
+    'gold': 0.06,
+    'iron': 0.08,
+    'gem': 0.13,
+    'cabbage': 0.05,
+    'equipment': 0.06,
+    'handshake': 0.04,
+    'treasure_map': 0.05,
+    'harvest_box': 0.1,
+    'afk_rewards': 0.06,
+    'back_button': 0.06,
+}
+
 # BlueStacks keybindings (must match your BlueStacks game controls setup)
 # These are sent via Windows API, not ADB
 KEY_ZOOM_IN = 'shift+a'    # Pinch zoom in

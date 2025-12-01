@@ -4,10 +4,7 @@ Gem bubble matcher for gem harvest detection.
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 Template tightly cropped to just the gem icon (no bubble border).
 
-FIXED specs (4K resolution):
-- Extraction position: (1378, 652) - tight crop of gem only
-- Size: 54x51 pixels (gem icon only)
-- Click position: (1405, 696)
+Coordinates loaded from config.GEM_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
@@ -17,26 +14,28 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from config import GEM_BUBBLE, THRESHOLDS
+
 
 class GemMatcher:
     """
-    Presence detector for gem bubble at FIXED location.
+    Presence detector for gem bubble at configurable location.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    # Tight crop from bubble at (1367, 673) to (1443, 719)
-    ICON_X = 1378
-    ICON_Y = 652
-    ICON_WIDTH = 54
-    ICON_HEIGHT = 51  # Tight crop - gem icon only
-    CLICK_X = 1405
-    CLICK_Y = 696
+    # Load from config (can be overridden in config_local.py)
+    ICON_X = GEM_BUBBLE['region'][0]
+    ICON_Y = GEM_BUBBLE['region'][1]
+    ICON_WIDTH = GEM_BUBBLE['region'][2]
+    ICON_HEIGHT = GEM_BUBBLE['region'][3]
+    CLICK_X = GEM_BUBBLE['click'][0]
+    CLICK_Y = GEM_BUBBLE['click'][1]
+    DEFAULT_THRESHOLD = THRESHOLDS.get('gem', 0.13)
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.13,
+        threshold: float = None,
     ) -> None:
         """
         Initialize gem bubble detector.
@@ -47,13 +46,13 @@ class GemMatcher:
             threshold: Maximum difference score (default 0.06 for tight template)
         """
         base_dir = Path(__file__).resolve().parent.parent
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
         if template_path is None:
             template_path = base_dir / "templates" / "ground_truth" / "gem_tight_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
 

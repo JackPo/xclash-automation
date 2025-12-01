@@ -1,6 +1,6 @@
 # xclash-automation
 
-A fully automated bot for mobile games running on BlueStacks Android emulator. Uses computer vision and AI to detect UI elements and execute complex multi-step automation flows.
+A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks Android emulator. Uses computer vision and AI to detect UI elements and execute complex multi-step automation flows.
 
 ## Table of Contents
 
@@ -164,6 +164,16 @@ This script:
 
 **Important**: All templates are calibrated for 4K. Other resolutions will not work.
 
+### Resolution Scaling
+
+Screenshots are automatically scaled to 4K (3840x2160) regardless of your actual display resolution:
+
+- **Template Matching**: All templates are 4K; screenshots are scaled to match
+- **Native Resolution**: BlueStacks runs at 4K internally (set by `setup_bluestacks.py`)
+- **Automatic Scaling**: `WindowsScreenshotHelper` handles any necessary scaling transparently
+
+This means templates work across different display setups without recapture.
+
 ### 5. Verify Installation
 
 ```bash
@@ -223,6 +233,8 @@ STAMINA_REGION = (69, 203, 96, 60)  # Where to OCR stamina number
 ```
 
 ### Keybindings
+
+These defaults match the [BlueStacks Keybinding Setup](#bluestacks-keybinding-setup-required). Override in `config_local.py` if you use different keys:
 
 ```python
 # Must match your BlueStacks game controls setup

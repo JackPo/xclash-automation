@@ -4,10 +4,7 @@ Iron bar bubble matcher for iron harvest detection.
 Uses cv2.TM_SQDIFF_NORMED at fixed location.
 Template tightly cropped to just the iron bar icon (no bubble border).
 
-FIXED specs (4K resolution):
-- Extraction position: (1617, 351) - tight crop of iron bars only
-- Size: 46x32 pixels (iron bar icon only)
-- Click position: (1639, 377)
+Coordinates loaded from config.IRON_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
@@ -17,26 +14,28 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from config import IRON_BUBBLE, THRESHOLDS
+
 
 class IronBarMatcher:
     """
-    Presence detector for iron bar bubble at FIXED location.
+    Presence detector for iron bar bubble at configurable location.
     """
 
-    # HARDCODED coordinates - these NEVER change
-    # Tight crop: original (1601,343) + crop offset (16,8)
-    ICON_X = 1617
-    ICON_Y = 351
-    ICON_WIDTH = 46
-    ICON_HEIGHT = 32  # Tight crop - iron bar icon only
-    CLICK_X = 1639
-    CLICK_Y = 377
+    # Load from config (can be overridden in config_local.py)
+    ICON_X = IRON_BUBBLE['region'][0]
+    ICON_Y = IRON_BUBBLE['region'][1]
+    ICON_WIDTH = IRON_BUBBLE['region'][2]
+    ICON_HEIGHT = IRON_BUBBLE['region'][3]
+    CLICK_X = IRON_BUBBLE['click'][0]
+    CLICK_Y = IRON_BUBBLE['click'][1]
+    DEFAULT_THRESHOLD = THRESHOLDS.get('iron', 0.08)
 
     def __init__(
         self,
         template_path: Optional[Path] = None,
         debug_dir: Optional[Path] = None,
-        threshold: float = 0.08,
+        threshold: float = None,
     ) -> None:
         """
         Initialize iron bar bubble detector.
@@ -44,16 +43,16 @@ class IronBarMatcher:
         Args:
             template_path: Path to template (default: templates/ground_truth/iron_bar_tight_4k.png)
             debug_dir: Directory for debug output
-            threshold: Maximum difference score (default 0.08 for tight template)
+            threshold: Maximum difference score (default from config.THRESHOLDS)
         """
         base_dir = Path(__file__).resolve().parent.parent
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
         if template_path is None:
             template_path = base_dir / "templates" / "ground_truth" / "iron_bar_tight_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
 
