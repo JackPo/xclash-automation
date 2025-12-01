@@ -250,6 +250,10 @@ KEY_PAN_RIGHT = 'right'
 
 **Important**: The resource harvest flows (corn, gold, iron, gem, cabbage, equipment) click at **fixed coordinates** based on your town layout. You **must calibrate these** for your account or they will click in the wrong locations.
 
+**Reference town layout** (this is how the developer's town is arranged - your coordinates will differ):
+
+![Town Layout Example](docs/town_layout_example.png)
+
 ```python
 # Dog house - alignment anchor (must be visible for harvest flows to trigger)
 DOG_HOUSE_POSITION = (1605, 882)    # x, y - where dog house should appear
@@ -483,11 +487,7 @@ These flows detect standard UI popups and work on any account:
 
 ### ⚠️ Setup-Specific Flows (Requires Calibration)
 
-**IMPORTANT**: These flows click at **fixed coordinates** based on the original developer's town layout. They will click in the **wrong locations** on your account unless you recalibrate them.
-
-**Reference town layout** (this is how the developer's town is arranged):
-
-![Town Layout Example](docs/town_layout_example.png)
+These flows click at **fixed coordinates** and require calibration for your account. See [Town Layout Coordinates](#town-layout-coordinates-required-for-harvest-flows) for setup instructions.
 
 | Icon | Matcher | Flow | Conditions |
 |------|---------|------|------------|
@@ -500,18 +500,7 @@ These flows detect standard UI popups and work on any account:
 | Elite Zombie | (stamina-based) | `elite_zombie_flow.py` | Stamina >= 118, 5 min idle |
 | Union Gifts | (time-based) | `union_gifts_flow.py` | 20 min idle, 1h cooldown |
 
-**What "aligned" means:**
-
-The daemon checks if the dog house is at expected coordinates before triggering harvest flows. This is specific to the developer's town layout where buildings are arranged in a particular way.
-
-**To use these flows on your account:**
-
-1. Arrange your town similarly OR modify the matchers
-2. Use `detect_object.py` to find your resource bubble coordinates
-3. Update the matcher `REGION` and click coordinates in each `*_flow.py`
-4. Re-capture templates from your account using `WindowsScreenshotHelper`
-
-See the [Development](#development) section for how to calibrate these flows.
+**"Aligned" condition**: The daemon checks if the dog house is at expected coordinates before triggering harvest flows. If the camera has panned, bubbles won't be at the right locations.
 
 ### Crash & Idle Recovery
 
