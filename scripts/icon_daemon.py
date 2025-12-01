@@ -34,6 +34,7 @@ import threading
 import logging
 from pathlib import Path
 from datetime import datetime
+import pytz
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -49,12 +50,14 @@ from utils.gem_matcher import GemMatcher
 from utils.cabbage_matcher import CabbageMatcher
 from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
 from utils.back_button_matcher import BackButtonMatcher
+from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow
+from datetime import time as dt_time
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow
 
 
 class IconDaemon:
@@ -84,6 +87,7 @@ class IconDaemon:
         self.equipment_enhancement_matcher = None
         self.back_button_matcher = None
         self.dog_house_matcher = None
+        self.afk_rewards_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -96,6 +100,35 @@ class IconDaemon:
 
         # Elite zombie rally - stamina threshold
         self.ELITE_ZOMBIE_STAMINA_THRESHOLD = 118
+
+        # AFK rewards cooldown - once per hour
+        self.last_afk_rewards_time = 0
+        self.AFK_REWARDS_COOLDOWN = 3600  # 1 hour in seconds
+
+        # Union gifts cooldown - once per hour, requires 20 min idle
+        self.last_union_gifts_time = 0
+        self.UNION_GIFTS_COOLDOWN = 3600  # 1 hour in seconds
+        self.UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes
+
+        # Elite zombie - require consecutive valid stamina readings
+        self.elite_zombie_consecutive_count = 0
+        self.ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3
+
+        # Pacific timezone for logging
+        self.pacific_tz = pytz.timezone('America/Los_Angeles')
+
+        # Scheduled + continuous idle triggers
+        # Pattern: "At scheduled time X, if user was continuously idle for Y duration before that time, trigger"
+        self.scheduled_triggers = [
+            {
+                'name': 'hero_upgrade_arms_race',
+                'trigger_time': dt_time(2, 0),  # 2:00 AM Pacific
+                'required_idle_seconds': 3 * 3600 + 45 * 60,  # 3h 45m = 13500s
+                'flow': hero_upgrade_arms_race_flow,
+                'last_triggered_date': None,  # Track to prevent double-trigger same day
+            }
+        ]
+        self.continuous_idle_start = None  # Track when continuous idle began
 
         # Setup logging
         self.log_dir = Path('logs')
@@ -168,6 +201,9 @@ class IconDaemon:
         self.dog_house_matcher = DogHouseMatcher(debug_dir=debug_dir)
         print(f"  Dog house matcher: {self.dog_house_matcher.template_path.name} (threshold={self.dog_house_matcher.threshold})")
 
+        self.afk_rewards_matcher = AfkRewardsMatcher(debug_dir=debug_dir)
+        print(f"  AFK rewards matcher: {self.afk_rewards_matcher.template_path.name} (threshold={self.afk_rewards_matcher.threshold})")
+
     def _run_flow(self, flow_name: str, flow_func):
         """
         Run a flow in a thread-safe way.
@@ -221,20 +257,36 @@ class IconDaemon:
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
 
-                # Extract stamina using Qwen OCR
+                # Check IMMEDIATE action icons FIRST (before slow OCR)
+                handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
+                treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
+                harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
+
+                # Trigger immediate actions right away (no stamina/idle requirements)
+                if handshake_present:
+                    self.logger.info(f"[{iteration}] HANDSHAKE detected (diff={handshake_score:.4f})")
+                    self._run_flow("handshake", handshake_flow)
+
+                if treasure_present:
+                    self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
+                    self._run_flow("treasure_map", treasure_map_flow)
+
+                if harvest_present:
+                    self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
+                    self._run_flow("harvest_box", harvest_box_flow)
+
+                # Extract stamina using Qwen OCR (slow - after immediate actions)
                 stamina = self.qwen_ocr.extract_number(frame, self.STAMINA_REGION)
                 stamina_str = str(stamina) if stamina is not None else "?"
 
-                # Check all icons
-                handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
-                treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
+                # Check remaining icons (these need idle/alignment checks anyway)
                 corn_present, corn_score = self.corn_matcher.is_present(frame)
                 gold_present, gold_score = self.gold_matcher.is_present(frame)
-                harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
                 iron_present, iron_score = self.iron_matcher.is_present(frame)
                 gem_present, gem_score = self.gem_matcher.is_present(frame)
                 cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
                 equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
+                afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
                 # Get view state using view_state_detector
                 view_state_enum, view_score = detect_view(frame)
                 view_state = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
@@ -248,8 +300,11 @@ class IconDaemon:
                 idle_secs = get_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
 
+                # Get Pacific time for logging
+                pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
+
                 # Always print scores to stdout with view state and stamina
-                print(f"[{iteration}] [{view_state}] Stamina:{stamina_str} idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Idle recovery - every 5 min when idle 5+ min, go to town and ensure alignment
                 if idle_secs >= self.IDLE_THRESHOLD:
@@ -273,19 +328,20 @@ class IconDaemon:
                                 self.logger.info(f"[{iteration}] IDLE RECOVERY: View reset complete")
 
                 # Elite zombie rally - stamina >= 118 and idle 5+ min
-                if stamina is not None and stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD:
-                    if idle_secs >= self.IDLE_THRESHOLD:
-                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
+                # Filter out invalid stamina values (OCR errors return garbage like 1234567890)
+                # Require 3 consecutive VALID readings, then check if >= threshold
+                stamina_valid = stamina is not None and 0 <= stamina <= 200
+                if stamina_valid:
+                    self.elite_zombie_consecutive_count += 1
+                else:
+                    self.elite_zombie_consecutive_count = 0  # Reset if invalid reading
+
+                # Only trigger after 3 consecutive valid reads AND stamina >= threshold AND idle
+                if self.elite_zombie_consecutive_count >= self.ELITE_ZOMBIE_CONSECUTIVE_REQUIRED:
+                    if stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and idle_secs >= self.IDLE_THRESHOLD:
+                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, {self.elite_zombie_consecutive_count} consecutive valid reads, triggering rally...")
                         self._run_flow("elite_zombie", elite_zombie_flow)
-
-                # Log and trigger flows
-                if handshake_present:
-                    self.logger.info(f"[{iteration}] HANDSHAKE detected (diff={handshake_score:.4f})")
-                    self._run_flow("handshake", handshake_flow)
-
-                if treasure_present:
-                    self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
-                    self._run_flow("treasure_map", treasure_map_flow)
+                        self.elite_zombie_consecutive_count = 0  # Reset after triggering
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
@@ -304,10 +360,6 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
                     self._run_flow("gold_coin", gold_coin_flow)
 
-                if harvest_present:
-                    self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
-                    self._run_flow("harvest_box", harvest_box_flow)
-
                 if iron_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
                     self._run_flow("iron_bar", iron_bar_flow)
@@ -323,6 +375,49 @@ class IconDaemon:
                 if equip_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
+
+                # AFK rewards: requires all harvest conditions + 1 hour cooldown
+                current_time = time.time()
+                afk_cooldown_ok = (current_time - self.last_afk_rewards_time) >= self.AFK_REWARDS_COOLDOWN
+                if afk_present and world_present and harvest_idle_ok and harvest_aligned and afk_cooldown_ok:
+                    self.logger.info(f"[{iteration}] AFK REWARDS detected (diff={afk_score:.4f})")
+                    self.last_afk_rewards_time = current_time
+                    self._run_flow("afk_rewards", afk_rewards_flow)
+
+                # Union gifts: requires TOWN view, 20 min idle, dog house aligned, 1 hour cooldown
+                # This is a time-based trigger (no icon detection needed)
+                union_idle_ok = idle_secs >= self.UNION_GIFTS_IDLE_THRESHOLD
+                union_cooldown_ok = (current_time - self.last_union_gifts_time) >= self.UNION_GIFTS_COOLDOWN
+                if world_present and union_idle_ok and harvest_aligned and union_cooldown_ok:
+                    self.logger.info(f"[{iteration}] UNION GIFTS: idle={idle_str}, triggering flow...")
+                    self.last_union_gifts_time = current_time
+                    self._run_flow("union_gifts", union_gifts_flow)
+
+                # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
+                # Track continuous idle start time
+                if idle_secs >= 5:  # Consider idle if no input for 5+ seconds
+                    if self.continuous_idle_start is None:
+                        self.continuous_idle_start = time.time()
+                else:
+                    self.continuous_idle_start = None  # Reset on activity
+
+                # Check scheduled triggers
+                now_pacific = datetime.now(self.pacific_tz)
+                for trigger in self.scheduled_triggers:
+                    # Check if we're past trigger time and haven't triggered today
+                    if now_pacific.time() >= trigger['trigger_time']:
+                        if trigger['last_triggered_date'] != now_pacific.date():
+                            # Check idle duration requirement
+                            if self.continuous_idle_start:
+                                idle_duration = time.time() - self.continuous_idle_start
+                                if idle_duration >= trigger['required_idle_seconds']:
+                                    # Additional conditions: TOWN view, dog house aligned
+                                    if world_present and harvest_aligned:
+                                        self.logger.info(f"[{iteration}] SCHEDULED TRIGGER: {trigger['name']} at {trigger['trigger_time']}, idle duration={idle_duration/3600:.2f}h >= {trigger['required_idle_seconds']/3600:.2f}h required")
+                                        self._run_flow(trigger['name'], trigger['flow'])
+                                        trigger['last_triggered_date'] = now_pacific.date()
+                                    else:
+                                        self.logger.debug(f"[{iteration}] SCHEDULED TRIGGER: {trigger['name']} - conditions not met (view={view_state}, aligned={harvest_aligned})")
 
                 # Log view state for debugging
                 if view_state == "TOWN":

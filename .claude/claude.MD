@@ -401,6 +401,56 @@ When stamina >= 118 AND user idle for 5+ minutes:
 - Elite Zombie: Uses **leftmost** idle hero (`hero_selector.find_leftmost_idle()`)
 - Treasure Map: Uses **rightmost** idle hero (`hero_selector.find_rightmost_idle()`)
 
+### Fing Hero Flow (Scheduled + Continuous Idle)
+
+**Trigger**: At 2:00 AM Pacific, if user was continuously idle for 3h 45m before that time.
+
+**Pattern**: "Scheduled time X + continuous idle for Y duration before X"
+
+**Flow sequence**:
+1. Click Fing Hero button at (2272, 2038)
+2. Wait for hero grid to load (3x4 grid of hero tiles)
+3. Scan all 12 tiles for red notification dots (red pixel counting method)
+4. For each tile with red dot:
+   - Click tile center
+   - Check if upgrade button is available (green) or unavailable (gray)
+   - If available: click upgrade button at (1919, 1829)
+   - Click back to return to hero grid
+5. Click back to exit hero grid
+
+**Red Dot Detection**:
+- Method: Count red pixels in upper-right 40x40 region of each tile
+- Red in BGR: B<100, G<100, R>150
+- Threshold: 50+ red pixels = has dot
+- Verified: tiles WITH dot have 800+ red pixels, tiles WITHOUT have 0
+
+**Hero Grid Layout (4K)**:
+| Tile | Position | Size | Click Center |
+|------|----------|------|--------------|
+| r1_c1 | (1374, 211) | 246x404 | (1497, 413) |
+| r1_c2 | (1651, 211) | 249x404 | (1775, 413) |
+| r1_c3 | (1931, 211) | 250x404 | (2056, 413) |
+| r1_c4 | (2208, 211) | 245x404 | (2330, 413) |
+| r2_c1 | (1374, 639) | 246x397 | (1497, 837) |
+| r2_c2 | (1651, 639) | 249x397 | (1775, 837) |
+| r2_c3 | (1931, 639) | 250x397 | (2056, 837) |
+| r2_c4 | (2208, 639) | 245x397 | (2330, 837) |
+| r3_c1 | (1374, 1067) | 246x397 | (1497, 1265) |
+| r3_c2 | (1651, 1067) | 249x397 | (1775, 1265) |
+| r3_c3 | (1931, 1067) | 250x397 | (2056, 1265) |
+| r3_c4 | (2208, 1067) | 245x397 | (2330, 1265) |
+
+**Templates**:
+- `heroes_button_4k.png` - Fing Hero button (123x177 at 2211,1950, click: 2272,2038)
+- `upgrade_button_available_4k.png` - Green upgrade button (407x121)
+- `upgrade_button_unavailable_4k.png` - Gray upgrade button (365x126)
+
+**Additional conditions**:
+- Must be in TOWN view
+- Dog house must be aligned
+- Triggers once per calendar day (Pacific timezone)
+- Resets if user becomes active before trigger time
+
 ### Currently Detected Icons
 
 | Icon | Matcher | Threshold | Click Position | Flow |
@@ -413,6 +463,7 @@ When stamina >= 118 AND user idle for 5+ minutes:
 | Iron | `iron_bar_matcher.py` | 0.08 | (1639, 377) | `iron_bar_flow` |
 | Gem | `gem_matcher.py` | 0.06 | (1405, 696) | `gem_flow` |
 | Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
+| Fing Hero | Scheduled (2 AM) | 3h 45m idle | (2272, 2038) | `fing_hero_flow` |
 
 ### Matcher Thresholds
 
