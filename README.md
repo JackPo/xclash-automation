@@ -57,7 +57,8 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 - The Qwen2.5-VL-3B-Instruct model runs on modest NVIDIA GPUs
 - CUDA-capable NVIDIA GPU required (no AMD/Intel GPU support)
 - If you don't have a compatible GPU, the daemon will still work but stamina-based triggers (Elite Zombie) won't function
-- Tested on: Quadro P4000
+- Tested on: GTX 1080 (8GB VRAM) - works well
+- Note: Quadro P4000 was too slow for practical use
 
 ### Software
 - **OS**: Windows 10/11
