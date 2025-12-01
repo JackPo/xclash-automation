@@ -26,16 +26,17 @@ class TreasureChatNotificationMatcher:
     Finds banner position and clicks on the Kingdom link.
     """
 
-    # Search region - banner can appear at different Y positions
-    # Banner found at Y ~600-800, so search from Y=500 to cover all positions
+    # Search region - banner can appear ANYWHERE vertically
+    # X is constrained to center area, but Y should be full screen height
     SEARCH_X = 1500
-    SEARCH_Y = 500
+    SEARCH_Y = 0
     SEARCH_WIDTH = 820  # Wide enough for 768px template + some margin
-    SEARCH_HEIGHT = 800  # Vertical search range (500 to 1300)
+    SEARCH_HEIGHT = 2160  # Full screen height
 
     # Click offset from banner top-left to Kingdom link
-    CLICK_OFFSET_X = 508  # 2040 - 1532 = 508 pixels right of banner left edge
-    CLICK_OFFSET_Y = 134  # Kingdom link is 134 pixels down from banner top
+    # Template is 768x181. Kingdom link is centered horizontally, near bottom
+    CLICK_OFFSET_X = 384  # 768/2 = center of template
+    CLICK_OFFSET_Y = 141  # 181 - 40 = near bottom where link text is
 
     # Default threshold (TM_SQDIFF_NORMED - lower is better)
     DEFAULT_THRESHOLD = 0.1
