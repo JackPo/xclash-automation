@@ -1,11 +1,13 @@
 """
-Return to Base View - Robust recovery to get back to TOWN or WORLD view.
+Return to Base View - THE SINGLE recovery function.
 
-Strategy:
-1. Click back button repeatedly while it's visible
-2. Check if we're in TOWN or WORLD view
-3. If stuck in unknown state, click back button location to dismiss popups
-4. After 5 failed attempts, kill and restart xclash, then RETRY the whole loop
+Handles ALL recovery scenarios:
+1. App not running → start it (force stop first)
+2. Resolution wrong → run setup_bluestacks.py
+3. Stuck in popup/menu → click back buttons
+4. Completely stuck → restart app and retry
+
+This is the ONE source of truth for recovery. Use it everywhere.
 """
 
 import time
@@ -17,23 +19,78 @@ from utils.view_state_detector import detect_view, ViewState
 from utils.back_button_matcher import BackButtonMatcher
 from utils.adb_helper import ADBHelper
 
-# Click positions
+# Click position
 BACK_BUTTON_CLICK = (1407, 2055)
 
+# Recovery limits
 MAX_BACK_CLICKS = 5
 MAX_RECOVERY_ATTEMPTS = 5
+
+
+def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
+    """Check if xclash (com.xman.na.gp) is the foreground app."""
+    try:
+        result = subprocess.run(
+            [adb.ADB_PATH, '-s', adb.device, 'shell',
+             'dumpsys window | grep mFocusedApp'],
+            capture_output=True, text=True, timeout=5
+        )
+        return 'com.xman.na.gp' in result.stdout
+    except Exception:
+        return False
+
+
+def _run_setup_bluestacks(debug: bool = False):
+    """Run BlueStacks setup to ensure resolution is correct."""
+    if debug:
+        print("    [RETURN] Running BlueStacks setup...")
+    try:
+        subprocess.run(
+            ['python', 'setup_bluestacks.py'],
+            capture_output=True, timeout=30,
+            cwd=str(Path(__file__).parent.parent)
+        )
+    except Exception as e:
+        if debug:
+            print(f"    [RETURN] BlueStacks setup failed: {e}")
+    time.sleep(2)
+
+
+def _start_app(adb: ADBHelper, debug: bool = False):
+    """Force stop and start xclash, wait for load, run setup."""
+    if debug:
+        print("    [RETURN] Force stopping xclash...")
+    subprocess.run(
+        [adb.ADB_PATH, '-s', adb.device, 'shell',
+         'am force-stop com.xman.na.gp'],
+        capture_output=True, timeout=10
+    )
+    time.sleep(2)
+
+    if debug:
+        print("    [RETURN] Starting xclash...")
+    subprocess.run(
+        [adb.ADB_PATH, '-s', adb.device, 'shell',
+         'am start -n com.xman.na.gp/com.q1.ext.Q1UnityActivity'],
+        capture_output=True, timeout=10
+    )
+
+    if debug:
+        print("    [RETURN] Waiting 30s for game to load...")
+    time.sleep(30)
+
+    _run_setup_bluestacks(debug)
+    time.sleep(3)
 
 
 def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper = None,
                         debug: bool = False) -> bool:
     """
-    Return to TOWN or WORLD view from any state.
-
-    Strategy:
-    1. Click back button while visible (max 5 clicks per attempt)
-    2. Check if in known view (TOWN/WORLD)
-    3. If stuck, click back button location to dismiss popups
-    4. After 5 failed recovery attempts, kill and restart app, then RETRY
+    THE recovery function. Handles everything:
+    - App not running → start it
+    - Resolution wrong → setup_bluestacks
+    - Stuck in menu → back button clicks
+    - Totally stuck → restart and retry
 
     Args:
         adb: ADBHelper instance
@@ -41,11 +98,22 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         debug: Print debug info
 
     Returns:
-        True if successfully returned to TOWN/WORLD (always True unless catastrophic failure)
+        True when successfully in TOWN/WORLD (keeps trying until success).
     """
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     back_matcher = BackButtonMatcher()
 
+    # STEP 1: Ensure app is running and setup is correct
+    if not _is_xclash_in_foreground(adb):
+        if debug:
+            print("    [RETURN] xclash not in foreground, starting app...")
+        _start_app(adb, debug)
+    else:
+        if debug:
+            print("    [RETURN] xclash is running, ensuring resolution...")
+        _run_setup_bluestacks(debug)
+
+    # STEP 2: Try to get to TOWN/WORLD (5 attempts)
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
         if debug:
             print(f"    [RETURN] Attempt {attempt + 1}/{MAX_RECOVERY_ATTEMPTS}")
@@ -75,9 +143,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 adb.tap(*BACK_BUTTON_CLICK)
                 back_clicks += 1
             else:
-                # No back button visible, break to next phase
                 if debug:
-                    print(f"    [RETURN] No back button (score={back_score:.3f})")
+                    print(f"    [RETURN] No back button visible (score={back_score:.3f})")
                 break
 
         # Phase 2: Check view state again
@@ -92,7 +159,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
         # Phase 3: Unknown state - try clicking back button location to dismiss popup
         if debug:
-            print(f"    [RETURN] Unknown state, clicking back button location to dismiss popup...")
+            print("    [RETURN] Unknown state, clicking back button location...")
         adb.tap(*BACK_BUTTON_CLICK)
         time.sleep(0.5)
 
@@ -105,7 +172,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     print(f"    [RETURN] Reached {view_state.value} view after popup dismiss")
                 return True
 
-            # Also check for back button now
+            # Also check for back button now - if visible, retry the loop
             back_present, _ = back_matcher.is_present(frame)
             if back_present or view_state == ViewState.CHAT:
                 if debug:
@@ -115,65 +182,14 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if debug:
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
-    # All attempts failed - kill and restart app, then RETRY the whole thing
+    # STEP 3: All attempts failed - restart app and RETRY
     if debug:
-        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts failed, restarting app and retrying...")
-
-    _restart_xclash(adb, win, debug)
-
-    # After restart, recursively call return_to_base_view to verify we're in good state
-    # This ensures we keep trying until it works
-    if debug:
-        print(f"    [RETURN] App restarted, verifying we're in TOWN/WORLD...")
-    return return_to_base_view(adb, win, debug)
-
-
-def _restart_xclash(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False):
-    """Kill xclash and restart it."""
-    if debug:
-        print("    [RETURN] Killing xclash...")
-
-    # Force stop the app
-    subprocess.run(
-        [adb.ADB_PATH, '-s', adb.device, 'shell',
-         'am force-stop com.xman.na.gp'],
-        capture_output=True, timeout=10
-    )
-
-    time.sleep(2)
+        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts failed, restarting app...")
+    _start_app(adb, debug)
 
     if debug:
-        print("    [RETURN] Starting xclash...")
-
-    # Start the app
-    subprocess.run(
-        [adb.ADB_PATH, '-s', adb.device, 'shell',
-         'am start -n com.xman.na.gp/com.q1.ext.Q1UnityActivity'],
-        capture_output=True, timeout=10
-    )
-
-    # Wait for app to load
-    if debug:
-        print("    [RETURN] Waiting 30s for game to load...")
-    time.sleep(30)
-
-    # Run BlueStacks setup
-    if debug:
-        print("    [RETURN] Running BlueStacks setup...")
-    try:
-        subprocess.run(
-            ['python', 'setup_bluestacks.py'],
-            capture_output=True, timeout=30,
-            cwd=str(Path(__file__).parent.parent)
-        )
-    except Exception as e:
-        if debug:
-            print(f"    [RETURN] BlueStacks setup failed: {e}")
-
-    time.sleep(5)
-
-    if debug:
-        print("    [RETURN] App restart complete, will now verify state...")
+        print("    [RETURN] Retrying recovery after restart...")
+    return return_to_base_view(adb, win, debug)  # Recursive - keeps trying until success
 
 
 if __name__ == '__main__':
