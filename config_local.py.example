@@ -2,12 +2,41 @@
 Local configuration - copy this to config_local.py and fill in your API keys.
 
 This file (config_local.py) is gitignored so your keys stay safe.
+Any values set here will override the defaults in config.py.
 """
 
-# Google AI API key for Gemini
+# =============================================================================
+# API KEYS (required)
+# =============================================================================
+
+# Google AI API key for Gemini object detection
 # Get one at: https://aistudio.google.com/app/apikey
 GOOGLE_API_KEY = 'your-google-api-key-here'
 
 # Anthropic API key (optional, for Claude OCR)
 # Get one at: https://console.anthropic.com/
 ANTHROPIC_API_KEY = 'your-anthropic-api-key-here'
+
+# =============================================================================
+# OPTIONAL OVERRIDES (uncomment to customize)
+# =============================================================================
+
+# Daemon timing
+# DAEMON_INTERVAL = 3.0              # Check interval (seconds)
+# IDLE_THRESHOLD = 300               # 5 minutes before idle triggers activate
+# IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
+
+# Elite Zombie rally
+# ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
+# ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
+
+# Cooldowns (seconds)
+# AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
+# UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims
+# UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes idle required for union gifts
+
+# Recovery
+# UNKNOWN_STATE_TIMEOUT = 60         # Seconds in UNKNOWN state before recovery
+
+# Screen regions (4K resolution: 3840x2160)
+# STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR

@@ -60,6 +60,19 @@ from utils.return_to_base_view import return_to_base_view
 from datetime import time as dt_time
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow
 
+# Import configurable parameters
+from config import (
+    IDLE_THRESHOLD,
+    IDLE_CHECK_INTERVAL,
+    ELITE_ZOMBIE_STAMINA_THRESHOLD,
+    ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
+    AFK_REWARDS_COOLDOWN,
+    UNION_GIFTS_COOLDOWN,
+    UNION_GIFTS_IDLE_THRESHOLD,
+    UNKNOWN_STATE_TIMEOUT,
+    STAMINA_REGION,
+)
+
 
 class IconDaemon:
     """
@@ -74,7 +87,7 @@ class IconDaemon:
 
         # Stamina OCR (Qwen2.5-VL-3B)
         self.qwen_ocr = None
-        self.STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h at 4K
+        self.STAMINA_REGION = STAMINA_REGION  # From config
 
         # Matchers
         self.handshake_matcher = None
@@ -94,33 +107,33 @@ class IconDaemon:
         self.active_flows = set()
         self.flow_lock = threading.Lock()
 
-        # Idle town view switching
+        # Idle town view switching (values from config)
         self.last_idle_check_time = 0
-        self.IDLE_THRESHOLD = 300  # 5 minutes before triggering
-        self.IDLE_CHECK_INTERVAL = 300  # 5 minutes between checks
+        self.IDLE_THRESHOLD = IDLE_THRESHOLD
+        self.IDLE_CHECK_INTERVAL = IDLE_CHECK_INTERVAL
 
-        # Elite zombie rally - stamina threshold
-        self.ELITE_ZOMBIE_STAMINA_THRESHOLD = 118
+        # Elite zombie rally - stamina threshold (from config)
+        self.ELITE_ZOMBIE_STAMINA_THRESHOLD = ELITE_ZOMBIE_STAMINA_THRESHOLD
 
-        # AFK rewards cooldown - once per hour
+        # AFK rewards cooldown - once per hour (from config)
         self.last_afk_rewards_time = 0
-        self.AFK_REWARDS_COOLDOWN = 3600  # 1 hour in seconds
+        self.AFK_REWARDS_COOLDOWN = AFK_REWARDS_COOLDOWN
 
-        # Union gifts cooldown - once per hour, requires 20 min idle
+        # Union gifts cooldown - once per hour, requires 20 min idle (from config)
         self.last_union_gifts_time = 0
-        self.UNION_GIFTS_COOLDOWN = 3600  # 1 hour in seconds
-        self.UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes
+        self.UNION_GIFTS_COOLDOWN = UNION_GIFTS_COOLDOWN
+        self.UNION_GIFTS_IDLE_THRESHOLD = UNION_GIFTS_IDLE_THRESHOLD
 
-        # Elite zombie - require consecutive valid stamina readings
+        # Elite zombie - require consecutive valid stamina readings (from config)
         self.elite_zombie_consecutive_count = 0
-        self.ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3
+        self.ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = ELITE_ZOMBIE_CONSECUTIVE_REQUIRED
 
         # Pacific timezone for logging
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
 
-        # UNKNOWN state recovery tracking
+        # UNKNOWN state recovery tracking (from config)
         self.unknown_state_start = None  # When we first entered UNKNOWN state
-        self.UNKNOWN_STATE_TIMEOUT = 60  # 1 minute in UNKNOWN before triggering recovery
+        self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
 
         # Scheduled + continuous idle triggers
         # Pattern: "At scheduled time X, if user was continuously idle for Y duration before that time, trigger"
