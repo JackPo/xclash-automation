@@ -55,6 +55,7 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
+from utils.return_to_base_view import return_to_base_view
 
 from datetime import time as dt_time
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow
@@ -116,6 +117,10 @@ class IconDaemon:
 
         # Pacific timezone for logging
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
+
+        # UNKNOWN state recovery tracking
+        self.unknown_state_start = None  # When we first entered UNKNOWN state
+        self.UNKNOWN_STATE_TIMEOUT = 60  # 1 minute in UNKNOWN before triggering recovery
 
         # Scheduled + continuous idle triggers
         # Pattern: "At scheduled time X, if user was continuously idle for Y duration before that time, trigger"
@@ -203,6 +208,14 @@ class IconDaemon:
 
         self.afk_rewards_matcher = AfkRewardsMatcher(debug_dir=debug_dir)
         print(f"  AFK rewards matcher: {self.afk_rewards_matcher.template_path.name} (threshold={self.afk_rewards_matcher.threshold})")
+
+        # Startup recovery - ensure we're in a good state when daemon starts
+        self.logger.info("STARTUP: Running return_to_base_view to ensure TOWN/WORLD state...")
+        success = return_to_base_view(self.adb, self.windows_helper, debug=True)
+        if success:
+            self.logger.info("STARTUP: Successfully reached base view")
+        else:
+            self.logger.warning("STARTUP: Had to restart app to reach base view")
 
     def _run_flow(self, flow_name: str, flow_func):
         """
@@ -359,17 +372,41 @@ class IconDaemon:
                 # Always print scores to stdout with view state and stamina
                 print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
+                # Track UNKNOWN state duration
+                if view_state == "UNKNOWN":
+                    if self.unknown_state_start is None:
+                        self.unknown_state_start = time.time()
+                        self.logger.debug(f"[{iteration}] Entered UNKNOWN state")
+                else:
+                    if self.unknown_state_start is not None:
+                        self.logger.debug(f"[{iteration}] Left UNKNOWN state (now {view_state})")
+                    self.unknown_state_start = None
+
+                # UNKNOWN state recovery - if in UNKNOWN for 1+ min AND idle 5+ min, run return_to_base_view
+                if view_state == "UNKNOWN" and idle_secs >= self.IDLE_THRESHOLD:
+                    if self.unknown_state_start is not None:
+                        unknown_duration = time.time() - self.unknown_state_start
+                        if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT:
+                            self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
+                            success = return_to_base_view(self.adb, self.windows_helper, debug=True)
+                            if success:
+                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Successfully reached base view")
+                            else:
+                                self.logger.warning(f"[{iteration}] UNKNOWN RECOVERY: Had to restart app")
+                            self.unknown_state_start = None  # Reset after recovery attempt
+                            continue  # Skip rest of iteration, start fresh
+
                 # Idle recovery - every 5 min when idle 5+ min, go to town and ensure alignment
                 if idle_secs >= self.IDLE_THRESHOLD:
                     current_time = time.time()
                     if current_time - self.last_idle_check_time >= self.IDLE_CHECK_INTERVAL:
                         self.last_idle_check_time = current_time
 
-                        # Not in town - navigate there (handles CHAT, WORLD, UNKNOWN)
-                        if view_state != "TOWN":
+                        # Not in town - navigate there (handles CHAT, WORLD)
+                        if view_state != "TOWN" and view_state != "UNKNOWN":
                             self.logger.info(f"[{iteration}] IDLE RECOVERY: In {view_state}, navigating to TOWN...")
                             self._switch_to_town()
-                        else:
+                        elif view_state == "TOWN":
                             # In TOWN - check if dog house is aligned
                             is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
                             if not is_aligned:
