@@ -16,7 +16,9 @@ import os
 # DEFAULT PARAMETERS (can be overridden in config_local.py)
 # =============================================================================
 
-# API Keys (required - set in config_local.py or environment)
+# API Keys (optional - only needed for development tools)
+# GOOGLE_API_KEY: Used by detect_object.py for Gemini-based template extraction
+# ANTHROPIC_API_KEY: Used for Claude OCR (experimental)
 GOOGLE_API_KEY = None
 ANTHROPIC_API_KEY = None
 
@@ -58,9 +60,6 @@ try:
     from config_local import *
     print("Loaded config from config_local.py")
 except ImportError:
-    # Fall back to environment variables for API keys
+    # Fall back to environment variables for API keys (optional, for development only)
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
     ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
-
-    if not GOOGLE_API_KEY:
-        print("WARNING: GOOGLE_API_KEY not set. Copy config_local.py.example to config_local.py and add your key.")

@@ -13,7 +13,7 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 - [Architecture](#architecture)
 - [How It Works](#how-it-works)
 - [Automation Flows](#automation-flows)
-- [Adding New Flows](#adding-new-flows)
+- [Development](#development)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 
@@ -21,7 +21,7 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 
 - **Continuous Icon Detection**: Daemon monitors screen every 3 seconds for clickable UI elements
 - **Template Matching**: Sub-pixel accurate detection using OpenCV's normalized squared difference
-- **AI-Powered Object Detection**: Google Gemini 2.0 Flash for dynamic element discovery
+- **AI-Powered Object Detection**: Google Gemini 3.0 Pro for dynamic element discovery (development only)
 - **Local GPU OCR**: Qwen2.5-VL-3B-Instruct running on local NVIDIA GPU for text extraction
 - **View State Machine**: Automatically detects and navigates between TOWN/WORLD/CHAT views
 - **Idle-Aware Automation**: Different behaviors based on user activity (harvesting only when idle)
@@ -48,17 +48,26 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| **CPU** | Any x86_64 (Intel/AMD) | 4+ cores |
+| **CPU** | Any x86_64 (Intel/AMD) | Server-class CPU for 24/7 operation |
 | **RAM** | 8GB | 16GB+ (BlueStacks uses 4GB) |
 | **GPU** | NVIDIA with ~4GB VRAM | Any CUDA-capable GPU |
 | **Storage** | 10GB free | 20GB+ (model cache) |
+
+**Tested Setup (24/7 rack server):**
+- CPU: Intel Xeon E-2186G @ 3.80GHz (works great for 3s intervals)
+- GPU: GTX 1080 (8GB VRAM) - handles Qwen OCR well
+- Runs continuously as a background service
 
 **GPU Requirements for Qwen OCR:**
 - The Qwen2.5-VL-3B-Instruct model runs on modest NVIDIA GPUs
 - CUDA-capable NVIDIA GPU required (no AMD/Intel GPU support)
 - If you don't have a compatible GPU, the daemon will still work but stamina-based triggers (Elite Zombie) won't function
-- Tested on: GTX 1080 (8GB VRAM) - works well
 - Note: Quadro P4000 was too slow for practical use
+
+**Performance Tuning:**
+- Default `DAEMON_INTERVAL = 3.0` seconds is conservative for 24/7 server use
+- With faster CPU/GPU, you can reduce this to 1-2 seconds for quicker response
+- See [Configuration](#configuration) for how to adjust
 
 ### Software
 - **OS**: Windows 10/11
@@ -67,7 +76,6 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
   - Default ADB path: `C:\Program Files\BlueStacks_nxt\hd-adb.exe`
 - **Python 3.12+**: [Download](https://www.python.org/downloads/)
 - **CUDA Toolkit**: For GPU acceleration (optional but recommended)
-- **Google AI API Key**: [Get one free](https://aistudio.google.com/app/apikey) - **Only needed for development** (see below)
 
 ### BlueStacks ADB Setup
 
@@ -141,22 +149,7 @@ Key dependencies:
 - `pywin32` - Windows API access
 - `pytz` - Timezone handling
 
-### 4. Configure API Keys
-
-```bash
-# Copy the example config
-cp config_local.py.example config_local.py
-
-# Edit config_local.py and add your API key
-notepad config_local.py
-```
-
-Required in `config_local.py`:
-```python
-GOOGLE_API_KEY = 'your-google-ai-api-key-here'
-```
-
-### 5. Setup BlueStacks Resolution
+### 4. Setup BlueStacks Resolution
 
 The automation requires **4K resolution (3840x2160)** for template matching:
 
@@ -171,7 +164,7 @@ This script:
 
 **Important**: All templates are calibrated for 4K. Other resolutions will not work.
 
-### 6. Verify Installation
+### 5. Verify Installation
 
 ```bash
 # Test ADB connection
@@ -183,26 +176,19 @@ python -c "from utils.windows_screenshot_helper import WindowsScreenshotHelper; 
 
 ## Configuration
 
-Configuration uses a two-file system for security:
+All configuration has sensible defaults. You only need to create `config_local.py` if you want to override defaults.
 
 | File | Purpose | Git Status |
 |------|---------|------------|
 | `config.py` | Default values, config loader | Tracked |
-| `config_local.py` | Your API keys and overrides | **Gitignored** |
-| `config_local.py.example` | Template for config_local.py | Tracked |
+| `config_local.py` | Your overrides (optional) | **Gitignored** |
+| `config_local.py.example` | Template showing available options | Tracked |
 
-### API Keys
-
-```python
-# config_local.py
-GOOGLE_API_KEY = 'AIza...'  # Only for development (detect_object.py)
-ANTHROPIC_API_KEY = '...'   # Optional
+To customize, copy the example and uncomment what you need:
+```bash
+cp config_local.py.example config_local.py
+notepad config_local.py
 ```
-
-**Note on Google API Key:**
-The Google API key is **only needed when developing new features**. It powers `detect_object.py` which uses Gemini to find UI elements and get their bounding box coordinates. Once you have the coordinates, you manually create a template and the daemon runs entirely locally without any API calls.
-
-For normal operation (just running the daemon), no API key is required.
 
 ### Timing Parameters
 
@@ -271,35 +257,6 @@ Output example:
 [143] 14:23:48 [TOWN] Stamina:87 idle:2m H:0.032 T:0.923 C:0.456 G:0.234 HB:0.876 ...
 [143] HANDSHAKE detected (diff=0.0320)
 FLOW START: handshake
-```
-
-### Object Detection with Gemini
-
-For finding new UI elements:
-
-```bash
-python detect_object.py screenshot.png "the green Attack button"
-```
-
-Returns bounding box coordinates you can use to create new templates.
-
-### Manual Commands
-
-```python
-from utils.adb_helper import ADBHelper
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
-
-adb = ADBHelper()
-win = WindowsScreenshotHelper()
-
-# Take screenshot
-frame = win.get_screenshot_cv2()
-
-# Tap at coordinates
-adb.tap(1920, 1080)
-
-# Swipe
-adb.swipe(1000, 500, 2000, 500, duration=300)
 ```
 
 ## Architecture
@@ -445,11 +402,23 @@ Using `TM_SQDIFF_NORMED`:
 
 ## Automation Flows
 
+### Universal Flows (Work Out of Box)
+
+These flows detect standard UI popups and work on any account:
+
 | Icon | Matcher | Flow | Conditions |
 |------|---------|------|------------|
 | Handshake | `handshake_icon_matcher.py` | `handshake_flow.py` | Always active |
 | Treasure Map | `treasure_map_matcher.py` | `treasure_map_flow.py` | Always active |
 | Harvest Box | `harvest_box_matcher.py` | `harvest_box_flow.py` | Always active |
+| AFK Rewards | `afk_rewards_matcher.py` | `afk_rewards_flow.py` | 5 min idle, 1h cooldown |
+
+### ⚠️ Setup-Specific Flows (Requires Calibration)
+
+**IMPORTANT**: These flows click at **fixed coordinates** based on the original developer's town layout. They will click in the **wrong locations** on your account unless you recalibrate them.
+
+| Icon | Matcher | Flow | Conditions |
+|------|---------|------|------------|
 | Corn Bubble | `corn_harvest_matcher.py` | `corn_harvest_flow.py` | 5 min idle + aligned |
 | Gold Coin | `gold_coin_matcher.py` | `gold_coin_flow.py` | 5 min idle + aligned |
 | Iron Bar | `iron_bar_matcher.py` | `iron_bar_flow.py` | 5 min idle + aligned |
@@ -457,12 +426,20 @@ Using `TM_SQDIFF_NORMED`:
 | Cabbage | `cabbage_matcher.py` | `cabbage_flow.py` | 5 min idle + aligned |
 | Equipment | `equipment_enhancement_matcher.py` | `equipment_enhancement_flow.py` | 5 min idle + aligned |
 | Elite Zombie | (stamina-based) | `elite_zombie_flow.py` | Stamina >= 118, 5 min idle |
-| AFK Rewards | `afk_rewards_matcher.py` | `afk_rewards_flow.py` | 5 min idle, 1h cooldown |
 | Union Gifts | (time-based) | `union_gifts_flow.py` | 20 min idle, 1h cooldown |
 
-### "Aligned" Condition
+**What "aligned" means:**
 
-Some flows require the camera to be in a specific position (dog house visible at expected coordinates). This prevents clicking the wrong location if the user scrolled the view.
+The daemon checks if the dog house is at expected coordinates before triggering harvest flows. This is specific to the developer's town layout where buildings are arranged in a particular way.
+
+**To use these flows on your account:**
+
+1. Arrange your town similarly OR modify the matchers
+2. Use `detect_object.py` to find your resource bubble coordinates
+3. Update the matcher `REGION` and click coordinates in each `*_flow.py`
+4. Re-capture templates from your account using `WindowsScreenshotHelper`
+
+See the [Development](#development) section for how to calibrate these flows.
 
 ### Crash & Idle Recovery
 
@@ -489,23 +466,70 @@ The daemon includes robust recovery mechanisms for common failure scenarios:
 - Without recovery, daemon would sit idle waiting for icons that never appear
 - Recovery ensures automation continues 24/7 with minimal intervention
 
-## Adding New Flows
+## Development
 
-### 1. Create Template
+This section is for developers who want to add new detection flows. **Normal users don't need this** - just run the daemon.
+
+### API Keys for Development
+
+To use `detect_object.py` for finding UI element coordinates, you need a Google API key:
+
+1. Get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Create `config_local.py`:
+   ```bash
+   cp config_local.py.example config_local.py
+   ```
+3. Add your key:
+   ```python
+   GOOGLE_API_KEY = 'AIza...'
+   ```
+
+**Note**: This key is only for development. Once you have templates, the daemon runs 100% locally.
+
+### Finding UI Elements with Gemini
 
 ```bash
-# Take screenshot
+# Take a screenshot first
 python -c "from utils.windows_screenshot_helper import WindowsScreenshotHelper; import cv2; cv2.imwrite('screenshot.png', WindowsScreenshotHelper().get_screenshot_cv2())"
 
-# Find element with Gemini
+# Use Gemini 3.0 Pro to find elements
+python detect_object.py screenshot.png "the green Attack button"
+```
+
+Returns bounding box coordinates: `(x, y, width, height)`. Use these to crop a template and determine click coordinates.
+
+### Manual ADB Commands
+
+```python
+from utils.adb_helper import ADBHelper
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+adb = ADBHelper()
+win = WindowsScreenshotHelper()
+
+# Take screenshot
+frame = win.get_screenshot_cv2()
+
+# Tap at coordinates
+adb.tap(1920, 1080)
+
+# Swipe
+adb.swipe(1000, 500, 2000, 500, duration=300)
+```
+
+### Adding a New Flow
+
+#### 1. Create Template
+
+```bash
+# Take screenshot and use Gemini to find coordinates
 python detect_object.py screenshot.png "the button you want to detect"
 
 # Crop template from screenshot using returned coordinates
+# Save to templates/ground_truth/your_element_4k.png
 ```
 
-Save to `templates/ground_truth/your_element_4k.png`
-
-### 2. Create Matcher
+#### 2. Create Matcher
 
 ```python
 # utils/your_element_matcher.py
@@ -534,7 +558,7 @@ class YourElementMatcher:
         return score < self.threshold, score
 ```
 
-### 3. Create Flow
+#### 3. Create Flow
 
 ```python
 # scripts/flows/your_element_flow.py
@@ -549,7 +573,7 @@ def your_element_flow(adb):
     # Additional steps...
 ```
 
-### 4. Register in Daemon
+#### 4. Register in Daemon
 
 Add to `scripts/icon_daemon.py`:
 ```python
