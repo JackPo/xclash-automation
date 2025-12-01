@@ -19,15 +19,25 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 
 ## Features
 
-- **Continuous Icon Detection**: Daemon monitors screen every 3 seconds for clickable UI elements
-- **Template Matching**: Sub-pixel accurate detection using OpenCV's normalized squared difference
-- **AI-Powered Object Detection**: Google Gemini 3.0 Pro for dynamic element discovery (development only)
-- **Local GPU OCR**: Qwen2.5-VL-3B-Instruct running on local NVIDIA GPU for text extraction
-- **View State Machine**: Automatically detects and navigates between TOWN/WORLD/CHAT views
-- **Idle-Aware Automation**: Different behaviors based on user activity (harvesting only when idle)
-- **Auto-Recovery**: Handles stuck states, app crashes, and UI anomalies automatically
-- **Scheduled Tasks**: Time-based triggers (e.g., 2 AM daily tasks)
-- **Crash Recovery**: Automatically detects and recovers from game crashes, restarts app if needed
+### What Gets Automated
+
+- **Resource Harvesting**: Automatically clicks corn, gold, iron, gem, cabbage, and equipment bubbles when they appear
+- **Alliance Handshakes**: Clicks the alliance handshake icon whenever available
+- **Treasure Maps**: Opens and collects treasure map rewards
+- **Harvest Boxes**: Opens surprise harvest boxes
+- **AFK Rewards**: Claims idle/AFK reward popups
+- **Union Gifts**: Collects alliance gift packages
+- **Elite Zombie Rallies**: Automatically starts rallies when stamina is sufficient (118+)
+
+### Technical Features
+
+- **24/7 Background Operation**: Runs continuously as a daemon, checking every 3 seconds
+- **Idle-Aware**: Only triggers resource harvesting when you're AFK (5+ minutes idle)
+- **Crash Recovery**: Automatically restarts the game if it crashes or gets stuck
+- **View Navigation**: Detects TOWN/WORLD/CHAT views and navigates as needed
+- **Template Matching**: Sub-pixel accurate icon detection using OpenCV
+- **Local GPU OCR**: Reads stamina numbers using Qwen2.5-VL on your GPU (no cloud API needed)
+- **Configurable**: All coordinates, thresholds, and timings can be customized
 
 ## Technology Stack
 
