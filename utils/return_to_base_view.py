@@ -4,8 +4,8 @@ Return to Base View - Robust recovery to get back to TOWN or WORLD view.
 Strategy:
 1. Click back button repeatedly while it's visible
 2. Check if we're in TOWN or WORLD view
-3. If stuck in unknown state, click corn harvest location to dismiss popups
-4. After 3 failed attempts, kill and restart xclash
+3. If stuck in unknown state, click back button location to dismiss popups
+4. After 5 failed attempts, kill and restart xclash, then RETRY the whole loop
 """
 
 import time
@@ -13,13 +13,12 @@ import subprocess
 from pathlib import Path
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.view_state_detector import detect_view, go_to_town, ViewState
+from utils.view_state_detector import detect_view, ViewState
 from utils.back_button_matcher import BackButtonMatcher
 from utils.adb_helper import ADBHelper
 
 # Click positions
 BACK_BUTTON_CLICK = (1407, 2055)
-CORN_HARVEST_CLICK = (1932, 1297)  # Center of screen, dismisses most popups
 
 MAX_BACK_CLICKS = 5
 MAX_RECOVERY_ATTEMPTS = 5
@@ -31,10 +30,10 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     Return to TOWN or WORLD view from any state.
 
     Strategy:
-    1. Click back button while visible (max 5 clicks)
+    1. Click back button while visible (max 5 clicks per attempt)
     2. Check if in known view (TOWN/WORLD)
-    3. If stuck, click corn harvest location to dismiss popups
-    4. After 5 failed recovery attempts, kill and restart app
+    3. If stuck, click back button location to dismiss popups
+    4. After 5 failed recovery attempts, kill and restart app, then RETRY
 
     Args:
         adb: ADBHelper instance
@@ -42,7 +41,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         debug: Print debug info
 
     Returns:
-        True if successfully returned to TOWN/WORLD, False if had to restart app
+        True if successfully returned to TOWN/WORLD (always True unless catastrophic failure)
     """
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     back_matcher = BackButtonMatcher()
@@ -91,10 +90,10 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     print(f"    [RETURN] Reached {view_state.value} view")
                 return True
 
-        # Phase 3: Unknown state - try clicking corn harvest location to dismiss popup
+        # Phase 3: Unknown state - try clicking back button location to dismiss popup
         if debug:
-            print(f"    [RETURN] Unknown state, clicking center to dismiss popup...")
-        adb.tap(*CORN_HARVEST_CLICK)
+            print(f"    [RETURN] Unknown state, clicking back button location to dismiss popup...")
+        adb.tap(*BACK_BUTTON_CLICK)
         time.sleep(0.5)
 
         # Check again
@@ -116,12 +115,17 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if debug:
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
-    # All attempts failed - kill and restart app
+    # All attempts failed - kill and restart app, then RETRY the whole thing
     if debug:
-        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts failed, restarting app...")
+        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts failed, restarting app and retrying...")
 
     _restart_xclash(adb, win, debug)
-    return False
+
+    # After restart, recursively call return_to_base_view to verify we're in good state
+    # This ensures we keep trying until it works
+    if debug:
+        print(f"    [RETURN] App restarted, verifying we're in TOWN/WORLD...")
+    return return_to_base_view(adb, win, debug)
 
 
 def _restart_xclash(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False):
@@ -168,13 +172,8 @@ def _restart_xclash(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
 
     time.sleep(5)
 
-    # Navigate to town
     if debug:
-        print("    [RETURN] Navigating to TOWN view...")
-    go_to_town(adb, debug=False)
-
-    if debug:
-        print("    [RETURN] App restart complete")
+        print("    [RETURN] App restart complete, will now verify state...")
 
 
 if __name__ == '__main__':

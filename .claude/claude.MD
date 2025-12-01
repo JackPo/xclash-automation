@@ -196,18 +196,18 @@ win = WindowsScreenshotHelper()
 success = return_to_base_view(adb, win, debug=True)
 ```
 
-**Recovery Strategy** (5 attempts max):
+**Recovery Strategy** (5 attempts max, then restart and retry):
 1. Click back button while visible (max 5 clicks per attempt)
 2. Check if in TOWN/WORLD view - if yes, done
-3. If stuck in unknown state, click corn harvest location (1932, 1297) to dismiss popups
+3. If stuck in unknown state, click back button location (1407, 2055) to dismiss popups
 4. If still stuck after 5 attempts, kill xclash and restart:
    - Force stop `com.xman.na.gp`
    - Wait 2s, start app
    - Wait 30s for load
    - Run `setup_bluestacks.py`
-   - Navigate to TOWN
+   - **Recursively call return_to_base_view** to verify and retry if needed
 
-**Returns**: `True` if reached TOWN/WORLD, `False` if had to restart app
+**Returns**: `True` when successfully reached TOWN/WORLD (keeps trying until success)
 
 ## ⚠️ DEPRECATED APPROACHES
 
