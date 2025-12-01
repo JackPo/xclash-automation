@@ -214,6 +214,17 @@ class IconDaemon:
         if not self._is_xclash_in_foreground():
             self.logger.info("STARTUP: xclash not in foreground, starting app...")
             self._start_xclash()
+        else:
+            # App is running, but still need to run BlueStacks setup to ensure resolution is correct
+            self.logger.info("STARTUP: xclash is running, running BlueStacks setup...")
+            import subprocess
+            try:
+                subprocess.run(['python', 'setup_bluestacks.py'],
+                              capture_output=True, timeout=30,
+                              cwd=str(Path(__file__).parent.parent))
+            except Exception as e:
+                self.logger.warning(f"STARTUP: BlueStacks setup failed: {e}")
+            time.sleep(2)
 
         # Now ensure we're in TOWN/WORLD state
         self.logger.info("STARTUP: Running return_to_base_view to ensure TOWN/WORLD state...")
