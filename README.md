@@ -82,6 +82,33 @@ Verify connection:
 # Should show: emulator-5554  device
 ```
 
+### BlueStacks Keybinding Setup (Required)
+
+The automation uses keyboard inputs for zoom and camera control. These must be configured in BlueStacks:
+
+1. Open BlueStacks with the game running
+2. Click the **keyboard icon** (bottom-right) or press `Ctrl+Shift+A`
+3. Go to **Game Controls** editor
+4. Add the following keybindings:
+
+| Action | Key | BlueStacks Control Type |
+|--------|-----|------------------------|
+| **Zoom In** | `Shift+A` | Pinch zoom in |
+| **Zoom Out** | `Shift+Z` | Pinch zoom out |
+| **Pan Up** | `Up Arrow` | Swipe down (inverted) |
+| **Pan Down** | `Down Arrow` | Swipe up (inverted) |
+| **Pan Left** | `Left Arrow` | Swipe right (inverted) |
+| **Pan Right** | `Right Arrow` | Swipe left (inverted) |
+
+**Note**: Pan controls are inverted because swiping left moves the camera right, etc.
+
+5. Save the control scheme
+
+**Why keyboard instead of ADB swipe?**
+- More precise control over zoom levels
+- Faster than ADB touch emulation
+- Consistent behavior across sessions
+
 ## Installation
 
 ### 1. Clone the Repository
@@ -202,6 +229,18 @@ UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 min idle required for union gifts
 ```python
 # 4K coordinates (x, y, width, height)
 STAMINA_REGION = (69, 203, 96, 60)  # Where to OCR stamina number
+```
+
+### Keybindings
+
+```python
+# Must match your BlueStacks game controls setup
+KEY_ZOOM_IN = 'shift+a'    # Pinch zoom in
+KEY_ZOOM_OUT = 'shift+z'   # Pinch zoom out
+KEY_PAN_UP = 'up'          # Arrow keys for camera pan
+KEY_PAN_DOWN = 'down'
+KEY_PAN_LEFT = 'left'
+KEY_PAN_RIGHT = 'right'
 ```
 
 ## Usage

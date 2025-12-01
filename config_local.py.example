@@ -40,3 +40,11 @@ ANTHROPIC_API_KEY = 'your-anthropic-api-key-here'
 
 # Screen regions (4K resolution: 3840x2160)
 # STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
+
+# BlueStacks keybindings (must match your BlueStacks game controls setup)
+# KEY_ZOOM_IN = 'shift+a'    # Pinch zoom in
+# KEY_ZOOM_OUT = 'shift+z'   # Pinch zoom out
+# KEY_PAN_UP = 'up'          # Arrow keys for camera pan
+# KEY_PAN_DOWN = 'down'
+# KEY_PAN_LEFT = 'left'
+# KEY_PAN_RIGHT = 'right'

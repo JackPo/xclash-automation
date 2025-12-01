@@ -40,6 +40,15 @@ UNKNOWN_STATE_TIMEOUT = 60         # Seconds in UNKNOWN state before recovery
 # Screen regions (4K resolution: 3840x2160)
 STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
 
+# BlueStacks keybindings (must match your BlueStacks game controls setup)
+# These are sent via Windows API, not ADB
+KEY_ZOOM_IN = 'shift+a'    # Pinch zoom in
+KEY_ZOOM_OUT = 'shift+z'   # Pinch zoom out
+KEY_PAN_UP = 'up'          # Arrow keys for camera pan
+KEY_PAN_DOWN = 'down'
+KEY_PAN_LEFT = 'left'
+KEY_PAN_RIGHT = 'right'
+
 # =============================================================================
 # LOAD LOCAL OVERRIDES
 # =============================================================================
