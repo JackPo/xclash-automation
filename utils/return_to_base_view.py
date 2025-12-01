@@ -46,7 +46,7 @@ def _run_setup_bluestacks(debug: bool = False):
         print("    [RETURN] Running BlueStacks setup...")
     try:
         subprocess.run(
-            ['python', 'setup_bluestacks.py'],
+            ['python', 'scripts/setup_bluestacks.py'],
             capture_output=True, timeout=30,
             cwd=str(Path(__file__).parent.parent)
         )
