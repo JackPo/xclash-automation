@@ -16,7 +16,7 @@ import os
 
 from config import GOOGLE_API_KEY as API_KEY
 
-def detect_object(image_path: str, object_description: str, output_dir: str = "."):
+def detect_object(image_path: str, object_description: str, output_dir: str = "screenshots"):
     """
     Detect an object in an image using Gemini.
 
@@ -29,6 +29,9 @@ def detect_object(image_path: str, object_description: str, output_dir: str = ".
         dict with detection results
     """
     client = genai.Client(api_key=API_KEY)
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
 
     # Load image
     image = Image.open(image_path)

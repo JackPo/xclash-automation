@@ -31,6 +31,7 @@ env/
 !docs/**/*.png
 *.log
 logs/
+screenshots/
 
 # OS
 .DS_Store
