@@ -242,6 +242,53 @@ class IconDaemon:
         else:
             self.logger.warning("IDLE SWITCH: Failed to switch to TOWN view")
 
+    def _is_xclash_in_foreground(self) -> bool:
+        """Check if xclash (com.xman.na.gp) is the foreground app."""
+        import subprocess
+        try:
+            result = subprocess.run(
+                [self.adb.ADB_PATH, '-s', self.adb.device, 'shell',
+                 'dumpsys window | grep mFocusedApp'],
+                capture_output=True, text=True, timeout=5
+            )
+            return 'com.xman.na.gp' in result.stdout
+        except Exception as e:
+            self.logger.error(f"Failed to check foreground app: {e}")
+            return False
+
+    def _start_xclash(self):
+        """Start xclash app and wait for it to load."""
+        import subprocess
+        self.logger.info("APP RECOVERY: Starting xclash...")
+
+        # Start the app
+        subprocess.run(
+            [self.adb.ADB_PATH, '-s', self.adb.device, 'shell',
+             'am start -n com.xman.na.gp/com.q1.ext.Q1UnityActivity'],
+            capture_output=True, timeout=10
+        )
+
+        # Wait for app to load (game takes a while)
+        self.logger.info("APP RECOVERY: Waiting 30s for game to load...")
+        time.sleep(30)
+
+        # Run BlueStacks setup to ensure resolution is correct
+        self.logger.info("APP RECOVERY: Running BlueStacks setup...")
+        try:
+            subprocess.run(['python', 'setup_bluestacks.py'],
+                          capture_output=True, timeout=30, cwd=str(Path(__file__).parent.parent))
+        except Exception as e:
+            self.logger.warning(f"APP RECOVERY: BlueStacks setup failed: {e}")
+
+        # Wait a bit more after resolution change
+        time.sleep(5)
+
+        # Navigate to town view
+        self.logger.info("APP RECOVERY: Navigating to TOWN view...")
+        go_to_town(self.adb, debug=False)
+
+        self.logger.info("APP RECOVERY: Complete")
+
     def run(self):
         """Main detection loop."""
         self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
@@ -254,6 +301,12 @@ class IconDaemon:
             iteration += 1
 
             try:
+                # Check if xclash is running and in foreground
+                if not self._is_xclash_in_foreground():
+                    self.logger.warning(f"[{iteration}] xclash not in foreground - starting recovery...")
+                    self._start_xclash()
+                    continue  # Skip this iteration, start fresh
+
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
 
