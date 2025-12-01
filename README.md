@@ -27,6 +27,7 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 - **Idle-Aware Automation**: Different behaviors based on user activity (harvesting only when idle)
 - **Auto-Recovery**: Handles stuck states, app crashes, and UI anomalies automatically
 - **Scheduled Tasks**: Time-based triggers (e.g., 2 AM daily tasks)
+- **Crash Recovery**: Automatically detects and recovers from game crashes, restarts app if needed
 
 ## Technology Stack
 
@@ -36,7 +37,7 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
 | **Device Control** | [ADB](https://developer.android.com/tools/adb) (Android Debug Bridge) | Tap, swipe, app control |
 | **Screenshot Capture** | Windows GDI API | Fast, consistent screenshots for template matching |
 | **Template Matching** | [OpenCV](https://opencv.org/) `cv2.matchTemplate` | UI element detection via `TM_SQDIFF_NORMED` |
-| **Object Detection** | [Google Gemini 2.0 Flash](https://ai.google.dev/) | AI-based bounding box detection |
+| **Object Detection** | [Google Gemini 3.0 Pro](https://ai.google.dev/) | AI-based bounding box detection |
 | **OCR** | [Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) | Local GPU text extraction |
 | **Idle Detection** | Windows `GetLastInputInfo` API | Track keyboard/mouse activity |
 | **Language** | Python 3.12 | Core automation logic |
@@ -418,6 +419,31 @@ Using `TM_SQDIFF_NORMED`:
 ### "Aligned" Condition
 
 Some flows require the camera to be in a specific position (dog house visible at expected coordinates). This prevents clicking the wrong location if the user scrolled the view.
+
+### Crash & Idle Recovery
+
+The daemon includes robust recovery mechanisms for common failure scenarios:
+
+**App Crash Detection:**
+- Every detection cycle checks if game is in foreground (`dumpsys window | grep mFocusedApp`)
+- If app not running/foreground → triggers `return_to_base_view()` recovery
+- Recovery restarts app via ADB: `am start -n com.xman.na.gp/.SplashActivity`
+- Waits for app to load, then navigates to TOWN view
+
+**UNKNOWN State Recovery:**
+- If view state is UNKNOWN for 60+ seconds AND user is idle 5+ minutes
+- Triggers full recovery: clicks back buttons, detects view, navigates to TOWN
+- If still stuck after multiple attempts → restarts app
+
+**Idle Recovery (every 5 min when idle):**
+- Ensures camera is aligned (dog house at expected position)
+- If in WORLD/CHAT → navigates back to TOWN
+- If camera misaligned → toggles WORLD/TOWN to reset view
+
+**Why This Matters:**
+- Games crash periodically (memory leaks, network issues)
+- Without recovery, daemon would sit idle waiting for icons that never appear
+- Recovery ensures automation continues 24/7 with minimal intervention
 
 ## Adding New Flows
 
