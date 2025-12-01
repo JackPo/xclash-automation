@@ -66,7 +66,7 @@ A fully automated bot for mobile games running on BlueStacks Android emulator. U
   - Default ADB path: `C:\Program Files\BlueStacks_nxt\hd-adb.exe`
 - **Python 3.12+**: [Download](https://www.python.org/downloads/)
 - **CUDA Toolkit**: For GPU acceleration (optional but recommended)
-- **Google AI API Key**: [Get one free](https://aistudio.google.com/app/apikey)
+- **Google AI API Key**: [Get one free](https://aistudio.google.com/app/apikey) - **Only needed for development** (see below)
 
 ### BlueStacks ADB Setup
 
@@ -194,9 +194,14 @@ Configuration uses a two-file system for security:
 
 ```python
 # config_local.py
-GOOGLE_API_KEY = 'AIza...'  # Required for Gemini object detection
+GOOGLE_API_KEY = 'AIza...'  # Only for development (detect_object.py)
 ANTHROPIC_API_KEY = '...'   # Optional
 ```
+
+**Note on Google API Key:**
+The Google API key is **only needed when developing new features**. It powers `detect_object.py` which uses Gemini to find UI elements and get their bounding box coordinates. Once you have the coordinates, you manually create a template and the daemon runs entirely locally without any API calls.
+
+For normal operation (just running the daemon), no API key is required.
 
 ### Timing Parameters
 
