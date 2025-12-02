@@ -19,5 +19,7 @@ from .elite_zombie_flow import elite_zombie_flow
 from .afk_rewards_flow import afk_rewards_flow
 from .union_gifts_flow import union_gifts_flow
 from .hero_upgrade_arms_race_flow import hero_upgrade_arms_race_flow
+from .stamina_claim_flow import stamina_claim_flow
+from .stamina_use_flow import stamina_use_flow
 
-__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'cabbage_flow', 'equipment_enhancement_flow', 'back_from_chat_flow', 'elite_zombie_flow', 'afk_rewards_flow', 'union_gifts_flow', 'hero_upgrade_arms_race_flow']
+__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'cabbage_flow', 'equipment_enhancement_flow', 'back_from_chat_flow', 'elite_zombie_flow', 'afk_rewards_flow', 'union_gifts_flow', 'hero_upgrade_arms_race_flow', 'stamina_claim_flow', 'stamina_use_flow']

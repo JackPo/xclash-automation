@@ -62,9 +62,10 @@ from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view
+from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states
 
 from datetime import time as dt_time
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -85,6 +86,13 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_COOLDOWN,
     ARMS_RACE_ENHANCE_HERO_ENABLED,
     ARMS_RACE_ENHANCE_HERO_LAST_MINUTES,
+    STAMINA_CLAIM_BUTTON,
+    ARMS_RACE_STAMINA_CLAIM_THRESHOLD,
+    ARMS_RACE_BEAST_TRAINING_USE_ENABLED,
+    ARMS_RACE_BEAST_TRAINING_USE_MAX,
+    ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN,
+    ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
+    ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
 )
 
 
@@ -116,6 +124,7 @@ class IconDaemon:
         self.back_button_matcher = None
         self.dog_house_matcher = None
         self.afk_rewards_matcher = None
+        self.barracks_matcher = None
 
         # Track active flows to prevent re-triggering
         self.active_flows = set()
@@ -170,6 +179,19 @@ class IconDaemon:
         self.BEAST_TRAINING_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD
         self.BEAST_TRAINING_RALLY_COOLDOWN = ARMS_RACE_BEAST_TRAINING_COOLDOWN
         self.beast_training_last_rally = 0
+        self.beast_training_rally_count = 0  # Track total rallies in current Beast Training block
+        self.beast_training_current_block = None  # Track which block we're in
+        self.STAMINA_CLAIM_THRESHOLD = ARMS_RACE_STAMINA_CLAIM_THRESHOLD  # Claim when stamina < this
+
+        # Use Button tracking (for stamina recovery items during Beast Training)
+        self.BEAST_TRAINING_USE_ENABLED = ARMS_RACE_BEAST_TRAINING_USE_ENABLED
+        self.BEAST_TRAINING_USE_MAX = ARMS_RACE_BEAST_TRAINING_USE_MAX  # Max 4 Use clicks per block
+        self.BEAST_TRAINING_USE_COOLDOWN = ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN  # 3 min between uses
+        self.BEAST_TRAINING_MAX_RALLIES = ARMS_RACE_BEAST_TRAINING_MAX_RALLIES  # Don't use if rallies >= 15
+        self.BEAST_TRAINING_USE_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD  # Use when < 20
+        self.beast_training_use_count = 0  # Track Use button clicks per block
+        self.beast_training_last_use_time = 0  # Track cooldown between uses
+        self.beast_training_claim_attempted = False  # Track if we tried to claim this iteration
 
         # Enhance Hero: last N minutes of Enhance Hero, runs once per block
         self.ARMS_RACE_ENHANCE_HERO_ENABLED = ARMS_RACE_ENHANCE_HERO_ENABLED
@@ -296,6 +318,9 @@ class IconDaemon:
 
         self.afk_rewards_matcher = AfkRewardsMatcher(debug_dir=debug_dir)
         print(f"  AFK rewards matcher: {self.afk_rewards_matcher.template_path.name} (threshold={self.afk_rewards_matcher.threshold})")
+
+        self.barracks_matcher = BarracksStateMatcher()
+        print(f"  Barracks state matcher: 4 positions, threshold={self.barracks_matcher.MATCH_THRESHOLD if hasattr(self.barracks_matcher, 'MATCH_THRESHOLD') else 0.06}")
 
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
@@ -431,8 +456,11 @@ class IconDaemon:
                 arms_race_remaining = arms_race['time_remaining']
                 arms_race_remaining_mins = int(arms_race_remaining.total_seconds() / 60)
 
-                # Always print scores to stdout with view state, stamina, and arms race
-                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m) H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                # Get barracks states
+                barracks_state_str = format_barracks_states(frame)
+
+                # Always print scores to stdout with view state, stamina, barracks, and arms race
+                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m) Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Track UNKNOWN state duration
                 if view_state == "UNKNOWN":
@@ -518,11 +546,52 @@ class IconDaemon:
                 if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
                     arms_race_event == "Mystic Beast" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES):
+
+                    # Track which block we're in - reset counters if new block
+                    block_start = arms_race['block_start']
+                    if self.beast_training_current_block != block_start:
+                        self.beast_training_current_block = block_start
+                        self.beast_training_rally_count = 0
+                        self.beast_training_use_count = 0  # Reset Use count for new block
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0")
+
+                    # Check if user was idle since block start (required for Use button)
+                    time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
+                    idle_since_block_start = idle_secs >= time_elapsed_secs
+
+                    # Stamina Claim: if stamina < 60, try to claim free stamina
+                    # Track if claim was attempted (to know if we should try Use button)
+                    claim_triggered = False
+                    if (stamina_confirmed and
+                        confirmed_stamina < self.STAMINA_CLAIM_THRESHOLD):
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, triggering stamina claim...")
+                        claim_triggered = self._run_flow("stamina_claim", stamina_claim_flow)
+
+                    # Use Button Logic (stamina recovery items):
+                    # Conditions: idle entire block, rally count < 15, no Claim available (stamina already at threshold),
+                    # stamina < 20, Use clicks < 4, 3 min cooldown
+                    use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
+                    if (self.BEAST_TRAINING_USE_ENABLED and
+                        idle_since_block_start and
+                        stamina_confirmed and
+                        confirmed_stamina < self.BEAST_TRAINING_USE_STAMINA_THRESHOLD and
+                        self.beast_training_rally_count < self.BEAST_TRAINING_MAX_RALLIES and
+                        self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
+                        use_cooldown_ok and
+                        not claim_triggered):  # Only use if claim wasn't just triggered
+                        # All conditions met - use stamina recovery item
+                        self.beast_training_use_count += 1
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.BEAST_TRAINING_USE_STAMINA_THRESHOLD}, using recovery item (use #{self.beast_training_use_count}/{self.BEAST_TRAINING_USE_MAX}, rally #{self.beast_training_rally_count}/{self.BEAST_TRAINING_MAX_RALLIES})...")
+                        self._run_flow("stamina_use", stamina_use_flow)
+                        self.beast_training_last_use_time = current_time
+
+                    # Rally: if stamina >= 20 and cooldown ok
                     rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
                     if (stamina_confirmed and
                         confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
                         rally_cooldown_ok):
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally...")
+                        self.beast_training_rally_count += 1
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally #{self.beast_training_rally_count}...")
                         # Use elite_zombie_flow with 0 plus clicks
                         import config
                         original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)

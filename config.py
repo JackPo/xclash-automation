@@ -45,6 +45,14 @@ ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Enable/disable beast training a
 ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger in last N minutes of Mystic Beast
 ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
+ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim free stamina when stamina < this value
+
+# Use Button during Beast Training (consumes stamina recovery items)
+ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True    # Enable/disable Use button automation
+ARMS_RACE_BEAST_TRAINING_USE_MAX = 4           # Max Use button clicks per Beast Training block
+ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN = 180    # 3 minutes between Use button clicks
+ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use stamina items if rally count >= this
+ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when stamina < this
 
 # Enhance Hero (during Enhance Hero event)
 # Triggers hero_upgrade_arms_race_flow to upgrade heroes
@@ -118,6 +126,25 @@ THRESHOLDS = {
     'harvest_box': 0.1,
     'afk_rewards': 0.06,
     'back_button': 0.06,
+    'claim_button': 0.05,
+    'use_button': 0.05,
+}
+
+# =============================================================================
+# STAMINA POPUP BUTTON POSITIONS (4K resolution)
+# Used by stamina_claim_flow and stamina_use_flow
+# =============================================================================
+
+# Claim button in stamina popup (free stamina every 4 hours)
+STAMINA_CLAIM_BUTTON = {
+    'search_region': (1800, 400, 800, 500),  # x, y, w, h - upper half of popup
+    'click': (2284, 743),
+}
+
+# Use button in stamina popup (+50 stamina recovery items)
+STAMINA_USE_BUTTON = {
+    'search_region': (1800, 1100, 800, 500),  # x, y, w, h - lower half of popup
+    'click': (2284, 1440),
 }
 
 # BlueStacks keybindings (must match your BlueStacks game controls setup)
