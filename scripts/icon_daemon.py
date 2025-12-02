@@ -16,6 +16,12 @@ Currently detects:
 - Cabbage bubble
 - Equipment enhancement bubble (crossed swords)
 
+Arms Race event tracking:
+- Beast Training: During Mystic Beast last hour, if stamina >= 20 (3 consecutive reads),
+  triggers elite_zombie_flow with 0 plus clicks. 90s cooldown between rallies.
+- Enhance Hero: During Enhance Hero last 20 minutes, triggers hero_upgrade_arms_race_flow
+  once per event block.
+
 Idle recovery (every 5 min when idle 5+ min):
 - If back button visible (chat window) → click back to exit
 - If no world button AND no back button (menu gone) → click back location to recover
@@ -59,6 +65,7 @@ from utils.return_to_base_view import return_to_base_view
 
 from datetime import time as dt_time
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow
+from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
 from config import (
@@ -148,6 +155,18 @@ class IconDaemon:
         ]
         self.continuous_idle_start = None  # Track when continuous idle began
 
+        # Arms Race event tracking
+        # Beast Training: Mystic Beast last hour, stamina >= 20, 90s between rallies
+        self.BEAST_TRAINING_STAMINA_THRESHOLD = 20
+        self.BEAST_TRAINING_RALLY_COOLDOWN = 90  # seconds between rallies
+        self.beast_training_last_rally = 0
+        self.beast_training_consecutive_reads = 0
+        self.beast_training_last_stamina = None
+
+        # Enhance Hero: last 20 minutes of Enhance Hero, runs once per block
+        self.ENHANCE_HERO_LAST_MINUTES = 20
+        self.enhance_hero_last_block_start = None  # Track which block we triggered for
+
         # Setup logging
         self.log_dir = Path('logs')
         self.log_dir.mkdir(exist_ok=True)
@@ -165,10 +184,57 @@ class IconDaemon:
         )
         self.logger = logging.getLogger('IconDaemon')
 
+    def _verify_templates(self):
+        """
+        Verify all required templates exist before startup.
+        Raises FileNotFoundError if any template is missing.
+        """
+        print("Verifying templates...")
+        template_dir = Path('templates/ground_truth')
+
+        # All templates required by matchers and view_state_detector
+        required_templates = [
+            # Icon matcher templates
+            'handshake_iter2.png',
+            'treasure_map_4k.png',
+            'corn_harvest_bubble_4k.png',
+            'gold_coin_tight_4k.png',
+            'harvest_box_4k.png',
+            'iron_bar_tight_4k.png',
+            'gem_tight_4k.png',
+            'cabbage_tight_4k.png',
+            'sword_tight_4k.png',  # Equipment enhancement
+            'back_button_4k.png',
+            'back_button_light_4k.png',
+            'dog_house_4k.png',
+            'chest_timer_4k.png',  # AFK rewards
+            # View state detector templates
+            'world_button_4k.png',
+            'town_button_4k.png',
+            'town_button_zoomed_out_4k.png',
+        ]
+
+        missing = []
+        for template in required_templates:
+            path = template_dir / template
+            if not path.exists():
+                missing.append(str(path))
+
+        if missing:
+            print(f"  ERROR: Missing {len(missing)} templates:")
+            for m in missing:
+                print(f"    - {m}")
+            raise FileNotFoundError(f"Missing {len(missing)} required templates. See list above.")
+
+        print(f"  OK - All {len(required_templates)} templates verified")
+
     def initialize(self):
         """Initialize all components."""
         self.logger.info("Initializing icon daemon...")
         self.logger.info(f"Log file: {self.log_file}")
+
+        # Verify templates exist before loading matchers
+        self._verify_templates()
 
         # ADB
         self.adb = ADBHelper()
@@ -350,8 +416,14 @@ class IconDaemon:
                 # Get Pacific time for logging
                 pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
 
-                # Always print scores to stdout with view state and stamina
-                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                # Get Arms Race status (computed from UTC time, no screenshot needed)
+                arms_race = get_arms_race_status()
+                arms_race_event = arms_race['current']
+                arms_race_remaining = arms_race['time_remaining']
+                arms_race_remaining_mins = int(arms_race_remaining.total_seconds() / 60)
+
+                # Always print scores to stdout with view state, stamina, and arms race
+                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m) H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Track UNKNOWN state duration
                 if view_state == "UNKNOWN":
@@ -413,6 +485,56 @@ class IconDaemon:
                         self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, {self.elite_zombie_consecutive_count} consecutive valid reads, triggering rally...")
                         self._run_flow("elite_zombie", elite_zombie_flow)
                         self.elite_zombie_consecutive_count = 0  # Reset after triggering
+
+                # =================================================================
+                # ARMS RACE EVENT TRACKING
+                # =================================================================
+                current_time = time.time()  # Needed for cooldown checks
+                # arms_race, arms_race_event, arms_race_remaining, arms_race_remaining_mins already set above
+
+                # Beast Training: Mystic Beast last hour, stamina >= 20, 90s cooldown
+                if arms_race_event == "Mystic Beast" and arms_race_remaining_mins <= 60:
+                    # Check stamina with consecutive read validation (separate from elite zombie)
+                    if stamina_valid:
+                        # Check consistency with previous read
+                        if self.beast_training_last_stamina is not None:
+                            diff = abs(stamina - self.beast_training_last_stamina)
+                            if diff > 20:  # Too much variance, reset
+                                self.beast_training_consecutive_reads = 1
+                            else:
+                                self.beast_training_consecutive_reads += 1
+                        else:
+                            self.beast_training_consecutive_reads = 1
+                        self.beast_training_last_stamina = stamina
+                    else:
+                        self.beast_training_consecutive_reads = 0
+                        self.beast_training_last_stamina = None
+
+                    # Check all conditions: 3 consecutive reads, stamina >= 20, cooldown passed
+                    rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
+                    if (self.beast_training_consecutive_reads >= 3 and
+                        stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
+                        rally_cooldown_ok):
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={stamina}, triggering rally...")
+                        # Use elite_zombie_flow with 0 plus clicks
+                        import config
+                        original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
+                        config.ELITE_ZOMBIE_PLUS_CLICKS = 0
+                        self._run_flow("beast_training", elite_zombie_flow)
+                        config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
+                        self.beast_training_last_rally = current_time
+                        self.beast_training_consecutive_reads = 0
+
+                # Enhance Hero: last 20 minutes, runs once per block
+                if arms_race_event == "Enhance Hero" and arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES:
+                    # Check if we already triggered for this block
+                    block_start = arms_race['block_start']
+                    if self.enhance_hero_last_block_start != block_start:
+                        # Additional conditions: idle 5+ min
+                        if idle_secs >= self.IDLE_THRESHOLD:
+                            self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins}min of Enhance Hero, triggering hero upgrade flow...")
+                            self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
+                            self.enhance_hero_last_block_start = block_start
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions

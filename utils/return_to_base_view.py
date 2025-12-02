@@ -19,6 +19,9 @@ from utils.view_state_detector import detect_view, ViewState
 from utils.back_button_matcher import BackButtonMatcher
 from utils.adb_helper import ADBHelper
 
+# Target resolution
+TARGET_RESOLUTION = "3840x2160"
+
 # Click position
 BACK_BUTTON_CLICK = (1407, 2055)
 
@@ -38,6 +41,27 @@ def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
         return 'com.xman.na.gp' in result.stdout
     except Exception:
         return False
+
+
+def _get_current_resolution(adb: ADBHelper) -> str:
+    """Get current screen resolution from ADB."""
+    try:
+        result = subprocess.run(
+            [adb.ADB_PATH, '-s', adb.device, 'shell', 'wm', 'size'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            # Parse "Physical size: 1920x1080" or "Override size: 3840x2160"
+            for line in result.stdout.split('\n'):
+                if 'size:' in line.lower():
+                    parts = line.split(':')
+                    if len(parts) > 1:
+                        res = parts[-1].strip()
+                        if 'x' in res:
+                            return res
+    except Exception:
+        pass
+    return None
 
 
 def _run_setup_bluestacks(debug: bool = False):
@@ -109,9 +133,15 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             print("    [RETURN] xclash not in foreground, starting app...")
         _start_app(adb, debug)
     else:
-        if debug:
-            print("    [RETURN] xclash is running, ensuring resolution...")
-        _run_setup_bluestacks(debug)
+        # Only run setup if resolution is not already correct
+        current_res = _get_current_resolution(adb)
+        if current_res != TARGET_RESOLUTION:
+            if debug:
+                print(f"    [RETURN] Resolution is {current_res}, expected {TARGET_RESOLUTION}, running setup...")
+            _run_setup_bluestacks(debug)
+        else:
+            if debug:
+                print(f"    [RETURN] xclash is running, resolution is {current_res} (correct)")
 
     # STEP 2: Try to get to TOWN/WORLD (5 attempts)
     for attempt in range(MAX_RECOVERY_ATTEMPTS):

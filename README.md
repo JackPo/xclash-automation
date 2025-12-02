@@ -37,6 +37,8 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 - **View Navigation**: Detects TOWN/WORLD/CHAT views and navigates as needed
 - **Template Matching**: Sub-pixel accurate icon detection using OpenCV
 - **Local GPU OCR**: Reads stamina numbers using Qwen2.5-VL on your GPU (no cloud API needed)
+- **Arms Race Tracking**: Tracks the 5-activity Arms Race rotation and triggers event-specific flows
+- **Template Verification**: Validates all required templates exist at startup to catch missing files early
 - **Configurable**: All coordinates, thresholds, and timings can be customized
 
 ## Technology Stack
@@ -369,6 +371,7 @@ xclash/
 │   ├── qwen_ocr.py              # Local GPU OCR
 │   ├── idle_detector.py         # Windows idle time detection
 │   ├── return_to_base_view.py   # Recovery logic
+│   ├── arms_race.py             # Arms Race schedule calculator
 │   │
 │   │ # Template matchers (one per icon type)
 │   ├── handshake_icon_matcher.py
@@ -511,6 +514,29 @@ These flows click at **fixed coordinates** and require calibration for your acco
 | Union Gifts | (time-based) | `union_gifts_flow.py` | 20 min idle, 1h cooldown |
 
 **"Aligned" condition**: The daemon checks if the dog house is at expected coordinates before triggering harvest flows. If the camera has panned, bubbles won't be at the right locations.
+
+### Arms Race Event Tracking
+
+The daemon tracks the Arms Race event rotation and triggers event-specific flows:
+
+| Event | Trigger Condition | Flow |
+|-------|-------------------|------|
+| **Mystic Beast** | Last 60 minutes, stamina >= 20 | `elite_zombie_flow` with 0 plus clicks, 90s cooldown |
+| **Enhance Hero** | Last 20 minutes, once per block | `hero_upgrade_arms_race_flow` |
+
+**How it works:**
+- Arms Race rotates through 5 activities every 4 hours: City Construction, Soldier Training, Tech Research, Mystic Beast, Enhance Hero
+- The daemon computes the current event from UTC time (no screenshot needed)
+- Status is displayed in the log output: `AR:Mys(98m)` means "Mystic Beast, 98 minutes remaining"
+
+**Usage:**
+```python
+from utils.arms_race import get_arms_race_status
+
+status = get_arms_race_status()
+print(f"Day {status['day']}: {status['current']}")
+print(f"Time remaining: {status['time_remaining']}")
+```
 
 ### Crash & Idle Recovery
 
