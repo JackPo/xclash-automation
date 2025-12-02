@@ -3,15 +3,21 @@ Barracks State Matcher - Detects state of each barracks building.
 
 Each barracks has a floating bubble icon above it indicating its state:
 - Yellow soldier face = READY (soldiers ready to collect)
-- White soldier face = PENDING (idle, can start training)
-- Stopwatch = TRAINING (soldiers currently training)
+- White soldier face = TRAINING (soldiers currently training)
+- Stopwatch = PENDING (idle/queued, waiting to start)
+
+Detection uses hybrid approach:
+1. Template matching for stopwatch (PENDING state)
+2. Pixel counting for READY vs TRAINING distinction
+   - READY: >10% yellow pixels (R>150, G>150, B<100)
+   - TRAINING: >15% white pixels (R>200, G>200, B>200)
 
 Barracks positions are configured in config.py (BARRACKS_POSITIONS).
 
 Templates:
-- yellow_soldier_barrack_4k.png - Ready state (collect soldiers)
-- white_soldier_barrack_4k.png - Pending state (start training)
-- stopwatch_barrack_4k.png - Training state (in progress)
+- stopwatch_barrack_4k.png - Pending/queued state (template matching)
+- yellow_soldier_barrack_4k.png - Reference for yellow pixel threshold
+- white_soldier_barrack_4k.png - Reference for white pixel threshold
 """
 
 from pathlib import Path
