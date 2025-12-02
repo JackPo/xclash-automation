@@ -575,9 +575,10 @@ ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger window (last N minutes)
 ```
 
 **How it works:**
-- Arms Race rotates through 5 activities every 4 hours: City Construction, Soldier Training, Tech Research, Mystic Beast, Enhance Hero
+- Arms Race rotates through 5 activities every 4 hours: City Construction, **Soldier Training**, Tech Research, Mystic Beast, Enhance Hero
 - The daemon computes the current event from UTC time (no screenshot needed)
 - Status is displayed in the log output: `AR:Mys(98m)` means "Mystic Beast, 98 minutes remaining"
+- Note: Barracks automation (above) is separate from Arms Race Soldier Training event
 
 **Programmatic access:**
 ```python
