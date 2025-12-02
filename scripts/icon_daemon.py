@@ -63,6 +63,7 @@ from utils.view_state_detector import detect_view, go_to_town, go_to_world, View
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view
 from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states
+from utils.stamina_red_dot_detector import has_stamina_red_dot
 
 from datetime import time as dt_time
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow
@@ -559,13 +560,18 @@ class IconDaemon:
                     time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
                     idle_since_block_start = idle_secs >= time_elapsed_secs
 
-                    # Stamina Claim: if stamina < 60, try to claim free stamina
+                    # Stamina Claim: if stamina < 60 AND red dot visible, try to claim free stamina
                     # Track if claim was attempted (to know if we should try Use button)
                     claim_triggered = False
                     if (stamina_confirmed and
                         confirmed_stamina < self.STAMINA_CLAIM_THRESHOLD):
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, triggering stamina claim...")
-                        claim_triggered = self._run_flow("stamina_claim", stamina_claim_flow)
+                        # Check for red notification dot (indicates free claim available)
+                        has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
+                        if has_dot:
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, red dot detected ({red_count} pixels), triggering stamina claim...")
+                            claim_triggered = self._run_flow("stamina_claim", stamina_claim_flow)
+                        elif self.debug:
+                            self.logger.debug(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, but no red dot ({red_count} pixels), skipping claim")
 
                     # Use Button Logic (stamina recovery items):
                     # Conditions: idle entire block, rally count < 15, no Claim available (stamina already at threshold),
