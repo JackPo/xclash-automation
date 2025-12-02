@@ -46,21 +46,31 @@ if stamina >= 20 and rally_cooldown_ok:
 
 ### Stamina Claim Logic
 
-During Beast Training, the daemon will claim free stamina when available:
+During Beast Training, the daemon will claim free stamina when available (every 4 hours).
 
-**Conditions**:
-- Stamina < 60 (threshold)
-- Stamina popup has Claim button available (red dot visible)
+**Conditions** (BOTH must be true):
+1. Stamina < 60 (threshold)
+2. **Red notification dot visible** on stamina display (indicates free claim available)
 
 ```python
 ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60
 ```
 
+**Red Dot Detection** (`utils/stamina_red_dot_detector.py`):
+- Checks upper-right 25x25 pixel region of stamina display
+- Red pixel criteria: B<100, G<100, R>150 (BGR color space)
+- Threshold: 30+ red pixels = dot present
+- Prevents false positives when claim isn't actually available
+
 **Flow**: `stamina_claim_flow`
-1. Click stamina display to open popup
-2. Detect Claim button via template matching
-3. Click Claim if found
-4. Close popup
+1. Daemon detects red dot on stamina display (without opening popup)
+2. Click stamina display to open popup
+3. Detect Claim button via template matching
+4. Click Claim if found
+5. Close popup
+
+**Why Red Dot Check?**
+Without the red dot check, the daemon would trigger the claim flow every 3 seconds when stamina < 60, even when no free claim is available. The red dot ensures we only attempt to claim when the free stamina is actually ready.
 
 ### Stamina Use Button Logic (Recovery Items)
 

@@ -535,6 +535,20 @@ The daemon tracks the Arms Race event rotation and triggers event-specific flows
 
 **Enhance Hero Idle Requirement**: The Enhance Hero flow only triggers if you were **idle since the START of the Enhance Hero block** (not just idle for 5 minutes). This ensures the automation doesn't interrupt active gameplay.
 
+**Stamina Management** (during Beast Training):
+
+The daemon automatically manages stamina during Mystic Beast events:
+
+1. **Stamina Claim** (free, every 4 hours):
+   - Triggers when stamina < 60 AND red notification dot visible on stamina display
+   - Red dot detection prevents false positives (only claims when actually available)
+   - Uses `stamina_red_dot_detector.py` for pixel-based dot detection
+
+2. **Stamina Use** (recovery items, +50 stamina):
+   - Triggers when stamina < 20, idle since block start, rally count < 15
+   - Max 4 uses per block, 3-minute cooldown between uses
+   - Only uses if Claim button not available (prioritizes free claims)
+
 **Configuration options** (in `config_local.py`):
 ```python
 # Beast Training (during Mystic Beast event)
@@ -542,6 +556,16 @@ ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Set False to disable
 ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger window (last N minutes)
 ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
+
+# Stamina Claim (free claim, every 4 hours)
+ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim if stamina < 60
+
+# Stamina Use (recovery items)
+ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True    # Set False to disable
+ARMS_RACE_BEAST_TRAINING_USE_MAX = 4           # Max uses per block
+ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN = 180    # 3 minutes between uses
+ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use if stamina < 20
+ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use if >= 15 rallies
 
 # Enhance Hero (during Enhance Hero event)
 # Only triggers if idle since the START of the Enhance Hero block
