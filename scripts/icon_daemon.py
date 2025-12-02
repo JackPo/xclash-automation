@@ -138,9 +138,10 @@ class IconDaemon:
         self.UNION_GIFTS_COOLDOWN = UNION_GIFTS_COOLDOWN
         self.UNION_GIFTS_IDLE_THRESHOLD = UNION_GIFTS_IDLE_THRESHOLD
 
-        # Elite zombie - require consecutive valid stamina readings (from config)
-        self.elite_zombie_consecutive_count = 0
-        self.ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = ELITE_ZOMBIE_CONSECUTIVE_REQUIRED
+        # Unified stamina validation - ONE system for all stamina-based triggers
+        # Tracks last 3 readings, requires all 3 to be valid (0-200) and consistent (diff <= 20)
+        self.stamina_history = []  # List of last 3 valid readings
+        self.STAMINA_CONSECUTIVE_REQUIRED = ELITE_ZOMBIE_CONSECUTIVE_REQUIRED  # 3
 
         # Pacific timezone for logging
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
@@ -169,8 +170,6 @@ class IconDaemon:
         self.BEAST_TRAINING_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD
         self.BEAST_TRAINING_RALLY_COOLDOWN = ARMS_RACE_BEAST_TRAINING_COOLDOWN
         self.beast_training_last_rally = 0
-        self.beast_training_consecutive_reads = 0
-        self.beast_training_last_stamina = None
 
         # Enhance Hero: last N minutes of Enhance Hero, runs once per block
         self.ARMS_RACE_ENHANCE_HERO_ENABLED = ARMS_RACE_ENHANCE_HERO_ENABLED
@@ -480,21 +479,33 @@ class IconDaemon:
                                 go_to_town(self.adb, debug=False)
                                 self.logger.info(f"[{iteration}] IDLE RECOVERY: View reset complete")
 
-                # Elite zombie rally - stamina >= 118 and idle 5+ min
-                # Filter out invalid stamina values (OCR errors return garbage like 1234567890)
-                # Require 3 consecutive VALID readings, then check if >= threshold
+                # =================================================================
+                # UNIFIED STAMINA VALIDATION
+                # =================================================================
+                # ONE system for all stamina-based triggers (elite zombie, beast training, etc.)
+                # Requires 3 consecutive valid readings (0-200) with consistency (diff <= 20)
                 stamina_valid = stamina is not None and 0 <= stamina <= 200
                 if stamina_valid:
-                    self.elite_zombie_consecutive_count += 1
+                    # Check consistency with previous readings
+                    if self.stamina_history and abs(stamina - self.stamina_history[-1]) > 20:
+                        # Too much variance from last reading, reset
+                        self.stamina_history = [stamina]
+                    else:
+                        self.stamina_history.append(stamina)
+                        if len(self.stamina_history) > self.STAMINA_CONSECUTIVE_REQUIRED:
+                            self.stamina_history = self.stamina_history[-self.STAMINA_CONSECUTIVE_REQUIRED:]
                 else:
-                    self.elite_zombie_consecutive_count = 0  # Reset if invalid reading
+                    self.stamina_history = []  # Reset on invalid reading
 
-                # Only trigger after 3 consecutive valid reads AND stamina >= threshold AND idle
-                if self.elite_zombie_consecutive_count >= self.ELITE_ZOMBIE_CONSECUTIVE_REQUIRED:
-                    if stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and idle_secs >= self.IDLE_THRESHOLD:
-                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, {self.elite_zombie_consecutive_count} consecutive valid reads, triggering rally...")
-                        self._run_flow("elite_zombie", elite_zombie_flow)
-                        self.elite_zombie_consecutive_count = 0  # Reset after triggering
+                # stamina_confirmed: True if we have 3 consecutive valid, consistent readings
+                stamina_confirmed = len(self.stamina_history) >= self.STAMINA_CONSECUTIVE_REQUIRED
+                confirmed_stamina = self.stamina_history[-1] if stamina_confirmed else None
+
+                # Elite zombie rally - stamina >= 118 and idle 5+ min
+                if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and idle_secs >= self.IDLE_THRESHOLD:
+                    self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
+                    self._run_flow("elite_zombie", elite_zombie_flow)
+                    self.stamina_history = []  # Reset after triggering
 
                 # =================================================================
                 # ARMS RACE EVENT TRACKING
@@ -502,32 +513,16 @@ class IconDaemon:
                 current_time = time.time()  # Needed for cooldown checks
                 # arms_race, arms_race_event, arms_race_remaining, arms_race_remaining_mins already set above
 
-                # Beast Training: Mystic Beast last N minutes, stamina threshold, cooldown
+                # Beast Training: Mystic Beast last N minutes, stamina >= 20, cooldown
+                # Uses the SAME stamina_confirmed from unified validation above
                 if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
                     arms_race_event == "Mystic Beast" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES):
-                    # Check stamina with consecutive read validation (separate from elite zombie)
-                    if stamina_valid:
-                        # Check consistency with previous read
-                        if self.beast_training_last_stamina is not None:
-                            diff = abs(stamina - self.beast_training_last_stamina)
-                            if diff > 20:  # Too much variance, reset
-                                self.beast_training_consecutive_reads = 1
-                            else:
-                                self.beast_training_consecutive_reads += 1
-                        else:
-                            self.beast_training_consecutive_reads = 1
-                        self.beast_training_last_stamina = stamina
-                    else:
-                        self.beast_training_consecutive_reads = 0
-                        self.beast_training_last_stamina = None
-
-                    # Check all conditions: 3 consecutive reads, stamina >= 20, cooldown passed
                     rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
-                    if (self.beast_training_consecutive_reads >= 3 and
-                        stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
+                    if (stamina_confirmed and
+                        confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
                         rally_cooldown_ok):
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={stamina}, triggering rally...")
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally...")
                         # Use elite_zombie_flow with 0 plus clicks
                         import config
                         original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
@@ -535,7 +530,7 @@ class IconDaemon:
                         self._run_flow("beast_training", elite_zombie_flow)
                         config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
                         self.beast_training_last_rally = current_time
-                        self.beast_training_consecutive_reads = 0
+                        self.stamina_history = []  # Reset after triggering
 
                 # Enhance Hero: last N minutes, runs once per block
                 # Requires user to be idle since the START of the Enhance Hero block
