@@ -30,6 +30,7 @@ Any values set here will override the defaults in config.py.
 # Elite Zombie rally
 # ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 # ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
+# ELITE_ZOMBIE_PLUS_CLICKS = 5           # Times to click plus button (increases zombie level)
 
 # Cooldowns (seconds)
 # AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks

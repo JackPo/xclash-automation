@@ -9,7 +9,7 @@ Sequence:
 1. Go to World Map (if not already there)
 2. Click Magnifying Glass (search button)
 3. Click Elite Zombie tab
-4. Click Plus button 5 times (increase level)
+4. Click Plus button N times (increase level, configurable via ELITE_ZOMBIE_PLUS_CLICKS)
 5. Click Search button
 6. Click Rally button
 7. Select rightmost hero with Zz (idle) using hero_selector
@@ -34,6 +34,7 @@ import cv2
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, go_to_world, ViewState
 from utils.hero_selector import HeroSelector
+from config import ELITE_ZOMBIE_PLUS_CLICKS
 
 # Setup logger
 logger = logging.getLogger("elite_zombie_flow")
@@ -119,9 +120,9 @@ def elite_zombie_flow(adb) -> bool:
     if frame is not None:
         _save_debug_screenshot(frame, "02_after_elite_zombie_tab")
 
-    # Step 3: Click plus button 5 times
-    _log(f"Step 3: Clicking plus button 5 times at {PLUS_BUTTON_CLICK}")
-    for i in range(5):
+    # Step 3: Click plus button to increase zombie level
+    _log(f"Step 3: Clicking plus button {ELITE_ZOMBIE_PLUS_CLICKS} times at {PLUS_BUTTON_CLICK}")
+    for i in range(ELITE_ZOMBIE_PLUS_CLICKS):
         adb.tap(*PLUS_BUTTON_CLICK)
         time.sleep(PLUS_CLICK_DELAY)
 
