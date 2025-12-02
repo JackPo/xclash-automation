@@ -78,6 +78,13 @@ from config import (
     UNION_GIFTS_IDLE_THRESHOLD,
     UNKNOWN_STATE_TIMEOUT,
     STAMINA_REGION,
+    # Arms Race automation settings
+    ARMS_RACE_BEAST_TRAINING_ENABLED,
+    ARMS_RACE_BEAST_TRAINING_LAST_MINUTES,
+    ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD,
+    ARMS_RACE_BEAST_TRAINING_COOLDOWN,
+    ARMS_RACE_ENHANCE_HERO_ENABLED,
+    ARMS_RACE_ENHANCE_HERO_LAST_MINUTES,
 )
 
 
@@ -155,16 +162,19 @@ class IconDaemon:
         ]
         self.continuous_idle_start = None  # Track when continuous idle began
 
-        # Arms Race event tracking
-        # Beast Training: Mystic Beast last hour, stamina >= 20, 90s between rallies
-        self.BEAST_TRAINING_STAMINA_THRESHOLD = 20
-        self.BEAST_TRAINING_RALLY_COOLDOWN = 90  # seconds between rallies
+        # Arms Race event tracking (values from config)
+        # Beast Training: Mystic Beast last N minutes, stamina threshold, cooldown between rallies
+        self.ARMS_RACE_BEAST_TRAINING_ENABLED = ARMS_RACE_BEAST_TRAINING_ENABLED
+        self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = ARMS_RACE_BEAST_TRAINING_LAST_MINUTES
+        self.BEAST_TRAINING_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD
+        self.BEAST_TRAINING_RALLY_COOLDOWN = ARMS_RACE_BEAST_TRAINING_COOLDOWN
         self.beast_training_last_rally = 0
         self.beast_training_consecutive_reads = 0
         self.beast_training_last_stamina = None
 
-        # Enhance Hero: last 20 minutes of Enhance Hero, runs once per block
-        self.ENHANCE_HERO_LAST_MINUTES = 20
+        # Enhance Hero: last N minutes of Enhance Hero, runs once per block
+        self.ARMS_RACE_ENHANCE_HERO_ENABLED = ARMS_RACE_ENHANCE_HERO_ENABLED
+        self.ENHANCE_HERO_LAST_MINUTES = ARMS_RACE_ENHANCE_HERO_LAST_MINUTES
         self.enhance_hero_last_block_start = None  # Track which block we triggered for
 
         # Setup logging
@@ -492,8 +502,10 @@ class IconDaemon:
                 current_time = time.time()  # Needed for cooldown checks
                 # arms_race, arms_race_event, arms_race_remaining, arms_race_remaining_mins already set above
 
-                # Beast Training: Mystic Beast last hour, stamina >= 20, 90s cooldown
-                if arms_race_event == "Mystic Beast" and arms_race_remaining_mins <= 60:
+                # Beast Training: Mystic Beast last N minutes, stamina threshold, cooldown
+                if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
+                    arms_race_event == "Mystic Beast" and
+                    arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES):
                     # Check stamina with consecutive read validation (separate from elite zombie)
                     if stamina_valid:
                         # Check consistency with previous read
@@ -525,8 +537,10 @@ class IconDaemon:
                         self.beast_training_last_rally = current_time
                         self.beast_training_consecutive_reads = 0
 
-                # Enhance Hero: last 20 minutes, runs once per block
-                if arms_race_event == "Enhance Hero" and arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES:
+                # Enhance Hero: last N minutes, runs once per block
+                if (self.ARMS_RACE_ENHANCE_HERO_ENABLED and
+                    arms_race_event == "Enhance Hero" and
+                    arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES):
                     # Check if we already triggered for this block
                     block_start = arms_race['block_start']
                     if self.enhance_hero_last_block_start != block_start:

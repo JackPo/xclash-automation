@@ -32,6 +32,25 @@ ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
 ELITE_ZOMBIE_PLUS_CLICKS = 5           # Times to click plus button (increases zombie level)
 
+# =============================================================================
+# ARMS RACE EVENT AUTOMATION
+# =============================================================================
+# Arms Race rotates through 5 activities every 4 hours:
+# City Construction → Soldier Training → Tech Research → Mystic Beast → Enhance Hero
+# These settings control event-specific automation triggers.
+
+# Beast Training (during Mystic Beast event)
+# Triggers elite_zombie_flow with 0 plus clicks to train beasts
+ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Enable/disable beast training automation
+ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger in last N minutes of Mystic Beast
+ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
+ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
+
+# Enhance Hero (during Enhance Hero event)
+# Triggers hero_upgrade_arms_race_flow to upgrade heroes
+ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
+ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes of Enhance Hero
+
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims

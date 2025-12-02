@@ -32,6 +32,23 @@ Any values set here will override the defaults in config.py.
 # ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
 # ELITE_ZOMBIE_PLUS_CLICKS = 5           # Times to click plus button (increases zombie level)
 
+# =============================================================================
+# ARMS RACE EVENT AUTOMATION
+# =============================================================================
+# Arms Race rotates through 5 activities every 4 hours:
+# City Construction → Soldier Training → Tech Research → Mystic Beast → Enhance Hero
+# Set ENABLED = False to disable specific event automations.
+
+# Beast Training (during Mystic Beast event)
+# ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Set False to disable
+# ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger in last N minutes
+# ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
+# ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
+
+# Enhance Hero (during Enhance Hero event)
+# ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Set False to disable
+# ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes
+
 # Cooldowns (seconds)
 # AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 # UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims

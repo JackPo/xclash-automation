@@ -28,6 +28,8 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 - **AFK Rewards**: Claims idle/AFK reward popups
 - **Union Gifts**: Collects alliance gift packages
 - **Elite Zombie Rallies**: Automatically starts rallies when stamina is sufficient (118+)
+- **Arms Race - Beast Training**: During Mystic Beast event, trains beasts when stamina >= 20 (configurable)
+- **Arms Race - Hero Enhancement**: During Enhance Hero event, upgrades heroes in the last 20 minutes (configurable)
 
 ### Technical Features
 
@@ -517,19 +519,32 @@ These flows click at **fixed coordinates** and require calibration for your acco
 
 ### Arms Race Event Tracking
 
-The daemon tracks the Arms Race event rotation and triggers event-specific flows:
+The daemon tracks the Arms Race event rotation and triggers event-specific flows. Both features are **enabled by default** but can be disabled in `config_local.py`.
 
-| Event | Trigger Condition | Flow |
-|-------|-------------------|------|
-| **Mystic Beast** | Last 60 minutes, stamina >= 20 | `elite_zombie_flow` with 0 plus clicks, 90s cooldown |
-| **Enhance Hero** | Last 20 minutes, once per block | `hero_upgrade_arms_race_flow` |
+| Event | Trigger Condition | Flow | Config to Disable |
+|-------|-------------------|------|-------------------|
+| **Mystic Beast** | Last 60 minutes, stamina >= 20 | `elite_zombie_flow` (0 plus clicks) | `ARMS_RACE_BEAST_TRAINING_ENABLED = False` |
+| **Enhance Hero** | Last 20 minutes, once per block | `hero_upgrade_arms_race_flow` | `ARMS_RACE_ENHANCE_HERO_ENABLED = False` |
+
+**Configuration options** (in `config_local.py`):
+```python
+# Beast Training (during Mystic Beast event)
+ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Set False to disable
+ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger window (last N minutes)
+ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
+ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
+
+# Enhance Hero (during Enhance Hero event)
+ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Set False to disable
+ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger window (last N minutes)
+```
 
 **How it works:**
 - Arms Race rotates through 5 activities every 4 hours: City Construction, Soldier Training, Tech Research, Mystic Beast, Enhance Hero
 - The daemon computes the current event from UTC time (no screenshot needed)
 - Status is displayed in the log output: `AR:Mys(98m)` means "Mystic Beast, 98 minutes remaining"
 
-**Usage:**
+**Programmatic access:**
 ```python
 from utils.arms_race import get_arms_race_status
 
