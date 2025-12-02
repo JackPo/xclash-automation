@@ -66,7 +66,7 @@ from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_s
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 
 from datetime import time as dt_time
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -657,6 +657,18 @@ class IconDaemon:
                 if equip_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
+
+                # Barracks: Check for READY barracks to collect soldiers
+                # Requires TOWN view and alignment (same as harvest conditions)
+                if world_present and harvest_idle_ok and harvest_aligned:
+                    # Get barracks states
+                    from utils.barracks_state_matcher import BarrackState
+                    states = self.barracks_matcher.get_all_states(frame)
+                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
+
+                    if ready_count > 0:
+                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
+                        self._run_flow("soldier_training", soldier_training_flow)
 
                 # AFK rewards: requires all harvest conditions + 1 hour cooldown
                 current_time = time.time()
