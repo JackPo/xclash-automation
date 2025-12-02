@@ -130,9 +130,15 @@ The daemon continuously monitors 4 barracks buildings via floating bubble icons:
 | State | Bubble | Meaning | Action |
 |-------|--------|---------|--------|
 | **READY** | Yellow soldier face | Soldiers ready to collect | Click to collect |
-| **PENDING** | White soldier face | Idle, can start training | Click to train |
-| **TRAINING** | Orange stopwatch | Currently training | Wait |
+| **TRAINING** | White soldier face | Actively training | Wait |
+| **PENDING** | Orange stopwatch | Idle/queued, waiting to start | Click to train |
 | **UNKNOWN** | No match | Detection failed | Skip |
+
+**Detection Method (Hybrid):**
+1. Stopwatch template matching for PENDING state (threshold 0.06)
+2. Pixel counting for READY vs TRAINING:
+   - READY: >10% yellow pixels (R>150, G>150, B<100)
+   - TRAINING: >15% white pixels (R>200, G>200, B>200)
 
 ### Barracks Positions (4K)
 
@@ -149,9 +155,9 @@ Templates in `templates/ground_truth/`:
 
 | Template | Size | Description |
 |----------|------|-------------|
-| `yellow_soldier_barrack_4k.png` | 81x87 | READY state (collect) |
-| `white_soldier_barrack_4k.png` | 81x87 | PENDING state (train) |
-| `stopwatch_barrack_4k.png` | 81x87 | TRAINING state (wait) |
+| `yellow_soldier_barrack_4k.png` | 81x87 | READY state (yellow soldier) |
+| `white_soldier_barrack_4k.png` | 81x87 | TRAINING state (white soldier) |
+| `stopwatch_barrack_4k.png` | 81x87 | PENDING state (stopwatch) |
 
 ### Daemon Output
 
@@ -162,27 +168,47 @@ Barracks state is logged in the main loop:
 ```
 
 State codes:
-- `R` = READY (yellow) - soldiers ready
-- `P` = PENDING (white) - can train
-- `T` = TRAINING (stopwatch) - in progress
+- `R` = READY (yellow) - soldiers ready to collect
+- `T` = TRAINING (white) - actively training
+- `P` = PENDING (stopwatch) - idle/queued
 - `?` = UNKNOWN - detection failed
 
-### Implementation Status
+### Automation Status
 
-**Completed**:
-- [x] Barracks state matcher (`utils/barracks_state_matcher.py`)
-- [x] Three state templates extracted and saved
-- [x] Continuous monitoring in icon_daemon
-- [x] Status display in daemon output
+**Implemented** ✅:
+- [x] Barracks state matcher with hybrid detection (`utils/barracks_state_matcher.py`)
+- [x] Soldier collection flow (clicks READY barracks)
+- [x] Soldier training flow (clicks PENDING barracks, selects level)
+- [x] Automatic triggering in daemon
+- [x] Scrolling logic to find target soldier level
 
-**TODO**:
-- [ ] Soldier collection flow (click READY barracks)
-- [ ] Soldier training flow (click PENDING barracks, select soldier level)
-- [ ] Arms Race trigger logic (only during Soldier Training event)
-- [ ] Soldier level selection (Lv7/Lv8 based on resources)
+**Activation Requirements**:
+- TOWN view (world button visible)
+- User idle 5+ minutes
+- Dog house aligned (camera not panned)
 
-### Matcher Details
+**Configuration**:
+```python
+SOLDIER_TRAINING_DEFAULT_LEVEL = 4  # Soldier level to train (3-8)
+```
 
+### Flow Details
+
+**`soldier_training_flow.py`**:
+1. Collects soldiers from all READY (yellow) barracks
+2. Re-checks states after collection
+3. For each PENDING barrack:
+   - Clicks barrack to open training panel
+   - Finds target soldier level (scrolls if needed)
+   - Clicks soldier tile to start training
+   - Closes panel and moves to next barrack
+
+**Scrolling Logic**:
+- Soldier tiles: Lv3 (leftmost) to Lv8 (rightmost)
+- If target not visible: scrolls left/right to find it
+- Max 10 scroll attempts before giving up
+
+**Matcher API**:
 ```python
 from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states
 
@@ -193,8 +219,6 @@ states = matcher.get_all_states(frame)  # [(BarrackState, score), ...]
 # Get formatted string
 barracks_str = format_barracks_states(frame)  # "B1:R B2:T B3:P B4:T"
 ```
-
-Match threshold: 0.06 (TM_SQDIFF_NORMED - lower is better)
 
 ---
 
