@@ -93,6 +93,8 @@ def stamina_claim_flow(adb, screenshot_helper=None):
     if min_val > MATCH_THRESHOLD:
         print("    [STAMINA-CLAIM] Claim button not found (no free stamina available)")
         # Close popup
+        adb.tap(1407, 2055)  # Click back button to close stamina popup
+        time.sleep(0.3)
         back_from_chat_flow(adb, win)
         return False
 
@@ -102,7 +104,9 @@ def stamina_claim_flow(adb, screenshot_helper=None):
 
     # Step 5: Wait and close popup
     time.sleep(0.5)
-    print("    [STAMINA-CLAIM] Step 4: Closing popup")
+    print("    [STAMINA-CLAIM] Step 4: Closing popup with back button")
+    adb.tap(1407, 2055)  # Click back button to close stamina popup
+    time.sleep(0.3)
     back_from_chat_flow(adb, win)
 
     print("    [STAMINA-CLAIM] Flow complete - claimed free stamina!")
