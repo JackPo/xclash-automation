@@ -541,8 +541,9 @@ The daemon automatically manages stamina during Mystic Beast events:
 
 1. **Stamina Claim** (free, every 4 hours):
    - Triggers when stamina < 60 AND red notification dot visible on stamina display
-   - Red dot detection prevents false positives (only claims when actually available)
-   - Uses `stamina_red_dot_detector.py` for pixel-based dot detection
+   - Red dot detection: checks 25x20px region at position (170, 223) to the right of stamina bar
+   - Threshold: 100+ red pixels required (out of 500 total in region)
+   - Prevents false positives by checking exact location where notification dot appears
 
 2. **Stamina Use** (recovery items, +50 stamina):
    - Triggers when stamina < 20, idle since block start, rally count < 15

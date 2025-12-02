@@ -57,9 +57,10 @@ ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60
 ```
 
 **Red Dot Detection** (`utils/stamina_red_dot_detector.py`):
-- Checks upper-right 25x25 pixel region of stamina display
+- Checks 25x20 pixel region to the RIGHT of stamina bar (offset: X+101, Y+20)
+- Position: (170, 223) absolute screen coordinates
 - Red pixel criteria: B<100, G<100, R>150 (BGR color space)
-- Threshold: 30+ red pixels = dot present
+- Threshold: 100+ red pixels = dot present (out of 500 total)
 - Prevents false positives when claim isn't actually available
 
 **Flow**: `stamina_claim_flow`
