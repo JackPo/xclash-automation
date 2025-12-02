@@ -502,6 +502,38 @@ These flows detect standard UI popups and work on any account:
 | Harvest Box | `harvest_box_matcher.py` | `harvest_box_flow.py` | Always active |
 | AFK Rewards | `afk_rewards_matcher.py` | `afk_rewards_flow.py` | 5 min idle, 1h cooldown |
 
+### Barracks Soldier Training (Automated)
+
+The daemon automatically manages soldier training at all 4 barracks buildings.
+
+**Barracks States:**
+- **READY** (yellow soldier) - Soldiers ready to collect
+- **TRAINING** (white soldier) - Actively training soldiers
+- **PENDING** (stopwatch) - Idle/queued, waiting to start
+
+**Detection Method (Hybrid):**
+1. Stopwatch template matching for PENDING state (threshold 0.06)
+2. Pixel counting for READY vs TRAINING:
+   - READY: >10% yellow pixels (R>150, G>150, B<100)
+   - TRAINING: >15% white pixels (R>200, G>200, B>200)
+
+**Automation:**
+- When any barrack is READY → triggers `soldier_training_flow`
+- Collects soldiers from all READY barracks
+- Starts training on all PENDING barracks
+- Default training level: Lv4 (configurable)
+
+**Requirements** (same as harvest actions):
+- TOWN view (world button visible)
+- User idle 5+ minutes
+- Dog house aligned (camera not panned)
+
+**Configuration:**
+```python
+SOLDIER_TRAINING_DEFAULT_LEVEL = 4  # Soldier level to train (3-8)
+BARRACKS_POSITIONS = [...]           # Fixed positions for 4 barracks
+```
+
 ### ⚠️ Setup-Specific Flows (Requires Calibration)
 
 These flows click at **fixed coordinates** and require calibration for your account. See [Town Layout Coordinates](#town-layout-coordinates-required-for-harvest-flows) for setup instructions.
