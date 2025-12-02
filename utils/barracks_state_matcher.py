@@ -81,6 +81,10 @@ class BarracksStateMatcher:
         """
         Get the state of a single barrack.
 
+        Uses hybrid approach:
+        1. Check stopwatch template for PENDING state
+        2. If no stopwatch, use pixel counting to distinguish READY vs TRAINING
+
         Args:
             frame: BGR numpy array screenshot
             barrack_index: 0-3 for the 4 barracks
@@ -92,37 +96,49 @@ class BarracksStateMatcher:
             return BarrackState.UNKNOWN, 1.0
 
         x, y = BARRACKS_POSITIONS[barrack_index]
+        tw, th = TEMPLATE_SIZE
+
+        # Step 1: Check for stopwatch (PENDING)
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        scores = {}
-
-        # Check each template
-        if self.yellow_template is not None:
-            scores[BarrackState.READY] = self._match_template_at_position(
-                frame_gray, self.yellow_gray, x, y
-            )
-
-        if self.white_template is not None:
-            scores[BarrackState.PENDING] = self._match_template_at_position(
-                frame_gray, self.white_gray, x, y
-            )
-
         if self.stopwatch_template is not None:
-            scores[BarrackState.TRAINING] = self._match_template_at_position(
+            stopwatch_score = self._match_template_at_position(
                 frame_gray, self.stopwatch_gray, x, y
             )
+            if stopwatch_score <= MATCH_THRESHOLD:
+                return BarrackState.PENDING, stopwatch_score
 
-        if not scores:
+        # Step 2: Not stopwatch, use pixel counting to distinguish READY vs TRAINING
+        # Extract the ROI
+        roi = frame[y:y+th, x:x+tw]
+        if roi.shape[0] != th or roi.shape[1] != tw:
             return BarrackState.UNKNOWN, 1.0
 
-        # Find best match
-        best_state = min(scores, key=scores.get)
-        best_score = scores[best_state]
+        b, g, r = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
 
-        if best_score > MATCH_THRESHOLD:
-            return BarrackState.UNKNOWN, best_score
+        # Count yellow pixels (READY = yellow border)
+        # Yellow: high R (>150), high G (>150), low B (<100)
+        yellow_mask = (r > 150) & (g > 150) & (b < 100)
+        yellow_count = int(yellow_mask.sum())
 
-        return best_state, best_score
+        # Count white pixels (TRAINING = white/gray soldier)
+        # White: all channels high (>200)
+        white_mask = (r > 200) & (g > 200) & (b > 200)
+        white_count = int(white_mask.sum())
+
+        total_pixels = tw * th
+
+        # Decision based on pixel counts
+        # READY template has ~15% yellow pixels
+        # TRAINING template has ~21% white pixels
+        yellow_pct = yellow_count / total_pixels
+        white_pct = white_count / total_pixels
+
+        if yellow_pct > 0.10:  # More than 10% yellow = READY
+            return BarrackState.READY, yellow_pct
+        elif white_pct > 0.15:  # More than 15% white = TRAINING
+            return BarrackState.TRAINING, white_pct
+        else:
+            return BarrackState.UNKNOWN, 1.0
 
     def get_all_states(self, frame):
         """
