@@ -68,7 +68,8 @@ ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60
 2. Click stamina display to open popup
 3. Detect Claim button via template matching
 4. Click Claim if found
-5. Close popup
+5. Click back button (1407, 2055) to close popup
+6. Run back_from_chat_flow for cleanup
 
 **Why Red Dot Check?**
 Without the red dot check, the daemon would trigger the claim flow every 3 seconds when stamina < 60, even when no free claim is available. The red dot ensures we only attempt to claim when the free stamina is actually ready.
@@ -98,7 +99,8 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20
 1. Click stamina display to open popup
 2. Detect Use button via template matching
 3. Click Use if found (+50 stamina)
-4. Close popup
+4. Click back button (1407, 2055) to close popup
+5. Run back_from_chat_flow for cleanup
 
 ### Tracking Per Block
 
