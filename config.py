@@ -48,6 +48,8 @@ ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 
 # Enhance Hero (during Enhance Hero event)
 # Triggers hero_upgrade_arms_race_flow to upgrade heroes
+# IMPORTANT: Only triggers if user was idle since the START of the Enhance Hero block.
+# This ensures the automation doesn't interrupt active gameplay.
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes of Enhance Hero
 

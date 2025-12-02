@@ -46,6 +46,7 @@ Any values set here will override the defaults in config.py.
 # ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 
 # Enhance Hero (during Enhance Hero event)
+# Only triggers if user was idle since the START of the Enhance Hero block
 # ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Set False to disable
 # ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes
 

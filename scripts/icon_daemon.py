@@ -19,8 +19,8 @@ Currently detects:
 Arms Race event tracking:
 - Beast Training: During Mystic Beast last hour, if stamina >= 20 (3 consecutive reads),
   triggers elite_zombie_flow with 0 plus clicks. 90s cooldown between rallies.
-- Enhance Hero: During Enhance Hero last 20 minutes, triggers hero_upgrade_arms_race_flow
-  once per event block.
+- Enhance Hero: During Enhance Hero last N minutes (configurable), triggers hero_upgrade_arms_race_flow
+  ONLY if user was idle since the START of the Enhance Hero block (ensures no interruption).
 
 Idle recovery (every 5 min when idle 5+ min):
 - If back button visible (chat window) → click back to exit
@@ -538,15 +538,20 @@ class IconDaemon:
                         self.beast_training_consecutive_reads = 0
 
                 # Enhance Hero: last N minutes, runs once per block
+                # Requires user to be idle since the START of the Enhance Hero block
                 if (self.ARMS_RACE_ENHANCE_HERO_ENABLED and
                     arms_race_event == "Enhance Hero" and
                     arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES):
                     # Check if we already triggered for this block
                     block_start = arms_race['block_start']
                     if self.enhance_hero_last_block_start != block_start:
-                        # Additional conditions: idle 5+ min
-                        if idle_secs >= self.IDLE_THRESHOLD:
-                            self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins}min of Enhance Hero, triggering hero upgrade flow...")
+                        # User must be idle since the START of the Enhance Hero block
+                        # (not just idle for 5 minutes)
+                        time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
+                        if idle_secs >= time_elapsed_secs:
+                            idle_mins = int(idle_secs / 60)
+                            elapsed_mins = int(time_elapsed_secs / 60)
+                            self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins}min of Enhance Hero, idle {idle_mins}min >= {elapsed_mins}min since block start, triggering hero upgrade flow...")
                             self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
                             self.enhance_hero_last_block_start = block_start
 
