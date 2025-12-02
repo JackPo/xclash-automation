@@ -229,9 +229,11 @@ UNKNOWN_STATE_TIMEOUT = 60         # Seconds in unknown state before recovery
 ### Game-Specific Parameters
 
 ```python
-# Elite Zombie Rally
-ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger
-ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Valid OCR reads before triggering
+# Stamina-based triggers (unified validation)
+# All stamina triggers require 3 consecutive valid readings (0-200)
+# with consistency check (diff <= 20 between readings)
+ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina for elite zombie rally
+ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
 
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK reward claims
@@ -523,8 +525,15 @@ The daemon tracks the Arms Race event rotation and triggers event-specific flows
 
 | Event | Trigger Condition | Flow | Config to Disable |
 |-------|-------------------|------|-------------------|
-| **Mystic Beast** | Last 60 minutes, stamina >= 20 | `elite_zombie_flow` (0 plus clicks) | `ARMS_RACE_BEAST_TRAINING_ENABLED = False` |
-| **Enhance Hero** | Last 20 minutes, once per block | `hero_upgrade_arms_race_flow` | `ARMS_RACE_ENHANCE_HERO_ENABLED = False` |
+| **Mystic Beast** | Last 60 minutes, stamina >= 20 (3 consecutive valid reads) | `elite_zombie_flow` (0 plus clicks) | `ARMS_RACE_BEAST_TRAINING_ENABLED = False` |
+| **Enhance Hero** | Last 20 minutes, **idle since block start** | `hero_upgrade_arms_race_flow` | `ARMS_RACE_ENHANCE_HERO_ENABLED = False` |
+
+**Stamina Validation**: Both Elite Zombie and Beast Training use a **unified stamina validation system**:
+- Requires 3 consecutive valid readings (0-200 range)
+- Consecutive readings must be consistent (diff <= 20)
+- Prevents false triggers from OCR errors (e.g., "1234567890")
+
+**Enhance Hero Idle Requirement**: The Enhance Hero flow only triggers if you were **idle since the START of the Enhance Hero block** (not just idle for 5 minutes). This ensures the automation doesn't interrupt active gameplay.
 
 **Configuration options** (in `config_local.py`):
 ```python
@@ -535,6 +544,7 @@ ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 
 # Enhance Hero (during Enhance Hero event)
+# Only triggers if idle since the START of the Enhance Hero block
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Set False to disable
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger window (last N minutes)
 ```
