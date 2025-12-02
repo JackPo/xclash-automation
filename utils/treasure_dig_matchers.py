@@ -211,7 +211,7 @@ class ZzSleepIconMatcher:
         base_dir = Path(__file__).resolve().parent.parent
 
         if template_path is None:
-            template_path = base_dir / "templates" / "ground_truth" / "zz_sleep_icon_4k.png"
+            template_path = base_dir / "templates" / "ground_truth" / "zz_icon_template_4k.png"
 
         self.template_path = Path(template_path)
         self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
