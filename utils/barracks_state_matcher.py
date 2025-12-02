@@ -6,11 +6,7 @@ Each barracks has a floating bubble icon above it indicating its state:
 - White soldier face = PENDING (idle, can start training)
 - Stopwatch = TRAINING (soldiers currently training)
 
-The 4 barracks positions are fixed at:
-1. (2891, 1317) - lowest/rightmost
-2. (2768, 1237) - middle left
-3. (3005, 1237) - middle right
-4. (2883, 1157) - highest/center
+Barracks positions are configured in config.py (BARRACKS_POSITIONS).
 
 Templates:
 - yellow_soldier_barrack_4k.png - Ready state (collect soldiers)
@@ -23,25 +19,17 @@ import cv2
 import numpy as np
 from enum import Enum
 
+from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_THRESHOLD
+
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
 YELLOW_TEMPLATE = TEMPLATE_DIR / "yellow_soldier_barrack_4k.png"
 WHITE_TEMPLATE = TEMPLATE_DIR / "white_soldier_barrack_4k.png"
 STOPWATCH_TEMPLATE = TEMPLATE_DIR / "stopwatch_barrack_4k.png"
 
-# Fixed barracks positions (x, y) - where to check for bubble icons
-BARRACKS_POSITIONS = [
-    (2891, 1317),  # Barrack 1 - lowest/rightmost
-    (2768, 1237),  # Barrack 2 - middle left
-    (3005, 1237),  # Barrack 3 - middle right
-    (2883, 1157),  # Barrack 4 - highest/center
-]
-
-# Template size
-TEMPLATE_SIZE = (81, 87)  # w, h
-
-# Match threshold (TM_SQDIFF_NORMED - lower is better)
-MATCH_THRESHOLD = 0.06
+# Use config values
+TEMPLATE_SIZE = BARRACKS_TEMPLATE_SIZE
+MATCH_THRESHOLD = BARRACKS_MATCH_THRESHOLD
 
 
 class BarrackState(Enum):

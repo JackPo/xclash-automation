@@ -131,6 +131,26 @@ THRESHOLDS = {
 }
 
 # =============================================================================
+# BARRACKS POSITIONS (4K resolution)
+# Used by barracks_state_matcher to detect soldier training state
+# Each barrack has a floating bubble icon above it (soldier face or stopwatch)
+# =============================================================================
+
+# Position where each barracks bubble appears (top-left corner of 81x87 template)
+BARRACKS_POSITIONS = [
+    (2891, 1317),  # Barrack 1 - lowest/rightmost
+    (2768, 1237),  # Barrack 2 - middle left
+    (3005, 1237),  # Barrack 3 - middle right
+    (2883, 1157),  # Barrack 4 - highest/center
+]
+
+# Template size for barracks state detection
+BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height
+
+# Match threshold for barracks state (TM_SQDIFF_NORMED)
+BARRACKS_MATCH_THRESHOLD = 0.06
+
+# =============================================================================
 # STAMINA POPUP BUTTON POSITIONS (4K resolution)
 # Used by stamina_claim_flow and stamina_use_flow
 # =============================================================================
