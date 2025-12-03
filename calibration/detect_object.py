@@ -14,6 +14,12 @@ import cv2
 import sys
 import os
 
+# Add project root to path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from config import GOOGLE_API_KEY as API_KEY
 
 def detect_object(image_path: str, object_description: str, output_dir: str = "screenshots"):
