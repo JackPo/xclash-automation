@@ -30,6 +30,7 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 - **Elite Zombie Rallies**: Automatically starts rallies when stamina is sufficient (118+)
 - **Arms Race - Beast Training**: During Mystic Beast event, trains beasts when stamina >= 20 (configurable)
 - **Arms Race - Hero Enhancement**: During Enhance Hero event, upgrades heroes in the last 20 minutes (configurable)
+- **Arms Race - Soldier Training**: During Soldier Training event, upgrades soldiers at idle barracks (when idle 5+ min)
 
 ### Technical Features
 
@@ -366,6 +367,7 @@ xclash/
 │       ├── harvest_box_flow.py
 │       ├── corn_harvest_flow.py
 │       ├── elite_zombie_flow.py
+│       ├── soldier_upgrade_flow.py
 │       └── ...
 │
 ├── utils/
@@ -383,6 +385,8 @@ xclash/
 │   ├── harvest_box_matcher.py
 │   ├── corn_harvest_matcher.py
 │   ├── gold_coin_matcher.py
+│   ├── soldier_tile_matcher.py
+│   ├── promote_button_matcher.py
 │   └── ...
 │
 ├── templates/
@@ -553,12 +557,13 @@ These flows click at **fixed coordinates** and require calibration for your acco
 
 ### Arms Race Event Tracking
 
-The daemon tracks the Arms Race event rotation and triggers event-specific flows. Both features are **enabled by default** but can be disabled in `config_local.py`.
+The daemon tracks the Arms Race event rotation and triggers event-specific flows. All features are **enabled by default** but can be disabled in `config_local.py`.
 
 | Event | Trigger Condition | Flow | Config to Disable |
 |-------|-------------------|------|-------------------|
 | **Mystic Beast** | Last 60 minutes, stamina >= 20 (3 consecutive valid reads) | `elite_zombie_flow` (0 plus clicks) | `ARMS_RACE_BEAST_TRAINING_ENABLED = False` |
 | **Enhance Hero** | Last 20 minutes, **idle since block start** | `hero_upgrade_arms_race_flow` | `ARMS_RACE_ENHANCE_HERO_ENABLED = False` |
+| **Soldier Training** | Idle 5+ min, any barrack PENDING, TOWN view aligned | `soldier_upgrade_flow` | `ARMS_RACE_SOLDIER_TRAINING_ENABLED = False` |
 
 **Stamina Validation**: Both Elite Zombie and Beast Training use a **unified stamina validation system**:
 - Requires 3 consecutive valid readings (0-200 range)
@@ -604,6 +609,10 @@ ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use if >= 15 rallies
 # Only triggers if idle since the START of the Enhance Hero block
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Set False to disable
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger window (last N minutes)
+
+# Soldier Training (during Soldier Training event)
+# Upgrades soldiers at PENDING barracks when idle 5+ min
+ARMS_RACE_SOLDIER_TRAINING_ENABLED = True      # Set False to disable
 ```
 
 **How it works:**

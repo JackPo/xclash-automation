@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.qwen_ocr import QwenOCR
+from utils.ocr_client import OCRClient, ensure_ocr_server
 
 
 # Slider parameters (4K resolution)
@@ -149,8 +149,11 @@ def main():
     adb = ADBHelper()
     print("Initializing WindowsScreenshotHelper...", flush=True)
     win = WindowsScreenshotHelper()
-    print("Initializing QwenOCR (this may take a moment)...", flush=True)
-    ocr = QwenOCR()
+    print("Checking OCR server...", flush=True)
+    if not ensure_ocr_server(auto_start=True):
+        print("ERROR: Could not start OCR server!", flush=True)
+        sys.exit(1)
+    ocr = OCRClient()
     print("All helpers initialized!", flush=True)
     print(flush=True)
 

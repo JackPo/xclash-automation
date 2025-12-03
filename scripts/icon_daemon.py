@@ -45,7 +45,7 @@ import pytz
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
-from utils.ocr_client import OCRClient
+from utils.ocr_client import OCRClient, ensure_ocr_server, start_ocr_server, SERVER_HOST, SERVER_PORT
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
@@ -66,7 +66,7 @@ from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_s
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 
 from datetime import time as dt_time
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -94,6 +94,7 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN,
     ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
     ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
+    ARMS_RACE_SOLDIER_TRAINING_ENABLED,
 )
 
 
@@ -111,6 +112,11 @@ class IconDaemon:
         # Stamina OCR (via OCR server)
         self.ocr_client = None
         self.STAMINA_REGION = STAMINA_REGION  # From config
+
+        # OCR server health check - verify every 5 minutes, restart if down
+        self.OCR_HEALTH_CHECK_INTERVAL = 300  # 5 minutes
+        self.last_ocr_health_check = 0
+        self.ocr_consecutive_failures = 0  # Track consecutive OCR failures
 
         # Matchers
         self.handshake_matcher = None
@@ -199,6 +205,10 @@ class IconDaemon:
         self.ENHANCE_HERO_LAST_MINUTES = ARMS_RACE_ENHANCE_HERO_LAST_MINUTES
         self.enhance_hero_last_block_start = None  # Track which block we triggered for
 
+        # Soldier Training: when idle 5+ min, any barrack PENDING during Soldier Training event
+        self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
+        self.soldier_upgrade_last_block_start = None  # Track which block we triggered for
+
         # Setup logging
         self.log_dir = Path('logs')
         self.log_dir.mkdir(exist_ok=True)
@@ -268,9 +278,10 @@ class IconDaemon:
         # Verify templates exist before loading matchers
         self._verify_templates()
 
-        # Require OCR server to be running
+        # Ensure OCR server is running (auto-start if not)
         print("Checking OCR server...")
-        OCRClient.require_server()
+        if not ensure_ocr_server(auto_start=True):
+            raise RuntimeError("Could not start OCR server!")
         print("  OCR server is running")
 
         # ADB
@@ -367,6 +378,23 @@ class IconDaemon:
         thread.start()
         return True
 
+    def _check_ocr_server_health(self):
+        """Check if OCR server is healthy, restart if necessary.
+
+        Called periodically and on consecutive OCR failures.
+        Returns True if server is healthy (or was restarted), False otherwise.
+        """
+        if not OCRClient.check_server():
+            self.logger.warning("OCR server health check FAILED - attempting restart...")
+            if start_ocr_server():
+                self.logger.info("OCR server restarted successfully")
+                self.ocr_client = OCRClient()  # Recreate client
+                return True
+            else:
+                self.logger.error("OCR server restart FAILED!")
+                return False
+        return True
+
     def _switch_to_town(self):
         """Switch to town view using view_state_detector."""
         success = go_to_town(self.adb, debug=False)
@@ -428,8 +456,30 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
                     self._run_flow("harvest_box", harvest_box_flow)
 
+                # Periodic OCR server health check (every 5 minutes)
+                current_time = time.time()
+                if current_time - self.last_ocr_health_check >= self.OCR_HEALTH_CHECK_INTERVAL:
+                    self.last_ocr_health_check = current_time
+                    self._check_ocr_server_health()
+
                 # Extract stamina using OCR server (fast - no model loading)
-                stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
+                try:
+                    stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
+                    if stamina is None:
+                        self.ocr_consecutive_failures += 1
+                    else:
+                        self.ocr_consecutive_failures = 0  # Reset on success
+                except Exception as ocr_err:
+                    self.logger.warning(f"[{iteration}] OCR error: {ocr_err}")
+                    stamina = None
+                    self.ocr_consecutive_failures += 1
+
+                # After 3 consecutive OCR failures, try to restart server
+                if self.ocr_consecutive_failures >= 3:
+                    self.logger.warning(f"[{iteration}] {self.ocr_consecutive_failures} consecutive OCR failures, checking server health...")
+                    self._check_ocr_server_health()
+                    self.ocr_consecutive_failures = 0  # Reset counter after check
+
                 stamina_str = str(stamina) if stamina is not None else "?"
 
                 # Check remaining icons (these need idle/alignment checks anyway)
@@ -629,6 +679,28 @@ class IconDaemon:
                             self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins}min of Enhance Hero, idle {idle_mins}min >= {elapsed_mins}min since block start, triggering hero upgrade flow...")
                             self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
                             self.enhance_hero_last_block_start = block_start
+
+                # Soldier Training: during Soldier Training event, idle 5+ min, any barrack PENDING
+                # Requires TOWN view and dog house aligned (same as harvest conditions)
+                if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
+                    arms_race_event == "Soldier Training" and
+                    idle_secs >= self.IDLE_THRESHOLD):
+                    # Check if we already triggered for this block
+                    block_start = arms_race['block_start']
+                    if self.soldier_upgrade_last_block_start != block_start:
+                        # Check for PENDING barracks (barracks states already computed in main loop)
+                        from utils.barracks_state_matcher import BarrackState
+                        states = self.barracks_matcher.get_all_states(frame)
+                        pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
+
+                        if pending_count > 0 and world_present:
+                            # Check alignment
+                            is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                            if is_aligned:
+                                idle_mins = int(idle_secs / 60)
+                                self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {pending_count} PENDING barrack(s), triggering soldier upgrade flow...")
+                                self._run_flow("soldier_upgrade", soldier_upgrade_flow)
+                                self.soldier_upgrade_last_block_start = block_start
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions

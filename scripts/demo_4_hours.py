@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.qwen_ocr import QwenOCR
+from utils.ocr_client import OCRClient, ensure_ocr_server
 
 # Calibration results (2024-12-03)
 TIME_SLOPE = 183.627743
@@ -106,7 +106,11 @@ def main():
     print("Initializing...", flush=True)
     adb = ADBHelper()
     win = WindowsScreenshotHelper()
-    ocr = QwenOCR()
+    print("Checking OCR server...", flush=True)
+    if not ensure_ocr_server(auto_start=True):
+        print("ERROR: Could not start OCR server!", flush=True)
+        sys.exit(1)
+    ocr = OCRClient()
     print("Ready!", flush=True)
     print(flush=True)
 

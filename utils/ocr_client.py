@@ -8,16 +8,20 @@ Usage:
     text = ocr.extract_text(image)  # numpy array or PIL Image
     number = ocr.extract_number(image, region=(x, y, w, h))
 
-If server is not running, falls back to loading Qwen locally (slow).
+The client will auto-start the OCR server if not running.
 
-Start the server with:
+Start the server manually with:
     python services/ocr_server.py
 """
 
 import io
 import json
+import subprocess
+import sys
+import time
 import urllib.request
 import urllib.error
+from pathlib import Path
 from typing import Tuple
 
 import numpy as np
@@ -31,16 +35,97 @@ SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 # Connection timeout (must be long enough for 4-bit quantized model on GTX 1080)
 TIMEOUT = 120
 
+# Server startup config
+SERVER_STARTUP_TIMEOUT = 120  # Wait up to 2 minutes for server to start
+SERVER_STARTUP_CHECK_INTERVAL = 2  # Check every 2 seconds
+
+# Path to OCR server script
+_OCR_SERVER_SCRIPT = Path(__file__).parent.parent / "services" / "ocr_server.py"
+
+# Global server process handle
+_server_process = None
+
+
+def start_ocr_server() -> bool:
+    """
+    Start the OCR server in a background process.
+
+    Returns:
+        bool: True if server started successfully, False otherwise
+    """
+    global _server_process
+
+    if not _OCR_SERVER_SCRIPT.exists():
+        print(f"ERROR: OCR server script not found: {_OCR_SERVER_SCRIPT}")
+        return False
+
+    print(f"Starting OCR server ({_OCR_SERVER_SCRIPT})...")
+    print("  This may take 30-60 seconds to load the model...")
+
+    try:
+        # Start server as background process
+        # Use CREATE_NEW_PROCESS_GROUP on Windows to prevent CTRL+C from killing it
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+        _server_process = subprocess.Popen(
+            [sys.executable, str(_OCR_SERVER_SCRIPT)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            **kwargs
+        )
+
+        # Wait for server to become available
+        start_time = time.time()
+        while time.time() - start_time < SERVER_STARTUP_TIMEOUT:
+            if OCRClient.check_server():
+                print("  OCR server started successfully!")
+                return True
+            time.sleep(SERVER_STARTUP_CHECK_INTERVAL)
+
+        print(f"  ERROR: Server did not respond within {SERVER_STARTUP_TIMEOUT}s")
+        return False
+
+    except Exception as e:
+        print(f"  ERROR: Failed to start server: {e}")
+        return False
+
+
+def ensure_ocr_server(auto_start: bool = True) -> bool:
+    """
+    Ensure OCR server is running, optionally starting it if not.
+
+    Args:
+        auto_start: If True, start the server if it's not running
+
+    Returns:
+        bool: True if server is available (running or started), False otherwise
+    """
+    if OCRClient.check_server():
+        return True
+
+    if not auto_start:
+        return False
+
+    return start_ocr_server()
+
 
 class OCRClient:
     """OCR client that talks to the OCR server."""
 
     _server_checked = False
     _server_available = False
+    _auto_start_attempted = False
 
-    def __init__(self):
-        """Initialize OCR client. Server must be running."""
-        pass
+    def __init__(self, auto_start: bool = True):
+        """
+        Initialize OCR client.
+
+        Args:
+            auto_start: If True, automatically start the server if not running
+        """
+        self._auto_start = auto_start
 
     @classmethod
     def check_server(cls) -> bool:
@@ -58,24 +143,45 @@ class OCRClient:
             return False
 
     @classmethod
-    def require_server(cls):
-        """Require server to be running. Raises RuntimeError if not."""
-        if not cls.check_server():
-            raise RuntimeError(
-                "OCR server is not running!\n"
-                "Start it with: python services/ocr_server.py"
-            )
+    def require_server(cls, auto_start: bool = True):
+        """
+        Require server to be running.
+
+        Args:
+            auto_start: If True, attempt to start the server if not running
+
+        Raises:
+            RuntimeError: If server is not running and couldn't be started
+        """
+        if cls.check_server():
+            return
+
+        if auto_start and not cls._auto_start_attempted:
+            cls._auto_start_attempted = True
+            if start_ocr_server():
+                return
+
+        raise RuntimeError(
+            "OCR server is not running and could not be started!\n"
+            "Try manually: python services/ocr_server.py"
+        )
 
     def _ensure_server(self):
-        """Ensure server is available, raise if not."""
-        # Always recheck if not available (server might have started)
-        if not OCRClient._server_checked or not OCRClient._server_available:
-            OCRClient.check_server()
-        if not OCRClient._server_available:
-            raise RuntimeError(
-                "OCR server is not running!\n"
-                "Start it with: python services/ocr_server.py"
-            )
+        """Ensure server is available, starting it if needed."""
+        # Check if server is up
+        if OCRClient.check_server():
+            return
+
+        # Try to start if auto_start enabled
+        if self._auto_start and not OCRClient._auto_start_attempted:
+            OCRClient._auto_start_attempted = True
+            if start_ocr_server():
+                return
+
+        raise RuntimeError(
+            "OCR server is not running!\n"
+            "Start it with: python services/ocr_server.py"
+        )
 
     def _image_to_bytes(self, image, region=None) -> bytes:
         """Convert image to PNG bytes."""

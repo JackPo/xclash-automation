@@ -10,9 +10,10 @@ This script checks:
 Run this to verify the fix for false positive stamina claim detections.
 """
 
+import sys
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.stamina_red_dot_detector import has_stamina_red_dot
-from utils.qwen_ocr import QwenOCR
+from utils.ocr_client import OCRClient, ensure_ocr_server
 from config import STAMINA_REGION, ARMS_RACE_STAMINA_CLAIM_THRESHOLD
 
 print("=" * 60)
@@ -27,7 +28,10 @@ print("    Screenshot captured (4K)")
 
 # Check stamina value
 print("\n[2/3] Reading stamina value (OCR)...")
-ocr = QwenOCR()
+if not ensure_ocr_server(auto_start=True):
+    print("ERROR: Could not start OCR server!")
+    sys.exit(1)
+ocr = OCRClient()
 stamina = ocr.extract_number(frame, region=STAMINA_REGION)
 print(f"    Stamina detected: {stamina}")
 

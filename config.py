@@ -61,6 +61,11 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when st
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes of Enhance Hero
 
+# Soldier Training (during Soldier Training event)
+# Triggers soldier_upgrade_flow to upgrade soldiers at PENDING barracks
+# Requires: idle 5+ min, any barrack in PENDING state, TOWN view with dog house aligned
+ARMS_RACE_SOLDIER_TRAINING_ENABLED = True      # Enable/disable soldier upgrade automation
+
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims

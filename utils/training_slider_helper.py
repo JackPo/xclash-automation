@@ -310,7 +310,7 @@ def set_training_quantity(adb, win, target_hours: float, debug=False) -> bool:
     Returns:
         bool: True if successfully set to target (within tolerance)
     """
-    from utils.qwen_ocr import QwenOCR
+    from utils.ocr_client import OCRClient, ensure_ocr_server
 
     target_seconds = int(target_hours * 3600)
     tolerance_seconds = 300  # 5 minute tolerance
@@ -318,7 +318,13 @@ def set_training_quantity(adb, win, target_hours: float, debug=False) -> bool:
     if debug:
         print(f"Setting training quantity for {target_hours} hours ({seconds_to_time_string(target_seconds)})")
 
-    ocr = QwenOCR()
+    # Ensure OCR server is running (auto-start if not)
+    if not ensure_ocr_server(auto_start=True):
+        if debug:
+            print("  ERROR: OCR server not available")
+        return False
+
+    ocr = OCRClient()
 
     # Step 1: Move slider to max to read full training time
     if debug:
