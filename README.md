@@ -58,14 +58,14 @@ The bot automates 3 of these events using strategies that maximize points while 
 
 | Event | Points for 3 Chests | Strategy | Why It Works |
 |-------|---------------------|----------|--------------|
-| **Mystic Beast** | ~60K | 15 beast rallies + smart stamina use | Rallies cost only stamina (renewable). Conserves stamina items by using them only in last 10 min when regen won't help |
-| **Enhance Hero** | ~30K | 1-2 hero upgrades | A single high-level upgrade exceeds threshold. More would waste hero materials |
-| **Soldier Training** | ~60K | 2 upgrade rounds | Two rounds of max soldiers exceed target. Efficient use of resources |
+| **Mystic Beast** | ~60K | Save stamina → 15 rallies in last 60 min | **Point concentration**: All rallies during event window for maximum points. Not random training. |
+| **Enhance Hero** | ~30K | Save upgrades → bulk at 2 AM | **Point concentration**: Weeks of saved upgrades spent during event for maximum points |
+| **Soldier Training** | ~60K | Auto-collect READY → train PENDING | Continuous automation, keeps barracks productive |
 
 **What's NOT automated (by design):**
-- **City Construction** - requires builder slots you may need
-- **Tech Research** - requires research slots you may need
-- **Beast upgrades** - these consume VS battle materials, we only *train* beasts (free)
+- **City Construction** - Requires builder slots, upgrades take hours (can't concentrate points)
+- **Tech Research** - Requires research slots, research takes hours (can't concentrate points)
+- **Beast VS upgrades** - These consume battle materials (we only do rallies which use stamina)
 
 ### Technical Features
 
@@ -74,7 +74,7 @@ The bot automates 3 of these events using strategies that maximize points while 
 - **Crash Recovery**: Automatically restarts the game if it crashes or gets stuck
 - **View Navigation**: Detects TOWN/WORLD/CHAT views and navigates as needed
 - **Template Matching**: Sub-pixel accurate icon detection using OpenCV
-- **Local GPU OCR**: Reads stamina numbers using Qwen2.5-VL on your GPU (no cloud API needed)
+- **Separate OCR Server**: Qwen2.5-VL runs in parallel Flask server on GPU for stamina reading (no cloud API needed)
 - **Arms Race Tracking**: Tracks the 5-activity Arms Race rotation and triggers event-specific flows
 - **Template Verification**: Validates all required templates exist at startup to catch missing files early
 - **Configurable**: All coordinates, thresholds, and timings can be customized
@@ -409,7 +409,8 @@ xclash/
 │   ├── adb_helper.py            # ADB command wrapper
 │   ├── windows_screenshot_helper.py  # Windows GDI screenshots
 │   ├── view_state_detector.py   # TOWN/WORLD/CHAT detection
-│   ├── qwen_ocr.py              # Local GPU OCR
+│   ├── ocr_client.py            # OCR client (calls Flask server)
+│   ├── ocr_server.py            # Flask server with Qwen2.5-VL on GPU
 │   ├── idle_detector.py         # Windows idle time detection
 │   ├── return_to_base_view.py   # Recovery logic
 │   ├── arms_race.py             # Arms Race schedule calculator
@@ -867,9 +868,14 @@ if your_present:
 
 ### OCR returns None or wrong values
 
-1. **No NVIDIA GPU**: Qwen requires CUDA
-2. **Wrong region coordinates**: Check `STAMINA_REGION` in config
-3. **GPU memory**: Close other GPU applications
+**OCR Architecture**: The daemon uses a separate Flask server (`ocr_server.py`) running Qwen2.5-VL on GPU at `localhost:5001`. The daemon auto-starts this server if not running.
+
+**Common issues**:
+1. **No NVIDIA GPU**: Qwen requires CUDA-capable GPU
+2. **Server not starting**: Check `logs/ocr_server.log` for errors
+3. **Wrong region coordinates**: Check `STAMINA_REGION` in config
+4. **GPU memory**: Close other GPU applications
+5. **Server crashed**: Daemon will auto-restart it on next OCR request
 
 ### Daemon stuck in UNKNOWN state
 
