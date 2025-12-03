@@ -60,6 +60,7 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when st
 # This ensures the automation doesn't interrupt active gameplay.
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes of Enhance Hero
+ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max hero upgrades per block (1 is usually enough)
 
 # Soldier Training (during Soldier Training event)
 # Triggers soldier_upgrade_flow to upgrade soldiers at PENDING barracks

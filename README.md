@@ -19,18 +19,53 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 
 ## Features
 
-### What Gets Automated
+### Core Automation (Always Active)
 
-- **Resource Harvesting**: Automatically clicks corn, gold, iron, gem, cabbage, and equipment bubbles when they appear
+These features run continuously and don't require any special timing:
+
+- **Resource Harvesting**: Automatically clicks corn, gold, iron, gem, cabbage, and equipment bubbles
 - **Alliance Handshakes**: Clicks the alliance handshake icon whenever available
 - **Treasure Maps**: Opens and collects treasure map rewards
 - **Harvest Boxes**: Opens surprise harvest boxes
-- **AFK Rewards**: Claims idle/AFK reward popups
-- **Union Gifts**: Collects alliance gift packages
-- **Elite Zombie Rallies**: Automatically starts rallies when stamina is sufficient (118+)
-- **Arms Race - Beast Training**: During Mystic Beast event, trains beasts when stamina >= 20 (configurable)
-- **Arms Race - Hero Enhancement**: During Enhance Hero event, upgrades heroes in the last 20 minutes (configurable)
-- **Arms Race - Soldier Training**: During Soldier Training event, upgrades soldiers at idle barracks (when idle 5+ min)
+- **AFK Rewards**: Claims idle/AFK reward popups (1h cooldown)
+- **Union Gifts**: Collects alliance gift packages (when idle 20+ min)
+
+### Elite Zombie Rallies (Stamina Management)
+
+**Goal: Never waste stamina by keeping it below the 120 cap.**
+
+Stamina regenerates over time but caps at 120. Any regen while at cap is lost. This automation:
+- Triggers when stamina >= 118 (configurable)
+- Starts an Elite Zombie rally (~8 stamina per rally)
+- Ensures stamina is always regenerating, never wasted
+
+**Why 118?** With a 120 cap, triggering at 118 leaves room for 1-2 regen ticks while the rally processes.
+
+### Arms Race Event Automation
+
+**Goal: Automatically earn all 3 reward chests in every Arms Race event - completely hands-off while AFK.**
+
+Arms Race rotates through 5 activities every 4 hours:
+1. City Construction
+2. **Soldier Training** ← Automated
+3. Tech Research
+4. **Mystic Beast** ← Automated
+5. **Enhance Hero** ← Automated
+
+The bot automates 3 of these events using strategies that maximize points while minimizing resource waste.
+
+#### Why These Events?
+
+| Event | Points for 3 Chests | Strategy | Why It Works |
+|-------|---------------------|----------|--------------|
+| **Mystic Beast** | ~60K | 15 beast rallies + stamina items | Rallies cost only stamina (renewable). Doesn't touch real beast upgrade materials for VS battles |
+| **Enhance Hero** | ~30K | 1-2 hero upgrades | A single high-level upgrade exceeds threshold. More would waste hero materials |
+| **Soldier Training** | ~60K | 2 upgrade rounds | Two rounds of max soldiers exceed target. Efficient use of resources |
+
+**What's NOT automated (by design):**
+- **City Construction** - requires builder slots you may need
+- **Tech Research** - requires research slots you may need
+- **Beast upgrades** - these consume VS battle materials, we only *train* beasts (free)
 
 ### Technical Features
 
@@ -609,6 +644,7 @@ ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use if >= 15 rallies
 # Only triggers if idle since the START of the Enhance Hero block
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Set False to disable
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger window (last N minutes)
+ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max upgrades per block (1 is usually enough)
 
 # Soldier Training (during Soldier Training event)
 # Upgrades soldiers at PENDING barracks when idle 5+ min

@@ -22,6 +22,7 @@ Templates:
 
 import time
 
+from config import ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.hero_tile_detector import detect_tiles_with_red_dots
 from utils.upgrade_button_matcher import UpgradeButtonMatcher
@@ -104,12 +105,17 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
             time.sleep(0.5)
             upgrades_done += 1
 
-            # Use robust return_to_base_view to get back to TOWN/WORLD
-            print(f"    [HERO_UPGRADE]   Upgrade clicked - returning to base view...")
-            return_to_base_view(adb, win, debug=True)
+            # Check if we've hit the max upgrades
+            if upgrades_done >= ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES:
+                print(f"    [HERO_UPGRADE]   Reached max upgrades ({ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES}) - returning to base view...")
+                return_to_base_view(adb, win, debug=True)
+                print(f"    [HERO_UPGRADE] Flow complete - {upgrades_done} upgrade(s) performed")
+                return True
 
-            print(f"    [HERO_UPGRADE] Flow complete - {upgrades_done} upgrade performed")
-            return True
+            # More upgrades allowed, click back to continue
+            print(f"    [HERO_UPGRADE]   Upgrade {upgrades_done}/{ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES} done, clicking back for more...")
+            adb.tap(*BACK_BUTTON_CLICK)
+            time.sleep(0.5)
         else:
             print(f"    [HERO_UPGRADE]   Upgrade not available (scores: avail={avail_score:.3f}, unavail={unavail_score:.3f})")
 
