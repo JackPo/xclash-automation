@@ -51,6 +51,7 @@ ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim free stamina when stamina
 ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True    # Enable/disable Use button automation
 ARMS_RACE_BEAST_TRAINING_USE_MAX = 4           # Max Use button clicks per Beast Training block
 ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN = 180    # 3 minutes between Use button clicks
+ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES = 10 # 3rd+ uses only allowed in last N minutes
 ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use stamina items if rally count >= this
 ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when stamina < this
 

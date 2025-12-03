@@ -92,6 +92,7 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_USE_ENABLED,
     ARMS_RACE_BEAST_TRAINING_USE_MAX,
     ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN,
+    ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES,
     ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
     ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
     ARMS_RACE_SOLDIER_TRAINING_ENABLED,
@@ -196,6 +197,7 @@ class IconDaemon:
         self.BEAST_TRAINING_USE_COOLDOWN = ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN  # 3 min between uses
         self.BEAST_TRAINING_MAX_RALLIES = ARMS_RACE_BEAST_TRAINING_MAX_RALLIES  # Don't use if rallies >= 15
         self.BEAST_TRAINING_USE_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD  # Use when < 20
+        self.BEAST_TRAINING_USE_LAST_MINUTES = ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES  # 3rd+ uses only in last N min
         self.beast_training_use_count = 0  # Track Use button clicks per block
         self.beast_training_last_use_time = 0  # Track cooldown between uses
         self.beast_training_claim_attempted = False  # Track if we tried to claim this iteration
@@ -631,7 +633,10 @@ class IconDaemon:
                     # Use Button Logic (stamina recovery items):
                     # Conditions: idle entire block, rally count < 15, no Claim available (stamina already at threshold),
                     # stamina < 20, Use clicks < 4, 3 min cooldown
+                    # For 3rd+ uses, require being in the last N minutes of the block
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
+                    use_allowed_by_time = (self.beast_training_use_count < 2 or
+                                           arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
                     if (self.BEAST_TRAINING_USE_ENABLED and
                         idle_since_block_start and
                         stamina_confirmed and
@@ -639,6 +644,7 @@ class IconDaemon:
                         self.beast_training_rally_count < self.BEAST_TRAINING_MAX_RALLIES and
                         self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
                         use_cooldown_ok and
+                        use_allowed_by_time and
                         not claim_triggered):  # Only use if claim wasn't just triggered
                         # All conditions met - use stamina recovery item
                         self.beast_training_use_count += 1

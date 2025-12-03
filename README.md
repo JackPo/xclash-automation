@@ -634,9 +634,12 @@ ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim if stamina < 60
 
 # Stamina Use (recovery items)
+# 1st-2nd uses: anytime during block
+# 3rd-4th uses: only in last N minutes (see LAST_MINUTES below)
 ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True    # Set False to disable
 ARMS_RACE_BEAST_TRAINING_USE_MAX = 4           # Max uses per block
 ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN = 180    # 3 minutes between uses
+ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES = 10 # 3rd+ uses only in last N minutes
 ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use if stamina < 20
 ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use if >= 15 rallies
 
