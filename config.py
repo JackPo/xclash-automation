@@ -150,6 +150,10 @@ BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height
 # Match threshold for barracks state (TM_SQDIFF_NORMED)
 BARRACKS_MATCH_THRESHOLD = 0.06
 
+# Default soldier level to train when NOT in Arms Race Soldier Training event
+# During Arms Race Soldier Training, this may be overridden to train higher levels
+SOLDIER_TRAINING_DEFAULT_LEVEL = 4
+
 # =============================================================================
 # STAMINA POPUP BUTTON POSITIONS (4K resolution)
 # Used by stamina_claim_flow and stamina_use_flow

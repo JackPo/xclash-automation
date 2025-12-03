@@ -129,5 +129,53 @@ def print_status(status: Dict[str, Any] = None):
     print(f"Ends:     {status['block_end'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
 
+def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
+    """
+    Get time until next Soldier Training arms race period.
+
+    Args:
+        now: Optional datetime (UTC). Defaults to current UTC time.
+
+    Returns:
+        timedelta: Time until Soldier Training starts (0 if active now)
+        None: If unable to determine (should not happen with calendar-based calc)
+    """
+    try:
+        status = get_arms_race_status(now)
+
+        # If currently Soldier Training, return 0
+        if status['current'] == 'Soldier Training':
+            return timedelta(0)
+
+        # If Soldier Training is next, return time remaining in current block
+        if status['next'] == 'Soldier Training':
+            return status['time_remaining']
+
+        # Calculate blocks until Soldier Training
+        current_idx = status['activity_index']
+        soldier_idx = ACTIVITIES.index('Soldier Training')
+
+        if soldier_idx > current_idx:
+            blocks_away = soldier_idx - current_idx
+        else:
+            blocks_away = (TOTAL_ACTIVITIES - current_idx) + soldier_idx
+
+        # Time = remaining in current block + (blocks_away - 1) * BLOCK_HOURS
+        return status['time_remaining'] + timedelta(hours=(blocks_away - 1) * BLOCK_HOURS)
+
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
     print_status()
+
+    # Also show time until Soldier Training
+    time_until = get_time_until_soldier_training()
+    if time_until is not None:
+        if time_until.total_seconds() == 0:
+            print("\nSoldier Training is ACTIVE NOW!")
+        else:
+            hours = int(time_until.total_seconds() // 3600)
+            mins = int((time_until.total_seconds() % 3600) // 60)
+            print(f"\nSoldier Training starts in: {hours}h {mins}m")

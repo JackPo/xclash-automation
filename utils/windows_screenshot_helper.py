@@ -45,48 +45,71 @@ class WindowsScreenshotHelper:
         if not self.hwnd:
             raise RuntimeError(f"Could not find window: {self.window_title}")
 
-    def capture_window(self):
+    def capture_window(self, max_retries=3):
         """Capture window content using PrintWindow API.
+
+        Args:
+            max_retries: Number of retry attempts if PrintWindow fails
 
         Returns:
             PIL.Image: Raw captured window content (includes borders)
         """
-        # Get window dimensions
-        left, top, right, bottom = win32gui.GetClientRect(self.hwnd)
-        width = right - left
-        height = bottom - top
+        import time
 
-        # Create device contexts
-        hwnd_dc = win32gui.GetWindowDC(self.hwnd)
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-        save_dc = mfc_dc.CreateCompatibleDC()
+        for attempt in range(max_retries):
+            try:
+                # Re-find window handle in case it changed
+                if attempt > 0:
+                    self._find_window()
+                    time.sleep(0.1)
 
-        # Create bitmap
-        save_bitmap = win32ui.CreateBitmap()
-        save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-        save_dc.SelectObject(save_bitmap)
+                # Get window dimensions
+                left, top, right, bottom = win32gui.GetClientRect(self.hwnd)
+                width = right - left
+                height = bottom - top
 
-        # Print window to bitmap using ctypes
-        PW_RENDERFULLCONTENT = 0x00000002
-        result = windll.user32.PrintWindow(self.hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
+                # Create device contexts
+                hwnd_dc = win32gui.GetWindowDC(self.hwnd)
+                mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+                save_dc = mfc_dc.CreateCompatibleDC()
 
-        if result == 0:
-            raise RuntimeError("PrintWindow failed")
+                # Create bitmap
+                save_bitmap = win32ui.CreateBitmap()
+                save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+                save_dc.SelectObject(save_bitmap)
 
-        # Convert to PIL Image
-        bmpinfo = save_bitmap.GetInfo()
-        bmpstr = save_bitmap.GetBitmapBits(True)
-        img = Image.frombuffer('RGB',
-                              (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
-                              bmpstr, 'raw', 'BGRX', 0, 1)
+                # Print window to bitmap using ctypes
+                PW_RENDERFULLCONTENT = 0x00000002
+                result = windll.user32.PrintWindow(self.hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
 
-        # Cleanup
-        win32gui.DeleteObject(save_bitmap.GetHandle())
-        save_dc.DeleteDC()
-        mfc_dc.DeleteDC()
-        win32gui.ReleaseDC(self.hwnd, hwnd_dc)
+                if result == 0:
+                    # Cleanup before retry
+                    win32gui.DeleteObject(save_bitmap.GetHandle())
+                    save_dc.DeleteDC()
+                    mfc_dc.DeleteDC()
+                    win32gui.ReleaseDC(self.hwnd, hwnd_dc)
+                    raise RuntimeError("PrintWindow returned 0")
 
-        return img
+                # Convert to PIL Image
+                bmpinfo = save_bitmap.GetInfo()
+                bmpstr = save_bitmap.GetBitmapBits(True)
+                img = Image.frombuffer('RGB',
+                                      (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
+                                      bmpstr, 'raw', 'BGRX', 0, 1)
+
+                # Cleanup
+                win32gui.DeleteObject(save_bitmap.GetHandle())
+                save_dc.DeleteDC()
+                mfc_dc.DeleteDC()
+                win32gui.ReleaseDC(self.hwnd, hwnd_dc)
+
+                return img
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.2)  # Brief delay before retry
+                    continue
+                raise RuntimeError(f"PrintWindow failed after {max_retries} attempts: {e}")
 
     def remove_borders(self, img):
         """Remove BlueStacks window borders from captured image.

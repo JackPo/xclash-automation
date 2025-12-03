@@ -330,3 +330,100 @@ During Mystic Beast last 60 minutes:
             YES --> Trigger elite_zombie_flow (0 plus clicks)
                     rally_count += 1
 ```
+
+---
+
+## Barracks Training Flow (Manual Triggering for Arms Race)
+
+For the **Soldier Training** Arms Race event, you may want to time your training to complete right when the event starts, maximizing Arms Race points.
+
+### Prerequisites
+
+1. **OCR Server Running**: The barracks training flow requires the OCR server for reading training times:
+   ```bash
+   python services/ocr_server.py
+   ```
+   Keep this running in a separate terminal. The server loads the Qwen2.5-VL model and handles OCR requests via HTTP on port 5123.
+
+2. **Training Panel Already Open**: The flow assumes you've already clicked a PENDING barrack bubble to open the training panel.
+
+### Usage: Time Training Until Soldier Training Event
+
+The optimal strategy is to queue training that completes just before the Soldier Training event starts:
+
+```python
+from utils.arms_race import get_time_until_soldier_training
+from utils.adb_helper import ADBHelper
+from scripts.flows.barracks_training_flow import barracks_training_flow
+
+# Get time until Soldier Training arms race starts
+time_until = get_time_until_soldier_training()
+target_hours = time_until.total_seconds() / 3600
+
+print(f"Training for {target_hours:.2f} hours (until Soldier Training starts)")
+
+# Run the flow (assumes training panel is already open)
+adb = ADBHelper()
+success = barracks_training_flow(
+    adb,
+    soldier_level=4,        # Train Lv4 soldiers (3-8)
+    target_hours=target_hours,
+    pack_resources=True,    # Not yet implemented
+    debug=True
+)
+```
+
+### Flow Steps
+
+1. **Find and Click Soldier Level**: Scrolls the soldier panel if needed to find the target level (Lv3-Lv8)
+2. **Push Slider to MAX**: Determines maximum available training time
+3. **Calculate Target Position**: Uses calibrated linear formula to find slider X position
+4. **Drag Slider**: Iteratively drags to get close to target time
+5. **Fine-Tune with Minus Button**: Clicks minus button to get just UNDER target time
+6. **Click Train Button**: Starts the training queue
+
+### Why "Just Under" Target Time?
+
+The flow aims for training time **just under** the target rather than exact or over:
+- If training completes **during** the event, you get points
+- If training completes **before** the event, you can immediately start another queue
+- If training completes **after** the event ends, you miss the window
+
+### Calibration Constants
+
+The slider uses a linear calibration (R² = 0.999997):
+
+```python
+TIME_SLOPE = 183.627743
+TIME_INTERCEPT = -293869.64
+
+def calculate_target_x(target_seconds):
+    return int((target_seconds - TIME_INTERCEPT) / TIME_SLOPE)
+```
+
+See `calibration/SLIDER_CALIBRATION.md` for detailed calibration methodology.
+
+### OCR Server Architecture
+
+The OCR system uses a client-server architecture:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Server | `services/ocr_server.py` | Loads Qwen model, serves HTTP API on port 5123 |
+| Client | `utils/ocr_client.py` | HTTP client, sends images, receives text |
+
+**Server Endpoints:**
+- `GET /health` - Health check, returns `{"status": "ok", "model_loaded": true}`
+- `POST /ocr` - Extract text from image
+- `POST /ocr/number` - Extract number from image
+
+**Why Server/Client?**
+- Model loading is slow (~30s) - keep it loaded in memory
+- 4-bit quantized Qwen2.5-VL-3B fits on GTX 1080 (8GB VRAM)
+- HTTP allows multiple scripts to share one model instance
+
+### Technical Notes
+
+- **Scroll Delay**: After scrolling the soldier panel, wait 0.8s before taking screenshot (animation settling time)
+- **Template**: Slider circle template at `templates/ground_truth/slider_circle_4k.png`
+- **OCR Timeout**: 120 seconds (slow on Pascal GPUs with 4-bit quantization)

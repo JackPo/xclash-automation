@@ -45,7 +45,7 @@ import pytz
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
-from utils.qwen_ocr import QwenOCR
+from utils.ocr_client import OCRClient
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
@@ -108,8 +108,8 @@ class IconDaemon:
         self.adb = None
         self.windows_helper = None
 
-        # Stamina OCR (Qwen2.5-VL-3B)
-        self.qwen_ocr = None
+        # Stamina OCR (via OCR server)
+        self.ocr_client = None
         self.STAMINA_REGION = STAMINA_REGION  # From config
 
         # Matchers
@@ -268,6 +268,11 @@ class IconDaemon:
         # Verify templates exist before loading matchers
         self._verify_templates()
 
+        # Require OCR server to be running
+        print("Checking OCR server...")
+        OCRClient.require_server()
+        print("  OCR server is running")
+
         # ADB
         self.adb = ADBHelper()
         print(f"  Connected to device: {self.adb.device}")
@@ -276,9 +281,9 @@ class IconDaemon:
         self.windows_helper = WindowsScreenshotHelper()
         print("  Windows screenshot helper initialized")
 
-        # Stamina OCR (Qwen2.5-VL-3B on GPU)
-        self.qwen_ocr = QwenOCR()
-        print("  Qwen OCR initialized (GPU)")
+        # Stamina OCR (via OCR server)
+        self.ocr_client = OCRClient()
+        print("  OCR client initialized (uses OCR server)")
 
         # Matchers
         debug_dir = Path('templates/debug')
@@ -423,8 +428,8 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
                     self._run_flow("harvest_box", harvest_box_flow)
 
-                # Extract stamina using Qwen OCR (slow - after immediate actions)
-                stamina = self.qwen_ocr.extract_number(frame, self.STAMINA_REGION)
+                # Extract stamina using OCR server (fast - no model loading)
+                stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
                 stamina_str = str(stamina) if stamina is not None else "?"
 
                 # Check remaining icons (these need idle/alignment checks anyway)
