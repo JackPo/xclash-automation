@@ -188,6 +188,36 @@ KEY_PAN_LEFT = 'left'
 KEY_PAN_RIGHT = 'right'
 
 # =============================================================================
+# RALLY JOINING AUTOMATION
+# =============================================================================
+# Automatically join Union War rallies based on monster type and level.
+
+# Rally joining enable/disable
+RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
+
+# Monster validation rules: {monster_name: max_level}
+# Only join rallies where monster name matches AND level <= max_level
+RALLY_JOIN_MONSTERS = {
+    "zombie overlord": 30,  # Join if Zombie Overlord level <= 30
+    "elite zombie": 50,     # Join if Elite Zombie level <= 50
+}
+
+# Plus button detection (fixed X + Y search)
+RALLY_PLUS_BUTTON_X = 1405  # Fixed X coordinate (rightmost column)
+RALLY_PLUS_BUTTON_THRESHOLD = 0.05  # Template matching threshold
+RALLY_PLUS_SEARCH_Y_START = 400  # Y search range start
+RALLY_PLUS_SEARCH_Y_END = 1800   # Y search range end
+
+# Monster icon relative to plus button
+RALLY_MONSTER_OFFSET_X = 735   # Pixels right of plus button (2140 - 1405)
+RALLY_MONSTER_OFFSET_Y = -151  # Pixels above plus button (326 - 477)
+RALLY_MONSTER_WIDTH = 290      # Monster icon width
+RALLY_MONSTER_HEIGHT = 363     # Monster icon height
+
+# Data gathering mode - collects monster samples for OCR tuning
+RALLY_DATA_GATHERING_MODE = False  # Set to True to collect monster crops without joining
+
+# =============================================================================
 # LOAD LOCAL OVERRIDES
 # =============================================================================
 
