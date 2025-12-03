@@ -194,6 +194,7 @@ KEY_PAN_RIGHT = 'right'
 
 # Rally joining enable/disable
 RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
+RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
 
 # Monster validation rules: {monster_name: max_level}
 # Only join rallies where monster name matches AND level <= max_level

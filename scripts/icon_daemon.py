@@ -64,9 +64,10 @@ from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view
 from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states
 from utils.stamina_red_dot_detector import has_stamina_red_dot
+from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
 from datetime import time as dt_time
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -96,6 +97,9 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
     ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
     ARMS_RACE_SOLDIER_TRAINING_ENABLED,
+    # Rally joining
+    RALLY_JOIN_ENABLED,
+    RALLY_MARCH_BUTTON_COOLDOWN,
 )
 
 
@@ -341,6 +345,12 @@ class IconDaemon:
         self.barracks_matcher = BarracksStateMatcher()
         print(f"  Barracks state matcher: 4 positions, threshold={self.barracks_matcher.MATCH_THRESHOLD if hasattr(self.barracks_matcher, 'MATCH_THRESHOLD') else 0.06}")
 
+        self.rally_march_matcher = RallyMarchButtonMatcher()
+        print(f"  Rally march button matcher: rally_march_button_small_4k.png (threshold={self.rally_march_matcher.threshold})")
+
+        # Rally joining tracking
+        self.last_rally_march_click = 0  # Timestamp of last march button click
+
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
         # - Runs setup_bluestacks.py
@@ -458,8 +468,36 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
                     self._run_flow("harvest_box", harvest_box_flow)
 
-                # Periodic OCR server health check (every 5 minutes)
+                # Get current time for cooldown checks
                 current_time = time.time()
+
+                # Rally march button check (requires idle + cooldown, but not alignment)
+                if RALLY_JOIN_ENABLED:
+                    march_match = self.rally_march_matcher.find_march_button(frame)
+                    march_present = march_match is not None
+                    march_score = march_match[2] if march_match else 1.0
+
+                    if march_present:
+                        march_x, march_y, _ = march_match
+                        # Check prerequisites: TOWN or WORLD view, idle, cooldown
+                        view_state, _ = detect_view(frame)
+                        idle_secs = get_idle_seconds()
+                        rally_cooldown_elapsed = (current_time - self.last_rally_march_click) >= RALLY_MARCH_BUTTON_COOLDOWN
+
+                        rally_idle_ok = idle_secs >= IDLE_THRESHOLD
+                        rally_view_ok = view_state in [ViewState.TOWN, ViewState.WORLD]
+
+                        if rally_idle_ok and rally_view_ok and rally_cooldown_elapsed:
+                            self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}")
+                            # Click the march button to open Union War panel
+                            click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
+                            self.adb.tap(click_x, click_y)
+                            self.last_rally_march_click = current_time
+                            time.sleep(1.0)  # Wait for panel to open
+                            # Then trigger rally join flow
+                            self._run_flow("rally_join", rally_join_flow)
+
+                # Periodic OCR server health check (every 5 minutes)
                 if current_time - self.last_ocr_health_check >= self.OCR_HEALTH_CHECK_INTERVAL:
                     self.last_ocr_health_check = current_time
                     self._check_ocr_server_health()
