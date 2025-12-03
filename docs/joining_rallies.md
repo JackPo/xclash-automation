@@ -28,7 +28,7 @@ All templates extracted from `screenshots/joining_team.png`.
 | Template | Size | Position | Click Center | Purpose |
 |----------|------|----------|--------------|---------|
 | `rally_plus_button_4k.png` | 127x132 | (1405, 477) | (1468, 543) | Join rally button |
-| `rally_monster_icon_4k.png` | 250x313 | (2150, 326) | (2275, 482) | Monster icon with text label (for reference/validation) |
+| `rally_monster_icon_4k.png` | 270x363 | (2140, 326) | (2275, 507) | Monster icon with text label below (for reference/validation) |
 
 ## Flow Logic
 
