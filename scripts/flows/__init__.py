@@ -23,5 +23,6 @@ from .stamina_claim_flow import stamina_claim_flow
 from .stamina_use_flow import stamina_use_flow
 from .soldier_training_flow import soldier_training_flow
 from .soldier_upgrade_flow import soldier_upgrade_flow
+from .rally_join_flow import rally_join_flow
 
-__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'cabbage_flow', 'equipment_enhancement_flow', 'back_from_chat_flow', 'elite_zombie_flow', 'afk_rewards_flow', 'union_gifts_flow', 'hero_upgrade_arms_race_flow', 'stamina_claim_flow', 'stamina_use_flow', 'soldier_training_flow', 'soldier_upgrade_flow']
+__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'cabbage_flow', 'equipment_enhancement_flow', 'back_from_chat_flow', 'elite_zombie_flow', 'afk_rewards_flow', 'union_gifts_flow', 'hero_upgrade_arms_race_flow', 'stamina_claim_flow', 'stamina_use_flow', 'soldier_training_flow', 'soldier_upgrade_flow', 'rally_join_flow']
