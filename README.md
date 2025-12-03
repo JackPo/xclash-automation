@@ -58,7 +58,7 @@ The bot automates 3 of these events using strategies that maximize points while 
 
 | Event | Points for 3 Chests | Strategy | Why It Works |
 |-------|---------------------|----------|--------------|
-| **Mystic Beast** | ~60K | 15 beast rallies + stamina items | Rallies cost only stamina (renewable). Doesn't touch real beast upgrade materials for VS battles |
+| **Mystic Beast** | ~60K | 15 beast rallies + smart stamina use | Rallies cost only stamina (renewable). Conserves stamina items by using them only in last 10 min when regen won't help |
 | **Enhance Hero** | ~30K | 1-2 hero upgrades | A single high-level upgrade exceeds threshold. More would waste hero materials |
 | **Soldier Training** | ~60K | 2 upgrade rounds | Two rounds of max soldiers exceed target. Efficient use of resources |
 
@@ -620,6 +620,8 @@ The daemon automatically manages stamina during Mystic Beast events:
 2. **Stamina Use** (recovery items, +50 stamina):
    - Triggers when stamina < 20, idle since block start, rally count < 15
    - Max 4 uses per block, 3-minute cooldown between uses
+   - **Conservation logic**: 1st-2nd uses anytime; 3rd-4th uses only in last 10 minutes
+   - This allows natural stamina regeneration early in the block, saving items for when time runs out
    - Only uses if Claim button not available (prioritizes free claims)
 
 **Configuration options** (in `config_local.py`):
