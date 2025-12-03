@@ -345,7 +345,7 @@ The current automation is **enterprise-grade** with sophisticated features:
 
 When implementing new features:
 
-1. **Template extraction**: Use Gemini via `detect_object.py` for accurate coordinates
+1. **Template extraction**: Use Gemini via `calibration/detect_object.py` for accurate coordinates
 2. **Matcher creation**: Follow existing patterns (see `utils/*_matcher.py`)
 3. **Flow design**: Use existing flows as templates (see `scripts/flows/*.py`)
 4. **Documentation**: Update README.md and this file

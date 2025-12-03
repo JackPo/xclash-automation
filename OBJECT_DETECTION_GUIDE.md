@@ -7,13 +7,13 @@ This guide explains how to extract ground truth templates from screenshots using
 ## Quick Start
 
 ```bash
-python detect_object.py <image_path> "<description of what to find>"
+python calibration/detect_object.py <image_path> "<description of what to find>"
 ```
 
 ### Example
 
 ```bash
-python detect_object.py treasure_check.png "the bouncing treasure map scroll icon overlaying on top of the barracks building"
+python calibration/detect_object.py treasure_check.png "the bouncing treasure map scroll icon overlaying on top of the barracks building"
 ```
 
 ## Critical Requirements
@@ -119,7 +119,7 @@ cv2.imwrite("templates/ground_truth/my_template.png", cropped)
 
 ## Output Files
 
-The `detect_object.py` script produces:
+The `calibration/detect_object.py` script produces:
 
 | File | Description |
 |------|-------------|
@@ -181,5 +181,5 @@ prompt = "the bouncing treasure map scroll icon overlaying on top of the barrack
 ## Reference
 
 - Official docs: https://ai.google.dev/gemini-api/docs/image-understanding
-- Script location: `detect_object.py`
+- Script location: `calibration/detect_object.py`
 - Templates folder: `templates/ground_truth/`

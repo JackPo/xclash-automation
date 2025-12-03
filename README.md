@@ -329,7 +329,7 @@ EQUIPMENT_BUBBLE = {'region': (1246, 859, 67, 57), 'click': (1279, 887)}
 
 2. Use Gemini to find coordinates (requires `GOOGLE_API_KEY`):
    ```bash
-   python detect_object.py screenshot.png "the corn harvest bubble"
+   python calibration/detect_object.py screenshot.png "the corn harvest bubble"
    ```
 
 3. Update `config_local.py` with your coordinates
@@ -390,7 +390,10 @@ xclash/
 ├── config.py                    # Configuration loader with defaults
 ├── config_local.py              # Your API keys (gitignored)
 ├── config_local.py.example      # Template for config_local.py
-├── detect_object.py             # Gemini-based object detection CLI
+│
+├── calibration/                 # Calibration and testing tools
+│   ├── detect_object.py         # Gemini-based object detection CLI
+│   └── test_stamina_detection.py  # Stamina detection test script
 │
 ├── scripts/
 │   ├── icon_daemon.py           # Main daemon process
@@ -718,7 +721,7 @@ This section is for developers who want to add new detection flows. **Normal use
 
 ### API Keys for Development
 
-To use `detect_object.py` for finding UI element coordinates, you need a Google API key:
+To use `calibration/detect_object.py` for finding UI element coordinates, you need a Google API key:
 
 1. Get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Create `config_local.py`:
@@ -739,7 +742,7 @@ To use `detect_object.py` for finding UI element coordinates, you need a Google 
 python -c "from utils.windows_screenshot_helper import WindowsScreenshotHelper; import cv2; cv2.imwrite('screenshot.png', WindowsScreenshotHelper().get_screenshot_cv2())"
 
 # Use Gemini 3.0 Pro to find elements
-python detect_object.py screenshot.png "the green Attack button"
+python calibration/detect_object.py screenshot.png "the green Attack button"
 ```
 
 Returns bounding box coordinates: `(x, y, width, height)`. Use these to crop a template and determine click coordinates.
@@ -769,7 +772,7 @@ adb.swipe(1000, 500, 2000, 500, duration=300)
 
 ```bash
 # Take screenshot and use Gemini to find coordinates
-python detect_object.py screenshot.png "the button you want to detect"
+python calibration/detect_object.py screenshot.png "the button you want to detect"
 
 # Crop template from screenshot using returned coordinates
 # Save to templates/ground_truth/your_element_4k.png
