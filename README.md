@@ -696,6 +696,21 @@ The daemon includes robust recovery mechanisms for common failure scenarios:
 - Without recovery, daemon would sit idle waiting for icons that never appear
 - Recovery ensures automation continues 24/7 with minimal intervention
 
+## Future Roadmap
+
+See [docs/future_steps.md](docs/future_steps.md) for a comprehensive list of planned features and enhancement opportunities.
+
+**Current Coverage**: 3/5 Arms Race events automated, 20+ automation flows
+
+**High Priority Additions**:
+- City Construction Event automation (complete Arms Race to 4/5)
+- Daily Quest reward collection
+- VIP Chest / Daily Login automation
+
+**Full roadmap includes**: Priority matrix, effort estimates, and 4-phase implementation plan.
+
+---
+
 ## Development
 
 This section is for developers who want to add new detection flows. **Normal users don't need this** - just run the daemon.
