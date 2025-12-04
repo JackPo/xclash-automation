@@ -255,9 +255,7 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     else:
         if debug:
             print(f"  Failed to find Lv{target_level} in training panel")
-        # Close the panel by tapping outside (top left corner)
-        adb.tap(100, 100)
-        time.sleep(0.5)
+        # Panel will close automatically or by back button - don't tap random coordinates
 
     return success
 
