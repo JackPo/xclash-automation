@@ -69,8 +69,8 @@ The Arms Race event follows a **7-day cycle with 42 total events** (6 events per
 | 02:00 | Sat 6:00 PM | Mystic Beast Training |
 | 06:00 | Sat 10:00 PM | Enhance Hero |
 | 10:00 | Sun 2:00 AM | City Construction |
-| 14:00 | Sun 6:00 AM | Soldier Training |
-| 18:00 | Sun 10:00 AM | **Soldier Training** ← Pattern break |
+| 14:00 | Sun 6:00 AM | **Soldier Training** |
+| 18:00 | Sun 10:00 AM | **Soldier Training** ← Pattern break (duplicate) |
 | 22:00 | Sun 2:00 PM | Technology Research |
 
 ### Day 6 (Monday)
