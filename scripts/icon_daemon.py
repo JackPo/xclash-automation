@@ -225,10 +225,11 @@ class IconDaemon:
         # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
         self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
 
-        # Barracks state validation - require 3 consecutive consistent readings (same as stamina)
+        # Barracks state validation - require 10 consecutive consistent readings
+        # Higher than stamina (3) because we scan every 2 seconds and barracks state is critical
         self.barracks_ready_count_history = []
         self.barracks_pending_count_history = []
-        self.BARRACKS_CONSECUTIVE_REQUIRED = 3  # Same as stamina
+        self.BARRACKS_CONSECUTIVE_REQUIRED = 10
 
         # Setup logging
         self.log_dir = Path('logs')
