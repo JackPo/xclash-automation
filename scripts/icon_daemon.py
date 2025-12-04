@@ -904,6 +904,27 @@ def main():
 
     args = parser.parse_args()
 
+    # Redirect stdout to logs/current_daemon.log for easy access
+    log_dir = Path(__file__).parent.parent / 'logs'
+    log_dir.mkdir(exist_ok=True)
+    stdout_log = log_dir / 'current_daemon.log'
+
+    # Tee stdout to both console and file
+    import io
+    class Tee:
+        def __init__(self, *files):
+            self.files = files
+        def write(self, data):
+            for f in self.files:
+                f.write(data)
+                f.flush()
+        def flush(self):
+            for f in self.files:
+                f.flush()
+
+    stdout_file = open(stdout_log, 'w', buffering=1)
+    sys.stdout = Tee(sys.stdout, stdout_file)
+
     daemon = IconDaemon(interval=args.interval, debug=args.debug)
 
     try:
@@ -911,11 +932,13 @@ def main():
         daemon.run()
     except KeyboardInterrupt:
         print("\n\nStopped by user")
+        stdout_file.close()
         sys.exit(0)
     except Exception as e:
         print(f"\nERROR: {e}")
         import traceback
         traceback.print_exc()
+        stdout_file.close()
         sys.exit(1)
 
 
