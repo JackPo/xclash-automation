@@ -2,7 +2,7 @@
 
 The Arms Race event follows a **7-day cycle with 42 total events** (6 events per day, every 4 hours).
 
-**IMPORTANT**: This is NOT a simple 5-activity rotation. The pattern shifts by one activity each day, and Day 5 has a special case where Soldier Training appears twice.
+**IMPORTANT**: This is NOT a simple 5-activity rotation. The pattern shifts by one activity each day.
 
 ## Key Facts
 
@@ -63,15 +63,15 @@ The Arms Race event follows a **7-day cycle with 42 total events** (6 events per
 | 18:00 | Sat 10:00 AM | Soldier Training |
 | 22:00 | Sat 2:00 PM | Technology Research |
 
-### Day 5 (Sunday) - SPECIAL CASE
+### Day 5 (Sunday)
 | UTC Time | PT Time | Event |
 |----------|---------|-------|
 | 02:00 | Sat 6:00 PM | Mystic Beast Training |
 | 06:00 | Sat 10:00 PM | Enhance Hero |
 | 10:00 | Sun 2:00 AM | City Construction |
-| 14:00 | Sun 6:00 AM | **Soldier Training** |
-| 18:00 | Sun 10:00 AM | **Soldier Training** ← Pattern break (duplicate) |
-| 22:00 | Sun 2:00 PM | Technology Research |
+| 14:00 | Sun 6:00 AM | Soldier Training |
+| 18:00 | Sun 10:00 AM | Technology Research |
+| 22:00 | Sun 2:00 PM | Mystic Beast Training |
 
 ### Day 6 (Monday)
 | UTC Time | PT Time | Event |
@@ -156,5 +156,3 @@ The schedule follows a **shift pattern**:
 - Day 5 starts: Mystic Beast Training (shifted +1)
 - Day 6 starts: Enhance Hero (wrapped around, shifted +1)
 - Day 7 starts: City Construction (shifted +1)
-
-**Exception**: Day 5, slot 5 (18:00 UTC) breaks the pattern with a duplicate Soldier Training event.

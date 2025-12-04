@@ -43,13 +43,13 @@ SCHEDULE = [
     (4, 18, "Soldier Training"),      # 10:00
     (4, 22, "Technology Research"),   # 14:00
 
-    # Day 5 - Sunday (SPECIAL: Soldier Training at both 06:00 and 10:00)
+    # Day 5 - Sunday
     (5, 2, "Mystic Beast Training"),  # 18:00
     (5, 6, "Enhance Hero"),           # 22:00
     (5, 10, "City Construction"),     # 02:00
     (5, 14, "Soldier Training"),      # 06:00
-    (5, 18, "Soldier Training"),      # 10:00 - PATTERN BREAK (duplicate ST)
-    (5, 22, "Technology Research"),   # 14:00
+    (5, 18, "Technology Research"),   # 10:00
+    (5, 22, "Mystic Beast Training"), # 14:00
 
     # Day 6 - Monday
     (6, 2, "Enhance Hero"),           # 18:00
