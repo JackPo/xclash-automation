@@ -664,7 +664,7 @@ class IconDaemon:
                 # Elite zombie rally - stamina >= 118 and idle 5+ min
                 if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and idle_secs >= self.IDLE_THRESHOLD:
                     self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
-                    self._run_flow("elite_zombie", elite_zombie_flow)
+                    self._run_flow("elite_zombie", elite_zombie_flow, critical=True)
                     self.stamina_history = []  # Reset after triggering
 
                 # =================================================================
@@ -737,7 +737,7 @@ class IconDaemon:
                         import config
                         original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
                         config.ELITE_ZOMBIE_PLUS_CLICKS = 0
-                        self._run_flow("beast_training", elite_zombie_flow)
+                        self._run_flow("beast_training", elite_zombie_flow, critical=True)
                         config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
                         self.beast_training_last_rally = current_time
                         self.stamina_history = []  # Reset after triggering
