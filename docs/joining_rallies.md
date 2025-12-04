@@ -25,9 +25,9 @@ All templates extracted from `screenshots/joining_team.png`.
 
 ### Rally Element Templates
 
-| Template | Size | Position | Click Center | Purpose |
-|----------|------|----------|--------------|---------|
-| `rally_plus_button_4k.png` | 127x132 | (1405, 477) | (1468, 543) | Join rally button |
+| Template | Size | Search Method | Threshold | Purpose |
+|----------|------|---------------|-----------|---------|
+| `rally_plus_button_4k.png` | 130x130 | TM_SQDIFF_NORMED | 0.05 | Join rally button (4 slots per rally) |
 | `rally_monster_icon_4k.png` | 290x363 | (2130, 326) | (2275, 507) | Monster icon with text label below (for reference/validation) |
 
 ## Flow Logic
@@ -41,10 +41,30 @@ All templates extracted from `screenshots/joining_team.png`.
 The flow searches for rally plus buttons in the list and clicks them to join rallies.
 
 **Plus Button Search:**
-- Template: `rally_plus_button_4k.png` (127x132)
+- Template: `rally_plus_button_4k.png` (130x130)
 - Search method: Template matching with TM_SQDIFF_NORMED
-- Threshold: TBD (needs calibration)
-- Expected positions: Vertical list on left side of panel
+- Threshold: 0.05
+- Expected positions: 4 horizontal slots per rally row
+
+**Rally Slot Layout:**
+- **4 horizontal slots per rally row**
+- **Y coordinate**: Varies per rally (each rally at different row)
+- **X coordinates** (EXACT for slots 2, 3, 4; calculated for slot 1):
+  - Slot 1: 1404 (calculated via 166px spacing)
+  - Slot 2: 1570 (EXACT from template matching)
+  - Slot 3: 1737 (EXACT from template matching)
+  - Slot 4: 1902 (EXACT from template matching)
+- **Spacing**: 166 pixels (used to calculate slot 1 position)
+
+**Example Coordinates:**
+- Rally at Y=474: Slots at (1404,474), (1570,474), (1737,474), (1902,474)
+- Rally at Y=964: Slots at (1411,964), (1574,964), (1737,964), (1902,964)
+
+**Detection Strategy:**
+- Use template matching across entire panel
+- Each rally row can have 0-4 plus buttons visible
+- Filled slots show player icons instead of plus buttons
+- Click center = (X + 65, Y + 65) for 130x130 template
 
 ### Flow Steps
 

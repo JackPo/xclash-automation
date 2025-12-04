@@ -15,9 +15,9 @@ class RallyPlusMatcher:
     """Detects rally plus buttons using fixed X + Y search."""
 
     # Plus button coordinates (from docs/joining_rallies.md)
-    PLUS_BUTTON_X = 1405  # FIXED X coordinate (rightmost column)
-    PLUS_BUTTON_WIDTH = 127
-    PLUS_BUTTON_HEIGHT = 132
+    PLUS_BUTTON_X = 1902  # Slot 4 (rightmost plus button position)
+    PLUS_BUTTON_WIDTH = 130
+    PLUS_BUTTON_HEIGHT = 130
     PLUS_BUTTON_THRESHOLD = 0.05  # TM_SQDIFF_NORMED
 
     # Y-axis search range
@@ -43,12 +43,13 @@ class RallyPlusMatcher:
 
     def find_all_plus_buttons(self, frame) -> List[Tuple[int, int, float]]:
         """
-        Search Y-axis at fixed X for all plus buttons.
+        Search entire frame for plus buttons using template matching.
 
         Strategy:
-        1. Fix X coordinate to rightmost column
-        2. Search entire Y range for template matches
-        3. Return all matches sorted by Y (top to bottom)
+        1. Run template matching on ENTIRE frame (no ROI extraction)
+        2. Find all matches below threshold
+        3. Filter to keep only matches near X=1902 (slot 4 position)
+        4. Return all matches sorted by Y (top to bottom)
 
         Args:
             frame: BGR screenshot from WindowsScreenshotHelper
@@ -57,29 +58,22 @@ class RallyPlusMatcher:
             List of (x, y, score) tuples sorted by Y coordinate (top to bottom)
             Empty list if no buttons found
         """
-        matches = []
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Search Y-axis at fixed X
-        for y in range(self.SEARCH_Y_START, self.SEARCH_Y_END - self.PLUS_BUTTON_HEIGHT, self.SEARCH_STEP):
-            # Extract ROI at (FIXED_X, current_y)
-            roi = frame_gray[
-                y : y + self.PLUS_BUTTON_HEIGHT,
-                self.PLUS_BUTTON_X : self.PLUS_BUTTON_X + self.PLUS_BUTTON_WIDTH
-            ]
+        # Template matching on ENTIRE frame
+        result = cv2.matchTemplate(frame_gray, self.template, cv2.TM_SQDIFF_NORMED)
 
-            # Skip if ROI is wrong size (edge of screen)
-            if roi.shape[0] != self.PLUS_BUTTON_HEIGHT or roi.shape[1] != self.PLUS_BUTTON_WIDTH:
-                continue
+        # Find all matches below threshold
+        locations = np.where(result <= self.threshold)
 
-            # Template matching
-            result = cv2.matchTemplate(roi, self.template, cv2.TM_SQDIFF_NORMED)
-            min_val = cv2.minMaxLoc(result)[0]
-            score = float(min_val)
+        matches = []
+        for pt in zip(*locations[::-1]):  # Switch x and y
+            x, y = pt
+            score = float(result[y, x])
 
-            # Check threshold
-            if score <= self.threshold:
-                matches.append((self.PLUS_BUTTON_X, y, score))
+            # Filter: only keep matches near slot 4 X position (within 10 pixels)
+            if abs(x - self.PLUS_BUTTON_X) <= 10:
+                matches.append((x, y, score))
 
         # Remove duplicate detections (within 50 pixels vertically)
         filtered_matches = self._filter_duplicates(matches)
