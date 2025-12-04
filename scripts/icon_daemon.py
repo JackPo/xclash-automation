@@ -814,20 +814,34 @@ class IconDaemon:
                         else:
                             self.logger.debug(f"[{iteration}] SOLDIER: Alignment PASS (score={dog_score:.4f})")
                             idle_mins = int(idle_secs / 60)
-                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {ready_count} READY + {pending_count} PENDING barrack(s), triggering soldier upgrade...")
-                            # First, collect from READY barracks to convert them to PENDING
-                            if ready_count > 0:
-                                from scripts.flows.soldier_training_flow import collect_ready_soldiers
-                                from utils.windows_screenshot_helper import WindowsScreenshotHelper
-                                win = WindowsScreenshotHelper()
-                                collected = collect_ready_soldiers(self.adb, win, debug=True)
-                                self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Collected {collected} READY barrack(s)")
-                                time.sleep(1.0)  # Wait for state transition
 
-                            # Then upgrade all PENDING barracks
-                            from scripts.flows.soldier_upgrade_flow import upgrade_all_pending_barracks
-                            upgrades = upgrade_all_pending_barracks(self.adb, debug=True)
-                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades} upgrade(s)")
+                            # Get indices of PENDING barracks from validated states
+                            pending_indices = [i for i, (state, _) in enumerate(states) if state == BarrackState.PENDING]
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {pending_count} PENDING barrack(s) at indices {pending_indices}")
+
+                            # Upgrade each PENDING barrack individually
+                            from scripts.flows.soldier_upgrade_flow import soldier_upgrade_flow, get_barrack_click_position
+                            upgrades = 0
+                            for idx in pending_indices:
+                                self.logger.info(f"[{iteration}] SOLDIER: Processing barrack {idx+1}...")
+
+                                # Click to open this barrack's panel
+                                click_x, click_y = get_barrack_click_position(idx)
+                                self.logger.info(f"[{iteration}] SOLDIER: Clicking barrack {idx+1} at ({click_x}, {click_y})")
+                                self.adb.tap(click_x, click_y)
+                                time.sleep(1.0)
+
+                                # Run upgrade flow (assumes panel is open)
+                                success = soldier_upgrade_flow(self.adb, barrack_index=idx, debug=True)
+                                if success:
+                                    upgrades += 1
+                                    self.logger.info(f"[{iteration}] SOLDIER: Barrack {idx+1} upgrade complete")
+                                else:
+                                    self.logger.info(f"[{iteration}] SOLDIER: Barrack {idx+1} upgrade failed")
+
+                                time.sleep(0.5)
+
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades}/{pending_count} upgrade(s)")
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
