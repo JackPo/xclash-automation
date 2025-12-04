@@ -2,22 +2,21 @@
 Barracks State Matcher - Detects state of each barracks building.
 
 Each barracks has a floating bubble icon above it indicating its state:
+- Timer/stopwatch icon = TRAINING (soldiers currently training, countdown active)
 - Yellow soldier face = READY (soldiers ready to collect)
-- White soldier face = TRAINING (soldiers currently training)
-- Stopwatch = PENDING (idle/queued, waiting to start)
+- White/gray soldier face = PENDING (idle, can start training)
 
-Detection uses hybrid approach:
-1. Template matching for stopwatch (PENDING state)
-2. Pixel counting for READY vs TRAINING distinction
-   - READY: >10% yellow pixels (R>150, G>150, B<100)
-   - TRAINING: >15% white pixels (R>200, G>200, B>200)
+Detection logic:
+1. Check for timer/stopwatch template → TRAINING
+2. If no timer, check yellow pixels:
+   - >10% yellow → READY
+   - Otherwise → PENDING
 
 Barracks positions are configured in config.py (BARRACKS_POSITIONS).
 
 Templates:
-- stopwatch_barrack_4k.png - Pending/queued state (template matching)
-- yellow_soldier_barrack_4k.png - Reference for yellow pixel threshold
-- white_soldier_barrack_4k.png - Reference for white pixel threshold
+- stopwatch_barrack_4k.png - Timer icon for TRAINING state
+- yellow_soldier_barrack_4k.png - Reference for READY detection
 """
 
 from pathlib import Path
@@ -40,8 +39,8 @@ MATCH_THRESHOLD = BARRACKS_MATCH_THRESHOLD
 
 class BarrackState(Enum):
     READY = "ready"       # Yellow - soldiers ready to collect
-    PENDING = "pending"   # White - idle, can start training
-    TRAINING = "training" # Stopwatch - currently training
+    PENDING = "pending"   # No timer, no yellow - idle, can start training
+    TRAINING = "training" # Stopwatch/timer visible - currently training
     UNKNOWN = "unknown"   # No match found
 
 
@@ -104,16 +103,16 @@ class BarracksStateMatcher:
         x, y = BARRACKS_POSITIONS[barrack_index]
         tw, th = TEMPLATE_SIZE
 
-        # Step 1: Check for stopwatch (PENDING)
+        # Step 1: Check for stopwatch/timer (TRAINING)
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if self.stopwatch_template is not None:
             stopwatch_score = self._match_template_at_position(
                 frame_gray, self.stopwatch_gray, x, y
             )
             if stopwatch_score <= MATCH_THRESHOLD:
-                return BarrackState.PENDING, stopwatch_score
+                return BarrackState.TRAINING, stopwatch_score
 
-        # Step 2: Not stopwatch, use pixel counting to distinguish READY vs TRAINING
+        # Step 2: No timer - distinguish READY vs PENDING by yellow pixels
         # Extract the ROI
         roi = frame[y:y+th, x:x+tw]
         if roi.shape[0] != th or roi.shape[1] != tw:
@@ -126,25 +125,15 @@ class BarracksStateMatcher:
         yellow_mask = (r > 150) & (g > 150) & (b < 100)
         yellow_count = int(yellow_mask.sum())
 
-        # Count white pixels (TRAINING = white/gray soldier)
-        # White: all channels high (>200)
-        white_mask = (r > 200) & (g > 200) & (b > 200)
-        white_count = int(white_mask.sum())
-
         total_pixels = tw * th
-
-        # Decision based on pixel counts
-        # READY template has ~15% yellow pixels
-        # TRAINING template has ~21% white pixels
         yellow_pct = yellow_count / total_pixels
-        white_pct = white_count / total_pixels
 
+        # READY template has ~15% yellow pixels
         if yellow_pct > 0.10:  # More than 10% yellow = READY
             return BarrackState.READY, yellow_pct
-        elif white_pct > 0.15:  # More than 15% white = TRAINING
-            return BarrackState.TRAINING, white_pct
         else:
-            return BarrackState.UNKNOWN, 1.0
+            # No timer, no yellow = PENDING (idle, can start training)
+            return BarrackState.PENDING, 1.0 - yellow_pct
 
     def get_all_states(self, frame):
         """

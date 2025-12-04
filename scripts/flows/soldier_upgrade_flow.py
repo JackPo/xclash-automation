@@ -140,10 +140,14 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
             print(f"  ERROR: Soldier training panel not detected (score={score:.6f})")
         return False
 
-    # Step 1: Take screenshot and find highest unlocked level
+    # Wait for tiles to fully render
+    time.sleep(0.5)
+
+    # Step 1: Take fresh screenshot and find highest unlocked level
     if debug:
         print("Step 1: Finding highest unlocked soldier level...")
 
+    frame = win.get_screenshot_cv2()
     highest = find_highest_unlocked_level(frame, adb, debug=debug)
 
     if highest is None:
