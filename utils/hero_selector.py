@@ -63,53 +63,69 @@ class HeroSelector:
         is_idle = score < self.THRESHOLD
         return is_idle, score
 
-    def find_rightmost_idle(self, frame: np.ndarray, require_zz: bool = True) -> dict | None:
+    def find_rightmost_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
         """
-        Find the rightmost idle hero (with Zz icon) or just rightmost hero.
+        Find the rightmost hero based on Zz icon strategy.
         Used by: treasure_map_flow
 
         Args:
             frame: BGR numpy array (4K screenshot)
-            require_zz: If True, only return heroes with Zz icon.
-                       If False, return first available hero (ignore Zz).
+            zz_mode: Hero selection strategy:
+                - 'require': ONLY return heroes WITH Zz. Return None if no Zz found.
+                - 'prefer': PREFER heroes with Zz, but fallback to any hero if no Zz exists.
+                - 'ignore': ALWAYS return first hero regardless of Zz status.
 
         Returns:
-            Slot dict if found, None if no heroes available
+            Slot dict if found, None if no heroes available (only possible in 'require' mode)
         """
+        if zz_mode == 'ignore':
+            # Just return rightmost slot immediately
+            return self.SLOTS[0]  # First element is rightmost
+
+        # For 'require' and 'prefer': search for Zz heroes first
         for slot in self.SLOTS:  # Already ordered rightmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
-
-            if require_zz:
-                if is_idle:
-                    return slot
-            else:
-                # Don't require Zz - just return first slot
+            if is_idle:
                 return slot
+
+        # No Zz found
+        if zz_mode == 'require':
+            return None  # Must have Zz, return None
+        else:  # zz_mode == 'prefer'
+            return self.SLOTS[0]  # Fallback to rightmost slot
 
         return None
 
-    def find_leftmost_idle(self, frame: np.ndarray, require_zz: bool = True) -> dict | None:
+    def find_leftmost_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
         """
-        Find the leftmost idle hero (with Zz icon) or just leftmost hero.
+        Find the leftmost hero based on Zz icon strategy.
         Used by: elite_zombie_flow, rally_join_flow
 
         Args:
             frame: BGR numpy array (4K screenshot)
-            require_zz: If True, only return heroes with Zz icon.
-                       If False, return first available hero (ignore Zz).
+            zz_mode: Hero selection strategy:
+                - 'require': ONLY return heroes WITH Zz. Return None if no Zz found.
+                - 'prefer': PREFER heroes with Zz, but fallback to any hero if no Zz exists.
+                - 'ignore': ALWAYS return first hero regardless of Zz status.
 
         Returns:
-            Slot dict if found, None if no heroes available
+            Slot dict if found, None if no heroes available (only possible in 'require' mode)
         """
+        if zz_mode == 'ignore':
+            # Just return leftmost slot immediately
+            return self.SLOTS[-1]  # Last element is leftmost
+
+        # For 'require' and 'prefer': search for Zz heroes first
         for slot in reversed(self.SLOTS):  # Reversed = leftmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
-
-            if require_zz:
-                if is_idle:
-                    return slot
-            else:
-                # Don't require Zz - just return first slot
+            if is_idle:
                 return slot
+
+        # No Zz found
+        if zz_mode == 'require':
+            return None  # Must have Zz, return None
+        else:  # zz_mode == 'prefer'
+            return self.SLOTS[-1]  # Fallback to leftmost slot
 
         return None
 

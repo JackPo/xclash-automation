@@ -163,16 +163,18 @@ def elite_zombie_flow(adb) -> bool:
             idle_str = "Zz PRESENT (idle)" if status['is_idle'] else "NO Zz (busy)"
             _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
 
-        # Find LEFTMOST idle hero (elite zombie uses leftmost, treasure uses rightmost)
-        idle_slot = hero_selector.find_leftmost_idle(frame)
+        # Find LEFTMOST hero (IGNORE Zz status - force select leftmost regardless)
+        # Elite zombie (beast training) always uses leftmost hero, busy or not
+        idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='ignore')
 
         if idle_slot:
             click_pos = idle_slot['click']
-            _log(f"  Clicking slot {idle_slot['id']} at {click_pos}")
+            _log(f"  Clicking leftmost slot {idle_slot['id']} at {click_pos}")
             adb.tap(*click_pos)
             time.sleep(CLICK_DELAY)
         else:
-            _log("  WARNING: No idle heroes found! Proceeding anyway...")
+            # Should never happen with zz_mode='ignore'
+            _log("  ERROR: No hero slot found! (should not happen)")
 
     frame = win.get_screenshot_cv2()
     if frame is not None:

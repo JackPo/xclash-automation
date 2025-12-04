@@ -143,16 +143,16 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     frame = win.get_screenshot_cv2()
     _save_debug_screenshot(frame, "02_after_plus_click")
 
-    # Step 5: Select leftmost hero (any hero can join rally)
-    print("[RALLY-JOIN] Step 5: Selecting leftmost hero")
-    idle_slot = hero_selector.find_leftmost_idle(frame, require_zz=False)
+    # Step 5: Select leftmost idle hero (REQUIRE Zz - only join if hero is idle)
+    print("[RALLY-JOIN] Step 5: Selecting leftmost idle hero (must have Zz)")
+    idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='require')
 
     if not idle_slot:
-        print("[RALLY-JOIN] No heroes available. Aborting rally join.")
+        print("[RALLY-JOIN] No idle heroes found (no Zz icons). Better luck next time!")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return False
 
-    print(f"[RALLY-JOIN]   Hero found at slot {idle_slot['id']}, clicking")
+    print(f"[RALLY-JOIN]   Idle hero found at slot {idle_slot['id']}, clicking")
     adb.tap(*idle_slot['click'])
     time.sleep(0.3)
 

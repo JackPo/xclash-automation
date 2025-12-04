@@ -32,10 +32,10 @@ from utils.treasure_dig_matchers import (
     TreasureDiggingMarkerMatcher,
     GatherButtonMatcher,
     MarchButtonMatcher,
-    ZzSleepIconMatcher,
     TreasureReadyCircleMatcher,
 )
 from utils.back_button_matcher import BackButtonMatcher
+from utils.hero_selector import HeroSelector
 
 # Setup logger
 logger = logging.getLogger("treasure_map_flow")
@@ -241,8 +241,8 @@ def _wait_and_click_gather(adb) -> bool:
 
 
 def _select_character_and_march(adb) -> bool:
-    """Select rightmost idle character and click March."""
-    zz_matcher = ZzSleepIconMatcher()
+    """Select rightmost character (prefer idle with Zz, but fallback to any) and click March."""
+    hero_selector = HeroSelector()
     march_matcher = MarchButtonMatcher()
     win = WindowsScreenshotHelper()
 
@@ -265,17 +265,17 @@ def _select_character_and_march(adb) -> bool:
         if march_present:
             _save_debug_screenshot(frame, f"09_march_FOUND_score{march_score:.3f}")
 
-            # Find and click rightmost Zz icon
-            zz_pos = zz_matcher.find_rightmost_zz(frame)
-            if zz_pos:
-                _log(f"  Found rightmost Zz at ({zz_pos[0]}, {zz_pos[1]}), clicking...")
-                adb.tap(zz_pos[0], zz_pos[1])
+            # Find rightmost hero (prefer Zz, but fallback to any hero if no Zz exists)
+            slot = hero_selector.find_rightmost_idle(frame, zz_mode='prefer')
+            if slot:
+                _log(f"  Found rightmost hero at slot {slot['id']}, clicking {slot['click']}...")
+                adb.tap(*slot['click'])
                 time.sleep(0.5)
 
                 # Take new screenshot and click March
                 frame = win.get_screenshot_cv2()
                 if frame is not None:
-                    _save_debug_screenshot(frame, "10_after_zz_click")
+                    _save_debug_screenshot(frame, "10_after_hero_click")
                 march_present, _ = march_matcher.is_present(frame)
 
                 if march_present:
@@ -283,10 +283,9 @@ def _select_character_and_march(adb) -> bool:
                     march_matcher.click(adb)
                     return True
             else:
-                # No Zz found, maybe all characters are busy - just click March anyway
-                _log("  No Zz icon found, clicking March anyway")
-                march_matcher.click(adb)
-                return True
+                # Should never happen since zz_mode='prefer' always returns a slot
+                _log("  ERROR: No hero slot found (should not happen with zz_mode='prefer')")
+                return False
 
         time.sleep(CHECK_INTERVAL)
 
