@@ -49,8 +49,8 @@ class RallyMonsterValidator:
             self.unknown_dir.mkdir(exist_ok=True)
 
             print(f"[RALLY] Data gathering mode ENABLED")
-            print(f"  Matched monsters → {self.matched_dir}")
-            print(f"  Unknown monsters → {self.unknown_dir}")
+            print(f"  Matched monsters -> {self.matched_dir}")
+            print(f"  Unknown monsters -> {self.unknown_dir}")
 
     def get_monster_region(self, plus_x: int, plus_y: int) -> Tuple[int, int, int, int]:
         """

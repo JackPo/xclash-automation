@@ -226,6 +226,30 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
 
     if success:
         time.sleep(0.5)  # Wait for training to start
+
+        # Check for resource replenishment
+        from utils.replenish_all_helper import ReplenishAllHelper
+        replenish_helper = ReplenishAllHelper()
+
+        frame = win.get_screenshot_cv2()
+        if replenish_helper.find_replenish_button(frame):
+            if debug:
+                print(f"  Replenish button detected - handling shortage...")
+
+            replenish_helper.handle_replenish_flow(adb, win, debug=debug)
+
+            # Re-click the soldier level after replenishing
+            if debug:
+                print(f"  Re-clicking Lv{target_level} after replenishment...")
+
+            success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
+            if success:
+                time.sleep(0.5)
+            else:
+                if debug:
+                    print(f"  Failed to find Lv{target_level} after replenishment")
+                return False
+
         if debug:
             print(f"  Started training Lv{target_level} soldiers at barrack {barrack_index+1}")
     else:

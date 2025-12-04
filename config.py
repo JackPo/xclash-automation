@@ -23,7 +23,7 @@ GOOGLE_API_KEY = None
 ANTHROPIC_API_KEY = None
 
 # Daemon timing
-DAEMON_INTERVAL = 3.0              # Check interval (seconds)
+DAEMON_INTERVAL = 2.0              # Check interval (seconds)
 IDLE_THRESHOLD = 300               # 5 minutes before idle triggers activate
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 

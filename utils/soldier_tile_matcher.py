@@ -1,10 +1,11 @@
 """
 Soldier Tile Matcher - Detects soldier level tiles in the barracks training panel.
 
-Searches horizontally (X-axis) within a fixed Y region (Y=810-967) to find
+Searches horizontally (X-axis) within a fixed Y region to find
 which soldier levels are visible in the panel.
 
-Templates: soldier_lv3_4k.png through soldier_lv8_4k.png (148x157 pixels)
+Templates: half_soldier_lv3_4k.png through half_soldier_lv8_4k.png (78x148 pixels)
+Uses HALF templates (top half only) to avoid overlapping detections.
 """
 
 from pathlib import Path
@@ -15,25 +16,24 @@ import numpy as np
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
 
 # Fixed Y-axis region for soldier tiles (same for all levels)
-SOLDIER_Y_START = 810
-SOLDIER_Y_END = 967
-SOLDIER_HEIGHT = 157
+# Using BOTTOM half templates now, so height is 79 instead of 157
+SOLDIER_Y_START = 890  # Bottom half starts at Y=890
+SOLDIER_Y_END = 969   # 890 + 79
+SOLDIER_HEIGHT = 79   # Bottom half of original 157
 SOLDIER_WIDTH = 148
 
 # Match threshold (TM_SQDIFF_NORMED - lower is better)
-# 0.01 is very strict - only exact matches
-# 0.03 allows some variation
-MATCH_THRESHOLD = 0.015
+MATCH_THRESHOLD = 0.02
 
 
 class SoldierTileMatcher:
     """Detects soldier level tiles in the barracks training panel."""
 
     def __init__(self):
-        # Load all soldier templates (Lv3-8)
+        # Load all HALF soldier templates (Lv3-8)
         self.templates = {}
         for level in range(3, 9):
-            path = TEMPLATE_DIR / f"soldier_lv{level}_4k.png"
+            path = TEMPLATE_DIR / f"half_soldier_lv{level}_4k.png"
             template = cv2.imread(str(path))
             if template is not None:
                 self.templates[level] = template

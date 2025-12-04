@@ -124,7 +124,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
 
         if should_join:
             matched_rally = (plus_x, plus_y, monster_name, level)
-            print(f"[RALLY-JOIN]   ✓ MATCH FOUND: {monster_name} Lv.{level} at rally {i}")
+            print(f"[RALLY-JOIN]   MATCH FOUND: {monster_name} Lv.{level} at rally {i}")
             break
 
     if not matched_rally:
@@ -138,10 +138,20 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     print(f"[RALLY-JOIN] Step 4: Clicking plus button for {monster_name} Lv.{level}")
     click_x, click_y = plus_matcher.get_click_position(plus_x, plus_y)
     adb.tap(click_x, click_y)
-    time.sleep(0.5)
+    time.sleep(1.0)  # Wait for hero selection screen to fully load
 
     frame = win.get_screenshot_cv2()
     _save_debug_screenshot(frame, "02_after_plus_click")
+
+    # DEBUG: Save the EXACT frame we're passing to hero selector
+    cv2.imwrite("zz_detection_frame.png", frame)
+
+    # DEBUG: Log all slot scores
+    debug_selector = HeroSelector()
+    statuses = debug_selector.get_all_slot_status(frame)
+    print(f"[RALLY-JOIN]   Zz detection scores:")
+    for s in statuses:
+        print(f"[RALLY-JOIN]     Slot {s['id']}: score={s['score']:.6f} idle={s['is_idle']}")
 
     # Step 5: Select leftmost idle hero (REQUIRE Zz - only join if hero is idle)
     print("[RALLY-JOIN] Step 5: Selecting leftmost idle hero (must have Zz)")

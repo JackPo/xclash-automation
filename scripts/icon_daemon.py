@@ -109,8 +109,9 @@ class IconDaemon:
     Daemon that detects icons and triggers non-blocking flows.
     """
 
-    def __init__(self, interval: float = 3.0, debug: bool = False):
-        self.interval = interval
+    def __init__(self, interval: float = None, debug: bool = False):
+        from config import DAEMON_INTERVAL
+        self.interval = interval if interval is not None else DAEMON_INTERVAL
         self.debug = debug
         self.adb = None
         self.windows_helper = None
@@ -221,8 +222,8 @@ class IconDaemon:
         self.enhance_hero_last_block_start = None  # Track which block we triggered for
 
         # Soldier Training: when idle 5+ min, any barrack PENDING during Soldier Training event
+        # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
         self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
-        self.soldier_upgrade_last_block_start = None  # Track which block we triggered for
 
         # Setup logging
         self.log_dir = Path('logs')
@@ -762,25 +763,26 @@ class IconDaemon:
 
                 # Soldier Training: during Soldier Training event, idle 5+ min, any barrack PENDING
                 # Requires TOWN view and dog house aligned (same as harvest conditions)
+                # CONTINUOUSLY checks for PENDING barracks and promotes them (no block limitation)
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
                     arms_race_event == "Soldier Training" and
                     idle_secs >= self.IDLE_THRESHOLD):
-                    # Check if we already triggered for this block
-                    block_start = arms_race['block_start']
-                    if self.soldier_upgrade_last_block_start != block_start:
-                        # Check for PENDING barracks (barracks states already computed in main loop)
-                        from utils.barracks_state_matcher import BarrackState
-                        states = self.barracks_matcher.get_all_states(frame)
-                        pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
+                    # Check for PENDING barracks (barracks states already computed in main loop)
+                    from utils.barracks_state_matcher import BarrackState
+                    states = self.barracks_matcher.get_all_states(frame)
+                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
-                        if pending_count > 0 and world_present:
-                            # Check alignment
-                            is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
-                            if is_aligned:
-                                idle_mins = int(idle_secs / 60)
-                                self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {pending_count} PENDING barrack(s), triggering soldier upgrade flow...")
-                                self._run_flow("soldier_upgrade", soldier_upgrade_flow)
-                                self.soldier_upgrade_last_block_start = block_start
+                    if pending_count > 0 and world_present:
+                        # Check alignment
+                        is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                        if is_aligned:
+                            idle_mins = int(idle_secs / 60)
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {pending_count} PENDING barrack(s), triggering soldier upgrade...")
+                            # Import the upgrade_all_pending_barracks function
+                            from scripts.flows.soldier_upgrade_flow import upgrade_all_pending_barracks
+                            # Run upgrade for all pending barracks (NOT as a threaded flow - blocks until done)
+                            upgrades = upgrade_all_pending_barracks(self.adb, debug=True)
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades} upgrade(s)")
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
@@ -891,8 +893,8 @@ def main():
     parser.add_argument(
         '--interval',
         type=float,
-        default=3.0,
-        help="Check interval in seconds (default: 3.0)"
+        default=None,
+        help="Check interval in seconds (default: 2.0 from config)"
     )
     parser.add_argument(
         '--debug',
