@@ -78,6 +78,7 @@ from config import (
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
     AFK_REWARDS_COOLDOWN,
     UNION_GIFTS_COOLDOWN,
+    SOLDIER_TRAINING_COOLDOWN,
     UNION_GIFTS_IDLE_THRESHOLD,
     UNKNOWN_STATE_TIMEOUT,
     STAMINA_REGION,
@@ -158,6 +159,10 @@ class IconDaemon:
         self.last_union_gifts_time = 0
         self.UNION_GIFTS_COOLDOWN = UNION_GIFTS_COOLDOWN
         self.UNION_GIFTS_IDLE_THRESHOLD = UNION_GIFTS_IDLE_THRESHOLD
+
+        # Soldier training cooldown - once per 5 minutes
+        self.last_soldier_training_time = 0
+        self.SOLDIER_TRAINING_COOLDOWN = SOLDIER_TRAINING_COOLDOWN
 
         # Unified stamina validation - ONE system for all stamina-based triggers
         # Tracks last 3 readings, requires all 3 to be valid (0-200) and consistent (diff <= 20)
@@ -493,7 +498,7 @@ class IconDaemon:
                             click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
                             self.adb.tap(click_x, click_y)
                             self.last_rally_march_click = current_time
-                            time.sleep(1.0)  # Wait for panel to open
+                            time.sleep(0.5)  # Brief wait for panel to start loading
                             # Then trigger rally join flow
                             self._run_flow("rally_join", rally_join_flow)
 
@@ -780,8 +785,9 @@ class IconDaemon:
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
                 # Barracks: Check for READY barracks to collect soldiers
-                # Requires TOWN view and alignment (same as harvest conditions)
-                if world_present and harvest_idle_ok and harvest_aligned:
+                # Requires TOWN view, alignment, and 5-minute cooldown
+                soldier_cooldown_ok = (current_time - self.last_soldier_training_time) >= self.SOLDIER_TRAINING_COOLDOWN
+                if world_present and harvest_idle_ok and harvest_aligned and soldier_cooldown_ok:
                     # Get barracks states
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
@@ -789,6 +795,7 @@ class IconDaemon:
 
                     if ready_count > 0:
                         self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
+                        self.last_soldier_training_time = current_time
                         self._run_flow("soldier_training", soldier_training_flow)
 
                 # AFK rewards: requires all harvest conditions + 1 hour cooldown

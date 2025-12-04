@@ -35,12 +35,12 @@ from utils.back_button_matcher import BackButtonMatcher
 # Import config values
 try:
     from config import (
-        RALLY_JOIN_MONSTERS,
+        RALLY_MONSTERS,
         RALLY_DATA_GATHERING_MODE
     )
 except ImportError:
     # Fallback defaults if config not updated yet
-    RALLY_JOIN_MONSTERS = {"zombie overlord": 30}
+    RALLY_MONSTERS = [{"name": "Zombie Overlord", "auto_join": True, "max_level": 130, "has_level": True}]
     RALLY_DATA_GATHERING_MODE = False
 
 
@@ -70,7 +70,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     ocr = OCRClient()
     monster_validator = RallyMonsterValidator(
         ocr_client=ocr,
-        valid_monsters=RALLY_JOIN_MONSTERS,
+        monsters_config=RALLY_MONSTERS,
         data_gathering_mode=RALLY_DATA_GATHERING_MODE
     )
     hero_selector = HeroSelector()
@@ -133,12 +133,6 @@ def rally_join_flow(adb: ADBHelper) -> bool:
         return False
 
     plus_x, plus_y, monster_name, level = matched_rally
-
-    # DATA GATHERING MODE: Exit here (don't actually join)
-    if RALLY_DATA_GATHERING_MODE:
-        print("[RALLY-JOIN] DATA GATHERING MODE: Exiting without joining rally")
-        _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
 
     # Step 4: Click the plus button
     print(f"[RALLY-JOIN] Step 4: Clicking plus button for {monster_name} Lv.{level}")

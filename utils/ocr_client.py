@@ -277,6 +277,45 @@ class OCRClient:
         result = self._post_multipart("/ocr/number", image_bytes)
         return result.get("number")
 
+    def extract_json(self, image, region: Tuple[int, int, int, int] = None,
+                     prompt: str = None) -> dict | None:
+        """
+        Extract structured JSON data from image.
+
+        Args:
+            image: numpy array (BGR) or PIL Image
+            region: Optional (x, y, w, h) to crop before OCR
+            prompt: Custom prompt for extraction (should request JSON output)
+
+        Returns:
+            dict: Parsed JSON object, or None if parsing fails
+        """
+        import json
+
+        text = self.extract_text(image, region=region, prompt=prompt)
+
+        # Try to extract JSON from response
+        # Qwen might wrap JSON in markdown code blocks
+        text = text.strip()
+
+        # Remove markdown code fences if present
+        if text.startswith("```json"):
+            text = text[7:]  # Remove ```json
+        elif text.startswith("```"):
+            text = text[3:]  # Remove ```
+
+        if text.endswith("```"):
+            text = text[:-3]  # Remove trailing ```
+
+        text = text.strip()
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            print(f"[OCR-CLIENT] Failed to parse JSON: {e}")
+            print(f"[OCR-CLIENT] Raw response: {text!r}")
+            return None
+
 
 # Convenience functions (drop-in replacement for qwen_ocr functions)
 _client = None

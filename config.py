@@ -71,10 +71,11 @@ ARMS_RACE_SOLDIER_TRAINING_ENABLED = True      # Enable/disable soldier upgrade 
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims
+SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collection attempts
 UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes idle required for union gifts
 
 # Recovery
-UNKNOWN_STATE_TIMEOUT = 60         # Seconds in UNKNOWN state before recovery
+UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
 
 # Screen regions (4K resolution: 3840x2160)
 STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
@@ -196,27 +197,93 @@ KEY_PAN_RIGHT = 'right'
 RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
 RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
 
-# Monster validation rules: {monster_name: max_level}
-# Only join rallies where monster name matches AND level <= max_level
+# Monster configuration: List of known monsters with metadata
+# Each monster has: name, auto_join, max_level, level_increment, level_range
+RALLY_MONSTERS = [
+    {
+        "name": "Zombie Overlord",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 130,        # Join if level <= 130
+        "has_level": True,
+        "level_increment": 10,   # Levels: 100, 110, 120, 130, 140, etc.
+        "level_range": "100+",
+    },
+    {
+        "name": "Elite Zombie",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 30,         # Join if level <= 30
+        "has_level": True,
+        "level_increment": 1,    # Levels: 1-40
+        "level_range": "1-40",
+    },
+    {
+        "name": "Nightfall Servant",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 30,         # Join if level <= 30
+        "has_level": True,
+        "level_increment": 1,    # Levels: 1-40
+        "level_range": "1-40",
+    },
+]
+
+# Legacy dict for backward compatibility (auto-generated from RALLY_MONSTERS)
+# Only includes monsters with auto_join=True
 RALLY_JOIN_MONSTERS = {
-    "zombie overlord": 30,  # Join if Zombie Overlord level <= 30
-    "elite zombie": 50,     # Join if Elite Zombie level <= 50
+    monster["name"].lower(): monster["max_level"]
+    for monster in RALLY_MONSTERS
+    if monster.get("auto_join", True)
 }
 
 # Plus button detection (fixed X + Y search)
-RALLY_PLUS_BUTTON_X = 1405  # Fixed X coordinate (rightmost column)
+RALLY_PLUS_BUTTON_X = 1905  # Fixed X coordinate (rightmost column)
 RALLY_PLUS_BUTTON_THRESHOLD = 0.05  # Template matching threshold
 RALLY_PLUS_SEARCH_Y_START = 400  # Y search range start
 RALLY_PLUS_SEARCH_Y_END = 1800   # Y search range end
 
 # Monster icon relative to plus button
-RALLY_MONSTER_OFFSET_X = 735   # Pixels right of plus button (2140 - 1405)
-RALLY_MONSTER_OFFSET_Y = -151  # Pixels above plus button (326 - 477)
+RALLY_MONSTER_OFFSET_X = 235   # Pixels LEFT of plus button
+RALLY_MONSTER_OFFSET_Y = -151  # Pixels above plus button
 RALLY_MONSTER_WIDTH = 290      # Monster icon width
 RALLY_MONSTER_HEIGHT = 363     # Monster icon height
 
 # Data gathering mode - collects monster samples for OCR tuning
 RALLY_DATA_GATHERING_MODE = False  # Set to True to collect monster crops without joining
+
+# =============================================================================
+# OCR PROMPTS - Specific prompts for different OCR use cases
+# =============================================================================
+
+# Rally monster name and level (auto-generated from RALLY_MONSTERS)
+def _generate_rally_monster_prompt():
+    """Generate OCR prompt with known monster names for fuzzy matching."""
+    monster_names = [m["name"] for m in RALLY_MONSTERS]
+    monster_list = ", ".join(monster_names)
+
+    return (
+        f"Read the monster name and level from this game character portrait. "
+        f"The image shows a character icon with text overlays. "
+        f"Known monsters include: {monster_list}. "
+        f"Return your answer as JSON with two fields: \"name\" (string) and \"level\" (integer). "
+        f"If the text roughly matches one of the known monsters, use that name. "
+        f"If you cannot match a known monster, use the exact text you see for the name. "
+        f"Example: {{\"name\": \"Zombie Overlord\", \"level\": 130}}"
+    )
+
+OCR_PROMPT_RALLY_MONSTER = _generate_rally_monster_prompt()
+
+# Stamina number extraction
+OCR_PROMPT_STAMINA = (
+    "Read the number displayed in this game UI element. "
+    "This is a stamina/energy counter showing a numeric value between 0 and 200. "
+    "Return only the number, nothing else."
+)
+
+# Training time slider
+OCR_PROMPT_TRAINING_TIME = (
+    "Read the time duration displayed in this game UI element. "
+    "The format is expected to be XX:XX:XX (hours:minutes:seconds). "
+    "Return exactly what is shown, preserving the format."
+)
 
 # =============================================================================
 # LOAD LOCAL OVERRIDES

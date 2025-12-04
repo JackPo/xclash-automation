@@ -147,6 +147,44 @@ class QwenOCR:
         digits = ''.join(c for c in text if c.isdigit())
         return int(digits) if digits else None
 
+    def extract_json(self, image, region=None, prompt="Extract information from this image and return it as JSON."):
+        """
+        Extract structured JSON data from image using Qwen2.5-VL.
+
+        Args:
+            image: numpy array (BGR or RGB) or PIL Image
+            region: Optional (x, y, w, h) to crop before OCR
+            prompt: Custom prompt for extraction (should request JSON output)
+
+        Returns:
+            dict: Parsed JSON object, or None if parsing fails
+        """
+        import json
+
+        text = self.extract_text(image, region=region, prompt=prompt)
+
+        # Try to extract JSON from response
+        # Qwen might wrap JSON in markdown code blocks
+        text = text.strip()
+
+        # Remove markdown code fences if present
+        if text.startswith("```json"):
+            text = text[7:]  # Remove ```json
+        elif text.startswith("```"):
+            text = text[3:]  # Remove ```
+
+        if text.endswith("```"):
+            text = text[:-3]  # Remove trailing ```
+
+        text = text.strip()
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            print(f"[QWEN-OCR] Failed to parse JSON: {e}")
+            print(f"[QWEN-OCR] Raw response: {text!r}")
+            return None
+
 
 # Convenience function
 _ocr_instance = None

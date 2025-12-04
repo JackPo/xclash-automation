@@ -27,7 +27,7 @@ BACK_BUTTON_CLICK = (1407, 2055)
 
 # Recovery limits
 MAX_BACK_CLICKS = 5
-MAX_RECOVERY_ATTEMPTS = 5
+MAX_RECOVERY_ATTEMPTS = 15  # Try more attempts before restarting game
 
 
 def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
@@ -151,7 +151,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Phase 1: Click back button while visible
         back_clicks = 0
         while back_clicks < MAX_BACK_CLICKS:
-            time.sleep(0.5)
+            time.sleep(2.0)  # Give UI time to settle before checking
             frame = win.get_screenshot_cv2()
             if frame is None:
                 if debug:
@@ -178,7 +178,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 break
 
         # Phase 2: Check view state again
-        time.sleep(0.5)
+        time.sleep(2.0)  # Give UI time to settle
         frame = win.get_screenshot_cv2()
         if frame is not None:
             view_state, view_score = detect_view(frame)
@@ -191,7 +191,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if debug:
             print("    [RETURN] Unknown state, clicking back button location...")
         adb.tap(*BACK_BUTTON_CLICK)
-        time.sleep(0.5)
+        time.sleep(2.0)  # Give UI time to respond to click
 
         # Check again
         frame = win.get_screenshot_cv2()
