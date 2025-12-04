@@ -143,6 +143,10 @@ class IconDaemon:
         self.active_flows = set()
         self.flow_lock = threading.Lock()
 
+        # Critical flow protection - blocks all other daemon actions
+        self.critical_flow_active = False
+        self.critical_flow_name = None
+
         # Idle town view switching (values from config)
         self.last_idle_check_time = 0
         self.IDLE_THRESHOLD = IDLE_THRESHOLD
@@ -365,28 +369,49 @@ class IconDaemon:
         return_to_base_view(self.adb, self.windows_helper, debug=True)
         self.logger.info("STARTUP: Ready")
 
-    def _run_flow(self, flow_name: str, flow_func):
+    def _run_flow(self, flow_name: str, flow_func, critical: bool = False):
         """
         Run a flow in a thread-safe way.
 
         Args:
             flow_name: Identifier for the flow
             flow_func: Function to execute (takes adb as argument)
+            critical: If True, blocks all other daemon actions during execution
         """
         def wrapper():
             try:
-                self.logger.info(f"FLOW START: {flow_name}")
+                # Mark as critical if requested
+                if critical:
+                    with self.flow_lock:
+                        self.critical_flow_active = True
+                        self.critical_flow_name = flow_name
+                    self.logger.info(f"CRITICAL FLOW START: {flow_name}")
+                else:
+                    self.logger.info(f"FLOW START: {flow_name}")
+
                 flow_func(self.adb)
-                self.logger.info(f"FLOW END: {flow_name}")
+
+                if critical:
+                    self.logger.info(f"CRITICAL FLOW END: {flow_name}")
+                else:
+                    self.logger.info(f"FLOW END: {flow_name}")
             except Exception as e:
                 self.logger.error(f"FLOW ERROR: {flow_name} - {e}")
             finally:
                 with self.flow_lock:
                     self.active_flows.discard(flow_name)
+                    if critical and self.critical_flow_name == flow_name:
+                        self.critical_flow_active = False
+                        self.critical_flow_name = None
 
         with self.flow_lock:
             if flow_name in self.active_flows:
                 self.logger.debug(f"SKIP: {flow_name} already running")
+                return False
+
+            # Block non-critical flows if a critical flow is active
+            if not critical and self.critical_flow_active:
+                self.logger.debug(f"SKIP: {flow_name} blocked by critical flow {self.critical_flow_name}")
                 return False
 
             self.active_flows.add(flow_name)
@@ -455,6 +480,12 @@ class IconDaemon:
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
 
+                # Skip all daemon checks if critical flow is active
+                if self.critical_flow_active:
+                    self.logger.debug(f"[{iteration}] CRITICAL FLOW ACTIVE: {self.critical_flow_name} - skipping daemon checks")
+                    time.sleep(self.DAEMON_INTERVAL)
+                    continue
+
                 # Check IMMEDIATE action icons FIRST (before slow OCR)
                 handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
                 treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
@@ -467,7 +498,7 @@ class IconDaemon:
 
                 if treasure_present:
                     self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
-                    self._run_flow("treasure_map", treasure_map_flow)
+                    self._run_flow("treasure_map", treasure_map_flow, critical=True)
 
                 if harvest_present:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
