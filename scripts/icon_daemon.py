@@ -225,6 +225,11 @@ class IconDaemon:
         # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
         self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
 
+        # Barracks state validation - require 3 consecutive consistent readings (same as stamina)
+        self.barracks_ready_count_history = []
+        self.barracks_pending_count_history = []
+        self.BARRACKS_CONSECUTIVE_REQUIRED = 3  # Same as stamina
+
         # Setup logging
         self.log_dir = Path('logs')
         self.log_dir.mkdir(exist_ok=True)
@@ -487,7 +492,7 @@ class IconDaemon:
 
                 # Skip all daemon checks if critical flow is active
                 if self.critical_flow_active:
-                    self.logger.debug(f"[{iteration}] CRITICAL FLOW ACTIVE: {self.critical_flow_name} - skipping daemon checks")
+                    self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
                     time.sleep(self.DAEMON_INTERVAL)
                     continue
 
@@ -771,16 +776,43 @@ class IconDaemon:
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
                     arms_race_event == "Soldier Training" and
                     idle_secs >= self.IDLE_THRESHOLD):
+                    self.logger.debug(f"[{iteration}] SOLDIER: Outer conditions PASS (enabled={self.ARMS_RACE_SOLDIER_TRAINING_ENABLED}, event={arms_race_event}, idle={idle_secs}s)")
                     # Check for READY and PENDING barracks
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
                     pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
+                    # Track history for validation (require 3 consecutive consistent readings)
+                    self.barracks_ready_count_history.append(ready_count)
+                    self.barracks_pending_count_history.append(pending_count)
+                    if len(self.barracks_ready_count_history) > self.BARRACKS_CONSECUTIVE_REQUIRED:
+                        self.barracks_ready_count_history.pop(0)
+                        self.barracks_pending_count_history.pop(0)
+
+                    # Require 3 consecutive readings
+                    if len(self.barracks_ready_count_history) < self.BARRACKS_CONSECUTIVE_REQUIRED:
+                        self.logger.debug(f"[{iteration}] SOLDIER: Not enough readings ({len(self.barracks_ready_count_history)}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
+                        continue
+
+                    # Verify all readings are consistent
+                    if not all(r == ready_count for r in self.barracks_ready_count_history):
+                        self.logger.debug(f"[{iteration}] SOLDIER: Inconsistent READY readings: {self.barracks_ready_count_history}")
+                        continue
+
+                    if not all(p == pending_count for p in self.barracks_pending_count_history):
+                        self.logger.debug(f"[{iteration}] SOLDIER: Inconsistent PENDING readings: {self.barracks_pending_count_history}")
+                        continue
+
+                    self.logger.debug(f"[{iteration}] SOLDIER: Consistent readings - ready={ready_count}, pending={pending_count}, world_present={world_present}")
+
                     if (ready_count > 0 or pending_count > 0) and world_present:
                         # Check alignment
                         is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
-                        if is_aligned:
+                        if not is_aligned:
+                            self.logger.info(f"[{iteration}] SOLDIER: Blocked - dog house misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
+                        else:
+                            self.logger.debug(f"[{iteration}] SOLDIER: Alignment PASS (score={dog_score:.4f})")
                             idle_mins = int(idle_secs / 60)
                             self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {ready_count} READY + {pending_count} PENDING barrack(s), triggering soldier upgrade...")
                             # First, collect from READY barracks to convert them to PENDING
@@ -800,14 +832,18 @@ class IconDaemon:
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
                 harvest_idle_ok = idle_secs >= self.IDLE_THRESHOLD
+                if not harvest_idle_ok:
+                    self.logger.debug(f"[{iteration}] HARVEST: Blocked - idle time {idle_secs}s < threshold {self.IDLE_THRESHOLD}s")
                 harvest_aligned = False
                 if harvest_idle_ok and world_present:
                     is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
                     harvest_aligned = is_aligned
+                    if not is_aligned:
+                        self.logger.debug(f"[{iteration}] HARVEST: Blocked - misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
 
                 # Corn, Gold, Iron, Gem, Cabbage, Equip only activate when idle 5+ min and aligned
                 if corn_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] CORN detected (diff={corn_score:.4f})")
+                    self.logger.info(f"[{iteration}] CORN: Triggering harvest flow (score={corn_score:.4f})")
                     self._run_flow("corn_harvest", corn_harvest_flow)
 
                 if gold_present and world_present and harvest_idle_ok and harvest_aligned:
