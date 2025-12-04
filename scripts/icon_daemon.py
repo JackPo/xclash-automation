@@ -230,19 +230,17 @@ class IconDaemon:
         self.log_dir.mkdir(exist_ok=True)
         self.log_file = self.log_dir / f"daemon_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
-        # Create/update symlink to current log file
-        self.current_log_symlink = self.log_dir / 'current_daemon.log'
-        if self.current_log_symlink.exists() or self.current_log_symlink.is_symlink():
-            self.current_log_symlink.unlink()  # Remove old symlink/file
-        self.current_log_symlink.symlink_to(self.log_file.name)  # Create new symlink (relative path)
+        # Track current log file (Windows doesn't support symlinks without admin)
+        self.current_log_link = self.log_dir / 'current_daemon.log'
 
-        # Configure logging
+        # Configure logging with dual file output
         log_level = logging.DEBUG if debug else logging.INFO
         logging.basicConfig(
             level=log_level,
             format='%(asctime)s [%(levelname)s] %(message)s',
             handlers=[
                 logging.FileHandler(self.log_file),
+                logging.FileHandler(self.current_log_link),  # Also write to current_daemon.log
                 logging.StreamHandler()
             ]
         )
