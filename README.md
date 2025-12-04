@@ -259,7 +259,7 @@ IDLE_THRESHOLD = 300               # Seconds of inactivity before "idle" mode (5
 IDLE_CHECK_INTERVAL = 300          # Seconds between idle recovery checks (5 min)
 
 # Recovery
-UNKNOWN_STATE_TIMEOUT = 60         # Seconds in unknown state before recovery
+UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS unknown state before recovery
 ```
 
 ### Game-Specific Parameters
@@ -686,9 +686,11 @@ The daemon includes robust recovery mechanisms for common failure scenarios:
 - Waits for app to load, then navigates to TOWN view
 
 **UNKNOWN State Recovery:**
-- If view state is UNKNOWN for 60+ seconds AND user is idle 5+ minutes
-- Triggers full recovery: clicks back buttons, detects view, navigates to TOWN
-- If still stuck after multiple attempts → restarts app
+- If view state is UNKNOWN for 180+ seconds (3 min continuous) AND user is idle 5+ minutes
+- Triggers full recovery: tries up to 15 attempts with 2s delays between actions
+- Each attempt: clicks back buttons while visible, detects view state, tries to reach TOWN/WORLD
+- Only restarts app if all 15 attempts fail (total ~4 minutes before restart)
+- Much less aggressive than before (was 60s timeout, 5 attempts, ~75s total)
 
 **Idle Recovery (every 5 min when idle):**
 - Ensures camera is aligned (dog house at expected position)
@@ -882,10 +884,11 @@ if your_present:
 
 ### Daemon stuck in UNKNOWN state
 
-The daemon should auto-recover after 60 seconds. If stuck:
-1. Manually navigate game to town view
-2. Restart daemon
-3. Check `logs/` for error details
+The daemon should auto-recover after 180 seconds (3 min continuous). If stuck:
+1. Wait for auto-recovery (tries 15 times over ~4 minutes before restarting game)
+2. If still stuck, manually navigate game to town view
+3. Restart daemon if needed
+4. Check `logs/` for error details
 
 ### Flows not triggering
 

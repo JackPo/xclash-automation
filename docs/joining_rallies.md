@@ -82,12 +82,58 @@ The monster icon template (`rally_monster_icon_4k.png`) can be used to:
 
 ## Configuration
 
+### Monster Configuration (config.py)
+
+Rally monsters are configured with per-monster auto-join settings:
+
 ```python
-# Rally joining settings (config.py)
-RALLY_JOIN_ENABLED = True
-RALLY_JOIN_CHECK_INTERVAL = 60  # Check every 60 seconds
-RALLY_JOIN_PLUS_THRESHOLD = 0.05  # Template matching threshold
+RALLY_MONSTERS = [
+    {
+        "name": "Zombie Overlord",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 130,        # Join if level <= 130
+        "has_level": True,
+        "level_increment": 10,
+        "level_range": "100+",
+    },
+    {
+        "name": "Elite Zombie",
+        "auto_join": True,
+        "max_level": 30,
+        "has_level": True,
+        "level_increment": 1,
+        "level_range": "1-40",
+    },
+    {
+        "name": "Nightfall Servant",
+        "auto_join": True,
+        "max_level": 30,
+        "has_level": True,
+        "level_increment": 1,
+        "level_range": "1-40",
+    },
+]
+
+# General rally settings
+RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
+RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
+RALLY_DATA_GATHERING_MODE = False  # Save monster crops to data_gathering/
 ```
+
+### OCR and Validation
+
+- **OCR Method**: JSON-based extraction using Qwen2.5-VL-3B
+- **OCR Prompt**: Auto-generated from `RALLY_MONSTERS` list
+- **Expected Format**: `{"name": "Monster Name", "level": 130}`
+- **Validation**: Checks `auto_join` flag and `max_level` threshold
+
+### Data Gathering
+
+When `RALLY_DATA_GATHERING_MODE = True`, monster icon crops are saved to:
+- `data_gathering/matched/` - Known monsters from `RALLY_MONSTERS` list
+- `data_gathering/unknown/` - Monsters not in configuration
+
+Filename format: `monster_{name}_lv{level}_{timestamp}_rally{idx}_x{x}_y{y}.png`
 
 ## Matchers
 
@@ -115,11 +161,28 @@ class RallyJoinMatcher:
 
 ## Integration with Daemon
 
-The icon daemon will check for Union War panel state and trigger rally joining when:
-1. User is idle for 5+ minutes
-2. Union War panel is detected as open
-3. Team Intelligence tab is active
-4. Plus buttons are found in the list
+The icon daemon detects the rally march button and automatically triggers the flow:
+
+### Trigger Conditions
+1. **March button detected** - Green march button visible on screen
+2. **User idle** - Idle time >= `IDLE_THRESHOLD` (default 0s for testing, 300s for production)
+3. **Valid view** - Currently in TOWN or WORLD view
+4. **Cooldown elapsed** - At least 30s since last march button click
+
+### Flow Sequence
+1. Daemon detects march button
+2. Clicks march button (opens Union War panel)
+3. Waits 0.5s for panel to start loading
+4. Triggers `rally_join_flow()`
+5. Flow validates panel, finds plus buttons, validates monsters via OCR
+6. Joins first matching rally (or exits if none match)
+7. Returns to base view
+
+### Monster Validation
+- OCR extracts monster name and level from icon
+- Checks if monster is in `RALLY_MONSTERS` with `auto_join: True`
+- Only joins if level <= `max_level` threshold
+- Saves monster crops to `data_gathering/` if enabled
 
 ## Future Enhancements
 
