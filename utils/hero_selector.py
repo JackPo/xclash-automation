@@ -63,38 +63,54 @@ class HeroSelector:
         is_idle = score < self.THRESHOLD
         return is_idle, score
 
-    def find_rightmost_idle(self, frame: np.ndarray) -> dict | None:
+    def find_rightmost_idle(self, frame: np.ndarray, require_zz: bool = True) -> dict | None:
         """
-        Find the rightmost idle hero (with Zz icon).
+        Find the rightmost idle hero (with Zz icon) or just rightmost hero.
         Used by: treasure_map_flow
 
         Args:
             frame: BGR numpy array (4K screenshot)
+            require_zz: If True, only return heroes with Zz icon.
+                       If False, return first available hero (ignore Zz).
 
         Returns:
-            Slot dict if found, None if all heroes busy
+            Slot dict if found, None if no heroes available
         """
         for slot in self.SLOTS:  # Already ordered rightmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
-            if is_idle:
+
+            if require_zz:
+                if is_idle:
+                    return slot
+            else:
+                # Don't require Zz - just return first slot
                 return slot
+
         return None
 
-    def find_leftmost_idle(self, frame: np.ndarray) -> dict | None:
+    def find_leftmost_idle(self, frame: np.ndarray, require_zz: bool = True) -> dict | None:
         """
-        Find the leftmost idle hero (with Zz icon).
-        Used by: elite_zombie_flow
+        Find the leftmost idle hero (with Zz icon) or just leftmost hero.
+        Used by: elite_zombie_flow, rally_join_flow
 
         Args:
             frame: BGR numpy array (4K screenshot)
+            require_zz: If True, only return heroes with Zz icon.
+                       If False, return first available hero (ignore Zz).
 
         Returns:
-            Slot dict if found, None if all heroes busy
+            Slot dict if found, None if no heroes available
         """
         for slot in reversed(self.SLOTS):  # Reversed = leftmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
-            if is_idle:
+
+            if require_zz:
+                if is_idle:
+                    return slot
+            else:
+                # Don't require Zz - just return first slot
                 return slot
+
         return None
 
     def get_all_slot_status(self, frame: np.ndarray) -> list[dict]:
