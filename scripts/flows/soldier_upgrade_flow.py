@@ -194,7 +194,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
             print(f"  Lv{target_level} not visible, swiping right from tile center... (attempt {scroll_count + 1}/{max_scrolls})")
 
         # Swipe FROM the detected tile TO THE RIGHT to reveal left content
-        scroll_end_x = scroll_start_x + 700  # Swipe 700 pixels to the right
+        scroll_end_x = scroll_start_x + 233  # Swipe 233 pixels to the right (reduced by 2/3 from original 700)
         adb.swipe(scroll_start_x, scroll_start_y, scroll_end_x, scroll_start_y, duration=500)
         time.sleep(0.5)
 
@@ -331,10 +331,7 @@ def upgrade_all_pending_barracks(adb, debug=False):
             if success:
                 upgrades += 1
 
-            # Close panel by tapping outside
-            time.sleep(0.5)
-            adb.tap(100, 100)
-            time.sleep(0.5)
+            # Panel closes automatically after upgrade - no need to click
 
     if debug:
         print(f"\nTotal upgrades completed: {upgrades}")
