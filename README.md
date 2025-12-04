@@ -77,6 +77,7 @@ The bot automates 3 of these events using strategies that maximize points while 
 - **Separate OCR Server**: Qwen2.5-VL runs in parallel Flask server on GPU for stamina reading (no cloud API needed)
 - **Arms Race Tracking**: Tracks the 5-activity Arms Race rotation and triggers event-specific flows
 - **Template Verification**: Validates all required templates exist at startup to catch missing files early
+- **Resource Replenishment**: Automatically detects and confirms resource shortages across all flows
 - **Configurable**: All coordinates, thresholds, and timings can be customized
 
 ## Technology Stack
@@ -417,6 +418,7 @@ xclash/
 │   ├── idle_detector.py         # Windows idle time detection
 │   ├── return_to_base_view.py   # Recovery logic
 │   ├── arms_race.py             # Arms Race schedule calculator
+│   ├── replenish_all_helper.py  # Resource replenishment subflow
 │   │
 │   │ # Template matchers (one per icon type)
 │   ├── handshake_icon_matcher.py
@@ -433,6 +435,9 @@ xclash/
 │       ├── handshake_iter2.png
 │       ├── treasure_map_4k.png
 │       ├── world_button_4k.png
+│       ├── replenish_all_button_4k.png
+│       ├── use_items_header_4k.png
+│       ├── confirm_button_4k.png
 │       └── ...
 │
 └── logs/                        # Runtime logs (gitignored)
