@@ -171,10 +171,9 @@ def rally_join_flow(adb: ADBHelper) -> bool:
 
     # Step 6: Click Team Up button (fire-and-forget)
     print("[RALLY-JOIN] Step 6: Clicking Team Up button")
-    # Use fixed Team Up button position (similar to treasure map flow)
-    # TODO: Create TeamUpButtonMatcher if needed, for now use known position
-    TEAM_UP_X = 1919  # From hero upgrade flow
-    TEAM_UP_Y = 1829
+    # Coordinates from template matching team_up_button_4k.png
+    TEAM_UP_X = 1912
+    TEAM_UP_Y = 1648
     adb.tap(TEAM_UP_X, TEAM_UP_Y)
     time.sleep(0.5)
 
