@@ -24,7 +24,7 @@ ANTHROPIC_API_KEY = None
 
 # Daemon timing
 DAEMON_INTERVAL = 2.0              # Check interval (seconds)
-IDLE_THRESHOLD = 300               # 5 minutes before idle triggers activate
+IDLE_THRESHOLD = 0                 # TESTING MODE: No idle time required for automation
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
 # Elite Zombie rally

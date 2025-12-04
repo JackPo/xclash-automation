@@ -230,6 +230,12 @@ class IconDaemon:
         self.log_dir.mkdir(exist_ok=True)
         self.log_file = self.log_dir / f"daemon_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
+        # Create/update symlink to current log file
+        self.current_log_symlink = self.log_dir / 'current_daemon.log'
+        if self.current_log_symlink.exists() or self.current_log_symlink.is_symlink():
+            self.current_log_symlink.unlink()  # Remove old symlink/file
+        self.current_log_symlink.symlink_to(self.log_file.name)  # Create new symlink (relative path)
+
         # Configure logging
         log_level = logging.DEBUG if debug else logging.INFO
         logging.basicConfig(
@@ -761,26 +767,35 @@ class IconDaemon:
                             self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
                             self.enhance_hero_last_block_start = block_start
 
-                # Soldier Training: during Soldier Training event, idle 5+ min, any barrack PENDING
+                # Soldier Training: during Soldier Training event, idle 5+ min, any barrack READY or PENDING
                 # Requires TOWN view and dog house aligned (same as harvest conditions)
-                # CONTINUOUSLY checks for PENDING barracks and promotes them (no block limitation)
+                # CONTINUOUSLY checks for READY/PENDING barracks and upgrades them (no block limitation)
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
                     arms_race_event == "Soldier Training" and
                     idle_secs >= self.IDLE_THRESHOLD):
-                    # Check for PENDING barracks (barracks states already computed in main loop)
+                    # Check for READY and PENDING barracks
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
+                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
                     pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
-                    if pending_count > 0 and world_present:
+                    if (ready_count > 0 or pending_count > 0) and world_present:
                         # Check alignment
                         is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
                         if is_aligned:
                             idle_mins = int(idle_secs / 60)
-                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {pending_count} PENDING barrack(s), triggering soldier upgrade...")
-                            # Import the upgrade_all_pending_barracks function
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {ready_count} READY + {pending_count} PENDING barrack(s), triggering soldier upgrade...")
+                            # First, collect from READY barracks to convert them to PENDING
+                            if ready_count > 0:
+                                from scripts.flows.soldier_training_flow import collect_ready_soldiers
+                                from utils.windows_screenshot_helper import WindowsScreenshotHelper
+                                win = WindowsScreenshotHelper()
+                                collected = collect_ready_soldiers(self.adb, win, debug=True)
+                                self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Collected {collected} READY barrack(s)")
+                                time.sleep(1.0)  # Wait for state transition
+
+                            # Then upgrade all PENDING barracks
                             from scripts.flows.soldier_upgrade_flow import upgrade_all_pending_barracks
-                            # Run upgrade for all pending barracks (NOT as a threaded flow - blocks until done)
                             upgrades = upgrade_all_pending_barracks(self.adb, debug=True)
                             self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades} upgrade(s)")
 
@@ -817,7 +832,7 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
-                # Barracks: Check for READY barracks to collect soldiers
+                # Barracks: Check for READY barracks to collect soldiers (non-Arms Race)
                 # Requires TOWN view, alignment, and 5-minute cooldown
                 soldier_cooldown_ok = (current_time - self.last_soldier_training_time) >= self.SOLDIER_TRAINING_COOLDOWN
                 if world_present and harvest_idle_ok and harvest_aligned and soldier_cooldown_ok:
