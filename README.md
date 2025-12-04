@@ -376,6 +376,11 @@ python scripts/icon_daemon.py --debug
 python scripts/icon_daemon.py --interval 5.0
 ```
 
+**Daemon Logging:**
+- Daemon output is automatically written to `logs/current_daemon.log` (always shows latest running daemon)
+- Also creates timestamped logs: `logs/daemon_YYYYMMDD_HHMMSS.log`
+- To check current daemon status: `tail -f logs/current_daemon.log` or `type logs\current_daemon.log` on Windows
+
 Output example:
 ```
 [142] 14:23:45 [TOWN] Stamina:87 idle:2m H:0.891 T:0.923 C:0.456 G:0.234 HB:0.876 ...
@@ -394,11 +399,13 @@ xclash/
 │
 ├── calibration/                 # Calibration and testing tools
 │   ├── detect_object.py         # Gemini-based object detection CLI
-│   └── test_stamina_detection.py  # Stamina detection test script
+│   ├── test_stamina_detection.py  # Stamina detection test script
+│   └── network/                 # Network capture files (.pcapng)
 │
 ├── scripts/
 │   ├── icon_daemon.py           # Main daemon process
 │   ├── setup_bluestacks.py      # BlueStacks configuration
+│   ├── one_off/                 # One-off extraction/test scripts
 │   └── flows/                   # Automation flow modules
 │       ├── __init__.py
 │       ├── handshake_flow.py
@@ -408,6 +415,9 @@ xclash/
 │       ├── elite_zombie_flow.py
 │       ├── soldier_upgrade_flow.py
 │       └── ...
+│
+├── screenshots/
+│   └── debug/                   # Debug screenshots and test captures
 │
 ├── utils/
 │   ├── adb_helper.py            # ADB command wrapper
@@ -441,7 +451,9 @@ xclash/
 │       └── ...
 │
 └── logs/                        # Runtime logs (gitignored)
-    └── daemon_YYYYMMDD_HHMMSS.log
+    ├── current_daemon.log       # Current running daemon output (always up-to-date)
+    ├── daemon_YYYYMMDD_HHMMSS.log  # Timestamped daemon logs
+    └── old/                     # Archived old logs
 ```
 
 ## How It Works
