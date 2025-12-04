@@ -74,18 +74,30 @@ The flow searches for rally plus buttons in the list and clicks them to join ral
    - If not on correct tab/panel, abort
 
 2. **Search for Plus Buttons**
-   - Search entire panel area for plus button templates
+   - Use full-frame template matching (TM_SQDIFF_NORMED)
+   - Find all plus buttons at X≈1902 (slot 4, rightmost position)
    - Sort by Y coordinate (top to bottom)
 
-3. **Click Plus Buttons**
+3. **Validate Monsters (Top to Bottom)**
    - For each detected plus button:
-     - Click at center position
-     - Wait for join confirmation
-     - Move to next button
+     - Extract monster icon at (+235, -151) relative offset
+     - Send crop to OCR with JSON prompt
+     - Parse monster name and level
+     - Check against `RALLY_MONSTERS` config (auto_join + max_level)
+     - If match found: proceed to step 4
+     - If no match: check next rally
 
-4. **Exit Flow**
-   - Click back button to close panel
+4. **Join First Matching Rally**
+   - Click center of the detected plus button
+   - Wait for hero selection screen
+   - Select leftmost idle hero (requires Zz icon)
+   - Click "Team Up" button
+
+5. **Exit Flow**
+   - Click back button to close dialogs
    - Return to base view
+
+**Important**: Only joins the FIRST qualifying rally (top to bottom). Since we deploy one hero per rally, joining multiple rallies simultaneously is not possible.
 
 ## Detection Notes
 
