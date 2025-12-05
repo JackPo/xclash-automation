@@ -38,11 +38,22 @@ ELITE_ZOMBIE_PLUS_CLICKS = 5           # Times to click plus button (increases z
 # Arms Race rotates through 5 activities every 4 hours:
 # City Construction → Soldier Training → Tech Research → Mystic Beast → Enhance Hero
 # These settings control event-specific automation triggers.
+#
+# IMPORTANT: Auto-rallies only trigger during specific events and time windows!
+# - Beast Training rallies: Only during "Mystic Beast" event, in the LAST N minutes
+# - Soldier upgrades: Only during "Soldier Training" event
+# - Hero upgrades: Only during "Enhance Hero" event, in the LAST N minutes
+#
+# Check daemon log output: AR:Mys(45m) means Mystic Beast with 45 minutes remaining
+# Rallies won't trigger if remaining time > ARMS_RACE_BEAST_TRAINING_LAST_MINUTES
+#
+# See docs/arms_race.md for full documentation.
 
 # Beast Training (during Mystic Beast event)
 # Triggers elite_zombie_flow with 0 plus clicks to train beasts
+# NOTE: Only triggers when time remaining <= LAST_MINUTES (default: last 60 min of 4-hour event)
 ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Enable/disable beast training automation
-ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger in last N minutes of Mystic Beast
+ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Only trigger in last N minutes (set to 240 for full event)
 ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim free stamina when stamina < this value
@@ -67,6 +78,29 @@ ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max hero upgrades per block (1 
 # Triggers soldier_upgrade_flow to upgrade soldiers at PENDING barracks
 # Requires: idle 5+ min, any barrack in PENDING state, TOWN view with dog house aligned
 ARMS_RACE_SOLDIER_TRAINING_ENABLED = True      # Enable/disable soldier upgrade automation
+
+# =============================================================================
+# VS EVENT OVERRIDES
+# =============================================================================
+# VS (Versus) events have daily themes that span all Arms Race events in a day.
+# These settings override the normal event-specific triggers.
+#
+# Arms Race Day Reference (7-day cycle):
+#   Day 1 = Wednesday (cycle starts 6PM PT Tuesday / 02:00 UTC Wednesday)
+#   Day 2 = Thursday
+#   Day 3 = Friday
+#   Day 4 = Saturday
+#   Day 5 = Sunday
+#   Day 6 = Monday
+#   Day 7 = Tuesday
+#
+# Check current day: python -c "from utils.arms_race import get_arms_race_status; print(get_arms_race_status()['day'])"
+
+# VS Soldier Promotion Days
+# When the current Arms Race day is in this list, soldier promotions trigger ALL DAY
+# regardless of which 4-hour event is active (overrides "Soldier Training" event check)
+# Example: [2] = Day 2 only, [2, 5] = Day 2 and Day 5
+VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in current cycle
 
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks

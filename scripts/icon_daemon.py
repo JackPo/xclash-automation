@@ -17,7 +17,7 @@ Currently detects:
 - Equipment enhancement bubble (crossed swords)
 
 Arms Race event tracking:
-- Beast Training: During Mystic Beast last hour, if stamina >= 20 (3 consecutive reads),
+- Beast Training: During Mystic Beast Training last hour, if stamina >= 20 (3 consecutive reads),
   triggers elite_zombie_flow with 0 plus clicks. 90s cooldown between rallies.
 - Enhance Hero: During Enhance Hero last N minutes (configurable), triggers hero_upgrade_arms_race_flow
   ONLY if user was idle since the START of the Enhance Hero block (ensures no interruption).
@@ -98,6 +98,8 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
     ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
     ARMS_RACE_SOLDIER_TRAINING_ENABLED,
+    # VS Event overrides
+    VS_SOLDIER_PROMOTION_DAYS,
     # Rally joining
     RALLY_JOIN_ENABLED,
     RALLY_MARCH_BUTTON_COOLDOWN,
@@ -224,6 +226,9 @@ class IconDaemon:
         # Soldier Training: when idle 5+ min, any barrack PENDING during Soldier Training event
         # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
         self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
+
+        # VS Event overrides - soldier promotions all day on specific days
+        self.VS_SOLDIER_PROMOTION_DAYS = VS_SOLDIER_PROMOTION_DAYS
 
         # Barracks state validation - require 10 consecutive consistent readings
         # Higher than stamina (3) because we scan every 2 seconds and barracks state is critical
@@ -602,8 +607,12 @@ class IconDaemon:
                 # Get barracks states
                 barracks_state_str = format_barracks_states(frame)
 
+                # Check if VS promotion day is active (for logging)
+                vs_promo_active = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
+                vs_indicator = " [VS:Promo]" if vs_promo_active else ""
+
                 # Always print scores to stdout with view state, stamina, barracks, and arms race
-                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m) Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Track UNKNOWN state duration
                 if view_state == "UNKNOWN":
@@ -684,10 +693,10 @@ class IconDaemon:
                 current_time = time.time()  # Needed for cooldown checks
                 # arms_race, arms_race_event, arms_race_remaining, arms_race_remaining_mins already set above
 
-                # Beast Training: Mystic Beast last N minutes, stamina >= 20, cooldown
+                # Beast Training: Mystic Beast Training last N minutes, stamina >= 20, cooldown
                 # Uses the SAME stamina_confirmed from unified validation above
                 if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
-                    arms_race_event == "Mystic Beast" and
+                    arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES):
 
                     # Track which block we're in - reset counters if new block
@@ -771,13 +780,18 @@ class IconDaemon:
                             self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
                             self.enhance_hero_last_block_start = block_start
 
-                # Soldier Training: during Soldier Training event, idle 5+ min, any barrack READY or PENDING
+                # Soldier Training: during Soldier Training event OR VS promotion day, idle 5+ min
                 # Requires TOWN view and dog house aligned (same as harvest conditions)
                 # CONTINUOUSLY checks for READY/PENDING barracks and upgrades them (no block limitation)
+                # VS override: On VS_SOLDIER_PROMOTION_DAYS, promotions run ALL DAY regardless of event
+                is_vs_promotion_day = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
+                is_soldier_event = arms_race_event == "Soldier Training"
+
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
-                    arms_race_event == "Soldier Training" and
+                    (is_soldier_event or is_vs_promotion_day) and
                     idle_secs >= self.IDLE_THRESHOLD):
-                    self.logger.debug(f"[{iteration}] SOLDIER: Outer conditions PASS (enabled={self.ARMS_RACE_SOLDIER_TRAINING_ENABLED}, event={arms_race_event}, idle={idle_secs}s)")
+                    trigger_reason = "VS Day" if is_vs_promotion_day and not is_soldier_event else "Soldier Training event"
+                    self.logger.debug(f"[{iteration}] SOLDIER: Outer conditions PASS (reason={trigger_reason}, day={arms_race['day']}, event={arms_race_event}, idle={idle_secs}s)")
                     # Check for READY and PENDING barracks
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
@@ -818,7 +832,7 @@ class IconDaemon:
 
                             # Get indices of PENDING barracks from validated states
                             pending_indices = [i for i, (state, _) in enumerate(states) if state == BarrackState.PENDING]
-                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Soldier Training event, idle {idle_mins}min, {pending_count} PENDING barrack(s) at indices {pending_indices}")
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: {trigger_reason}, idle {idle_mins}min, {pending_count} PENDING barrack(s) at indices {pending_indices}")
 
                             # Upgrade each PENDING barrack individually
                             from scripts.flows.soldier_upgrade_flow import soldier_upgrade_flow, get_barrack_click_position
@@ -843,6 +857,81 @@ class IconDaemon:
                                 time.sleep(0.5)
 
                             self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades}/{pending_count} upgrade(s)")
+
+                # Non-Arms Race Soldier Training: when NOT in Soldier Training event, train PENDING barracks
+                # with duration timed to complete just before next Soldier Training event
+                # Requires: NOT in Soldier Training event, NOT a VS promotion day, idle 5+ min, TOWN view, dog house aligned
+                # NOTE: On VS promotion days, we use immediate upgrades instead of timed training
+                if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
+                    arms_race_event != "Soldier Training" and
+                    not is_vs_promotion_day and  # Skip timed training on VS days - use immediate upgrades instead
+                    idle_secs >= self.IDLE_THRESHOLD):
+                    self.logger.debug(f"[{iteration}] NON-ARMS-RACE TRAINING: Outer conditions PASS (enabled={self.ARMS_RACE_SOLDIER_TRAINING_ENABLED}, event={arms_race_event}, idle={idle_secs}s)")
+
+                    # Check for PENDING barracks (reuse existing barracks_matcher)
+                    from utils.barracks_state_matcher import BarrackState
+                    states = self.barracks_matcher.get_all_states(frame)
+                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
+
+                    # Track history for validation (same as Arms Race - require 10 consecutive consistent readings)
+                    self.barracks_pending_count_history.append(pending_count)
+                    if len(self.barracks_pending_count_history) > self.BARRACKS_CONSECUTIVE_REQUIRED:
+                        self.barracks_pending_count_history.pop(0)
+
+                    # Require N consecutive readings
+                    if len(self.barracks_pending_count_history) < self.BARRACKS_CONSECUTIVE_REQUIRED:
+                        self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Not enough readings ({len(self.barracks_pending_count_history)}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
+                    elif not all(p == pending_count for p in self.barracks_pending_count_history):
+                        self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Inconsistent PENDING readings: {self.barracks_pending_count_history}")
+                    elif pending_count > 0 and world_present:
+                        # Check alignment
+                        is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                        if not is_aligned:
+                            self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Blocked - dog house misaligned (score={dog_score:.4f})")
+                        else:
+                            # Calculate target time: just under time until next Soldier Training event
+                            from utils.arms_race import get_time_until_soldier_training
+                            time_until = get_time_until_soldier_training()
+
+                            if time_until and time_until.total_seconds() > 0:
+                                # Subtract 5 min buffer to ensure completion before event
+                                target_hours = (time_until.total_seconds() - 300) / 3600
+                                target_hours = max(0.5, target_hours)  # Minimum 30 min training
+
+                                pending_indices = [i for i, (state, _) in enumerate(states) if state == BarrackState.PENDING]
+                                idle_mins = int(idle_secs / 60)
+                                self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: idle {idle_mins}min, {pending_count} PENDING barrack(s), target={target_hours:.2f}h until next Soldier Training")
+
+                                # Train each PENDING barrack with timed duration
+                                from scripts.flows.barracks_training_flow import barracks_training_flow
+                                from scripts.flows.soldier_training_flow import get_barrack_click_position
+                                trained = 0
+                                for idx in pending_indices:
+                                    self.logger.info(f"[{iteration}] NON-ARMS-RACE: Training barrack {idx+1} for {target_hours:.2f}h...")
+
+                                    # Click to open this barrack's panel
+                                    click_x, click_y = get_barrack_click_position(idx)
+                                    self.adb.tap(click_x, click_y)
+                                    time.sleep(1.0)
+
+                                    # Run training flow with target time
+                                    success = barracks_training_flow(
+                                        self.adb,
+                                        soldier_level=4,
+                                        target_hours=target_hours,
+                                        debug=True
+                                    )
+                                    if success:
+                                        trained += 1
+                                        self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training started")
+                                    else:
+                                        self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training failed")
+
+                                    time.sleep(0.5)
+
+                                self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: Started {trained}/{pending_count} barrack(s)")
+                            else:
+                                self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Could not determine time until next Soldier Training event")
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions

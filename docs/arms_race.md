@@ -2,6 +2,32 @@
 
 This document describes the automation triggers and logic for Arms Race events.
 
+## Quick Troubleshooting: Why aren't rallies triggering?
+
+**Check the daemon log output:**
+```
+[123] 11:20:00 [WORLD] Stamina:45 idle:5m AR:Mys(158m) Barracks:[B1:P B2:P B3:P B4:P] ...
+                                             ^^^^^^^^
+```
+
+**Common issues:**
+
+| Log shows | Problem | Solution |
+|-----------|---------|----------|
+| `AR:Mys(158m)` | 158 min remaining > 60 min threshold | Wait until last 60 min, OR set `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 240` |
+| `AR:Tec(45m)` | Wrong event (Tech Research) | Rallies only trigger during Mystic Beast |
+| `AR:Sol(45m)` | Wrong event (Soldier Training) | Rallies only trigger during Mystic Beast |
+| `Stamina:15` | Stamina < 20 threshold | Wait for stamina to regenerate |
+| `idle:2m` | Not idle long enough (need 5m) | Stop interacting with the game |
+
+**Key settings in `config.py`:**
+```python
+ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60   # Only last 60 min (set to 240 for full event)
+ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Need stamina >= 20
+```
+
+---
+
 ## Arms Race Event Schedule
 
 Arms Race rotates through 5 activities every 4 hours (UTC-based):
@@ -117,7 +143,7 @@ Counters reset when a new Beast Training block starts:
 
 ## Soldier Training Automation (Soldier Training Event)
 
-**When**: During the Soldier Training event block (4 hours)
+**When**: During the Soldier Training event block (4 hours), OR on VS promotion days (all day)
 
 **Purpose**: Train soldiers to earn Arms Race points by:
 1. Collecting ready soldiers (yellow bubble)
@@ -218,6 +244,44 @@ states = matcher.get_all_states(frame)  # [(BarrackState, score), ...]
 
 # Get formatted string
 barracks_str = format_barracks_states(frame)  # "B1:R B2:T B3:P B4:T"
+```
+
+### VS Event Override (All-Day Soldier Promotion)
+
+During VS (Versus) events, certain days have daily themes that span all 4-hour Arms Race events.
+For soldier promotion days, upgrades should run continuously all day, not just during "Soldier Training" events.
+
+**Configuration**:
+```python
+# In config.py - Days when soldier promotions run ALL DAY
+VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in 7-day cycle
+```
+
+**How it works**:
+- When `arms_race['day']` is in `VS_SOLDIER_PROMOTION_DAYS`, soldier upgrades trigger regardless of current event
+- Timed training (barracks_training_flow) is disabled on VS days - only immediate upgrades
+- The daemon log shows `[VS:Promo]` indicator when VS override is active
+
+**Daemon output on VS day**:
+```
+[123] 11:20:00 [TOWN] Stamina:45 idle:5m AR:Mys(158m) [VS:Promo] Barracks:[B1:P B2:P B3:P B4:P] ...
+                                                      ^^^^^^^^^
+```
+
+**Day Reference** (7-day cycle, repeats weekly):
+| Day | Weekday | Starts at (PT) |
+|-----|---------|----------------|
+| 1 | Wednesday | Tuesday 6 PM |
+| 2 | Thursday | Wednesday 6 PM |
+| 3 | Friday | Thursday 6 PM |
+| 4 | Saturday | Friday 6 PM |
+| 5 | Sunday | Saturday 6 PM |
+| 6 | Monday | Sunday 6 PM |
+| 7 | Tuesday | Monday 6 PM |
+
+**Check current day**:
+```bash
+python -c "from utils.arms_race import get_arms_race_status; print(get_arms_race_status()['day'])"
 ```
 
 ---
