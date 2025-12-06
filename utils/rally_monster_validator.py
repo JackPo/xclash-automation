@@ -209,7 +209,7 @@ class RallyMonsterValidator:
 
         Returns:
             (should_join, is_known_monster)
-            - should_join: True if auto_join enabled AND level <= max_level
+            - should_join: True if auto_join enabled AND level <= max_level AND not exhausted
             - is_known_monster: True if monster name matches config (for data gathering)
         """
         # Match against configured monsters (case-insensitive)
@@ -228,10 +228,17 @@ class RallyMonsterValidator:
 
                 # Check level requirement
                 max_level = monster.get("max_level", float('inf'))
-                if level <= max_level:
-                    return True, True  # Known and should join
-                else:
+                if level > max_level:
                     return False, True  # Known but level too high
+
+                # Check daily exhaustion (only for monsters with track_daily_limit=True)
+                if monster.get("track_daily_limit", False):
+                    from utils.rally_exhaustion_tracker import is_exhausted
+                    if is_exhausted(config_name):
+                        print(f"    [RALLY] {monster['name']} is exhausted for today, skipping")
+                        return False, True  # Known but exhausted
+
+                return True, True  # Known and should join
 
         # No match found - UNKNOWN monster
         return False, False

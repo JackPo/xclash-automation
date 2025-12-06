@@ -241,6 +241,7 @@ RALLY_MONSTERS = [
         "has_level": True,
         "level_increment": 10,   # Levels: 100, 110, 120, 130, 140, etc.
         "level_range": "100+",
+        "track_daily_limit": False,  # No daily limit, always joinable
     },
     {
         "name": "Elite Zombie",
@@ -249,6 +250,7 @@ RALLY_MONSTERS = [
         "has_level": True,
         "level_increment": 1,    # Levels: 1-40
         "level_range": "1-40",
+        "track_daily_limit": True,   # Has daily limit, track exhaustion
     },
     {
         "name": "Nightfall Servant",
@@ -257,6 +259,7 @@ RALLY_MONSTERS = [
         "has_level": True,
         "level_increment": 1,    # Levels: 1-40
         "level_range": "1-40",
+        "track_daily_limit": True,   # Has daily limit, track exhaustion
     },
 ]
 

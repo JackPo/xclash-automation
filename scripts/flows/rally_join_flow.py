@@ -48,6 +48,96 @@ except ImportError:
 DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "rally_join_flow"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
+# Team Up button template path
+TEAM_UP_TEMPLATE_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "team_up_button_4k.png"
+
+# Daily limit dialog template path
+DAILY_LIMIT_DIALOG_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "daily_rally_rewards_dialog_4k.png"
+
+# Cancel button position (from dialog detection)
+CANCEL_BUTTON_X = 1670
+CANCEL_BUTTON_Y = 1291
+
+
+def _wait_for_team_up_panel(win, timeout=5.0):
+    """
+    Wait for Team Up panel to fully load by detecting the Team Up button.
+
+    Args:
+        win: WindowsScreenshotHelper instance
+        timeout: Maximum seconds to wait
+
+    Returns:
+        frame: Screenshot with panel loaded, or None if timeout
+    """
+    template = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
+    if template is None:
+        print("[RALLY-JOIN] WARNING: team_up_button_4k.png not found")
+        return None
+
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        frame = win.get_screenshot_cv2()
+        result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+
+        if min_val < 0.1:  # Team Up button found
+            print(f"[RALLY-JOIN]   Team Up panel loaded (score={min_val:.4f})")
+            return frame
+
+        print(f"[RALLY-JOIN]   Waiting for panel... (score={min_val:.4f})")
+        time.sleep(0.5)
+
+    print("[RALLY-JOIN]   TIMEOUT waiting for Team Up panel")
+    return None
+
+
+def _check_daily_limit_dialog(win, timeout=2.0) -> bool:
+    """
+    Poll for daily rally limit dialog after clicking Team Up.
+
+    Args:
+        win: WindowsScreenshotHelper instance
+        timeout: Maximum seconds to wait
+
+    Returns:
+        True if dialog detected (need to cancel), False if no dialog
+    """
+    template = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
+    if template is None:
+        print("[RALLY-JOIN] WARNING: daily_rally_rewards_dialog_4k.png not found")
+        return False
+
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        frame = win.get_screenshot_cv2()
+        result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, _, _ = cv2.minMaxLoc(result)
+
+        if min_val < 0.1:  # Dialog found
+            print(f"[RALLY-JOIN]   Daily limit dialog detected (score={min_val:.4f})")
+            return True
+
+        time.sleep(0.3)
+
+    return False
+
+
+def _get_monster_config(monster_name: str) -> dict | None:
+    """
+    Get monster config by name from RALLY_MONSTERS.
+
+    Args:
+        monster_name: Name of the monster (case-insensitive)
+
+    Returns:
+        Monster config dict or None if not found
+    """
+    for monster in RALLY_MONSTERS:
+        if monster['name'].lower() == monster_name.lower():
+            return monster
+    return None
+
 
 def rally_join_flow(adb: ADBHelper) -> bool:
     """
@@ -138,9 +228,14 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     print(f"[RALLY-JOIN] Step 4: Clicking plus button for {monster_name} Lv.{level}")
     click_x, click_y = plus_matcher.get_click_position(plus_x, plus_y)
     adb.tap(click_x, click_y)
-    time.sleep(1.0)  # Wait for hero selection screen to fully load
 
-    frame = win.get_screenshot_cv2()
+    # Wait for Team Up panel to fully load (polling instead of fixed sleep)
+    frame = _wait_for_team_up_panel(win, timeout=5.0)
+    if frame is None:
+        print("[RALLY-JOIN] Failed to load Team Up panel. Exiting.")
+        _cleanup_and_exit(adb, win, back_button_matcher)
+        return False
+
     _save_debug_screenshot(frame, "02_after_plus_click")
 
     # DEBUG: Save the EXACT frame we're passing to hero selector
@@ -169,14 +264,34 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     frame = win.get_screenshot_cv2()
     _save_debug_screenshot(frame, "03_after_hero_select")
 
-    # Step 6: Click Team Up button (fire-and-forget)
+    # Step 6: Click Team Up button
     print("[RALLY-JOIN] Step 6: Clicking Team Up button")
     # Coordinates from template matching team_up_button_4k.png
     TEAM_UP_X = 1912
     TEAM_UP_Y = 1648
     adb.tap(TEAM_UP_X, TEAM_UP_Y)
-    time.sleep(0.5)
 
+    # Step 6b: Check for daily limit dialog
+    if _check_daily_limit_dialog(win, timeout=2.0):
+        print(f"[RALLY-JOIN]   Daily limit reached for {monster_name}!")
+
+        # Click Cancel button to dismiss dialog
+        adb.tap(CANCEL_BUTTON_X, CANCEL_BUTTON_Y)
+        time.sleep(0.5)
+
+        # Mark monster as exhausted for today (only if track_daily_limit is True)
+        monster_config = _get_monster_config(monster_name)
+        if monster_config and monster_config.get('track_daily_limit', True):
+            from utils.rally_exhaustion_tracker import mark_exhausted
+            mark_exhausted(monster_name)
+        else:
+            print(f"[RALLY-JOIN]   {monster_name} has track_daily_limit=False, not marking exhausted")
+
+        # Cleanup and exit
+        _cleanup_and_exit(adb, win, back_button_matcher)
+        return False
+
+    time.sleep(0.5)
     frame = win.get_screenshot_cv2()
     _save_debug_screenshot(frame, "04_after_team_up")
 
