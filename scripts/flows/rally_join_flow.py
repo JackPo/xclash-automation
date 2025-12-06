@@ -81,7 +81,7 @@ def _wait_for_team_up_panel(win, timeout=5.0):
         result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
-        if min_val < 0.1:  # Team Up button found
+        if min_val < 0.05:  # Team Up button found (strict threshold to avoid false positives)
             print(f"[RALLY-JOIN]   Team Up panel loaded (score={min_val:.4f})")
             return frame
 
