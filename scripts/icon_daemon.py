@@ -499,7 +499,7 @@ class IconDaemon:
                 # Skip all daemon checks if critical flow is active
                 if self.critical_flow_active:
                     self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
-                    time.sleep(self.DAEMON_INTERVAL)
+                    time.sleep(self.interval)
                     continue
 
                 # Check IMMEDIATE action icons FIRST (before slow OCR)
