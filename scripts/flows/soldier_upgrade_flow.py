@@ -44,6 +44,9 @@ MAX_LEVEL = 8
 # Template matching threshold
 MATCH_THRESHOLD = 0.1
 
+# Panel dismiss position (dark area outside panel)
+DISMISS_TAP = (500, 500)
+
 
 def get_barrack_click_position(barrack_index):
     """Get the click position for a barrack's bubble."""
@@ -128,169 +131,183 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         print("Soldier Upgrade Flow")
         print("=" * 50)
 
-    # Step 0: Verify panel is open
-    if debug:
-        print("Step 0: Verifying soldier training panel is open...")
-
-    frame = win.get_screenshot_cv2()
-    panel_open, score = is_panel_open(frame, debug=debug)
-
-    if not panel_open:
+    try:
+        # Step 0: Verify panel is open
         if debug:
-            print(f"  ERROR: Soldier training panel not detected (score={score:.6f})")
-        return False
+            print("Step 0: Verifying soldier training panel is open...")
 
-    # Wait for tiles to fully render
-    time.sleep(0.5)
+        frame = win.get_screenshot_cv2()
+        panel_open, score = is_panel_open(frame, debug=debug)
 
-    # Step 1: Take fresh screenshot and find highest unlocked level
-    if debug:
-        print("Step 1: Finding highest unlocked soldier level...")
+        if not panel_open:
+            if debug:
+                print(f"  ERROR: Soldier training panel not detected (score={score:.6f})")
+            return False
 
-    frame = win.get_screenshot_cv2()
-    highest = find_highest_unlocked_level(frame, adb, debug=debug)
-
-    if highest is None:
-        if debug:
-            print("  ERROR: No unlocked soldier levels found")
-        return False
-
-    # Step 2: Calculate target level (highest - 1)
-    target_level = highest - 1
-    if target_level < MIN_LEVEL:
-        if debug:
-            print(f"  ERROR: Cannot upgrade below Lv{MIN_LEVEL} (highest={highest})")
-        return False
-
-    if debug:
-        print(f"  Highest unlocked: Lv{highest}")
-        print(f"  Target level: Lv{target_level}")
-
-    # If detect_only mode, stop here and return highest level
-    if detect_only:
-        print(f"\n=== DETECTION RESULT ===")
-        print(f"Highest unlocked level: Lv{highest}")
-        return highest
-
-    # Get the center position of the highest level tile for scrolling
-    visible_tiles = find_visible_soldiers(frame)
-    highest_tile_center = visible_tiles[highest]['center']
-    scroll_start_x, scroll_start_y = highest_tile_center
-
-    if debug:
-        print(f"  Using Lv{highest} tile center ({scroll_start_x}, {scroll_start_y}) as scroll anchor")
-
-    # Step 3: Find target level tile (scroll if needed)
-    if debug:
-        print(f"Step 2: Finding Lv{target_level} tile...")
-
-    target_info = find_soldier_level(frame, target_level)
-
-    # If not visible, swipe from the highest tile center to the right
-    max_scrolls = 3
-    scroll_count = 0
-    while target_info is None and scroll_count < max_scrolls:
-        if debug:
-            print(f"  Lv{target_level} not visible, swiping right from tile center... (attempt {scroll_count + 1}/{max_scrolls})")
-
-        # Swipe FROM the detected tile TO THE RIGHT to reveal left content
-        scroll_end_x = scroll_start_x + 233  # Swipe 233 pixels to the right (reduced by 2/3 from original 700)
-        adb.swipe(scroll_start_x, scroll_start_y, scroll_end_x, scroll_start_y, duration=500)
+        # Wait for tiles to fully render
         time.sleep(0.5)
 
-        # Re-check
+        # Step 1: Take fresh screenshot and find highest unlocked level
+        if debug:
+            print("Step 1: Finding highest unlocked soldier level...")
+
         frame = win.get_screenshot_cv2()
+        highest = find_highest_unlocked_level(frame, adb, debug=debug)
+
+        if highest is None:
+            if debug:
+                print("  ERROR: No unlocked soldier levels found")
+            return False
+
+        # Step 2: Calculate target level (highest - 1)
+        target_level = highest - 1
+        if target_level < MIN_LEVEL:
+            if debug:
+                print(f"  ERROR: Cannot upgrade below Lv{MIN_LEVEL} (highest={highest})")
+            return False
+
+        if debug:
+            print(f"  Highest unlocked: Lv{highest}")
+            print(f"  Target level: Lv{target_level}")
+
+        # If detect_only mode, stop here and return highest level
+        if detect_only:
+            print(f"\n=== DETECTION RESULT ===")
+            print(f"Highest unlocked level: Lv{highest}")
+            return highest
+
+        # Get the center position of the highest level tile for scrolling
+        visible_tiles = find_visible_soldiers(frame)
+        highest_tile_center = visible_tiles[highest]['center']
+        scroll_start_x, scroll_start_y = highest_tile_center
+
+        if debug:
+            print(f"  Using Lv{highest} tile center ({scroll_start_x}, {scroll_start_y}) as scroll anchor")
+
+        # Step 3: Find target level tile (scroll if needed)
+        if debug:
+            print(f"Step 2: Finding Lv{target_level} tile...")
+
         target_info = find_soldier_level(frame, target_level)
-        scroll_count += 1
 
-    if target_info is None:
+        # If not visible, swipe from the highest tile center to the right
+        max_scrolls = 3
+        scroll_count = 0
+        while target_info is None and scroll_count < max_scrolls:
+            if debug:
+                print(f"  Lv{target_level} not visible, swiping right from tile center... (attempt {scroll_count + 1}/{max_scrolls})")
+
+            # Swipe FROM the detected tile TO THE RIGHT to reveal left content
+            scroll_end_x = scroll_start_x + 233  # Swipe 233 pixels to the right (reduced by 2/3 from original 700)
+            adb.swipe(scroll_start_x, scroll_start_y, scroll_end_x, scroll_start_y, duration=500)
+            time.sleep(0.5)
+
+            # Re-check
+            frame = win.get_screenshot_cv2()
+            target_info = find_soldier_level(frame, target_level)
+            scroll_count += 1
+
+        if target_info is None:
+            if debug:
+                print(f"  ERROR: Could not find Lv{target_level} tile after {scroll_count} scrolls")
+            return False
+
         if debug:
-            print(f"  ERROR: Could not find Lv{target_level} tile after {scroll_count} scrolls")
-        return False
+            print(f"  Found Lv{target_level} at ({target_info['x']}, {target_info['y']}) score={target_info['score']:.6f}")
 
-    if debug:
-        print(f"  Found Lv{target_level} at ({target_info['x']}, {target_info['y']}) score={target_info['score']:.6f}")
-
-    # Step 4: Click on target level tile
-    if debug:
-        print(f"Step 3: Clicking Lv{target_level} tile...")
-
-    click_x, click_y = target_info['center']
-    if debug:
-        print(f"  Clicking at ({click_x}, {click_y})")
-
-    adb.tap(click_x, click_y)
-    time.sleep(0.8)
-
-    # If scroll_and_select mode, stop here
-    if scroll_and_select:
-        print(f"\n=== SCROLL AND SELECT RESULT ===")
-        print(f"Selected Lv{target_level} tile at ({click_x}, {click_y})")
-        return True
-
-    # Step 5: Drag slider to max
-    if debug:
-        print("Step 3: Dragging slider to maximum...")
-
-    drag_slider_to_max(adb, debug=debug)
-    time.sleep(0.5)
-
-    # Step 5: Click Upgrade button
-    if debug:
-        print("Step 4: Clicking Upgrade button...")
-
-    adb.tap(*UPGRADE_BUTTON_CLICK)
-    time.sleep(1.0)
-
-    # Step 5a: Check for resource replenishment
-    if debug:
-        print("Step 4a: Checking for resource replenishment...")
-
-    from utils.replenish_all_helper import ReplenishAllHelper
-    replenish_helper = ReplenishAllHelper()
-
-    frame = win.get_screenshot_cv2()
-    if replenish_helper.find_replenish_button(frame):
+        # Step 4: Click on target level tile
         if debug:
-            print("  Replenish button detected - handling shortage...")
+            print(f"Step 3: Clicking Lv{target_level} tile...")
 
-        replenish_helper.handle_replenish_flow(adb, win, debug=debug)
-
-        # Re-click Upgrade button after replenishing
+        click_x, click_y = target_info['center']
         if debug:
-            print("  Re-clicking Upgrade button after replenishment...")
+            print(f"  Clicking at ({click_x}, {click_y})")
+
+        adb.tap(click_x, click_y)
+        time.sleep(0.8)
+
+        # If scroll_and_select mode, stop here
+        if scroll_and_select:
+            print(f"\n=== SCROLL AND SELECT RESULT ===")
+            print(f"Selected Lv{target_level} tile at ({click_x}, {click_y})")
+            return True
+
+        # Step 5: Drag slider to max
+        if debug:
+            print("Step 3: Dragging slider to maximum...")
+
+        drag_slider_to_max(adb, debug=debug)
+        time.sleep(0.5)
+
+        # Step 5: Click Upgrade button
+        if debug:
+            print("Step 4: Clicking Upgrade button...")
 
         adb.tap(*UPGRADE_BUTTON_CLICK)
         time.sleep(1.0)
-    else:
+
+        # Step 5a: Check for resource replenishment
         if debug:
-            print("  No replenish needed - continuing...")
+            print("Step 4a: Checking for resource replenishment...")
 
-    # Step 6: Verify Promote screen appeared
-    if debug:
-        print("Step 5: Verifying Promote screen...")
+        from utils.replenish_all_helper import ReplenishAllHelper
+        replenish_helper = ReplenishAllHelper()
 
-    frame = win.get_screenshot_cv2()
-    is_promote, score = is_promote_visible(frame, debug=debug)
+        frame = win.get_screenshot_cv2()
+        if replenish_helper.find_replenish_button(frame):
+            if debug:
+                print("  Replenish button detected - handling shortage...")
 
-    if not is_promote:
+            replenish_helper.handle_replenish_flow(adb, win, debug=debug)
+
+            # Re-click Upgrade button after replenishing
+            if debug:
+                print("  Re-clicking Upgrade button after replenishment...")
+
+            adb.tap(*UPGRADE_BUTTON_CLICK)
+            time.sleep(1.0)
+        else:
+            if debug:
+                print("  No replenish needed - continuing...")
+
+        # Step 6: Verify Promote screen appeared
         if debug:
-            print(f"  WARNING: Promote button not detected (score={score:.4f})")
-            print("  Attempting to click anyway...")
+            print("Step 5: Verifying Promote screen...")
 
-    # Step 7: Click Promote button
-    if debug:
-        print("Step 6: Clicking Promote button...")
+        frame = win.get_screenshot_cv2()
+        is_promote, score = is_promote_visible(frame, debug=debug)
 
-    promote_click = get_promote_click()
-    adb.tap(*promote_click)
-    time.sleep(0.5)
+        if not is_promote:
+            if debug:
+                print(f"  WARNING: Promote button not detected (score={score:.4f})")
+                print("  Attempting to click anyway...")
 
-    if debug:
-        print("=" * 50)
-        print("Soldier upgrade flow complete!")
+        # Step 7: Click Promote button
+        if debug:
+            print("Step 6: Clicking Promote button...")
 
-    return True
+        promote_click = get_promote_click()
+        adb.tap(*promote_click)
+        time.sleep(0.5)
+
+        if debug:
+            print("=" * 50)
+            print("Soldier upgrade flow complete!")
+
+        return True
+
+    except Exception as e:
+        if debug:
+            print(f"EXCEPTION: {type(e).__name__}: {e}")
+        return False
+
+    finally:
+        # ALWAYS close panel (unless detect_only mode where we didn't open it)
+        if not detect_only:
+            if debug:
+                print("Closing panel...")
+            adb.tap(DISMISS_TAP[0], DISMISS_TAP[1])
+            time.sleep(0.3)
 
 
 def upgrade_all_pending_barracks(adb, debug=False):
