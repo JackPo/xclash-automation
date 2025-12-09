@@ -129,6 +129,37 @@ class HeroSelector:
 
         return None
 
+    def find_any_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
+        """
+        Find ANY idle hero (first one with Zz icon found, no position preference).
+        Used by: rally_join_flow during Union Boss mode
+
+        Unlike find_leftmost_idle/find_rightmost_idle, this doesn't prefer any position.
+        It just returns the first idle hero found (slot 3, 2, or 1).
+
+        Args:
+            frame: BGR numpy array (4K screenshot)
+            zz_mode: Hero selection strategy:
+                - 'require': ONLY return heroes WITH Zz. Return None if no Zz found.
+                - 'prefer': PREFER heroes with Zz, but fallback to any hero if no Zz exists.
+                - 'ignore': ALWAYS return first hero regardless of Zz status.
+
+        Returns:
+            Slot dict if found, None if no heroes available (only possible in 'require' mode)
+        """
+        if zz_mode == 'ignore':
+            return self.SLOTS[0]  # Return first slot (rightmost)
+
+        for slot in self.SLOTS:  # Checks 3, 2, 1
+            is_idle, score = self.check_slot_has_zz(frame, slot)
+            if is_idle:
+                return slot
+
+        if zz_mode == 'require':
+            return None
+        else:  # prefer
+            return self.SLOTS[0]
+
     def get_all_slot_status(self, frame: np.ndarray) -> list[dict]:
         """
         Get status of all slots (for debugging).

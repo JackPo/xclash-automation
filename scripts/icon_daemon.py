@@ -105,6 +105,8 @@ from config import (
     # Rally joining
     RALLY_JOIN_ENABLED,
     RALLY_MARCH_BUTTON_COOLDOWN,
+    UNION_BOSS_MODE_DURATION,
+    UNION_BOSS_RALLY_COOLDOWN,
 )
 
 
@@ -383,6 +385,7 @@ class IconDaemon:
 
         # Rally joining tracking
         self.last_rally_march_click = 0  # Timestamp of last march button click
+        self.union_boss_mode_until = 0   # Timestamp when Union Boss mode expires (faster rally joining)
 
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
@@ -542,20 +545,38 @@ class IconDaemon:
                         # Check prerequisites: TOWN or WORLD view, idle, cooldown
                         view_state, _ = detect_view(frame)
                         idle_secs = get_idle_seconds()
-                        rally_cooldown_elapsed = (current_time - self.last_rally_march_click) >= RALLY_MARCH_BUTTON_COOLDOWN
+
+                        # Union Boss mode: faster cooldown (15s instead of 30s)
+                        in_union_boss_mode = current_time < self.union_boss_mode_until
+                        rally_cooldown = UNION_BOSS_RALLY_COOLDOWN if in_union_boss_mode else RALLY_MARCH_BUTTON_COOLDOWN
+                        rally_cooldown_elapsed = (current_time - self.last_rally_march_click) >= rally_cooldown
 
                         rally_idle_ok = idle_secs >= IDLE_THRESHOLD
                         rally_view_ok = view_state in [ViewState.TOWN, ViewState.WORLD]
 
+                        # Log Union Boss mode status
+                        if in_union_boss_mode:
+                            remaining = int(self.union_boss_mode_until - current_time)
+                            self.logger.debug(f"[{iteration}] UNION BOSS MODE: {remaining}s remaining, cooldown={rally_cooldown}s")
+
                         if rally_idle_ok and rally_view_ok and rally_cooldown_elapsed:
-                            self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}")
+                            mode_str = " [BOSS MODE]" if in_union_boss_mode else ""
+                            self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}{mode_str}")
                             # Click the march button to open Union War panel
                             click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
                             self.adb.tap(click_x, click_y)
                             self.last_rally_march_click = current_time
                             time.sleep(0.5)  # Brief wait for panel to start loading
-                            # Then trigger rally join flow
-                            self._run_flow("rally_join", rally_join_flow)
+
+                            # Run rally join flow directly (not via _run_flow) to get result
+                            try:
+                                result = rally_join_flow(self.adb, union_boss_mode=in_union_boss_mode)
+                                # Check if Union Boss was joined - enter Union Boss mode
+                                if result.get('monster_name') == 'Union Boss':
+                                    self.union_boss_mode_until = current_time + UNION_BOSS_MODE_DURATION
+                                    self.logger.info(f"[{iteration}] UNION BOSS detected! Entering Union Boss mode for 30 minutes")
+                            except Exception as e:
+                                self.logger.error(f"[{iteration}] Rally join flow error: {e}")
 
                 # Periodic OCR server health check (every 5 minutes)
                 if current_time - self.last_ocr_health_check >= self.OCR_HEALTH_CHECK_INTERVAL:

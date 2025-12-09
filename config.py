@@ -233,6 +233,10 @@ KEY_PAN_RIGHT = 'right'
 RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
 RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
 
+# Union Boss mode - faster rally joining when Union Boss detected
+UNION_BOSS_MODE_DURATION = 1800   # 30 minutes of faster rally joining
+UNION_BOSS_RALLY_COOLDOWN = 15    # 15 seconds between rally joins during Union Boss mode
+
 # Monster configuration: List of known monsters with metadata
 # Each monster has: name, auto_join, max_level, level_increment, level_range
 RALLY_MONSTERS = [
@@ -253,6 +257,15 @@ RALLY_MONSTERS = [
         "level_increment": 1,    # Levels: 1-40
         "level_range": "1-40",
         "track_daily_limit": True,   # Has daily limit, track exhaustion
+    },
+    {
+        "name": "Union Boss",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 9999,       # Join any level (effectively no limit)
+        "has_level": True,
+        "level_increment": 1,
+        "level_range": "any",
+        "track_daily_limit": False,  # No daily limit
     },
     {
         "name": "Nightfall Servant",

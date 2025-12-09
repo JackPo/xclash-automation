@@ -139,7 +139,7 @@ def _get_monster_config(monster_name: str) -> dict | None:
     return None
 
 
-def rally_join_flow(adb: ADBHelper) -> bool:
+def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     """
     Main rally joining flow.
 
@@ -147,9 +147,10 @@ def rally_join_flow(adb: ADBHelper) -> bool:
 
     Args:
         adb: ADB helper instance
+        union_boss_mode: If True, use any idle hero instead of leftmost only
 
     Returns:
-        True if successfully joined a rally, False otherwise
+        dict: {'success': bool, 'monster_name': str | None}
     """
     print("[RALLY-JOIN] Starting rally join flow")
 
@@ -179,7 +180,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     if not valid:
         print(f"[RALLY-JOIN] Panel not valid: {message}. Exiting.")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
+        return {'success': False, 'monster_name': None}
 
     # Step 2: Find all plus buttons
     print("[RALLY-JOIN] Step 2: Finding rally plus buttons")
@@ -189,7 +190,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     if not plus_buttons:
         print("[RALLY-JOIN] No rallies available. Exiting.")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
+        return {'success': False, 'monster_name': None}
 
     # Log all detected plus buttons
     for i, (x, y, score) in enumerate(plus_buttons):
@@ -220,7 +221,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     if not matched_rally:
         print("[RALLY-JOIN] No matching rallies found. Exiting.")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
+        return {'success': False, 'monster_name': None}
 
     plus_x, plus_y, monster_name, level = matched_rally
 
@@ -234,7 +235,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     if frame is None:
         print("[RALLY-JOIN] Failed to load Team Up panel. Exiting.")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
+        return {'success': False, 'monster_name': monster_name}
 
     _save_debug_screenshot(frame, "02_after_plus_click")
 
@@ -248,14 +249,18 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     for s in statuses:
         print(f"[RALLY-JOIN]     Slot {s['id']}: score={s['score']:.6f} idle={s['is_idle']}")
 
-    # Step 5: Select leftmost idle hero (REQUIRE Zz - only join if hero is idle)
-    print("[RALLY-JOIN] Step 5: Selecting leftmost idle hero (must have Zz)")
-    idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='require')
+    # Step 5: Select idle hero (REQUIRE Zz - only join if hero is idle)
+    if union_boss_mode:
+        print("[RALLY-JOIN] Step 5: Selecting ANY idle hero (Union Boss mode)")
+        idle_slot = hero_selector.find_any_idle(frame, zz_mode='require')
+    else:
+        print("[RALLY-JOIN] Step 5: Selecting leftmost idle hero (must have Zz)")
+        idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='require')
 
     if not idle_slot:
         print("[RALLY-JOIN] No idle heroes found (no Zz icons). Better luck next time!")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
+        return {'success': False, 'monster_name': monster_name}
 
     print(f"[RALLY-JOIN]   Idle hero found at slot {idle_slot['id']}, clicking")
     adb.tap(*idle_slot['click'])
@@ -289,7 +294,7 @@ def rally_join_flow(adb: ADBHelper) -> bool:
 
         # Cleanup and exit
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return False
+        return {'success': False, 'monster_name': monster_name}
 
     time.sleep(0.5)
     frame = win.get_screenshot_cv2()
@@ -299,8 +304,8 @@ def rally_join_flow(adb: ADBHelper) -> bool:
     print("[RALLY-JOIN] Step 7: Cleanup and return to base")
     _cleanup_and_exit(adb, win, back_button_matcher)
 
-    print(f"[RALLY-JOIN] ✓ Successfully joined {monster_name} Lv.{level} rally")
-    return True
+    print(f"[RALLY-JOIN] Successfully joined {monster_name} Lv.{level} rally")
+    return {'success': True, 'monster_name': monster_name}
 
 
 def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_matcher: BackButtonMatcher):
