@@ -30,6 +30,20 @@ These features run continuously and don't require any special timing:
 - **AFK Rewards**: Claims idle/AFK reward popups (1h cooldown)
 - **Union Gifts**: Collects alliance gift packages (when idle 20+ min, 1h cooldown)
 - **Union Technology Donations**: Donates to alliance technology research (when idle 20+ min, 1h cooldown, 10 min separation from Union Gifts)
+- **Rally Joining**: Automatically joins Union War rallies based on monster type and level (disabled by default, see config)
+
+### Rally Joining & Union Boss Mode
+
+When enabled (`RALLY_JOIN_ENABLED = True`), the bot automatically joins Union War rallies:
+
+- **Monster Filtering**: Only joins specific monsters below max level (configurable in `RALLY_MONSTERS`)
+- **Daily Limit Tracking**: Tracks exhausted monsters (e.g., Elite Zombie daily limit) and skips them
+- **Idle Hero Selection**: Only joins if an idle hero (Zz icon) is available
+
+**Union Boss Mode**: When a Union Boss rally is detected and joined, the bot enters a special 30-minute mode:
+- **Faster Cooldown**: 15 seconds between joins (vs 30s normal)
+- **Any Idle Hero**: Uses any available idle hero, not just leftmost
+- This allows rapid rally joining during time-sensitive Union Boss events
 
 ### Elite Zombie Rallies (Stamina Management)
 
