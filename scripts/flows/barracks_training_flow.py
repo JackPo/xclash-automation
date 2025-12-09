@@ -21,6 +21,7 @@ from utils.adb_helper import ADBHelper
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.ocr_client import OCRClient
 from utils.soldier_training_header_matcher import is_panel_open
+from utils.debug_screenshot import save_debug_screenshot
 from scripts.flows.soldier_training_flow import find_and_click_soldier_level
 
 # Slider parameters
@@ -44,10 +45,6 @@ MINUS_BUTTON = (1526, 1177)
 # Template path
 TEMPLATE_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "slider_circle_4k.png"
 
-# Debug directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "barracks_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-
 # Timeout protection
 MAX_FLOW_TIME = 60  # 60 seconds max for entire flow
 
@@ -60,14 +57,6 @@ def _log(msg, debug=True):
     if debug:
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"[{timestamp}] [BARRACKS] {msg}", flush=True)
-
-
-def _save_debug_screenshot(frame, label):
-    """Save debug screenshot with timestamp and label."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = DEBUG_DIR / f"{timestamp}_{label}.png"
-    cv2.imwrite(str(filepath), frame)
-    _log(f"Saved debug screenshot: {filepath}", True)
 
 
 def find_circle(frame, template):
@@ -168,7 +157,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
 
         if not panel_open:
             _log(f"Step 0 FAILED: Soldier training panel not detected (score={score:.6f})", debug)
-            _save_debug_screenshot(frame, "FAIL_step0_panel_not_open")
+            save_debug_screenshot(frame, "barracks", "FAIL_step0_panel_not_open")
             return False
 
         _log(f"Step 0 SUCCESS: Panel is open (score={score:.6f})", debug)
@@ -185,7 +174,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         if not find_and_click_soldier_level(adb, win, soldier_level, debug=debug):
             _log(f"Step 1 FAILED: Could not find Lv{soldier_level} tile", debug)
             frame = win.get_screenshot_cv2()
-            _save_debug_screenshot(frame, f"FAIL_step1_no_lv{soldier_level}")
+            save_debug_screenshot(frame, "barracks", f"FAIL_step1_no_lv{soldier_level}")
             return False
 
         _log(f"Step 1 SUCCESS: Clicked Lv{soldier_level} tile", debug)
@@ -202,7 +191,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         circle_x, score = find_circle(frame, template)
         if circle_x is None:
             _log(f"VALIDATION FAILED: Slider not visible after clicking Lv{soldier_level} (score={score:.4f})", debug)
-            _save_debug_screenshot(frame, f"FAIL_validation_no_slider")
+            save_debug_screenshot(frame, "barracks", "FAIL_validation_no_slider")
             return False
         _log(f"VALIDATION OK: Slider visible at X={circle_x} (score={score:.4f})", debug)
 
@@ -227,7 +216,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
 
         if max_secs is None or max_secs == 0:
             _log("Step 2 FAILED: Could not read max time from OCR", debug)
-            _save_debug_screenshot(frame, "FAIL_step2_no_max_time")
+            save_debug_screenshot(frame, "barracks", "FAIL_step2_no_max_time")
             return False
 
         _log(f"Step 2 SUCCESS: MAX time = {max_str} ({max_secs}s)", debug)
@@ -328,7 +317,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         else:
             _log("Step 4 WARNING: Fine-tuning loop exhausted (50 iterations)", debug)
             frame = win.get_screenshot_cv2()
-            _save_debug_screenshot(frame, "WARN_step4_fine_tune_exhausted")
+            save_debug_screenshot(frame, "barracks", "WARN_step4_fine_tune_exhausted")
 
         # Step 5: Click Train button
         _log(f"Step 5: Clicking Train button at ({TRAIN_BUTTON_CENTER[0]}, {TRAIN_BUTTON_CENTER[1]})...", debug)
@@ -341,7 +330,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
 
         # Validation: Take screenshot after clicking Train to verify
         frame = win.get_screenshot_cv2()
-        _save_debug_screenshot(frame, "after_train_click")
+        save_debug_screenshot(frame, "barracks", "after_train_click")
         _log("Step 5 SUCCESS: Train button clicked", debug)
 
         # TODO: pack_resources implementation
@@ -355,7 +344,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         _log(f"EXCEPTION: {type(e).__name__}: {e}", True)
         try:
             frame = win.get_screenshot_cv2()
-            _save_debug_screenshot(frame, f"EXCEPTION_{type(e).__name__}")
+            save_debug_screenshot(frame, "barracks", f"EXCEPTION_{type(e).__name__}")
         except:
             pass
         return False

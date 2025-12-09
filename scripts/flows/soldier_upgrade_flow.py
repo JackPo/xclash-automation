@@ -28,6 +28,7 @@ from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level
 from utils.promote_button_matcher import is_promote_visible, get_promote_click
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.soldier_training_header_matcher import is_panel_open
+from utils.debug_screenshot import save_debug_screenshot
 
 # UI positions (4K resolution)
 UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
@@ -142,6 +143,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         if not panel_open:
             if debug:
                 print(f"  ERROR: Soldier training panel not detected (score={score:.6f})")
+            save_debug_screenshot(frame, "upgrade", "FAIL_step0_panel_not_open")
             return False
 
         # Wait for tiles to fully render
@@ -157,6 +159,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         if highest is None:
             if debug:
                 print("  ERROR: No unlocked soldier levels found")
+            save_debug_screenshot(frame, "upgrade", "FAIL_step1_no_tiles")
             return False
 
         # Step 2: Calculate target level (highest - 1)
@@ -210,6 +213,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         if target_info is None:
             if debug:
                 print(f"  ERROR: Could not find Lv{target_level} tile after {scroll_count} scrolls")
+            save_debug_screenshot(frame, "upgrade", f"FAIL_step2_no_lv{target_level}")
             return False
 
         if debug:
@@ -281,6 +285,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
             if debug:
                 print(f"  WARNING: Promote button not detected (score={score:.4f})")
                 print("  Attempting to click anyway...")
+            save_debug_screenshot(frame, "upgrade", "WARN_no_promote_button")
 
         # Step 7: Click Promote button
         if debug:
