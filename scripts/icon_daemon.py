@@ -67,7 +67,7 @@ from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
 from datetime import time as dt_time
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -78,6 +78,8 @@ from config import (
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
     AFK_REWARDS_COOLDOWN,
     UNION_GIFTS_COOLDOWN,
+    UNION_TECHNOLOGY_COOLDOWN,
+    UNION_FLOW_SEPARATION,
     SOLDIER_TRAINING_COOLDOWN,
     UNION_GIFTS_IDLE_THRESHOLD,
     UNKNOWN_STATE_TIMEOUT,
@@ -166,6 +168,12 @@ class IconDaemon:
         self.last_union_gifts_time = 0
         self.UNION_GIFTS_COOLDOWN = UNION_GIFTS_COOLDOWN
         self.UNION_GIFTS_IDLE_THRESHOLD = UNION_GIFTS_IDLE_THRESHOLD
+
+        # Union technology cooldown - once per hour, requires 20 min idle
+        # Must be 10 min apart from union gifts to avoid clobbering
+        self.last_union_technology_time = 0
+        self.UNION_TECHNOLOGY_COOLDOWN = UNION_TECHNOLOGY_COOLDOWN
+        self.UNION_FLOW_SEPARATION = UNION_FLOW_SEPARATION
 
         # Soldier training cooldown - once per 5 minutes
         self.last_soldier_training_time = 0
@@ -993,13 +1001,23 @@ class IconDaemon:
                     self._run_flow("afk_rewards", afk_rewards_flow)
 
                 # Union gifts: requires TOWN view, 20 min idle, dog house aligned, 1 hour cooldown
-                # This is a time-based trigger (no icon detection needed)
+                # Must be 10 min apart from union technology
                 union_idle_ok = idle_secs >= self.UNION_GIFTS_IDLE_THRESHOLD
                 union_cooldown_ok = (current_time - self.last_union_gifts_time) >= self.UNION_GIFTS_COOLDOWN
-                if world_present and union_idle_ok and harvest_aligned and union_cooldown_ok:
+                union_separation_ok = (current_time - self.last_union_technology_time) >= self.UNION_FLOW_SEPARATION
+                if world_present and union_idle_ok and harvest_aligned and union_cooldown_ok and union_separation_ok:
                     self.logger.info(f"[{iteration}] UNION GIFTS: idle={idle_str}, triggering flow...")
                     self.last_union_gifts_time = current_time
                     self._run_flow("union_gifts", union_gifts_flow)
+
+                # Union technology: requires TOWN view, 20 min idle, dog house aligned, 1 hour cooldown
+                # Must be 10 min apart from union gifts
+                tech_cooldown_ok = (current_time - self.last_union_technology_time) >= self.UNION_TECHNOLOGY_COOLDOWN
+                tech_separation_ok = (current_time - self.last_union_gifts_time) >= self.UNION_FLOW_SEPARATION
+                if world_present and union_idle_ok and harvest_aligned and tech_cooldown_ok and tech_separation_ok:
+                    self.logger.info(f"[{iteration}] UNION TECHNOLOGY: idle={idle_str}, triggering flow...")
+                    self.last_union_technology_time = current_time
+                    self._run_flow("union_technology", union_technology_flow)
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
                 # Track continuous idle start time

@@ -28,7 +28,8 @@ These features run continuously and don't require any special timing:
 - **Treasure Maps**: Opens and collects treasure map rewards
 - **Harvest Boxes**: Opens surprise harvest boxes
 - **AFK Rewards**: Claims idle/AFK reward popups (1h cooldown)
-- **Union Gifts**: Collects alliance gift packages (when idle 20+ min)
+- **Union Gifts**: Collects alliance gift packages (when idle 20+ min, 1h cooldown)
+- **Union Technology Donations**: Donates to alliance technology research (when idle 20+ min, 1h cooldown, 10 min separation from Union Gifts)
 
 ### Elite Zombie Rallies (Stamina Management)
 

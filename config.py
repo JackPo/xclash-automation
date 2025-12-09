@@ -105,6 +105,8 @@ VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in current cycle
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims
+UNION_TECHNOLOGY_COOLDOWN = 3600   # 1 hour between union technology donations
+UNION_FLOW_SEPARATION = 600        # 10 minutes minimum between union gifts and union technology
 SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collection attempts
 UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes idle required for union gifts
 
