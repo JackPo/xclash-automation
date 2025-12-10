@@ -55,6 +55,7 @@ from utils.iron_bar_matcher import IronBarMatcher
 from utils.gem_matcher import GemMatcher
 from utils.cabbage_matcher import CabbageMatcher
 from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
+from utils.healing_bubble_matcher import HealingBubbleMatcher
 from utils.back_button_matcher import BackButtonMatcher
 from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -66,8 +67,7 @@ from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_s
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
-from datetime import time as dt_time
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -141,6 +141,7 @@ class IconDaemon:
         self.gem_matcher = None
         self.cabbage_matcher = None
         self.equipment_enhancement_matcher = None
+        self.healing_matcher = None
         self.back_button_matcher = None
         self.dog_house_matcher = None
         self.afk_rewards_matcher = None
@@ -193,17 +194,9 @@ class IconDaemon:
         self.unknown_state_start = None  # When we first entered UNKNOWN state
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
 
-        # Scheduled + continuous idle triggers
-        # Pattern: "At scheduled time X, if user was continuously idle for Y duration before that time, trigger"
-        self.scheduled_triggers = [
-            {
-                'name': 'hero_upgrade_arms_race',
-                'trigger_time': dt_time(2, 0),  # 2:00 AM Pacific
-                'required_idle_seconds': 3 * 3600 + 45 * 60,  # 3h 45m = 13500s
-                'flow': hero_upgrade_arms_race_flow,
-                'last_triggered_date': None,  # Track to prevent double-trigger same day
-            }
-        ]
+        # Scheduled + continuous idle triggers - DISABLED
+        # Hero upgrade now only triggers during Arms Race "Enhance Hero" event (lines 800-816)
+        self.scheduled_triggers = []  # Empty - no scheduled triggers
         self.continuous_idle_start = None  # Track when continuous idle began
 
         # Arms Race event tracking (values from config)
@@ -367,6 +360,9 @@ class IconDaemon:
 
         self.equipment_enhancement_matcher = EquipmentEnhancementMatcher(debug_dir=debug_dir)
         print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.template_path.name} (threshold={self.equipment_enhancement_matcher.threshold})")
+
+        self.healing_matcher = HealingBubbleMatcher()
+        print(f"  Healing bubble matcher: healing_bubble_4k.png (threshold=0.06)")
 
         self.back_button_matcher = BackButtonMatcher(debug_dir=debug_dir)
         print(f"  Back button matcher: {self.back_button_matcher.template_path.name} (threshold={BackButtonMatcher.THRESHOLD})")
@@ -610,6 +606,7 @@ class IconDaemon:
                 gem_present, gem_score = self.gem_matcher.is_present(frame)
                 cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
                 equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
+                healing_present, healing_score = self.healing_matcher.is_present(frame)
                 afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
                 # Get view state using view_state_detector
                 view_state_enum, view_score = detect_view(frame)
@@ -998,6 +995,16 @@ class IconDaemon:
                 if equip_present and world_present and harvest_idle_ok and harvest_aligned:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
+
+                # Healing bubble: click to open panel, then run healing flow
+                if healing_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] HEALING BUBBLE detected (diff={healing_score:.4f})")
+                    # Click healing bubble to open panel
+                    click_x, click_y = self.healing_matcher.get_click_position()
+                    self.adb.tap(click_x, click_y)
+                    time.sleep(1.5)  # Wait for panel to open
+                    # Run healing flow (panel should now be open)
+                    self._run_flow("healing", healing_flow)
 
                 # Barracks: Check for READY barracks to collect soldiers (non-Arms Race)
                 # Requires TOWN view, alignment, and 5-minute cooldown

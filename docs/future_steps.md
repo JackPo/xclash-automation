@@ -23,7 +23,7 @@ Last updated: 2025-12-02
 
 **Arms Race Events:**
 - ✅ **Beast Training** (Mystic Beast): Elite zombie rallies in last 60 minutes
-- ✅ **Hero Upgrades** (Enhance Hero): Auto-upgrade heroes in last 20 minutes, 2 AM trigger
+- ✅ **Hero Upgrades** (Enhance Hero): Auto-upgrade heroes in last 20 minutes of event
 - ✅ **Soldier Training**: Auto-collect READY soldiers, auto-train PENDING barracks
 
 **Stamina Management:**
@@ -271,7 +271,7 @@ The current automation is **enterprise-grade** with sophisticated features:
 
 **Scheduling Intelligence:**
 - UTC-based Arms Race event tracking
-- Scheduled triggers (2 AM hero upgrades with 3h45m idle requirement)
+- Event-based triggers (all triggers respond to game state, no fixed-time triggers)
 - Cooldown management (stamina use, AFK rewards, union gifts)
 
 **User Experience:**

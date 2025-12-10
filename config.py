@@ -252,7 +252,7 @@ RALLY_MONSTERS = [
     {
         "name": "Elite Zombie",
         "auto_join": True,       # Auto-join rallies for this monster
-        "max_level": 30,         # Join if level <= 30
+        "max_level": 25,         # Join if level <= 25
         "has_level": True,
         "level_increment": 1,    # Levels: 1-40
         "level_range": "1-40",
@@ -270,9 +270,18 @@ RALLY_MONSTERS = [
     {
         "name": "Nightfall Servant",
         "auto_join": True,       # Auto-join rallies for this monster
-        "max_level": 30,         # Join if level <= 30
+        "max_level": 25,         # Join if level <= 25
         "has_level": True,
         "level_increment": 1,    # Levels: 1-40
+        "level_range": "1-40",
+        "track_daily_limit": True,   # Has daily limit, track exhaustion
+    },
+    {
+        "name": "Undead Boss",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 25,         # Join if level <= 25
+        "has_level": True,
+        "level_increment": 1,
         "level_range": "1-40",
         "track_daily_limit": True,   # Has daily limit, track exhaustion
     },

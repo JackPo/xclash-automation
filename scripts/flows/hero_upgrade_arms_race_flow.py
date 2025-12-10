@@ -1,7 +1,8 @@
 """
 Hero Upgrade Arms Race flow - Check hero tiles for red notification dots and upgrade available heroes.
 
-Triggered at 2:00 AM Pacific if user was continuously idle for 3h 45m before that time.
+Triggered during Arms Race "Enhance Hero" event in the last N minutes (configurable),
+if user was idle since the START of the Enhance Hero block.
 
 Flow sequence:
 1. Click Fing Hero button at (2272, 2038)
