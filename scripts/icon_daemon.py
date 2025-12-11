@@ -233,11 +233,14 @@ class IconDaemon:
         # VS Event overrides - soldier promotions all day on specific days
         self.VS_SOLDIER_PROMOTION_DAYS = VS_SOLDIER_PROMOTION_DAYS
 
-        # Barracks state validation - require 10 consecutive consistent readings
-        # Higher than stamina (3) because we scan every 2 seconds and barracks state is critical
-        self.barracks_ready_count_history = []
-        self.barracks_pending_count_history = []
+        # Barracks state validation - require 10 readings with 60%+ being a specific state
+        # Allows UNKNOWN (?) readings as long as 60%+ are a consistent letter (R, P, or T)
+        # Example: PPPPPP???? (6P + 4?) = 60% P = PASS
+        # Example: PPPPP????? (5P + 5?) = 50% P = FAIL
+        # Example: PPPPRRR??? (mixed P and R) = FAIL
+        self.barracks_state_history = [[], [], [], []]  # Per-barrack state history
         self.BARRACKS_CONSECUTIVE_REQUIRED = 10
+        self.BARRACKS_MIN_LETTER_RATIO = 0.6  # 60% must be a specific letter
 
         # Setup logging
         self.log_dir = Path('logs')
@@ -481,6 +484,67 @@ class IconDaemon:
         except Exception as e:
             self.logger.error(f"Failed to check foreground app: {e}")
             return False
+
+    def _validate_barrack_state(self, barrack_index: int) -> tuple:
+        """
+        Validate barracks state history for a single barrack.
+
+        Requires N readings where:
+        - At least 60% are a specific letter (R, P, or T)
+        - Remaining can only be ? (UNKNOWN)
+        - No mixing of different letters
+
+        Args:
+            barrack_index: 0-3 for the 4 barracks
+
+        Returns:
+            (is_valid, dominant_state, ratio) where:
+            - is_valid: True if validation passes
+            - dominant_state: The dominant state letter (R, P, T) or None
+            - ratio: The ratio of dominant state readings
+        """
+        from utils.barracks_state_matcher import BarrackState
+
+        history = self.barracks_state_history[barrack_index]
+
+        if len(history) < self.BARRACKS_CONSECUTIVE_REQUIRED:
+            return False, None, 0.0
+
+        # Convert to letters
+        state_chars = []
+        for state in history:
+            if state == BarrackState.READY:
+                state_chars.append('R')
+            elif state == BarrackState.PENDING:
+                state_chars.append('P')
+            elif state == BarrackState.TRAINING:
+                state_chars.append('T')
+            else:  # UNKNOWN
+                state_chars.append('?')
+
+        # Count letters (excluding ?)
+        letters = [c for c in state_chars if c != '?']
+        unknown_count = len(state_chars) - len(letters)
+
+        if not letters:
+            return False, None, 0.0  # All UNKNOWN
+
+        # Check if all letters are the same
+        unique_letters = set(letters)
+        if len(unique_letters) > 1:
+            return False, None, 0.0  # Mixed letters (e.g., R and P)
+
+        # Calculate ratio
+        dominant_letter = letters[0]
+        letter_count = len(letters)
+        ratio = letter_count / len(state_chars)
+
+        if ratio >= self.BARRACKS_MIN_LETTER_RATIO:
+            # Map letter back to state
+            state_map = {'R': BarrackState.READY, 'P': BarrackState.PENDING, 'T': BarrackState.TRAINING}
+            return True, state_map[dominant_letter], ratio
+
+        return False, None, ratio
 
     def run(self):
         """Main detection loop."""
@@ -824,34 +888,45 @@ class IconDaemon:
                     idle_secs >= self.IDLE_THRESHOLD):
                     trigger_reason = "VS Day" if is_vs_promotion_day and not is_soldier_event else "Soldier Training event"
                     self.logger.debug(f"[{iteration}] SOLDIER: Outer conditions PASS (reason={trigger_reason}, day={arms_race['day']}, event={arms_race_event}, idle={idle_secs}s)")
-                    # Check for READY and PENDING barracks
+
+                    # Get current barracks states and update history
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
-                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
-                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
-                    # Track history for validation (require 3 consecutive consistent readings)
-                    self.barracks_ready_count_history.append(ready_count)
-                    self.barracks_pending_count_history.append(pending_count)
-                    if len(self.barracks_ready_count_history) > self.BARRACKS_CONSECUTIVE_REQUIRED:
-                        self.barracks_ready_count_history.pop(0)
-                        self.barracks_pending_count_history.pop(0)
+                    # Update per-barrack state history
+                    for i, (state, _) in enumerate(states):
+                        self.barracks_state_history[i].append(state)
+                        if len(self.barracks_state_history[i]) > self.BARRACKS_CONSECUTIVE_REQUIRED:
+                            self.barracks_state_history[i].pop(0)
 
-                    # Require 3 consecutive readings
-                    if len(self.barracks_ready_count_history) < self.BARRACKS_CONSECUTIVE_REQUIRED:
-                        self.logger.debug(f"[{iteration}] SOLDIER: Not enough readings ({len(self.barracks_ready_count_history)}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
+                    # Validate each barrack with 60% rule (allows ? mixed with consistent letter)
+                    validated_states = []
+                    for i in range(4):
+                        is_valid, dominant_state, ratio = self._validate_barrack_state(i)
+                        validated_states.append((is_valid, dominant_state, ratio))
+
+                    # Check if we have enough readings
+                    if len(self.barracks_state_history[0]) < self.BARRACKS_CONSECUTIVE_REQUIRED:
+                        self.logger.debug(f"[{iteration}] SOLDIER: Not enough readings ({len(self.barracks_state_history[0])}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
                         continue
 
-                    # Verify all readings are consistent
-                    if not all(r == ready_count for r in self.barracks_ready_count_history):
-                        self.logger.debug(f"[{iteration}] SOLDIER: Inconsistent READY readings: {self.barracks_ready_count_history}")
-                        continue
+                    # Log validation status for debugging
+                    validation_str = " ".join([
+                        f"B{i+1}:{v[1].value[0].upper() if v[1] else '?'}({v[2]:.0%})"
+                        for i, v in enumerate(validated_states)
+                    ])
+                    self.logger.debug(f"[{iteration}] SOLDIER: Validation: {validation_str}")
 
-                    if not all(p == pending_count for p in self.barracks_pending_count_history):
-                        self.logger.debug(f"[{iteration}] SOLDIER: Inconsistent PENDING readings: {self.barracks_pending_count_history}")
-                        continue
+                    # Count validated READY and PENDING barracks
+                    pending_indices = [i for i, (valid, state, _) in enumerate(validated_states)
+                                       if valid and state == BarrackState.PENDING]
+                    ready_indices = [i for i, (valid, state, _) in enumerate(validated_states)
+                                     if valid and state == BarrackState.READY]
 
-                    self.logger.debug(f"[{iteration}] SOLDIER: Consistent readings - ready={ready_count}, pending={pending_count}, world_present={world_present}")
+                    pending_count = len(pending_indices)
+                    ready_count = len(ready_indices)
+
+                    self.logger.debug(f"[{iteration}] SOLDIER: Validated - ready={ready_count}, pending={pending_count}, world_present={world_present}")
 
                     if (ready_count > 0 or pending_count > 0) and world_present:
                         # Check alignment
@@ -862,11 +937,9 @@ class IconDaemon:
                             self.logger.debug(f"[{iteration}] SOLDIER: Alignment PASS (score={dog_score:.4f})")
                             idle_mins = int(idle_secs / 60)
 
-                            # Get indices of PENDING barracks from validated states
-                            pending_indices = [i for i, (state, _) in enumerate(states) if state == BarrackState.PENDING]
                             self.logger.info(f"[{iteration}] SOLDIER UPGRADE: {trigger_reason}, idle {idle_mins}min, {pending_count} PENDING barrack(s) at indices {pending_indices}")
 
-                            # Upgrade each PENDING barrack individually
+                            # Upgrade each validated PENDING barrack
                             from scripts.flows.soldier_upgrade_flow import soldier_upgrade_flow, get_barrack_click_position
                             upgrades = 0
                             for idx in pending_indices:
@@ -883,6 +956,8 @@ class IconDaemon:
                                 if success:
                                     upgrades += 1
                                     self.logger.info(f"[{iteration}] SOLDIER: Barrack {idx+1} upgrade complete")
+                                    # Clear history for this barrack after upgrade
+                                    self.barracks_state_history[idx] = []
                                 else:
                                     self.logger.info(f"[{iteration}] SOLDIER: Barrack {idx+1} upgrade failed")
 
@@ -900,70 +975,85 @@ class IconDaemon:
                     idle_secs >= self.IDLE_THRESHOLD):
                     self.logger.debug(f"[{iteration}] NON-ARMS-RACE TRAINING: Outer conditions PASS (enabled={self.ARMS_RACE_SOLDIER_TRAINING_ENABLED}, event={arms_race_event}, idle={idle_secs}s)")
 
-                    # Check for PENDING barracks (reuse existing barracks_matcher)
+                    # Get current barracks states and update history (reuses same history as Arms Race section)
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
-                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
-                    # Track history for validation (same as Arms Race - require 10 consecutive consistent readings)
-                    self.barracks_pending_count_history.append(pending_count)
-                    if len(self.barracks_pending_count_history) > self.BARRACKS_CONSECUTIVE_REQUIRED:
-                        self.barracks_pending_count_history.pop(0)
+                    # Update per-barrack state history
+                    for i, (state, _) in enumerate(states):
+                        self.barracks_state_history[i].append(state)
+                        if len(self.barracks_state_history[i]) > self.BARRACKS_CONSECUTIVE_REQUIRED:
+                            self.barracks_state_history[i].pop(0)
 
-                    # Require N consecutive readings
-                    if len(self.barracks_pending_count_history) < self.BARRACKS_CONSECUTIVE_REQUIRED:
-                        self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Not enough readings ({len(self.barracks_pending_count_history)}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
-                    elif not all(p == pending_count for p in self.barracks_pending_count_history):
-                        self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Inconsistent PENDING readings: {self.barracks_pending_count_history}")
-                    elif pending_count > 0 and world_present:
-                        # Check alignment
-                        is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
-                        if not is_aligned:
-                            self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Blocked - dog house misaligned (score={dog_score:.4f})")
+                    # Validate each barrack with 60% rule
+                    validated_states = []
+                    for i in range(4):
+                        is_valid, dominant_state, ratio = self._validate_barrack_state(i)
+                        validated_states.append((is_valid, dominant_state, ratio))
+
+                    # Check if we have enough readings
+                    if len(self.barracks_state_history[0]) < self.BARRACKS_CONSECUTIVE_REQUIRED:
+                        self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Not enough readings ({len(self.barracks_state_history[0])}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
+                    else:
+                        # Count validated PENDING barracks
+                        pending_indices = [i for i, (valid, state, _) in enumerate(validated_states)
+                                           if valid and state == BarrackState.PENDING]
+                        pending_count = len(pending_indices)
+
+                        if pending_count == 0:
+                            self.logger.debug(f"[{iteration}] NON-ARMS-RACE: No validated PENDING barracks")
+                        elif not world_present:
+                            self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Not in TOWN view")
                         else:
-                            # Calculate target time: just under time until next Soldier Training event
-                            from utils.arms_race import get_time_until_soldier_training
-                            time_until = get_time_until_soldier_training()
-
-                            if time_until and time_until.total_seconds() > 0:
-                                # Subtract 5 min buffer to ensure completion before event
-                                target_hours = (time_until.total_seconds() - 300) / 3600
-                                target_hours = max(0.5, target_hours)  # Minimum 30 min training
-
-                                pending_indices = [i for i, (state, _) in enumerate(states) if state == BarrackState.PENDING]
-                                idle_mins = int(idle_secs / 60)
-                                self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: idle {idle_mins}min, {pending_count} PENDING barrack(s), target={target_hours:.2f}h until next Soldier Training")
-
-                                # Train each PENDING barrack with timed duration
-                                from scripts.flows.barracks_training_flow import barracks_training_flow
-                                from scripts.flows.soldier_training_flow import get_barrack_click_position
-                                trained = 0
-                                for idx in pending_indices:
-                                    self.logger.info(f"[{iteration}] NON-ARMS-RACE: Training barrack {idx+1} for {target_hours:.2f}h...")
-
-                                    # Click to open this barrack's panel
-                                    click_x, click_y = get_barrack_click_position(idx)
-                                    self.adb.tap(click_x, click_y)
-                                    time.sleep(1.0)
-
-                                    # Run training flow with target time
-                                    success = barracks_training_flow(
-                                        self.adb,
-                                        soldier_level=4,
-                                        target_hours=target_hours,
-                                        debug=True
-                                    )
-                                    if success:
-                                        trained += 1
-                                        self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training started")
-                                    else:
-                                        self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training failed")
-
-                                    time.sleep(0.5)
-
-                                self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: Started {trained}/{pending_count} barrack(s)")
+                            # pending_count > 0 and world_present
+                            # Check alignment
+                            is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                            if not is_aligned:
+                                self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Blocked - dog house misaligned (score={dog_score:.4f})")
                             else:
-                                self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Could not determine time until next Soldier Training event")
+                                # Calculate target time: just under time until next Soldier Training event
+                                from utils.arms_race import get_time_until_soldier_training
+                                time_until = get_time_until_soldier_training()
+
+                                if time_until and time_until.total_seconds() > 0:
+                                    # Subtract 5 min buffer to ensure completion before event
+                                    target_hours = (time_until.total_seconds() - 300) / 3600
+                                    target_hours = max(0.5, target_hours)  # Minimum 30 min training
+
+                                    # Use validated pending indices
+                                    idle_mins = int(idle_secs / 60)
+                                    self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: idle {idle_mins}min, {pending_count} PENDING barrack(s), target={target_hours:.2f}h until next Soldier Training")
+
+                                    # Train each PENDING barrack with timed duration
+                                    from scripts.flows.barracks_training_flow import barracks_training_flow
+                                    from scripts.flows.soldier_training_flow import get_barrack_click_position
+                                    trained = 0
+                                    for idx in pending_indices:
+                                        self.logger.info(f"[{iteration}] NON-ARMS-RACE: Training barrack {idx+1} for {target_hours:.2f}h...")
+
+                                        # Click to open this barrack's panel
+                                        click_x, click_y = get_barrack_click_position(idx)
+                                        self.adb.tap(click_x, click_y)
+                                        time.sleep(1.0)
+
+                                        # Run training flow with target time
+                                        success = barracks_training_flow(
+                                            self.adb,
+                                            soldier_level=4,
+                                            target_hours=target_hours,
+                                            debug=True
+                                        )
+                                        if success:
+                                            trained += 1
+                                            self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training started")
+                                        else:
+                                            self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training failed")
+
+                                        time.sleep(0.5)
+
+                                    self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: Started {trained}/{pending_count} barrack(s)")
+                                else:
+                                    self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Could not determine time until next Soldier Training event")
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
