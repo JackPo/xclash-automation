@@ -109,6 +109,7 @@ UNION_TECHNOLOGY_COOLDOWN = 3600   # 1 hour between union technology donations
 UNION_FLOW_SEPARATION = 600        # 10 minutes minimum between union gifts and union technology
 SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collection attempts
 BAG_FLOW_COOLDOWN = 3600           # 1 hour between bag flow runs
+GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
 UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes idle required for union gifts
 
 # Recovery

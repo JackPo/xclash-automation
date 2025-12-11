@@ -67,7 +67,7 @@ from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_s
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
 from utils.arms_race import get_arms_race_status
 
 # Import configurable parameters
@@ -82,6 +82,7 @@ from config import (
     UNION_FLOW_SEPARATION,
     SOLDIER_TRAINING_COOLDOWN,
     BAG_FLOW_COOLDOWN,
+    GIFT_BOX_COOLDOWN,
     UNION_GIFTS_IDLE_THRESHOLD,
     UNKNOWN_STATE_TIMEOUT,
     STAMINA_REGION,
@@ -176,6 +177,10 @@ class IconDaemon:
         # Bag flow cooldown - once per hour, requires 5 min idle
         self.last_bag_flow_time = 0
         self.BAG_FLOW_COOLDOWN = BAG_FLOW_COOLDOWN
+
+        # Gift box flow cooldown - once per hour, requires WORLD view + 5 min idle
+        self.last_gift_box_time = 0
+        self.GIFT_BOX_COOLDOWN = GIFT_BOX_COOLDOWN
 
         # Union technology cooldown - once per hour, requires 20 min idle
         # Must be 10 min apart from union gifts to avoid clobbering
@@ -1154,6 +1159,13 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
                     self.last_bag_flow_time = current_time
                     self._run_flow("bag", bag_flow)
+
+                # Gift box flow: requires WORLD view, 5 min idle, 1 hour cooldown
+                gift_box_cooldown_ok = (current_time - self.last_gift_box_time) >= self.GIFT_BOX_COOLDOWN
+                if town_present and harvest_idle_ok and gift_box_cooldown_ok:
+                    self.logger.info(f"[{iteration}] GIFT BOX: idle={idle_str}, triggering flow...")
+                    self.last_gift_box_time = current_time
+                    self._run_flow("gift_box", gift_box_flow)
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
                 # Track continuous idle start time

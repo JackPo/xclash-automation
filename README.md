@@ -30,6 +30,8 @@ These features run continuously and don't require any special timing:
 - **AFK Rewards**: Claims idle/AFK reward popups (1h cooldown)
 - **Union Gifts**: Collects alliance gift packages (when idle 20+ min, 1h cooldown)
 - **Union Technology Donations**: Donates to alliance technology research (when idle 20+ min, 1h cooldown, 10 min separation from Union Gifts)
+- **Bag Items**: Opens bag and claims items from all tabs - Special (chests), Hero (chests), Resources (diamonds) (5 min idle, 1h cooldown)
+- **Gift Box Rewards**: Claims accumulated loot rewards from gift box icon in WORLD view (5 min idle, 1h cooldown)
 - **Rally Joining**: Automatically joins Union War rallies based on monster type and level (disabled by default, see config)
 
 ### Rally Joining & Union Boss Mode
@@ -576,6 +578,8 @@ These flows detect standard UI popups and work on any account:
 | Treasure Map | `treasure_map_matcher.py` | `treasure_map_flow.py` | Always active |
 | Harvest Box | `harvest_box_matcher.py` | `harvest_box_flow.py` | Always active |
 | AFK Rewards | `afk_rewards_matcher.py` | `afk_rewards_flow.py` | 5 min idle, 1h cooldown |
+| Bag Items | (idle-based) | `bag_flow.py` | TOWN view, 5 min idle, 1h cooldown |
+| Gift Box | (idle-based) | `gift_box_flow.py` | WORLD view, 5 min idle, 1h cooldown |
 
 ### Barracks Soldier Training (Automated)
 
@@ -738,7 +742,7 @@ The daemon includes robust recovery mechanisms for common failure scenarios:
 
 See [docs/future_steps.md](docs/future_steps.md) for a comprehensive list of planned features and enhancement opportunities.
 
-**Current Coverage**: 3/5 Arms Race events automated, 20+ automation flows
+**Current Coverage**: 3/5 Arms Race events automated, 24+ automation flows
 
 **High Priority Additions**:
 - City Construction Event automation (complete Arms Race to 4/5)
