@@ -6,18 +6,28 @@ Each barracks has a floating bubble icon above it indicating its state:
 - Yellow soldier face = READY (soldiers ready to collect)
 - White/gray soldier face = PENDING (idle, can start training)
 
-Detection logic (explicit template matching for all states):
-1. Check stopwatch template → TRAINING
-2. Check yellow soldier template → READY
-3. Check white soldier template → PENDING
-4. No match → UNKNOWN
+Detection logic (hybrid template matching + yellow pixel counting):
+1. Template matching with TM_SQDIFF_NORMED (threshold: 0.08)
+2. If stopwatch passes AND is best match → TRAINING
+3. If yellow OR white passes → use yellow pixel verification:
+   - Count yellow pixels in HSV (H:15-45, S:100-255, V:100-255)
+   - If yellow_pixels >= 1500 → READY (yellow soldier has ~2600 pixels)
+   - If yellow_pixels < 1500 → PENDING (white soldier has ~0 pixels)
+4. No template passes → UNKNOWN
+
+Yellow pixel counting provides definitive READY vs PENDING distinction,
+even when template scores are borderline due to animation variance.
 
 Barracks positions are configured in config.py (BARRACKS_POSITIONS).
 
+Config settings:
+- BARRACKS_MATCH_THRESHOLD = 0.08 (relaxed for animation variance)
+- BARRACKS_YELLOW_PIXEL_THRESHOLD = 1500 (separates READY from PENDING)
+
 Templates:
-- stopwatch_barrack_4k.png - Timer icon for TRAINING state
-- yellow_soldier_barrack_4k.png - Yellow soldier for READY state
-- white_soldier_barrack_4k.png - White soldier for PENDING state
+- stopwatch_barrack_4k.png - Timer icon for TRAINING state (~1000 yellow pixels)
+- yellow_soldier_barrack_4k.png - Yellow soldier for READY state (~2600 yellow pixels)
+- white_soldier_barrack_4k.png - White soldier for PENDING state (~0 yellow pixels)
 """
 
 from pathlib import Path
