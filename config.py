@@ -183,7 +183,7 @@ THRESHOLDS = {
 # Position where each barracks bubble appears (top-left corner of 81x87 template)
 BARRACKS_POSITIONS = [
     (2891, 1317),  # Barrack 1 - lowest/rightmost
-    (2787, 1137),  # Barrack 2 - middle left (fixed: was 2768,1237 - 100px Y error)
+    (2768, 1237),  # Barrack 2 - middle left
     (3005, 1237),  # Barrack 3 - middle right
     (2883, 1157),  # Barrack 4 - highest/center
 ]
@@ -192,8 +192,12 @@ BARRACKS_POSITIONS = [
 BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height
 
 # Match threshold for barracks state (TM_SQDIFF_NORMED)
-# Increased from 0.06 to 0.07 to account for bubble animation variance
-BARRACKS_MATCH_THRESHOLD = 0.07
+# Relaxed to 0.08 to handle animation variance, with yellow pixel verification
+BARRACKS_MATCH_THRESHOLD = 0.08
+
+# Yellow pixel threshold for READY vs PENDING verification
+# READY (yellow soldier) has ~2600 yellow pixels, PENDING (white) has ~0
+BARRACKS_YELLOW_PIXEL_THRESHOLD = 1500
 
 # Default soldier level to train when NOT in Arms Race Soldier Training event
 # During Arms Race Soldier Training, this may be overridden to train higher levels

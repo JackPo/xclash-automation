@@ -25,7 +25,7 @@ import cv2
 import numpy as np
 from enum import Enum
 
-from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_THRESHOLD
+from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_THRESHOLD, BARRACKS_YELLOW_PIXEL_THRESHOLD
 
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
@@ -83,6 +83,26 @@ class BarracksStateMatcher:
         result = cv2.matchTemplate(roi, template_gray, cv2.TM_SQDIFF_NORMED)
         return result[0][0]
 
+    def _count_yellow_pixels(self, roi_bgr):
+        """
+        Count yellow pixels in ROI using HSV color space.
+
+        Used to distinguish READY (yellow soldier ~2600 pixels) from
+        PENDING (white soldier ~0 pixels) when template scores are ambiguous.
+
+        Args:
+            roi_bgr: BGR numpy array of the barrack bubble ROI
+
+        Returns:
+            int: Number of yellow pixels in the ROI
+        """
+        hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+        # Yellow in HSV: Hue 15-45, high Saturation, high Value
+        lower_yellow = np.array([15, 100, 100])
+        upper_yellow = np.array([45, 255, 255])
+        mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        return np.count_nonzero(mask)
+
     def get_barrack_scores(self, frame, barrack_index, frame_gray=None):
         """
         Get all template scores for a single barrack.
@@ -124,8 +144,13 @@ class BarracksStateMatcher:
         """
         Get the state of a single barrack.
 
-        Uses explicit template matching - picks the template with the LOWEST score
-        (best match) among those that pass the threshold.
+        Detection logic:
+        1. If stopwatch passes threshold AND is best match → TRAINING
+        2. If yellow OR white passes threshold:
+           - Count yellow pixels in ROI
+           - If yellow_pixels >= threshold → READY
+           - Else → PENDING
+        3. No template passes → UNKNOWN
 
         Args:
             frame: BGR numpy array screenshot
@@ -143,18 +168,31 @@ class BarracksStateMatcher:
 
         scores = self.get_barrack_scores(frame, barrack_index, frame_gray)
 
-        # Find all templates that pass threshold, pick the one with lowest score
-        candidates = []
-        if scores['stopwatch'] <= MATCH_THRESHOLD:
-            candidates.append((BarrackState.TRAINING, scores['stopwatch']))
-        if scores['yellow'] <= MATCH_THRESHOLD:
-            candidates.append((BarrackState.READY, scores['yellow']))
-        if scores['white'] <= MATCH_THRESHOLD:
-            candidates.append((BarrackState.PENDING, scores['white']))
+        # Check which templates pass threshold
+        stopwatch_pass = scores['stopwatch'] <= MATCH_THRESHOLD
+        yellow_pass = scores['yellow'] <= MATCH_THRESHOLD
+        white_pass = scores['white'] <= MATCH_THRESHOLD
 
-        if candidates:
-            # Return the state with the lowest (best) score
-            return min(candidates, key=lambda x: x[1])
+        # If stopwatch passes and is the best match, it's TRAINING
+        if stopwatch_pass:
+            if scores['stopwatch'] <= scores['yellow'] and scores['stopwatch'] <= scores['white']:
+                return BarrackState.TRAINING, scores['stopwatch']
+
+        # If yellow or white passes, use yellow pixel counting to distinguish
+        if yellow_pass or white_pass:
+            x, y = BARRACKS_POSITIONS[barrack_index]
+            tw, th = TEMPLATE_SIZE
+            roi_bgr = frame[y:y+th, x:x+tw]
+            yellow_pixels = self._count_yellow_pixels(roi_bgr)
+
+            if yellow_pixels >= BARRACKS_YELLOW_PIXEL_THRESHOLD:
+                return BarrackState.READY, scores['yellow']
+            else:
+                return BarrackState.PENDING, scores['white']
+
+        # Stopwatch passed but wasn't best - still TRAINING
+        if stopwatch_pass:
+            return BarrackState.TRAINING, scores['stopwatch']
 
         # No match - return UNKNOWN with best score for debugging
         best_score = min(scores['stopwatch'], scores['yellow'], scores['white'])
