@@ -63,7 +63,7 @@ from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view
-from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states
+from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states, format_barracks_states_detailed
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
@@ -639,6 +639,12 @@ class IconDaemon:
 
                 # Always print scores to stdout with view state, stamina, barracks, and arms race
                 print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+
+                # Log detailed barracks scores (s=stopwatch, y=yellow, w=white)
+                # Only log when barracks has UNKNOWN or PENDING state (to avoid noise)
+                if "?" in barracks_state_str or "P" in barracks_state_str:
+                    barracks_detailed = format_barracks_states_detailed(frame)
+                    self.logger.info(f"[{iteration}] Barracks detailed: {barracks_detailed}")
 
                 # Track UNKNOWN state duration
                 if view_state == "UNKNOWN":

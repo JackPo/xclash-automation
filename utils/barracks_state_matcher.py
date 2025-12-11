@@ -6,17 +6,18 @@ Each barracks has a floating bubble icon above it indicating its state:
 - Yellow soldier face = READY (soldiers ready to collect)
 - White/gray soldier face = PENDING (idle, can start training)
 
-Detection logic:
-1. Check for timer/stopwatch template → TRAINING
-2. If no timer, check yellow pixels:
-   - >10% yellow → READY
-   - Otherwise → PENDING
+Detection logic (explicit template matching for all states):
+1. Check stopwatch template → TRAINING
+2. Check yellow soldier template → READY
+3. Check white soldier template → PENDING
+4. No match → UNKNOWN
 
 Barracks positions are configured in config.py (BARRACKS_POSITIONS).
 
 Templates:
 - stopwatch_barrack_4k.png - Timer icon for TRAINING state
-- yellow_soldier_barrack_4k.png - Reference for READY detection
+- yellow_soldier_barrack_4k.png - Yellow soldier for READY state
+- white_soldier_barrack_4k.png - White soldier for PENDING state
 """
 
 from pathlib import Path
@@ -82,17 +83,54 @@ class BarracksStateMatcher:
         result = cv2.matchTemplate(roi, template_gray, cv2.TM_SQDIFF_NORMED)
         return result[0][0]
 
-    def get_barrack_state(self, frame, barrack_index):
+    def get_barrack_scores(self, frame, barrack_index, frame_gray=None):
         """
-        Get the state of a single barrack.
-
-        Uses hybrid approach:
-        1. Check stopwatch template for PENDING state
-        2. If no stopwatch, use pixel counting to distinguish READY vs TRAINING
+        Get all template scores for a single barrack.
 
         Args:
             frame: BGR numpy array screenshot
             barrack_index: 0-3 for the 4 barracks
+            frame_gray: Optional pre-computed grayscale frame
+
+        Returns:
+            dict with 'stopwatch', 'yellow', 'white' scores (1.0 if template not loaded)
+        """
+        scores = {'stopwatch': 1.0, 'yellow': 1.0, 'white': 1.0}
+
+        if barrack_index < 0 or barrack_index >= len(BARRACKS_POSITIONS):
+            return scores
+
+        x, y = BARRACKS_POSITIONS[barrack_index]
+
+        if frame_gray is None:
+            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        if self.stopwatch_template is not None:
+            scores['stopwatch'] = self._match_template_at_position(
+                frame_gray, self.stopwatch_gray, x, y
+            )
+        if self.yellow_template is not None:
+            scores['yellow'] = self._match_template_at_position(
+                frame_gray, self.yellow_gray, x, y
+            )
+        if self.white_template is not None:
+            scores['white'] = self._match_template_at_position(
+                frame_gray, self.white_gray, x, y
+            )
+
+        return scores
+
+    def get_barrack_state(self, frame, barrack_index, frame_gray=None):
+        """
+        Get the state of a single barrack.
+
+        Uses explicit template matching - picks the template with the LOWEST score
+        (best match) among those that pass the threshold.
+
+        Args:
+            frame: BGR numpy array screenshot
+            barrack_index: 0-3 for the 4 barracks
+            frame_gray: Optional pre-computed grayscale frame
 
         Returns:
             (BarrackState, best_score) tuple
@@ -100,40 +138,27 @@ class BarracksStateMatcher:
         if barrack_index < 0 or barrack_index >= len(BARRACKS_POSITIONS):
             return BarrackState.UNKNOWN, 1.0
 
-        x, y = BARRACKS_POSITIONS[barrack_index]
-        tw, th = TEMPLATE_SIZE
+        if frame_gray is None:
+            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Step 1: Check for stopwatch/timer (TRAINING)
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        if self.stopwatch_template is not None:
-            stopwatch_score = self._match_template_at_position(
-                frame_gray, self.stopwatch_gray, x, y
-            )
-            if stopwatch_score <= MATCH_THRESHOLD:
-                return BarrackState.TRAINING, stopwatch_score
+        scores = self.get_barrack_scores(frame, barrack_index, frame_gray)
 
-        # Step 2: No timer - distinguish READY vs PENDING by yellow pixels
-        # Extract the ROI
-        roi = frame[y:y+th, x:x+tw]
-        if roi.shape[0] != th or roi.shape[1] != tw:
-            return BarrackState.UNKNOWN, 1.0
+        # Find all templates that pass threshold, pick the one with lowest score
+        candidates = []
+        if scores['stopwatch'] <= MATCH_THRESHOLD:
+            candidates.append((BarrackState.TRAINING, scores['stopwatch']))
+        if scores['yellow'] <= MATCH_THRESHOLD:
+            candidates.append((BarrackState.READY, scores['yellow']))
+        if scores['white'] <= MATCH_THRESHOLD:
+            candidates.append((BarrackState.PENDING, scores['white']))
 
-        b, g, r = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
+        if candidates:
+            # Return the state with the lowest (best) score
+            return min(candidates, key=lambda x: x[1])
 
-        # Count yellow pixels (READY = yellow border)
-        # Yellow: high R (>150), high G (>150), low B (<100)
-        yellow_mask = (r > 150) & (g > 150) & (b < 100)
-        yellow_count = int(yellow_mask.sum())
-
-        total_pixels = tw * th
-        yellow_pct = yellow_count / total_pixels
-
-        # READY template has ~15% yellow pixels
-        if yellow_pct > 0.10:  # More than 10% yellow = READY
-            return BarrackState.READY, yellow_pct
-        else:
-            # No timer, no yellow = PENDING (idle, can start training)
-            return BarrackState.PENDING, 1.0 - yellow_pct
+        # No match - return UNKNOWN with best score for debugging
+        best_score = min(scores['stopwatch'], scores['yellow'], scores['white'])
+        return BarrackState.UNKNOWN, best_score
 
     def get_all_states(self, frame):
         """
@@ -193,6 +218,33 @@ class BarracksStateMatcher:
 
         return " ".join(parts)
 
+    def format_states_detailed(self, frame):
+        """
+        Format barrack states with all template scores for debugging.
+
+        Args:
+            frame: BGR numpy array screenshot
+
+        Returns:
+            String with state and all scores for each barrack
+        """
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        parts = []
+        for i in range(4):
+            state, _ = self.get_barrack_state(frame, i, frame_gray)
+            scores = self.get_barrack_scores(frame, i, frame_gray)
+            state_char = {
+                BarrackState.READY: "R",
+                BarrackState.PENDING: "P",
+                BarrackState.TRAINING: "T",
+                BarrackState.UNKNOWN: "?"
+            }.get(state, "?")
+            parts.append(
+                f"B{i+1}:{state_char}(s={scores['stopwatch']:.3f},y={scores['yellow']:.3f},w={scores['white']:.3f})"
+            )
+
+        return " ".join(parts)
+
 
 # Singleton instance
 _matcher = None
@@ -228,3 +280,16 @@ def format_barracks_states(frame):
         String like "B1:R B2:T B3:P B4:T"
     """
     return get_matcher().format_states(frame)
+
+
+def format_barracks_states_detailed(frame):
+    """
+    Convenience function to get detailed barrack states with all scores.
+
+    Args:
+        frame: BGR numpy array screenshot
+
+    Returns:
+        String like "B1:R(s=0.100,y=0.030,w=0.080) B2:T(s=0.020,y=0.150,w=0.140) ..."
+    """
+    return get_matcher().format_states_detailed(frame)
