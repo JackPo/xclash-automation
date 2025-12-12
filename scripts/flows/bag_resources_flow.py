@@ -32,14 +32,15 @@ from scripts.flows.bag_use_item_subflow import use_item_subflow
 BAG_BUTTON_REGION = (3679, 1577, 86, 93)
 BAG_BUTTON_CLICK = (3732, 1633)
 
-RESOURCES_TAB_REGION = (1732, 2018, 179, 111)
-RESOURCES_TAB_CLICK = (1821, 2073)
+RESOURCES_TAB_REGION = (1732, 2018, 179, 111)  # Inactive tab region
+RESOURCES_TAB_ACTIVE_REGION = (1720, 2013, 223, 127)  # Active tab region
+RESOURCES_TAB_CLICK = (1831, 2076)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
 # Thresholds
 DIAMOND_THRESHOLD = 0.01
-VERIFICATION_THRESHOLD = 0.1
+VERIFICATION_THRESHOLD = 0.01
 
 # Template paths
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
@@ -111,7 +112,8 @@ def bag_resources_flow(adb, win=None, debug: bool = False, open_bag: bool = True
     # Load templates
     bag_template = _load_template("bag_button_4k.png")
     bag_tab_template = _load_template("bag_tab_4k.png")
-    resources_tab_template = _load_template("bag_resources_tab_4k.png")
+    resources_tab_template = _load_template("bag_resources_tab_4k.png")  # Inactive
+    resources_tab_active_template = _load_template("bag_resources_tab_active_4k.png")  # Active
     diamond_template = _load_template("bag_diamond_icon_4k.png")
 
     # Step 1: Open bag if requested
@@ -147,24 +149,46 @@ def bag_resources_flow(adb, win=None, debug: bool = False, open_bag: bool = True
         if debug:
             print(f"  Bag tab verified - bag is open (score={score:.4f})")
 
-    # Step 2: Verify and click Resources tab
+    # Step 2: Check Resources tab state and activate if needed
     if debug:
-        print("Step 2: Clicking Resources tab...")
+        print("Step 2: Checking Resources tab...")
 
     frame = win.get_screenshot_cv2()
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    is_present, score = _verify_at_fixed_region(frame_gray, resources_tab_template, RESOURCES_TAB_REGION)
-    if not is_present:
+    # First check if Resources tab is already ACTIVE
+    is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_ACTIVE_REGION)
+    if is_active:
         if debug:
-            print(f"  Resources tab not found (score={score:.4f})")
-        return 0
+            print(f"  Resources tab already ACTIVE (score={active_score:.4f})")
+    else:
+        # Check for INACTIVE Resources tab
+        is_present, inactive_score = _verify_at_fixed_region(frame_gray, resources_tab_template, RESOURCES_TAB_REGION)
+        if debug:
+            print(f"  Resources tab ACTIVE check: score={active_score:.4f}, INACTIVE check: score={inactive_score:.4f}")
 
-    if debug:
-        print(f"  Resources tab verified (score={score:.4f}), clicking...")
+        if not is_present:
+            if debug:
+                print(f"  Resources tab not found (neither active nor inactive)")
+            return 0
 
-    adb.tap(*RESOURCES_TAB_CLICK)
-    time.sleep(0.5)
+        # Click inactive tab to activate it
+        if debug:
+            print(f"  Clicking Resources tab to activate...")
+        adb.tap(*RESOURCES_TAB_CLICK)
+        time.sleep(0.5)
+
+        # Verify it's now ACTIVE
+        frame = win.get_screenshot_cv2()
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_ACTIVE_REGION)
+        if not is_active:
+            if debug:
+                print(f"  Resources tab still not active after click (score={active_score:.4f})")
+            return 0
+
+        if debug:
+            print(f"  Resources tab is now ACTIVE (score={active_score:.4f})")
 
     # Step 3: Loop - find and process diamonds one at a time, rescan after each
     diamond_count = 0

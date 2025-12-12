@@ -41,7 +41,7 @@ SPECIAL_TAB_CLICK = (1602, 2080)  # Only needed if switching from another tab
 
 # Thresholds
 CHEST_THRESHOLD = 0.01  # Very strict matching
-VERIFICATION_THRESHOLD = 0.1
+VERIFICATION_THRESHOLD = 0.01
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 

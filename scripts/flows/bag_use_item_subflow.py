@@ -35,7 +35,9 @@ BACK_BUTTON_CLICK = (1407, 2055)
 # Bag header region for verification (same as bag_special_flow)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
-VERIFICATION_THRESHOLD = 0.1
+# Thresholds - bag header needs strict 0.01, dialog elements (use button, slider) can be looser
+BAG_HEADER_THRESHOLD = 0.01
+DIALOG_THRESHOLD = 0.1  # Use button/slider detection
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
@@ -67,7 +69,7 @@ def _get_templates():
 
 
 def _verify_bag_screen(frame_gray: np.ndarray, bag_tab_template: np.ndarray,
-                       threshold: float = VERIFICATION_THRESHOLD) -> tuple[bool, float]:
+                       threshold: float = BAG_HEADER_THRESHOLD) -> tuple[bool, float]:
     """Check if the Bag header is visible."""
     x, y, w, h = BAG_TAB_REGION
     roi = frame_gray[y:y+h, x:x+w]
@@ -77,7 +79,7 @@ def _verify_bag_screen(frame_gray: np.ndarray, bag_tab_template: np.ndarray,
 
 
 def _find_use_button(frame_gray: np.ndarray, template: np.ndarray,
-                     threshold: float = VERIFICATION_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
+                     threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
     """
     Find Use button in the search region.
 
@@ -101,7 +103,7 @@ def _find_use_button(frame_gray: np.ndarray, template: np.ndarray,
 
 
 def _find_slider(frame_gray: np.ndarray, slider_template: np.ndarray,
-                 threshold: float = VERIFICATION_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
+                 threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
     """
     Find slider circle in the search region.
 

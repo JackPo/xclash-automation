@@ -38,7 +38,7 @@ HERO_TAB_ACTIVE_REGION = (2165, 2015, 200, 127)  # Hero tab when ACTIVE/selected
 
 # Thresholds
 CHEST_THRESHOLD = 0.01
-VERIFICATION_THRESHOLD = 0.1
+VERIFICATION_THRESHOLD = 0.01
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
@@ -134,37 +134,46 @@ def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> 
         if debug:
             print(f"  Bag tab verified - bag is open (score={score:.4f})")
 
-    # Step 2: Verify and click Hero tab
+    # Step 2: Check Hero tab state and activate if needed
     if debug:
-        print("Step 2: Clicking Hero tab...")
+        print("Step 2: Checking Hero tab...")
 
     frame = win.get_screenshot_cv2()
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    is_present, score = _verify_at_fixed_region(frame_gray, hero_tab_template, HERO_TAB_REGION)
-    if not is_present:
+    # First check if Hero tab is already ACTIVE
+    is_active, active_score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_ACTIVE_REGION)
+    if is_active:
         if debug:
-            print(f"  Hero tab not found (score={score:.4f})")
-        return 0
-
-    if debug:
-        print(f"  Hero tab verified (score={score:.4f}), clicking...")
-
-    adb.tap(*HERO_TAB_CLICK)
-    time.sleep(0.5)
-
-    # VERIFY Hero tab is now ACTIVE
-    frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    is_active, score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_ACTIVE_REGION)
-    if not is_active:
+            print(f"  Hero tab already ACTIVE (score={active_score:.4f})")
+    else:
+        # Check for INACTIVE Hero tab
+        is_present, inactive_score = _verify_at_fixed_region(frame_gray, hero_tab_template, HERO_TAB_REGION)
         if debug:
-            print(f"  Hero tab not active (score={score:.4f})")
-        return 0
+            print(f"  Hero tab ACTIVE check: score={active_score:.4f}, INACTIVE check: score={inactive_score:.4f}")
 
-    if debug:
-        print(f"  Hero tab is ACTIVE (score={score:.4f})")
+        if not is_present:
+            if debug:
+                print(f"  Hero tab not found (neither active nor inactive)")
+            return 0
+
+        # Click inactive tab to activate it
+        if debug:
+            print(f"  Clicking Hero tab to activate...")
+        adb.tap(*HERO_TAB_CLICK)
+        time.sleep(0.5)
+
+        # Verify it's now ACTIVE
+        frame = win.get_screenshot_cv2()
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        is_active, active_score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_ACTIVE_REGION)
+        if not is_active:
+            if debug:
+                print(f"  Hero tab still not active after click (score={active_score:.4f})")
+            return 0
+
+        if debug:
+            print(f"  Hero tab is now ACTIVE (score={active_score:.4f})")
 
     # Step 3: Loop - find and process chests one at a time, rescan after each
     chest_count = 0
