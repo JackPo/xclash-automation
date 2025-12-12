@@ -14,6 +14,8 @@ import time
 import subprocess
 from pathlib import Path
 
+import cv2
+
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
 from utils.back_button_matcher import BackButtonMatcher
@@ -27,7 +29,7 @@ BACK_BUTTON_CLICK = (1407, 2055)
 
 # Recovery limits
 MAX_BACK_CLICKS = 5
-MAX_RECOVERY_ATTEMPTS = 15  # Try more attempts before restarting game
+MAX_RECOVERY_ATTEMPTS = 30  # Try more attempts before restarting game
 
 
 def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
@@ -168,7 +170,14 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Check for back button
             back_present, back_score = back_matcher.is_present(frame)
             if back_present:
+                # Save debug screenshot before back click
+                debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                debug_path = debug_dir / f"return_back_click_a{attempt+1}_c{back_clicks+1}_{timestamp}.png"
+                cv2.imwrite(str(debug_path), frame)
                 if debug:
+                    print(f"    [RETURN] Saved debug screenshot: {debug_path.name}")
                     print(f"    [RETURN] Back button visible (score={back_score:.3f}), clicking...")
                 adb.tap(*BACK_BUTTON_CLICK)
                 back_clicks += 1
@@ -188,6 +197,16 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 return True
 
         # Phase 3: Unknown state - try clicking back button location to dismiss popup
+        # Save debug screenshot before blind back click
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            debug_path = debug_dir / f"return_unknown_state_a{attempt+1}_{timestamp}.png"
+            cv2.imwrite(str(debug_path), frame)
+            if debug:
+                print(f"    [RETURN] Saved UNKNOWN state screenshot: {debug_path.name}")
         if debug:
             print("    [RETURN] Unknown state, clicking back button location...")
         adb.tap(*BACK_BUTTON_CLICK)
@@ -213,8 +232,28 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
     # STEP 3: All attempts failed - restart app and RETRY
+    # CRITICAL: Save debug screenshot with detailed marker BEFORE restart
+    frame = win.get_screenshot_cv2()
+    if frame is not None:
+        debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        debug_path = debug_dir / f"RESTART_TRIGGER_{timestamp}.png"
+        cv2.imwrite(str(debug_path), frame)
+        # Also detect view state for the marker
+        view_state, view_score = detect_view(frame)
+        back_present, back_score = back_matcher.is_present(frame)
+        print(f"    [RETURN] *** RESTART TRIGGERED ***")
+        print(f"    [RETURN] Screenshot saved: {debug_path.name}")
+        print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")
+        print(f"    [RETURN] Back button present: {back_present} (score={back_score:.3f})")
+        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
+    else:
+        print(f"    [RETURN] *** RESTART TRIGGERED (no screenshot available) ***")
+        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
+
     if debug:
-        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts failed, restarting app...")
+        print(f"    [RETURN] Restarting app...")
     _start_app(adb, debug)
 
     if debug:

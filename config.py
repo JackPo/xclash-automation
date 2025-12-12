@@ -27,6 +27,13 @@ DAEMON_INTERVAL = 2.0              # Check interval (seconds)
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
+# Idle detection mode
+# True = BlueStacks-specific (only tracks input while BlueStacks window is focused)
+#        - Typing in Chrome does NOT reset idle timer
+#        - Only clicking/typing IN BlueStacks resets idle
+# False = System-wide (any keyboard/mouse input resets idle timer)
+USE_BLUESTACKS_IDLE = True
+
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required

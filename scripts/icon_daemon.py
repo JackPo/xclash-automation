@@ -60,6 +60,7 @@ from utils.back_button_matcher import BackButtonMatcher
 from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
+from utils.bluestacks_idle_detector import get_bluestacks_idle_detector, format_bluestacks_idle_time
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view
@@ -74,6 +75,7 @@ from utils.arms_race import get_arms_race_status
 from config import (
     IDLE_THRESHOLD,
     IDLE_CHECK_INTERVAL,
+    USE_BLUESTACKS_IDLE,
     ELITE_ZOMBIE_STAMINA_THRESHOLD,
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
     AFK_REWARDS_COOLDOWN,
@@ -161,6 +163,9 @@ class IconDaemon:
         self.last_idle_check_time = 0
         self.IDLE_THRESHOLD = IDLE_THRESHOLD
         self.IDLE_CHECK_INTERVAL = IDLE_CHECK_INTERVAL
+
+        # BlueStacks-specific idle detection
+        self.bluestacks_idle_detector = get_bluestacks_idle_detector()
 
         # Elite zombie rally - stamina threshold (from config)
         self.ELITE_ZOMBIE_STAMINA_THRESHOLD = ELITE_ZOMBIE_STAMINA_THRESHOLD
@@ -616,14 +621,18 @@ class IconDaemon:
                         march_x, march_y, _ = march_match
                         # Check prerequisites: TOWN or WORLD view, idle, cooldown
                         view_state, _ = detect_view(frame)
-                        idle_secs = get_idle_seconds()
+                        # Get idle based on config
+                        self.bluestacks_idle_detector.update()
+                        rally_sys_idle = get_idle_seconds()
+                        rally_bs_idle = self.bluestacks_idle_detector.get_bluestacks_idle_seconds()
+                        rally_effective_idle = rally_bs_idle if USE_BLUESTACKS_IDLE else rally_sys_idle
 
                         # Union Boss mode: faster cooldown (15s instead of 30s)
                         in_union_boss_mode = current_time < self.union_boss_mode_until
                         rally_cooldown = UNION_BOSS_RALLY_COOLDOWN if in_union_boss_mode else RALLY_MARCH_BUTTON_COOLDOWN
                         rally_cooldown_elapsed = (current_time - self.last_rally_march_click) >= rally_cooldown
 
-                        rally_idle_ok = idle_secs >= IDLE_THRESHOLD
+                        rally_idle_ok = rally_effective_idle >= IDLE_THRESHOLD
                         rally_view_ok = view_state in [ViewState.TOWN, ViewState.WORLD]
 
                         # Log Union Boss mode status
@@ -693,9 +702,19 @@ class IconDaemon:
                 world_present = (view_state == "TOWN")
                 town_present = (view_state == "WORLD")
 
-                # Get idle time
+                # Get idle time (system-wide)
                 idle_secs = get_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
+
+                # Get BlueStacks-specific idle time
+                self.bluestacks_idle_detector.update()
+                bs_idle_secs = self.bluestacks_idle_detector.get_bluestacks_idle_seconds()
+                bs_idle_str = format_bluestacks_idle_time(bs_idle_secs)
+
+                # Choose effective idle based on config (USE_BLUESTACKS_IDLE)
+                # True = BlueStacks-specific (typing in Chrome doesn't reset idle)
+                # False = System-wide (any input resets idle)
+                effective_idle_secs = bs_idle_secs if USE_BLUESTACKS_IDLE else idle_secs
 
                 # Get Pacific time for logging
                 pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
@@ -714,7 +733,7 @@ class IconDaemon:
                 vs_indicator = " [VS:Promo]" if vs_promo_active else ""
 
                 # Always print scores to stdout with view state, stamina, barracks, and arms race
-                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} bs:{bs_idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Log detailed barracks scores (s=stopwatch, y=yellow, w=white)
                 # Only log when barracks has UNKNOWN or PENDING state (to avoid noise)
@@ -745,7 +764,7 @@ class IconDaemon:
                                 self.unknown_state_left_time = None
 
                 # UNKNOWN state recovery - if in UNKNOWN for 1+ min AND idle 5+ min, run return_to_base_view
-                if view_state == "UNKNOWN" and idle_secs >= self.IDLE_THRESHOLD:
+                if view_state == "UNKNOWN" and effective_idle_secs >= self.IDLE_THRESHOLD:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
                         if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT:
@@ -760,7 +779,7 @@ class IconDaemon:
                             continue  # Skip rest of iteration, start fresh
 
                 # Idle recovery - every 5 min when idle 5+ min, go to town and ensure alignment
-                if idle_secs >= self.IDLE_THRESHOLD:
+                if effective_idle_secs >= self.IDLE_THRESHOLD:
                     current_time = time.time()
                     if current_time - self.last_idle_check_time >= self.IDLE_CHECK_INTERVAL:
                         self.last_idle_check_time = current_time
@@ -803,7 +822,7 @@ class IconDaemon:
                 confirmed_stamina = self.stamina_history[-1] if stamina_confirmed else None
 
                 # Elite zombie rally - stamina >= 118 and idle 5+ min
-                if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and idle_secs >= self.IDLE_THRESHOLD:
+                if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and effective_idle_secs >= self.IDLE_THRESHOLD:
                     self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
                     self._run_flow("elite_zombie", elite_zombie_flow, critical=True)
                     self.stamina_history = []  # Reset after triggering
@@ -830,7 +849,7 @@ class IconDaemon:
 
                     # Check if user was idle since block start (required for Use button)
                     time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
-                    idle_since_block_start = idle_secs >= time_elapsed_secs
+                    idle_since_block_start = effective_idle_secs >= time_elapsed_secs
 
                     # Stamina Claim: if stamina < 60 AND red dot visible, try to claim free stamina
                     # Track if claim was attempted (to know if we should try Use button)
@@ -894,7 +913,7 @@ class IconDaemon:
                         # User must be idle since the START of the Enhance Hero block
                         # (not just idle for 5 minutes)
                         time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
-                        if idle_secs >= time_elapsed_secs:
+                        if effective_idle_secs >= time_elapsed_secs:
                             idle_mins = int(idle_secs / 60)
                             elapsed_mins = int(time_elapsed_secs / 60)
                             self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins}min of Enhance Hero, idle {idle_mins}min >= {elapsed_mins}min since block start, triggering hero upgrade flow...")
@@ -910,7 +929,7 @@ class IconDaemon:
 
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
                     (is_soldier_event or is_vs_promotion_day) and
-                    idle_secs >= self.IDLE_THRESHOLD):
+                    effective_idle_secs >= self.IDLE_THRESHOLD):
                     trigger_reason = "VS Day" if is_vs_promotion_day and not is_soldier_event else "Soldier Training event"
                     self.logger.debug(f"[{iteration}] SOLDIER: Outer conditions PASS (reason={trigger_reason}, day={arms_race['day']}, event={arms_race_event}, idle={idle_secs}s)")
 
@@ -997,7 +1016,7 @@ class IconDaemon:
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
                     arms_race_event != "Soldier Training" and
                     not is_vs_promotion_day and  # Skip timed training on VS days - use immediate upgrades instead
-                    idle_secs >= self.IDLE_THRESHOLD):
+                    effective_idle_secs >= self.IDLE_THRESHOLD):
                     self.logger.debug(f"[{iteration}] NON-ARMS-RACE TRAINING: Outer conditions PASS (enabled={self.ARMS_RACE_SOLDIER_TRAINING_ENABLED}, event={arms_race_event}, idle={idle_secs}s)")
 
                     # Get current barracks states and update history (reuses same history as Arms Race section)
@@ -1082,7 +1101,7 @@ class IconDaemon:
 
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
-                harvest_idle_ok = idle_secs >= self.IDLE_THRESHOLD
+                harvest_idle_ok = effective_idle_secs >= self.IDLE_THRESHOLD
                 if not harvest_idle_ok:
                     self.logger.debug(f"[{iteration}] HARVEST: Blocked - idle time {idle_secs}s < threshold {self.IDLE_THRESHOLD}s")
                 harvest_aligned = False
@@ -1151,7 +1170,7 @@ class IconDaemon:
 
                 # Union gifts: requires TOWN view, 20 min idle, 1 hour cooldown
                 # Must be 10 min apart from union technology
-                union_idle_ok = idle_secs >= self.UNION_GIFTS_IDLE_THRESHOLD
+                union_idle_ok = effective_idle_secs >= self.UNION_GIFTS_IDLE_THRESHOLD
                 union_cooldown_ok = (current_time - self.last_union_gifts_time) >= self.UNION_GIFTS_COOLDOWN
                 union_separation_ok = (current_time - self.last_union_technology_time) >= self.UNION_FLOW_SEPARATION
                 if world_present and union_idle_ok and union_cooldown_ok and union_separation_ok:
@@ -1183,8 +1202,8 @@ class IconDaemon:
                     self._run_flow("gift_box", gift_box_flow)
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
-                # Track continuous idle start time
-                if idle_secs >= 5:  # Consider idle if no input for 5+ seconds
+                # Track continuous idle start time (using BlueStacks-specific idle)
+                if effective_idle_secs >= 5:  # Consider idle if no input for 5+ seconds
                     if self.continuous_idle_start is None:
                         self.continuous_idle_start = time.time()
                 else:

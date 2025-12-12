@@ -437,6 +437,26 @@ python scripts/icon_daemon.py --interval 5
 - Each daemon run also creates a timestamped log in `logs/daemon_YYYYMMDD_HHMMSS.log`
 - This ensures you can always find current daemon output at a consistent location
 
+### Idle Detection Modes
+
+The daemon supports two idle detection modes, controlled by `USE_BLUESTACKS_IDLE` in `config.py`:
+
+| Mode | Config Value | Behavior |
+|------|--------------|----------|
+| **BlueStacks-specific** | `USE_BLUESTACKS_IDLE = True` (default) | Only tracks input while BlueStacks is focused. Typing in Chrome does NOT reset idle timer. |
+| **System-wide** | `USE_BLUESTACKS_IDLE = False` | Any keyboard/mouse input anywhere resets idle timer. |
+
+**BlueStacks-specific mode** (recommended):
+- Idle time increases when user is typing/clicking in OTHER windows (Chrome, VS Code, etc.)
+- Idle time resets to 0 only when user clicks/types IN the BlueStacks window
+- Useful when multitasking - automation runs even while working in other apps
+
+**System-wide mode** (legacy):
+- Any keyboard/mouse input anywhere resets the idle timer
+- Automation only runs when user is completely away from keyboard
+
+The daemon logs both values: `idle:` (system-wide) and `bs:` (BlueStacks-specific).
+
 ### Idle Recovery (5 minutes)
 
 When user is idle for 5+ minutes, daemon automatically:
@@ -657,34 +677,48 @@ RALLY_MONSTERS = [
 
 ### Bag Flow (Idle-Triggered)
 
-**Trigger**: 5 min idle + 1 hour cooldown (navigates to TOWN itself)
+**Trigger**: TOWN view + 5 min idle + 1 hour cooldown
 
 **Flow sequence**:
 1. Navigate to TOWN view via `go_to_town()`
 2. Click bag button (3732, 1633)
-3. Run `bag_special_flow` - claim chests from Special tab
-4. Run `bag_hero_flow` - claim chests from Hero tab
+3. Run `bag_special_flow` - claim chests from Special tab (7 templates)
+4. Run `bag_hero_flow` - claim chests from Hero tab (2 templates)
 5. Run `bag_resources_flow` - claim diamonds from Resources tab
 6. Close bag and return to base view
 
-**Template matching**:
-- Strict 0.01 threshold to prevent false positives
-- Each subflow uses tab-specific templates (chest icons, diamond icons)
-- `bag_use_item_subflow` handles the shared Use dialog (slider drag to max + click)
+**Critical flow**: Runs with `critical=True` to block daemon's idle recovery from closing bag.
 
-**Templates**:
+**Template matching**:
+- Tab detection: 0.01 threshold (strict - prevents false "already active")
+- Item detection: 0.01 threshold (strict - prevents false positives)
+- Dialog elements (Use button, slider): 0.1 threshold (looser)
+- `bag_use_item_subflow` polls for Bag header before returning (not fixed timeout)
+
+**Special Tab Templates** (7):
+- `bag_chest_special_4k.png` - Open chest with blue gems
+- `bag_golden_chest_4k.png` - Golden wooden chest
+- `bag_green_chest_4k.png` - Green crystal chest
+- `bag_purple_gold_chest_4k.png` - Purple crystal chest
+- `bag_chest_blue_4k.png` - Blue/cyan crystal chest
+- `bag_chest_purple_4k.png` - Purple chest with gold trim
+- `bag_chest_question_4k.png` - Mystery chest with question mark
+
+**Hero Tab Templates** (2):
+- `bag_hero_chest_4k.png` - Green gem chest (blue background)
+- `bag_hero_chest_purple_4k.png` - Green gem chest (purple background)
+
+**Resources Tab Templates**:
+- `bag_diamond_icon_4k.png` - Diamond icon
+
+**Tab Templates**:
 - `bag_button_4k.png` - Bag button verification
-- `bag_tab_4k.png` - Verify bag menu opened
+- `bag_tab_4k.png` - Verify bag menu opened (header)
 - `bag_special_tab_active_4k.png` - Special tab active state
 - `bag_hero_tab_active_4k.png` - Hero tab active state
-- `bag_chest_special_4k.png` - Open chest with blue gems (threshold 0.01)
-- `bag_golden_chest_4k.png` - Golden wooden chest (threshold 0.01)
-- `bag_green_chest_4k.png` - Green crystal chest (threshold 0.01)
-- `bag_purple_gold_chest_4k.png` - Purple crystal chest (threshold 0.01)
-- `bag_chest_blue_4k.png` - Blue/cyan crystal chest (threshold 0.01)
-- `bag_chest_purple_4k.png` - Purple chest with gold trim (threshold 0.01)
-- `bag_hero_chest_4k.png` - Hero tab chest (threshold 0.01)
-- `bag_diamond_icon_4k.png` - Diamond icon (threshold 0.01)
+- `bag_hero_tab_4k.png` - Hero tab inactive state
+- `bag_resources_tab_active_4k.png` - Resources tab active state
+- `bag_resources_tab_4k.png` - Resources tab inactive state
 
 ### Matcher Thresholds
 
