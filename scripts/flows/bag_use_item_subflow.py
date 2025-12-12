@@ -32,6 +32,9 @@ SLIDER_Y_REGION = (1400, 1650)  # Y range for slider search
 SLIDER_RIGHT_X = 2400  # Far right of slider track to drag to max
 BACK_BUTTON_CLICK = (1407, 2055)
 
+# Bag header region for verification (same as bag_special_flow)
+BAG_TAB_REGION = (1352, 32, 1127, 90)
+
 VERIFICATION_THRESHOLD = 0.1
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
@@ -40,6 +43,7 @@ TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "g
 _use_template = None
 _plus_template = None
 _slider_template = None
+_bag_tab_template = None
 
 
 def _load_template(name: str) -> np.ndarray:
@@ -53,12 +57,23 @@ def _load_template(name: str) -> np.ndarray:
 
 def _get_templates():
     """Load and cache templates."""
-    global _use_template, _plus_template, _slider_template
+    global _use_template, _plus_template, _slider_template, _bag_tab_template
     if _use_template is None:
         _use_template = _load_template("use_button_4k.png")
         _plus_template = _load_template("plus_button_4k.png")
         _slider_template = _load_template("slider_circle_4k.png")
-    return _use_template, _plus_template, _slider_template
+        _bag_tab_template = _load_template("bag_tab_4k.png")
+    return _use_template, _plus_template, _slider_template, _bag_tab_template
+
+
+def _verify_bag_screen(frame_gray: np.ndarray, bag_tab_template: np.ndarray,
+                       threshold: float = VERIFICATION_THRESHOLD) -> tuple[bool, float]:
+    """Check if the Bag header is visible."""
+    x, y, w, h = BAG_TAB_REGION
+    roi = frame_gray[y:y+h, x:x+w]
+    result = cv2.matchTemplate(roi, bag_tab_template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, _, _ = cv2.minMaxLoc(result)
+    return min_val <= threshold, min_val
 
 
 def _find_use_button(frame_gray: np.ndarray, template: np.ndarray,
@@ -121,7 +136,7 @@ def use_item_subflow(adb, win, debug: bool = False) -> bool:
     Returns:
         True if successful, False if verification failed
     """
-    use_template, plus_template, slider_template = _get_templates()
+    use_template, plus_template, slider_template, bag_tab_template = _get_templates()
 
     # Take screenshot for verification
     frame = win.get_screenshot_cv2()
@@ -159,12 +174,29 @@ def use_item_subflow(adb, win, debug: bool = False) -> bool:
     if debug:
         print(f"  Clicking Use button at ({use_click_x}, {use_click_y})...")
     adb.tap(use_click_x, use_click_y)
-    time.sleep(0.5)
+    time.sleep(1.0)  # Initial wait for use animation
 
-    # Click back to close dialog
+    # Poll for bag screen - click back until Bag header is visible
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        if debug:
+            print(f"  Clicking back (attempt {attempt + 1})...")
+        adb.tap(*BACK_BUTTON_CLICK)
+        time.sleep(0.5)
+
+        # Check if we're back at the bag screen
+        frame = win.get_screenshot_cv2()
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        is_bag, score = _verify_bag_screen(frame_gray, bag_tab_template)
+
+        if debug:
+            print(f"    Bag header check: visible={is_bag}, score={score:.4f}")
+
+        if is_bag:
+            if debug:
+                print("  Back at bag screen!")
+            return True
+
     if debug:
-        print("  Clicking back to close dialog...")
-    adb.tap(*BACK_BUTTON_CLICK)
-    time.sleep(0.5)
-
-    return True
+        print(f"  ERROR: Could not return to bag screen after {max_attempts} attempts")
+    return False
