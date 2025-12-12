@@ -2,16 +2,18 @@
 Bag Special Tab Flow - Chest claiming from Special tab.
 
 Opens the bag (defaults to Special tab), finds chest tiles using multi-template
-matching (purple, blue, grey), and uses them one at a time. Rescans after each
-use since items shift position.
+matching, and uses them one at a time. Rescans after each use since items shift.
 
 Templates used:
 - bag_button_4k.png - Verify bag button present
 - bag_tab_4k.png - Verify bag menu opened
 - bag_special_tab_active_4k.png - Verify Special tab is active
-- bag_chest_purple_4k.png - Purple chest
-- bag_chest_blue_4k.png - Blue chest
-- bag_chest_grey_4k.png - Grey chest
+- bag_chest_special_4k.png - Open chest with blue gems
+- bag_golden_chest_4k.png - Golden wooden chest
+- bag_green_chest_4k.png - Green crystal chest
+- bag_purple_gold_chest_4k.png - Purple crystal chest
+- bag_chest_blue_4k.png - Blue/cyan crystal chest
+- bag_chest_purple_4k.png - Purple chest with gold trim
 """
 from __future__ import annotations
 
@@ -43,9 +45,14 @@ VERIFICATION_THRESHOLD = 0.1
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
-# Chest template for Special tab
+# Chest templates for Special tab (all variants)
 CHEST_TEMPLATES = [
-    "bag_chest_special_4k.png",
+    "bag_chest_special_4k.png",     # Open chest with blue gems
+    "bag_golden_chest_4k.png",       # Golden wooden chest
+    "bag_green_chest_4k.png",        # Green crystal chest
+    "bag_purple_gold_chest_4k.png",  # Purple crystal chest
+    "bag_chest_blue_4k.png",         # Blue/cyan crystal chest
+    "bag_chest_purple_4k.png",       # Purple chest with gold trim
 ]
 
 

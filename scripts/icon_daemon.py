@@ -1168,9 +1168,9 @@ class IconDaemon:
                     self.last_union_technology_time = current_time
                     self._run_flow("union_technology", union_technology_flow)
 
-                # Bag flow: requires TOWN view, 5 min idle, 1 hour cooldown
+                # Bag flow: 5 min idle, 1 hour cooldown (navigates to TOWN itself)
                 bag_cooldown_ok = (current_time - self.last_bag_flow_time) >= self.BAG_FLOW_COOLDOWN
-                if world_present and harvest_idle_ok and bag_cooldown_ok:
+                if harvest_idle_ok and bag_cooldown_ok:
                     self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
                     self.last_bag_flow_time = current_time
                     self._run_flow("bag", bag_flow)

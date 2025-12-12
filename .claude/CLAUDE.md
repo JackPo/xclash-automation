@@ -653,6 +653,38 @@ RALLY_MONSTERS = [
 | Healing | `healing_bubble_matcher.py` | 0.06 | (3340, 364) | `healing_flow` |
 | Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
 | Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
+| Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3732, 1633) | `bag_flow` |
+
+### Bag Flow (Idle-Triggered)
+
+**Trigger**: 5 min idle + 1 hour cooldown (navigates to TOWN itself)
+
+**Flow sequence**:
+1. Navigate to TOWN view via `go_to_town()`
+2. Click bag button (3732, 1633)
+3. Run `bag_special_flow` - claim chests from Special tab
+4. Run `bag_hero_flow` - claim chests from Hero tab
+5. Run `bag_resources_flow` - claim diamonds from Resources tab
+6. Close bag and return to base view
+
+**Template matching**:
+- Strict 0.01 threshold to prevent false positives
+- Each subflow uses tab-specific templates (chest icons, diamond icons)
+- `bag_use_item_subflow` handles the shared Use dialog (slider drag to max + click)
+
+**Templates**:
+- `bag_button_4k.png` - Bag button verification
+- `bag_tab_4k.png` - Verify bag menu opened
+- `bag_special_tab_active_4k.png` - Special tab active state
+- `bag_hero_tab_active_4k.png` - Hero tab active state
+- `bag_chest_special_4k.png` - Open chest with blue gems (threshold 0.01)
+- `bag_golden_chest_4k.png` - Golden wooden chest (threshold 0.01)
+- `bag_green_chest_4k.png` - Green crystal chest (threshold 0.01)
+- `bag_purple_gold_chest_4k.png` - Purple crystal chest (threshold 0.01)
+- `bag_chest_blue_4k.png` - Blue/cyan crystal chest (threshold 0.01)
+- `bag_chest_purple_4k.png` - Purple chest with gold trim (threshold 0.01)
+- `bag_hero_chest_4k.png` - Hero tab chest (threshold 0.01)
+- `bag_diamond_icon_4k.png` - Diamond icon (threshold 0.01)
 
 ### Matcher Thresholds
 

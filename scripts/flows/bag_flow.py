@@ -26,6 +26,7 @@ from scripts.flows.bag_special_flow import bag_special_flow
 from scripts.flows.bag_hero_flow import bag_hero_flow
 from scripts.flows.bag_resources_flow import bag_resources_flow
 from utils.return_to_base_view import return_to_base_view
+from utils.view_state_detector import go_to_town
 
 # Fixed positions (4K resolution)
 BAG_BUTTON_REGION = (3679, 1577, 86, 93)
@@ -78,6 +79,12 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
     # Load templates
     bag_template = _load_template("bag_button_4k.png")
     bag_tab_template = _load_template("bag_tab_4k.png")
+
+    # Step 0: Navigate to TOWN (bag button only visible in TOWN view)
+    if debug:
+        print("Step 0: Navigating to TOWN...")
+    go_to_town(adb, debug=debug)
+    time.sleep(0.5)
 
     # Step 1: Verify bag button visible (confirms we're in TOWN)
     if debug:
