@@ -42,6 +42,12 @@ VERIFICATION_THRESHOLD = 0.01
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
+# Chest templates for Hero tab (multiple variants)
+CHEST_TEMPLATES = [
+    "bag_hero_chest_4k.png",         # Green gem chest (blue background)
+    "bag_hero_chest_purple_4k.png",  # Green gem chest (purple background)
+]
+
 
 def _load_template(name: str) -> np.ndarray:
     """Load a template image in grayscale."""
@@ -50,6 +56,17 @@ def _load_template(name: str) -> np.ndarray:
     if template is None:
         raise FileNotFoundError(f"Template not found: {path}")
     return template
+
+
+def _load_chest_templates() -> list[tuple[str, np.ndarray]]:
+    """Load all chest templates, skip missing ones."""
+    templates = []
+    for name in CHEST_TEMPLATES:
+        path = TEMPLATES_DIR / name
+        template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        if template is not None:
+            templates.append((name, template))
+    return templates
 
 
 def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
@@ -62,17 +79,35 @@ def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
     return min_val <= threshold, min_val
 
 
-def _find_first_chest(frame_gray: np.ndarray, template: np.ndarray) -> tuple[tuple[int, int] | None, float]:
-    """Find the first (best matching) chest in the frame."""
-    h, w = template.shape
-    result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+def _find_first_chest(frame_gray: np.ndarray, chest_templates: list[tuple[str, np.ndarray]],
+                      debug: bool = False) -> tuple[tuple[int, int] | None, float, str | None]:
+    """
+    Find the first (best matching) chest in the frame using multiple templates.
 
-    if min_val <= CHEST_THRESHOLD:
-        center_x = min_loc[0] + w // 2
-        center_y = min_loc[1] + h // 2
-        return (center_x, center_y), min_val
-    return None, min_val
+    Returns:
+        ((center_x, center_y), score, template_name) or (None, best_score, None) if not found
+    """
+    best_match = None
+    best_score = 1.0
+    best_template_name = None
+
+    for name, template in chest_templates:
+        h, w = template.shape
+        result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+
+        if debug:
+            print(f"    {name}: score={min_val:.4f}")
+
+        if min_val < best_score:
+            best_score = min_val
+            if min_val <= CHEST_THRESHOLD:
+                center_x = min_loc[0] + w // 2
+                center_y = min_loc[1] + h // 2
+                best_match = (center_x, center_y)
+                best_template_name = name
+
+    return best_match, best_score, best_template_name
 
 
 def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> int:
@@ -99,7 +134,10 @@ def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> 
     bag_tab_template = _load_template("bag_tab_4k.png")
     hero_tab_template = _load_template("bag_hero_tab_4k.png")
     hero_tab_active_template = _load_template("bag_hero_tab_active_4k.png")
-    chest_template = _load_template("bag_hero_chest_4k.png")
+    chest_templates = _load_chest_templates()
+
+    if debug:
+        print(f"Loaded {len(chest_templates)} chest templates: {[n for n, _ in chest_templates]}")
 
     # Step 1: Open bag if requested
     if open_bag:
@@ -186,7 +224,7 @@ def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> 
         frame = win.get_screenshot_cv2()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        chest_pos, score = _find_first_chest(frame_gray, chest_template)
+        chest_pos, score, matched_template = _find_first_chest(frame_gray, chest_templates, debug=debug)
 
         if chest_pos is None:
             if debug:
@@ -195,7 +233,7 @@ def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> 
 
         cx, cy = chest_pos
         if debug:
-            print(f"  Found chest at ({cx}, {cy}), score={score:.4f}")
+            print(f"  Found chest at ({cx}, {cy}), score={score:.4f}, template={matched_template}")
 
         # Click chest
         if debug:
