@@ -202,7 +202,9 @@ class IconDaemon:
 
         # UNKNOWN state recovery tracking (from config)
         self.unknown_state_start = None  # When we first entered UNKNOWN state
+        self.unknown_state_left_time = None  # When we left UNKNOWN (for hysteresis)
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
+        self.UNKNOWN_HYSTERESIS = 10  # Seconds out of UNKNOWN before resetting timer
 
         # Scheduled + continuous idle triggers - DISABLED
         # Hero upgrade now only triggers during Arms Race "Enhance Hero" event (lines 800-816)
@@ -720,15 +722,27 @@ class IconDaemon:
                     barracks_detailed = format_barracks_states_detailed(frame)
                     self.logger.info(f"[{iteration}] Barracks detailed: {barracks_detailed}")
 
-                # Track UNKNOWN state duration
+                # Track UNKNOWN state duration (with hysteresis to prevent flicker resets)
                 if view_state == "UNKNOWN":
+                    # Back in UNKNOWN - reset the "left" timer
+                    self.unknown_state_left_time = None
                     if self.unknown_state_start is None:
                         self.unknown_state_start = time.time()
                         self.logger.debug(f"[{iteration}] Entered UNKNOWN state")
                 else:
+                    # Not in UNKNOWN - track when we left (hysteresis)
                     if self.unknown_state_start is not None:
-                        self.logger.debug(f"[{iteration}] Left UNKNOWN state (now {view_state})")
-                    self.unknown_state_start = None
+                        if self.unknown_state_left_time is None:
+                            # Just left UNKNOWN, start hysteresis timer
+                            self.unknown_state_left_time = time.time()
+                            self.logger.debug(f"[{iteration}] Left UNKNOWN state (now {view_state}), starting hysteresis...")
+                        else:
+                            # Check if we've been out long enough to reset
+                            time_out = time.time() - self.unknown_state_left_time
+                            if time_out >= self.UNKNOWN_HYSTERESIS:
+                                self.logger.debug(f"[{iteration}] Out of UNKNOWN for {time_out:.0f}s, resetting timer")
+                                self.unknown_state_start = None
+                                self.unknown_state_left_time = None
 
                 # UNKNOWN state recovery - if in UNKNOWN for 1+ min AND idle 5+ min, run return_to_base_view
                 if view_state == "UNKNOWN" and idle_secs >= self.IDLE_THRESHOLD:
@@ -742,6 +756,7 @@ class IconDaemon:
                             else:
                                 self.logger.warning(f"[{iteration}] UNKNOWN RECOVERY: Had to restart app")
                             self.unknown_state_start = None  # Reset after recovery attempt
+                            self.unknown_state_left_time = None
                             continue  # Skip rest of iteration, start fresh
 
                 # Idle recovery - every 5 min when idle 5+ min, go to town and ensure alignment
