@@ -53,6 +53,7 @@ CHEST_TEMPLATES = [
     "bag_purple_gold_chest_4k.png",  # Purple crystal chest
     "bag_chest_blue_4k.png",         # Blue/cyan crystal chest
     "bag_chest_purple_4k.png",       # Purple chest with gold trim
+    "bag_chest_question_4k.png",     # Mystery chest with question mark
 ]
 
 
