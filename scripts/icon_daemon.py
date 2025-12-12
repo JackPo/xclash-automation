@@ -1173,7 +1173,7 @@ class IconDaemon:
                 if harvest_idle_ok and bag_cooldown_ok:
                     self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
                     self.last_bag_flow_time = current_time
-                    self._run_flow("bag", bag_flow)
+                    self._run_flow("bag", bag_flow, critical=True)
 
                 # Gift box flow: requires WORLD view, 5 min idle, 1 hour cooldown
                 gift_box_cooldown_ok = (current_time - self.last_gift_box_time) >= self.GIFT_BOX_COOLDOWN
