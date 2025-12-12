@@ -431,6 +431,7 @@ xclash/
 │       ├── corn_harvest_flow.py
 │       ├── elite_zombie_flow.py
 │       ├── soldier_upgrade_flow.py
+│       ├── faction_trials_flow.py   # Manual: faction trials battles
 │       └── ...
 │
 ├── screenshots/
@@ -710,6 +711,21 @@ status = get_arms_race_status()
 print(f"Day {status['day']}: {status['current']}")
 print(f"Time remaining: {status['time_remaining']}")
 ```
+
+### Manual Flows (Not Daemon-Automated)
+
+These flows are manually triggered and not part of the daemon's automatic detection:
+
+| Flow | Script | Description |
+|------|--------|-------------|
+| **Faction Trials** | `faction_trials_flow.py` | Battle automation for faction trials (up to 20 battles) |
+
+**Faction Trials Flow** (`scripts/flows/faction_trials_flow.py`):
+- Navigate to the Faction Trials screen first
+- Run: `python scripts/flows/faction_trials_flow.py [--max N] [--quiet]`
+- Sequence: Challenge → Deploy → verify Camcorder → Back button (repeat)
+- Stops when buttons not found or max iterations reached
+- Returns to base view when complete
 
 ### Crash & Idle Recovery
 
