@@ -985,10 +985,23 @@ class IconDaemon:
                             self.logger.debug(f"[{iteration}] SOLDIER: Alignment PASS (score={dog_score:.4f})")
                             idle_mins = int(idle_secs / 60)
 
-                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: {trigger_reason}, idle {idle_mins}min, {pending_count} PENDING barrack(s) at indices {pending_indices}")
+                            self.logger.info(f"[{iteration}] SOLDIER UPGRADE: {trigger_reason}, idle {idle_mins}min, {ready_count} READY, {pending_count} PENDING barrack(s)")
 
-                            # Upgrade each validated PENDING barrack
+                            # First, collect soldiers from READY barracks (click yellow bubble)
                             from scripts.flows.soldier_upgrade_flow import soldier_upgrade_flow, get_barrack_click_position
+                            if ready_count > 0:
+                                self.logger.info(f"[{iteration}] SOLDIER: Collecting from {ready_count} READY barrack(s) at indices {ready_indices}")
+                                for idx in ready_indices:
+                                    click_x, click_y = get_barrack_click_position(idx)
+                                    self.logger.info(f"[{iteration}] SOLDIER: Collecting from barrack {idx+1} at ({click_x}, {click_y})")
+                                    self.adb.tap(click_x, click_y)
+                                    time.sleep(0.5)
+                                    # Clear history for this barrack after collecting
+                                    self.barracks_state_history[idx] = []
+                                # Wait for state change after collecting
+                                time.sleep(1.0)
+
+                            # Then upgrade each validated PENDING barrack
                             upgrades = 0
                             for idx in pending_indices:
                                 self.logger.info(f"[{iteration}] SOLDIER: Processing barrack {idx+1}...")
@@ -1150,10 +1163,12 @@ class IconDaemon:
                     # Run healing flow (panel should now be open)
                     self._run_flow("healing", healing_flow)
 
-                # Barracks: Check for READY barracks to collect soldiers (non-Arms Race)
+                # Barracks: Check for READY barracks to collect soldiers (non-Arms Race ONLY)
+                # During Arms Race "Soldier Training" event or VS promotion days, we use soldier_upgrade_flow instead
                 # Requires TOWN view, alignment, and 5-minute cooldown
+                is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 soldier_cooldown_ok = (current_time - self.last_soldier_training_time) >= self.SOLDIER_TRAINING_COOLDOWN
-                if world_present and harvest_idle_ok and harvest_aligned and soldier_cooldown_ok:
+                if world_present and harvest_idle_ok and harvest_aligned and soldier_cooldown_ok and not is_arms_race_soldier_active:
                     # Get barracks states
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
