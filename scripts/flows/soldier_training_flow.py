@@ -17,8 +17,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import time
 import cv2
+import numpy as np
 
 from config import BARRACKS_POSITIONS, SOLDIER_TRAINING_DEFAULT_LEVEL
+from utils.return_to_base_view import return_to_base_view
+
+# Template paths for panel verification
+TEMPLATE_DIR = "templates/ground_truth"
+SOLDIER_TRAINING_HEADER_TEMPLATE = f"{TEMPLATE_DIR}/soldier_training_header_4k.png"
+TRAIN_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/train_button_4k.png"
+
+# Fixed positions for templates (4K)
+HEADER_REGION = (1678, 315, 480, 54)  # x, y, w, h
+TRAIN_BUTTON_REGION = (1969, 1397, 369, 65)  # cropped button without timer
+TRAIN_BUTTON_CLICK = (2153, 1462)
 from utils.barracks_state_matcher import BarrackState, get_matcher as get_barracks_matcher
 from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level, get_leftmost_visible, get_rightmost_visible
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -26,6 +38,75 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 # Barracks bubble click positions (center of each bubble)
 # Bubble is 81x87, so center offset is ~40, 43
 BARRACKS_CLICK_OFFSETS = (40, 43)
+
+
+def is_soldier_training_panel_open(frame) -> tuple[bool, float]:
+    """
+    Check if the Soldier Training panel is open by matching header template.
+
+    Returns:
+        (is_open, score) tuple
+    """
+    template = cv2.imread(SOLDIER_TRAINING_HEADER_TEMPLATE, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        return False, 1.0
+
+    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    x, y, w, h = HEADER_REGION
+    roi = frame_gray[y:y+h, x:x+w]
+
+    # Resize template if needed
+    if roi.shape != template.shape:
+        template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
+
+    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
+    score = result[0, 0]
+
+    return score < 0.02, score
+
+
+def is_train_button_visible(frame) -> tuple[bool, float]:
+    """
+    Check if the Train button is visible by matching template.
+
+    Returns:
+        (is_visible, score) tuple
+    """
+    template = cv2.imread(TRAIN_BUTTON_TEMPLATE, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        return False, 1.0
+
+    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    x, y, w, h = TRAIN_BUTTON_REGION
+    roi = frame_gray[y:y+h, x:x+w]
+
+    # Resize template if needed
+    if roi.shape != template.shape:
+        template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
+
+    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
+    score = result[0, 0]
+
+    return score < 0.02, score
+
+
+def wait_for_panel_open(win, timeout=3.0, debug=False) -> bool:
+    """
+    Poll for Soldier Training panel to open.
+
+    Returns:
+        True if panel opened within timeout
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        frame = win.get_screenshot_cv2()
+        is_open, score = is_soldier_training_panel_open(frame)
+        if debug:
+            print(f"  Panel check: open={is_open}, score={score:.4f}")
+        if is_open:
+            return True
+        time.sleep(0.3)
+    return False
 
 
 def get_barrack_click_position(barrack_index):
@@ -219,13 +300,21 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     if debug:
         print(f"  Opening training panel for barrack {barrack_index+1} at ({click_x}, {click_y})")
     adb.tap(click_x, click_y)
-    time.sleep(1.0)  # Wait for panel to open
+
+    # VERIFY: Wait for panel to actually open
+    if not wait_for_panel_open(win, timeout=3.0, debug=debug):
+        if debug:
+            print(f"  ERROR: Soldier Training panel did not open!")
+        return False
+
+    if debug:
+        print(f"  Panel opened successfully")
 
     # Find and click the target soldier level
     success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
 
     if success:
-        time.sleep(0.5)  # Wait for training to start
+        time.sleep(0.5)  # Wait for selection
 
         # Check for resource replenishment
         from utils.replenish_all_helper import ReplenishAllHelper
@@ -243,19 +332,35 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
                 print(f"  Re-clicking Lv{target_level} after replenishment...")
 
             success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
-            if success:
-                time.sleep(0.5)
-            else:
+            if not success:
                 if debug:
                     print(f"  Failed to find Lv{target_level} after replenishment")
                 return False
+            time.sleep(0.5)
 
+        # VERIFY: Train button should be visible now
+        frame = win.get_screenshot_cv2()
+        train_visible, train_score = is_train_button_visible(frame)
         if debug:
-            print(f"  Started training Lv{target_level} soldiers at barrack {barrack_index+1}")
+            print(f"  Train button check: visible={train_visible}, score={train_score:.4f}")
+
+        if train_visible:
+            # Click the Train button
+            if debug:
+                print(f"  Clicking Train button at {TRAIN_BUTTON_CLICK}")
+            adb.tap(*TRAIN_BUTTON_CLICK)
+            time.sleep(0.5)
+
+            if debug:
+                print(f"  Started training Lv{target_level} soldiers at barrack {barrack_index+1}")
+        else:
+            if debug:
+                print(f"  WARNING: Train button not visible after selecting soldier level")
+            return False
     else:
         if debug:
             print(f"  Failed to find Lv{target_level} in training panel")
-        # Panel will close automatically or by back button - don't tap random coordinates
+        return False
 
     return success
 
@@ -266,6 +371,7 @@ def soldier_training_flow(adb, target_level=None, debug=False):
 
     1. Collect soldiers from all READY (yellow) barracks
     2. Start training at all PENDING (white) barracks
+    3. Return to base view (cleanup)
 
     Args:
         adb: ADBHelper instance
@@ -281,53 +387,60 @@ def soldier_training_flow(adb, target_level=None, debug=False):
     win = WindowsScreenshotHelper()
     results = {'collected': 0, 'trained': 0}
 
-    if debug:
-        print(f"Soldier Training Flow - target level: Lv{target_level}")
+    try:
+        if debug:
+            print(f"Soldier Training Flow - target level: Lv{target_level}")
 
-    # Step 1: Collect from READY barracks
-    frame = win.get_screenshot_cv2()
-    matcher = get_barracks_matcher()
-    states = matcher.get_all_states(frame)
-
-    if debug:
-        state_str = " ".join([f"B{i+1}:{s.value[0].upper()}" for i, (s, _) in enumerate(states)])
-        print(f"  Barracks states: {state_str}")
-
-    for i, (state, score) in enumerate(states):
-        if state == BarrackState.READY:
-            click_x, click_y = get_barrack_click_position(i)
-            if debug:
-                print(f"  Collecting from barrack {i+1} (READY)")
-            adb.tap(click_x, click_y)
-            time.sleep(0.5)
-            results['collected'] += 1
-
-    # Step 2: Re-check states after collecting
-    if results['collected'] > 0:
-        time.sleep(0.5)
+        # Step 1: Collect from READY barracks
         frame = win.get_screenshot_cv2()
+        matcher = get_barracks_matcher()
         states = matcher.get_all_states(frame)
 
         if debug:
             state_str = " ".join([f"B{i+1}:{s.value[0].upper()}" for i, (s, _) in enumerate(states)])
-            print(f"  States after collecting: {state_str}")
+            print(f"  Barracks states: {state_str}")
 
-    # Step 3: Train at PENDING barracks
-    for i, (state, score) in enumerate(states):
-        if state == BarrackState.PENDING:
-            if debug:
-                print(f"  Training at barrack {i+1} (PENDING)")
-            success = train_soldier_at_barrack(adb, win, i, target_level, debug=debug)
-            if success:
-                results['trained'] += 1
+        for i, (state, score) in enumerate(states):
+            if state == BarrackState.READY:
+                click_x, click_y = get_barrack_click_position(i)
+                if debug:
+                    print(f"  Collecting from barrack {i+1} (READY)")
+                adb.tap(click_x, click_y)
+                time.sleep(0.5)
+                results['collected'] += 1
 
-            # Re-check states for next iteration
+        # Step 2: Re-check states after collecting
+        if results['collected'] > 0:
             time.sleep(0.5)
             frame = win.get_screenshot_cv2()
             states = matcher.get_all_states(frame)
 
-    if debug:
-        print(f"  Flow complete: collected={results['collected']}, trained={results['trained']}")
+            if debug:
+                state_str = " ".join([f"B{i+1}:{s.value[0].upper()}" for i, (s, _) in enumerate(states)])
+                print(f"  States after collecting: {state_str}")
+
+        # Step 3: Train at PENDING barracks
+        for i, (state, score) in enumerate(states):
+            if state == BarrackState.PENDING:
+                if debug:
+                    print(f"  Training at barrack {i+1} (PENDING)")
+                success = train_soldier_at_barrack(adb, win, i, target_level, debug=debug)
+                if success:
+                    results['trained'] += 1
+
+                # Re-check states for next iteration
+                time.sleep(0.5)
+                frame = win.get_screenshot_cv2()
+                states = matcher.get_all_states(frame)
+
+        if debug:
+            print(f"  Flow complete: collected={results['collected']}, trained={results['trained']}")
+
+    finally:
+        # ALWAYS return to base view, even if flow failed
+        if debug:
+            print(f"  Cleaning up - returning to base view...")
+        return_to_base_view(adb, win, debug=debug)
 
     return results
 
