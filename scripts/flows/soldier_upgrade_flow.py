@@ -29,6 +29,7 @@ from utils.promote_button_matcher import is_promote_visible, get_promote_click
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.soldier_training_header_matcher import is_panel_open
 from utils.debug_screenshot import save_debug_screenshot
+from utils.return_to_base_view import return_to_base_view
 
 # UI positions (4K resolution)
 UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
@@ -307,12 +308,11 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         return False
 
     finally:
-        # ALWAYS close panel (unless detect_only mode where we didn't open it)
+        # ALWAYS return to base view (unless detect_only mode where we didn't open it)
         if not detect_only:
             if debug:
-                print("Closing panel...")
-            adb.tap(DISMISS_TAP[0], DISMISS_TAP[1])
-            time.sleep(0.3)
+                print("Returning to base view...")
+            return_to_base_view(adb, win, debug=debug)
 
 
 def upgrade_all_pending_barracks(adb, debug=False):
