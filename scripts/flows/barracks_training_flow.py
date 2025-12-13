@@ -23,27 +23,15 @@ from utils.ocr_client import OCRClient
 from utils.soldier_training_header_matcher import is_panel_open
 from utils.debug_screenshot import save_debug_screenshot
 from scripts.flows.soldier_training_flow import find_and_click_soldier_level
-
-# Slider parameters
-SLIDER_Y = 1170
-SLIDER_MIN_X = 1600  # Circle center at MIN (leftmost)
-SLIDER_MAX_X = 2132  # Circle center at MAX (rightmost)
-SEARCH_Y_START = 1100
-SEARCH_Y_END = 1250
-SEARCH_X_START = 1400
-SEARCH_X_END = 2300
+from utils.soldier_panel_slider import (
+    find_slider_circle, SLIDER_Y, SLIDER_MIN_X, SLIDER_MAX_X,
+    PLUS_BUTTON, MINUS_BUTTON, calculate_slider_position
+)
 
 # Train button time OCR
 TRAIN_BUTTON_POS = (1969, 1399)
 TRAIN_TIME_REGION = (50, 80, 280, 45)
 TRAIN_BUTTON_CENTER = (2155, 1464)
-
-# Plus/Minus buttons
-PLUS_BUTTON = (2207, 1179)
-MINUS_BUTTON = (1526, 1177)
-
-# Template path
-TEMPLATE_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "slider_circle_4k.png"
 
 # Timeout protection
 MAX_FLOW_TIME = 60  # 60 seconds max for entire flow
@@ -57,18 +45,6 @@ def _log(msg, debug=True):
     if debug:
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"[{timestamp}] [BARRACKS] {msg}", flush=True)
-
-
-def find_circle(frame, template):
-    """Find slider circle, return X coord or None."""
-    search_region = frame[SEARCH_Y_START:SEARCH_Y_END, SEARCH_X_START:SEARCH_X_END]
-    result = cv2.matchTemplate(search_region, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-
-    if min_val < 0.1:
-        template_h, template_w = template.shape[:2]
-        return SEARCH_X_START + min_loc[0] + template_w // 2, min_val
-    return None, min_val
 
 
 def ocr_time(frame, ocr):
@@ -88,28 +64,6 @@ def ocr_time(frame, ocr):
     except:
         pass
     return None, time_str
-
-
-def calculate_target_x_proportional(target_seconds, max_seconds):
-    """Calculate target X position proportionally based on actual max time.
-
-    Args:
-        target_seconds: Desired training time in seconds
-        max_seconds: Maximum training time (slider at max) in seconds
-
-    Returns:
-        Target X coordinate for slider
-    """
-    if max_seconds <= 0:
-        return SLIDER_MAX_X
-
-    ratio = target_seconds / max_seconds
-    ratio = max(0.0, min(1.0, ratio))  # Clamp to [0, 1]
-
-    slider_width = SLIDER_MAX_X - SLIDER_MIN_X
-    target_x = SLIDER_MIN_X + int(ratio * slider_width)
-
-    return target_x
 
 
 def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resources=True, debug=False):
@@ -182,13 +136,9 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
 
         # Validation: Check slider is visible after clicking level tile
         _log("VALIDATION: Checking slider visibility after clicking tile...", debug)
-        template = cv2.imread(str(TEMPLATE_PATH))
-        if template is None:
-            _log("VALIDATION FAILED: Could not load slider template", debug)
-            return False
 
         frame = win.get_screenshot_cv2()
-        circle_x, score = find_circle(frame, template)
+        circle_x, score = find_slider_circle(frame)
         if circle_x is None:
             _log(f"VALIDATION FAILED: Slider not visible after clicking Lv{soldier_level} (score={score:.4f})", debug)
             save_debug_screenshot(frame, "barracks", "FAIL_validation_no_slider")
@@ -208,7 +158,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         time.sleep(0.5)
 
         frame = win.get_screenshot_cv2()
-        max_x, max_score = find_circle(frame, template)
+        max_x, max_score = find_slider_circle(frame)
         max_secs, max_str = ocr_time(frame, ocr)
 
         _log(f"  MAX position: X={max_x} (score={max_score:.4f})", debug)
@@ -233,8 +183,8 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
             return True
 
         # Step 3: Calculate target X and drag slider
-        target_x = calculate_target_x_proportional(target_seconds, max_secs)
         ratio = target_seconds / max_secs
+        target_x = calculate_slider_position(ratio)
         _log(f"Step 3: Drag slider to target X={target_x} (ratio={ratio:.2%})", debug)
 
         if check_timeout():
@@ -246,7 +196,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
                 return False
 
             frame = win.get_screenshot_cv2()
-            circle_x, circle_score = find_circle(frame, template)
+            circle_x, circle_score = find_slider_circle(frame)
 
             if circle_x is None:
                 _log(f"  [{drag_attempt+1}] WARNING: Circle not found (score={circle_score:.4f})", debug)

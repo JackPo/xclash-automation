@@ -30,11 +30,10 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.soldier_training_header_matcher import is_panel_open
 from utils.debug_screenshot import save_debug_screenshot
 from utils.return_to_base_view import return_to_base_view
+from utils.soldier_panel_slider import drag_slider_to_max
 
 # UI positions (4K resolution)
 UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
-SLIDER_LEFT = (1490, 1465)   # Left end of slider
-SLIDER_RIGHT = (2832, 1465)  # Right end of slider
 
 # Barracks bubble click positions
 BARRACKS_CLICK_OFFSETS = (40, 43)
@@ -85,24 +84,6 @@ def find_highest_unlocked_level(frame, adb, debug=False):
         print(f"  Highest unlocked: Lv{highest}")
 
     return highest
-
-
-def drag_slider_to_max(adb, debug=False):
-    """
-    Drag the quantity slider all the way to the right (max).
-
-    Args:
-        adb: ADBHelper instance
-        debug: Enable debug logging
-    """
-    start_x, start_y = SLIDER_LEFT
-    end_x, end_y = SLIDER_RIGHT
-
-    if debug:
-        print(f"  Dragging slider from ({start_x}, {start_y}) to ({end_x}, {end_y})")
-
-    adb.swipe(start_x, start_y, end_x, end_y, duration=500)
-    time.sleep(0.5)
 
 
 def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, scroll_and_select=False):
@@ -241,7 +222,10 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         if debug:
             print("Step 3: Dragging slider to maximum...")
 
-        drag_slider_to_max(adb, debug=debug)
+        frame = win.get_screenshot_cv2()
+        if not drag_slider_to_max(adb, frame, debug=debug):
+            if debug:
+                print("  WARNING: Could not find slider, continuing anyway...")
         time.sleep(0.5)
 
         # Step 5: Click Upgrade button
