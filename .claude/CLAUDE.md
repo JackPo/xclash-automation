@@ -176,10 +176,23 @@ Located in `templates/ground_truth/`:
 - `soldier_lv7_4k.png` - Level 7 soldier tile
 - `soldier_lv8_4k.png` - Level 8 soldier tile
 
+**Soldier Training Panel Templates:**
+- `soldier_training_header_4k.png` - "Soldier Training" header text (position: 1678,315, size: 480x54, threshold: 0.02)
+- `train_button_4k.png` - Train button without timer (position: 1969,1397, size: 369x65, click: 2153,1462, threshold: 0.02)
+
 **Soldier Tile Detection:**
 - Y-axis is FIXED for all soldier levels (Y=810 to Y=967, height 157)
 - Search across X-axis using template matching (TM_SQDIFF_NORMED)
 - Threshold: 0.03 for positive match
+
+**Tavern Quest Flow Templates:**
+- `tavern_button_4k.png` - Clipboard button on left sidebar (position: 62,1192, size: 48x48, click: 80,1220, threshold: 0.02)
+- `tavern_my_quests_active_4k.png` - My Quests tab when active (position: 1505,723, size: 299x65)
+- `tavern_my_quests_4k.png` - My Quests tab when inactive
+- `tavern_ally_quests_active_4k.png` - Ally Quests tab when active (position: 2054,723, size: 299x65)
+- `tavern_ally_quests_4k.png` - Ally Quests tab when inactive
+- `claim_button_4k.png` - Claim button (size: 333x88, threshold: 0.02, column search X: 2100-2500)
+- `assist_button_4k.png` - Assist button for ally quests (size: 249x102)
 
 **When extracting new templates:**
 1. Use `WindowsScreenshotHelper` to capture screenshot
@@ -562,16 +575,15 @@ When stamina >= 118 AND user idle for 5+ minutes:
 
 **Flow sequence** (for each PENDING barrack):
 1. Click barrack bubble to open soldier training panel
-2. Detect highest unlocked soldier level using bottom-half template matching
-3. Calculate target level = highest - 1
-4. Scroll horizontally (if needed) to find target level tile
-5. Click target level tile
-6. Drag quantity slider all the way to max
-7. Click Upgrade button
-8. Handle resource replenishment if "Replenish All" button appears
-9. Verify Promote screen appears
-10. Click Promote button
-11. Close panel (tap outside)
+2. **VERIFY**: Poll for `soldier_training_header_4k.png` (up to 3s timeout)
+3. Detect highest unlocked soldier level using bottom-half template matching
+4. Calculate target level = highest - 1
+5. Scroll horizontally (if needed) to find target level tile
+6. Click target level tile
+7. **VERIFY**: Check `train_button_4k.png` is visible
+8. Click Train button at (2153, 1462)
+9. Handle resource replenishment if "Replenish All" button appears
+10. **CLEANUP**: Always call `return_to_base_view()` in finally block
 
 **After promotion**:
 - Soldiers train → barracks becomes READY
@@ -684,6 +696,37 @@ RALLY_MONSTERS = [
 | Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
 | Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
 | Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3732, 1633) | `bag_flow` |
+
+### Tavern Quest Flow (Not Yet Integrated)
+
+**Trigger**: Tavern button detected on left sidebar (TBD - not yet in daemon)
+
+**Entry**: Click tavern button at (80, 1220) to open Tavern menu
+
+**Tab Detection**:
+- Match `tavern_my_quests_active_4k.png` OR `tavern_ally_quests_active_4k.png` to verify in Tavern
+- Both tabs must be visible (one active, one inactive) for validation
+
+**My Quests Flow**:
+1. If not on My Quests tab, click (1654, 755) to switch
+2. Column-restricted Claim button search (X: 2100-2500, full Y scan)
+3. Click FIRST Claim button found
+4. Wait for congratulations popup
+5. Click back button (1407, 2055) to dismiss
+6. Loop back to re-detect remaining Claim buttons
+7. Scroll down if no Claim buttons found, rescan
+8. Stop after 2 consecutive scrolls with no claims
+
+**Ally Quests Flow**: TBD by user (more complex logic, not just clicking all Assist)
+
+**Cleanup**: `return_to_base_view()` at end
+
+**Templates**:
+- `tavern_button_4k.png` - Clipboard icon (position: 62,1192, click: 80,1220)
+- `tavern_my_quests_active_4k.png` / `tavern_my_quests_4k.png` - Tab states (position: 1505,723)
+- `tavern_ally_quests_active_4k.png` / `tavern_ally_quests_4k.png` - Tab states (position: 2054,723)
+- `claim_button_4k.png` - Claim button (column X: 2100-2500, threshold: 0.02)
+- `assist_button_4k.png` - Assist button for ally quests (TBD)
 
 ### Bag Flow (Idle-Triggered)
 
