@@ -432,10 +432,20 @@ python scripts/icon_daemon.py --interval 5
 ```
 
 **Daemon Logging:**
-- Daemon stdout is automatically teed to `logs/current_daemon.log`
-- Always check `logs/current_daemon.log` for the current running daemon's output
-- Each daemon run also creates a timestamped log in `logs/daemon_YYYYMMDD_HHMMSS.log`
-- This ensures you can always find current daemon output at a consistent location
+
+Both log files have **identical content** (all logger output):
+- `logs/daemon_YYYYMMDD_HHMMSS.log` - Timestamped log file (archived)
+- `logs/current_daemon.log` - Latest daemon output (overwritten each restart)
+
+All daemon output (iteration status, flow triggers, errors) goes through Python logger to both files.
+
+```bash
+# Check current daemon output
+cat logs/current_daemon.log
+
+# Search for specific events
+grep "BAG FLOW\|triggering" logs/current_daemon.log
+```
 
 ### Idle Detection Modes
 
@@ -711,14 +721,15 @@ RALLY_MONSTERS = [
 **Resources Tab Templates**:
 - `bag_diamond_icon_4k.png` - Diamond icon
 
-**Tab Templates**:
+**Tab Templates** (unified coordinates - same region for active/inactive):
 - `bag_button_4k.png` - Bag button verification
 - `bag_tab_4k.png` - Verify bag menu opened (header)
-- `bag_special_tab_active_4k.png` - Special tab active state
-- `bag_hero_tab_active_4k.png` - Hero tab active state
-- `bag_hero_tab_4k.png` - Hero tab inactive state
-- `bag_resources_tab_active_4k.png` - Resources tab active state
-- `bag_resources_tab_4k.png` - Resources tab inactive state
+
+| Tab | Region (x, y, w, h) | Active Template | Inactive Template |
+|-----|---------------------|-----------------|-------------------|
+| Special | (1525, 2033, 163, 96) | `bag_special_tab_active_4k.png` | `bag_special_tab_4k.png` |
+| Hero | (2158, 2015, 207, 127) | `bag_hero_tab_active_4k.png` | `bag_hero_tab_4k.png` |
+| Resources | (1732, 2018, 179, 111) | `bag_resources_tab_active_4k.png` | `bag_resources_tab_4k.png` |
 
 ### Matcher Thresholds
 

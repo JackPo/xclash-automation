@@ -32,9 +32,8 @@ BAG_BUTTON_CLICK = (3732, 1633)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
-HERO_TAB_REGION = (2158, 2015, 207, 127)  # Hero tab button (unselected state)
-HERO_TAB_CLICK = (2261, 2078)  # Click center for Hero tab
-HERO_TAB_ACTIVE_REGION = (2165, 2015, 200, 127)  # Hero tab when ACTIVE/selected
+HERO_TAB_REGION = (2158, 2015, 207, 127)  # Same region for active/inactive
+HERO_TAB_CLICK = (2261, 2078)
 
 # Thresholds
 CHEST_THRESHOLD = 0.01
@@ -180,7 +179,7 @@ def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> 
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     # First check if Hero tab is already ACTIVE
-    is_active, active_score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_ACTIVE_REGION)
+    is_active, active_score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_REGION)
     if is_active:
         if debug:
             print(f"  Hero tab already ACTIVE (score={active_score:.4f})")
@@ -204,7 +203,7 @@ def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> 
         # Verify it's now ACTIVE
         frame = win.get_screenshot_cv2()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        is_active, active_score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_ACTIVE_REGION)
+        is_active, active_score = _verify_at_fixed_region(frame_gray, hero_tab_active_template, HERO_TAB_REGION)
         if not is_active:
             if debug:
                 print(f"  Hero tab still not active after click (score={active_score:.4f})")

@@ -36,7 +36,7 @@ BAG_BUTTON_CLICK = (3732, 1633)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
-SPECIAL_TAB_ACTIVE_REGION = (1497, 2013, 211, 134)
+SPECIAL_TAB_REGION = (1525, 2033, 163, 96)  # Same region for active/inactive
 SPECIAL_TAB_CLICK = (1602, 2080)  # Only needed if switching from another tab
 
 # Thresholds
@@ -186,7 +186,7 @@ def bag_special_flow(adb, win=None, debug: bool = False, open_bag: bool = True) 
     frame = win.get_screenshot_cv2()
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    is_active, score = _verify_at_fixed_region(frame_gray, special_tab_active_template, SPECIAL_TAB_ACTIVE_REGION)
+    is_active, score = _verify_at_fixed_region(frame_gray, special_tab_active_template, SPECIAL_TAB_REGION)
     if not is_active:
         if debug:
             print(f"  Special tab not active (score={score:.4f}), clicking...")
@@ -197,7 +197,7 @@ def bag_special_flow(adb, win=None, debug: bool = False, open_bag: bool = True) 
         # Re-verify
         frame = win.get_screenshot_cv2()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        is_active, score = _verify_at_fixed_region(frame_gray, special_tab_active_template, SPECIAL_TAB_ACTIVE_REGION)
+        is_active, score = _verify_at_fixed_region(frame_gray, special_tab_active_template, SPECIAL_TAB_REGION)
         if not is_active:
             if debug:
                 print(f"  Special tab still not active (score={score:.4f})")

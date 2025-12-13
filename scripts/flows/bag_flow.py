@@ -34,9 +34,23 @@ BAG_BUTTON_CLICK = (3732, 1633)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 BACK_BUTTON_CLICK = (1407, 2055)
 
-VERIFICATION_THRESHOLD = 0.1
+VERIFICATION_THRESHOLD = 0.01
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
+
+# Active tab templates - match all, lowest score = current tab
+ACTIVE_TAB_TEMPLATES = {
+    "special": "bag_special_tab_active_4k.png",
+    "resources": "bag_resources_tab_active_4k.png",
+    "hero": "bag_hero_tab_active_4k.png",
+}
+
+# Tab click positions (4K)
+TAB_CLICK_POSITIONS = {
+    "special": (1602, 2080),
+    "resources": (1827, 2076),
+    "hero": (2257, 2078),
+}
 
 
 def _load_template(name: str) -> np.ndarray:
@@ -56,6 +70,72 @@ def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
     result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
     min_val, _, _, _ = cv2.minMaxLoc(result)
     return min_val <= threshold, min_val
+
+
+def detect_active_tab(frame_gray: np.ndarray, debug: bool = False) -> str | None:
+    """
+    Detect which bag tab is currently active by matching all active templates.
+
+    Returns the tab name with lowest score that passes threshold, or None.
+    """
+    best_tab = None
+    best_score = 1.0
+
+    for tab_name, template_name in ACTIVE_TAB_TEMPLATES.items():
+        template = _load_template(template_name)
+        result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, _, _ = cv2.minMaxLoc(result)
+
+        if debug:
+            print(f"    {tab_name}: {min_val:.4f}")
+
+        if min_val < best_score and min_val <= VERIFICATION_THRESHOLD:
+            best_score = min_val
+            best_tab = tab_name
+
+    return best_tab
+
+
+def switch_to_tab(adb, win, target_tab: str, debug: bool = False) -> bool:
+    """
+    Switch to the specified tab if not already there.
+
+    Returns True if successfully on target tab.
+    """
+    frame = win.get_screenshot_cv2()
+    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    current_tab = detect_active_tab(frame_gray, debug=debug)
+
+    if current_tab == target_tab:
+        if debug:
+            print(f"  Already on {target_tab} tab")
+        return True
+
+    if target_tab not in TAB_CLICK_POSITIONS:
+        if debug:
+            print(f"  Unknown tab: {target_tab}")
+        return False
+
+    if debug:
+        print(f"  Current tab: {current_tab}, switching to {target_tab}...")
+
+    adb.tap(*TAB_CLICK_POSITIONS[target_tab])
+    time.sleep(0.5)
+
+    # Verify switch
+    frame = win.get_screenshot_cv2()
+    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    new_tab = detect_active_tab(frame_gray, debug=debug)
+
+    if new_tab == target_tab:
+        if debug:
+            print(f"  Switched to {target_tab} tab")
+        return True
+    else:
+        if debug:
+            print(f"  Failed to switch, still on {new_tab}")
+        return False
 
 
 def bag_flow(adb, win=None, debug: bool = False) -> dict:
@@ -123,20 +203,32 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
     if debug:
         print(f"  Bag opened (score={score:.4f})")
 
-    # Step 3: Run Special tab flow (bag defaults to Special)
+    # Step 3: Run Special tab flow
     if debug:
         print("\n=== Special Tab ===")
-    results["special"] = bag_special_flow(adb, win, debug=debug, open_bag=False)
+    if switch_to_tab(adb, win, "special", debug=debug):
+        results["special"] = bag_special_flow(adb, win, debug=debug, open_bag=False)
+    else:
+        if debug:
+            print("  Failed to switch to Special tab")
 
     # Step 4: Run Hero tab flow
     if debug:
         print("\n=== Hero Tab ===")
-    results["hero"] = bag_hero_flow(adb, win, debug=debug, open_bag=False)
+    if switch_to_tab(adb, win, "hero", debug=debug):
+        results["hero"] = bag_hero_flow(adb, win, debug=debug, open_bag=False)
+    else:
+        if debug:
+            print("  Failed to switch to Hero tab")
 
     # Step 5: Run Resources tab flow
     if debug:
         print("\n=== Resources Tab ===")
-    results["resources"] = bag_resources_flow(adb, win, debug=debug, open_bag=False)
+    if switch_to_tab(adb, win, "resources", debug=debug):
+        results["resources"] = bag_resources_flow(adb, win, debug=debug, open_bag=False)
+    else:
+        if debug:
+            print("  Failed to switch to Resources tab")
 
     # Step 6: Close bag and return to base view
     if debug:

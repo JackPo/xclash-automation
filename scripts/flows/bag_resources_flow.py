@@ -32,8 +32,7 @@ from scripts.flows.bag_use_item_subflow import use_item_subflow
 BAG_BUTTON_REGION = (3679, 1577, 86, 93)
 BAG_BUTTON_CLICK = (3732, 1633)
 
-RESOURCES_TAB_REGION = (1732, 2018, 179, 111)  # Inactive tab region
-RESOURCES_TAB_ACTIVE_REGION = (1720, 2013, 223, 127)  # Active tab region
+RESOURCES_TAB_REGION = (1732, 2018, 179, 111)  # Same region for active/inactive
 RESOURCES_TAB_CLICK = (1831, 2076)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
@@ -157,7 +156,7 @@ def bag_resources_flow(adb, win=None, debug: bool = False, open_bag: bool = True
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     # First check if Resources tab is already ACTIVE
-    is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_ACTIVE_REGION)
+    is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_REGION)
     if is_active:
         if debug:
             print(f"  Resources tab already ACTIVE (score={active_score:.4f})")
@@ -181,7 +180,7 @@ def bag_resources_flow(adb, win=None, debug: bool = False, open_bag: bool = True
         # Verify it's now ACTIVE
         frame = win.get_screenshot_cv2()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_ACTIVE_REGION)
+        is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_REGION)
         if not is_active:
             if debug:
                 print(f"  Resources tab still not active after click (score={active_score:.4f})")

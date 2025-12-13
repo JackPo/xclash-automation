@@ -61,6 +61,7 @@ from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.bluestacks_idle_detector import get_bluestacks_idle_detector, format_bluestacks_idle_time
+from utils.user_idle_tracker import get_user_idle_tracker, format_user_idle_time
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view
@@ -164,8 +165,11 @@ class IconDaemon:
         self.IDLE_THRESHOLD = IDLE_THRESHOLD
         self.IDLE_CHECK_INTERVAL = IDLE_CHECK_INTERVAL
 
-        # BlueStacks-specific idle detection
+        # BlueStacks-specific idle detection (deprecated - keeping for logging only)
         self.bluestacks_idle_detector = get_bluestacks_idle_detector()
+
+        # User idle tracker - excludes daemon's own clicks from idle calculation
+        self.user_idle_tracker = get_user_idle_tracker()
 
         # Elite zombie rally - stamina threshold (from config)
         self.ELITE_ZOMBIE_STAMINA_THRESHOLD = ELITE_ZOMBIE_STAMINA_THRESHOLD
@@ -338,8 +342,8 @@ class IconDaemon:
             raise RuntimeError("Could not start OCR server!")
         print("  OCR server is running")
 
-        # ADB
-        self.adb = ADBHelper()
+        # ADB - with callback to track daemon actions for accurate idle detection
+        self.adb = ADBHelper(on_action=self.user_idle_tracker.mark_daemon_action)
         print(f"  Connected to device: {self.adb.device}")
 
         # Windows screenshot helper
@@ -702,19 +706,19 @@ class IconDaemon:
                 world_present = (view_state == "TOWN")
                 town_present = (view_state == "WORLD")
 
-                # Get idle time (system-wide)
+                # Get idle time (system-wide) - for logging only
                 idle_secs = get_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
 
-                # Get BlueStacks-specific idle time
-                self.bluestacks_idle_detector.update()
-                bs_idle_secs = self.bluestacks_idle_detector.get_bluestacks_idle_seconds()
-                bs_idle_str = format_bluestacks_idle_time(bs_idle_secs)
+                # Get user idle time (excludes daemon's own clicks)
+                # This is the REAL idle time - daemon ADB clicks don't reset this
+                self.user_idle_tracker.update()
+                user_idle_secs = self.user_idle_tracker.get_user_idle_seconds()
+                user_idle_str = format_user_idle_time(user_idle_secs)
 
-                # Choose effective idle based on config (USE_BLUESTACKS_IDLE)
-                # True = BlueStacks-specific (typing in Chrome doesn't reset idle)
-                # False = System-wide (any input resets idle)
-                effective_idle_secs = bs_idle_secs if USE_BLUESTACKS_IDLE else idle_secs
+                # Use user idle for all automation checks
+                # The old bluestacks_idle and system_idle are kept for logging only
+                effective_idle_secs = user_idle_secs
 
                 # Get Pacific time for logging
                 pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
@@ -732,8 +736,8 @@ class IconDaemon:
                 vs_promo_active = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 vs_indicator = " [VS:Promo]" if vs_promo_active else ""
 
-                # Always print scores to stdout with view state, stamina, barracks, and arms race
-                print(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} bs:{bs_idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                # Log status line with view state, stamina, barracks, and arms race
+                self.logger.info(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} sys:{idle_str} user:{user_idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Log detailed barracks scores (s=stopwatch, y=yellow, w=white)
                 # Only log when barracks has UNKNOWN or PENDING state (to avoid noise)
