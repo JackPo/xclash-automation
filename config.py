@@ -27,12 +27,11 @@ DAEMON_INTERVAL = 2.0              # Check interval (seconds)
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
-# Idle detection mode
-# True = BlueStacks-specific (only tracks input while BlueStacks window is focused)
-#        - Typing in Chrome does NOT reset idle timer
-#        - Only clicking/typing IN BlueStacks resets idle
-# False = System-wide (any keyboard/mouse input resets idle timer)
-USE_BLUESTACKS_IDLE = True
+# Idle detection mode (DEPRECATED - now using UserIdleTracker)
+# The new UserIdleTracker excludes daemon's own clicks from idle calculation,
+# which fixes the issue where daemon ADB clicks were resetting Windows idle.
+# This setting is kept for backward compatibility but is NO LONGER USED.
+USE_BLUESTACKS_IDLE = False  # DISABLED - feature was broken
 
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
@@ -189,28 +188,48 @@ THRESHOLDS = {
 # Each barrack has a floating bubble icon above it (soldier face or stopwatch)
 # =============================================================================
 
-# Position where each barracks bubble appears (top-left corner of 81x87 template)
+# Position where each barracks bubble appears (top-left corner of 61x67 template)
 BARRACKS_POSITIONS = [
-    (2891, 1317),  # Barrack 1 - lowest/rightmost
-    (2768, 1237),  # Barrack 2 - middle left
-    (3005, 1237),  # Barrack 3 - middle right
-    (2883, 1157),  # Barrack 4 - highest/center
+    (2901, 1327),  # Barrack 1 - lowest/rightmost
+    (2778, 1247),  # Barrack 2 - middle left
+    (3015, 1247),  # Barrack 3 - middle right
+    (2893, 1167),  # Barrack 4 - highest/center
 ]
 
-# Template size for barracks state detection
-BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height
+# Template size for barracks state detection (unified with hospital at 61x67)
+BARRACKS_TEMPLATE_SIZE = (61, 67)  # width, height
 
 # Match threshold for barracks state (TM_SQDIFF_NORMED)
-# Relaxed to 0.08 to handle animation variance, with yellow pixel verification
-BARRACKS_MATCH_THRESHOLD = 0.08
+# Tighter threshold with 61x67 templates, with yellow pixel verification for READY/PENDING
+BARRACKS_MATCH_THRESHOLD = 0.03
 
 # Yellow pixel threshold for READY vs PENDING verification
-# READY (yellow soldier) has ~2600 yellow pixels, PENDING (white) has ~0
-BARRACKS_YELLOW_PIXEL_THRESHOLD = 1500
+# READY (yellow soldier) has ~1200-1600 yellow pixels, PENDING (white) has ~0
+# (Reduced from 1500 after template resize from 81x87 to 61x67)
+BARRACKS_YELLOW_PIXEL_THRESHOLD = 1000
 
 # Default soldier level to train when NOT in Arms Race Soldier Training event
 # During Arms Race Soldier Training, this may be overridden to train higher levels
 SOLDIER_TRAINING_DEFAULT_LEVEL = 4
+
+# =============================================================================
+# HOSPITAL STATE DETECTION (4K resolution)
+# Used by hospital_state_matcher to detect hospital status
+# Hospital has a floating bubble icon above it (briefcase or yellow soldier)
+# =============================================================================
+
+# Position where hospital bubble appears (same position for both templates)
+HOSPITAL_ICON_POSITION = (3312, 344)  # x, y - top-left corner
+HOSPITAL_ICON_SIZE = (61, 67)         # width, height
+
+# Click position - hospital building center (not bubble center)
+HOSPITAL_CLICK_POSITION = (3329, 511)
+
+# Match threshold (TM_SQDIFF_NORMED) - stricter than barracks
+HOSPITAL_MATCH_THRESHOLD = 0.03
+
+# Consecutive frames required before triggering (same as barracks)
+HOSPITAL_CONSECUTIVE_REQUIRED = 10
 
 # =============================================================================
 # STAMINA POPUP BUTTON POSITIONS (4K resolution)

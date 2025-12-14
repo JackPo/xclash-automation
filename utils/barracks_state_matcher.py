@@ -7,26 +7,30 @@ Each barracks has a floating bubble icon above it indicating its state:
 - White/gray soldier face = PENDING (idle, can start training)
 
 Detection logic (hybrid template matching + yellow pixel counting):
-1. Template matching with TM_SQDIFF_NORMED (threshold: 0.08)
+1. Template matching with TM_SQDIFF_NORMED (threshold from config)
 2. If stopwatch passes AND is best match → TRAINING
 3. If yellow OR white passes → use yellow pixel verification:
    - Count yellow pixels in HSV (H:15-45, S:100-255, V:100-255)
-   - If yellow_pixels >= 1500 → READY (yellow soldier has ~2600 pixels)
-   - If yellow_pixels < 1500 → PENDING (white soldier has ~0 pixels)
+   - If yellow_pixels >= threshold → READY (yellow soldier has ~1200-1600 pixels)
+   - If yellow_pixels < threshold → PENDING (white soldier has ~0 pixels)
 4. No template passes → UNKNOWN
 
 Yellow pixel counting provides definitive READY vs PENDING distinction,
 even when template scores are borderline due to animation variance.
 
+NOTE: Yellow soldier faces vary based on which soldier type was trained!
+Multiple yellow soldier templates are loaded to match all variants.
+
 Barracks positions are configured in config.py (BARRACKS_POSITIONS).
 
 Config settings:
-- BARRACKS_MATCH_THRESHOLD = 0.08 (relaxed for animation variance)
-- BARRACKS_YELLOW_PIXEL_THRESHOLD = 1500 (separates READY from PENDING)
+- BARRACKS_MATCH_THRESHOLD = 0.03 (strict with multiple templates)
+- BARRACKS_YELLOW_PIXEL_THRESHOLD = 1000 (separates READY from PENDING)
 
 Templates:
-- stopwatch_barrack_4k.png - Timer icon for TRAINING state (~1000 yellow pixels)
-- yellow_soldier_barrack_4k.png - Yellow soldier for READY state (~2600 yellow pixels)
+- stopwatch_barrack_4k.png - Timer icon for TRAINING state
+- yellow_soldier_barrack_4k.png - Yellow soldier variant 1 for READY state
+- yellow_soldier_barrack_v2_4k.png - Yellow soldier variant 2 for READY state
 - white_soldier_barrack_4k.png - White soldier for PENDING state (~0 yellow pixels)
 """
 
@@ -39,7 +43,14 @@ from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_TH
 
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
-YELLOW_TEMPLATE = TEMPLATE_DIR / "yellow_soldier_barrack_4k.png"
+# Multiple yellow soldier variants (different soldier types have different faces)
+YELLOW_TEMPLATES = [
+    TEMPLATE_DIR / "yellow_soldier_barrack_4k.png",      # Purple hat soldier
+    TEMPLATE_DIR / "yellow_soldier_barrack_v2_4k.png",   # Purple hat soldier (different frame)
+    TEMPLATE_DIR / "yellow_soldier_barrack_v3_4k.png",   # Red hat soldier
+    TEMPLATE_DIR / "yellow_soldier_barrack_v4_4k.png",   # Orange hat soldier
+    TEMPLATE_DIR / "yellow_soldier_barrack_v5_4k.png",   # Yellow/orange hat soldier
+]
 WHITE_TEMPLATE = TEMPLATE_DIR / "white_soldier_barrack_4k.png"
 STOPWATCH_TEMPLATE = TEMPLATE_DIR / "stopwatch_barrack_4k.png"
 
@@ -59,21 +70,28 @@ class BarracksStateMatcher:
     """Detects the state of all 4 barracks buildings."""
 
     def __init__(self):
-        # Load templates
-        self.yellow_template = cv2.imread(str(YELLOW_TEMPLATE))
+        # Load multiple yellow soldier templates (different soldier faces)
+        self.yellow_templates_gray = []
+        for path in YELLOW_TEMPLATES:
+            template = cv2.imread(str(path))
+            if template is not None:
+                self.yellow_templates_gray.append(cv2.cvtColor(template, cv2.COLOR_BGR2GRAY))
+            else:
+                print(f"Warning: Could not load {path}")
+
+        if not self.yellow_templates_gray:
+            print("Warning: No yellow soldier templates loaded!")
+
+        # Load white and stopwatch templates
         self.white_template = cv2.imread(str(WHITE_TEMPLATE))
         self.stopwatch_template = cv2.imread(str(STOPWATCH_TEMPLATE))
 
-        if self.yellow_template is None:
-            print(f"Warning: Could not load {YELLOW_TEMPLATE}")
         if self.white_template is None:
             print(f"Warning: Could not load {WHITE_TEMPLATE}")
         if self.stopwatch_template is None:
             print(f"Warning: Could not load {STOPWATCH_TEMPLATE}")
 
         # Convert to grayscale
-        if self.yellow_template is not None:
-            self.yellow_gray = cv2.cvtColor(self.yellow_template, cv2.COLOR_BGR2GRAY)
         if self.white_template is not None:
             self.white_gray = cv2.cvtColor(self.white_template, cv2.COLOR_BGR2GRAY)
         if self.stopwatch_template is not None:
@@ -139,10 +157,15 @@ class BarracksStateMatcher:
             scores['stopwatch'] = self._match_template_at_position(
                 frame_gray, self.stopwatch_gray, x, y
             )
-        if self.yellow_template is not None:
-            scores['yellow'] = self._match_template_at_position(
-                frame_gray, self.yellow_gray, x, y
-            )
+
+        # Match against all yellow soldier variants, use best (lowest) score
+        if self.yellow_templates_gray:
+            yellow_scores = [
+                self._match_template_at_position(frame_gray, t, x, y)
+                for t in self.yellow_templates_gray
+            ]
+            scores['yellow'] = min(yellow_scores)
+
         if self.white_template is not None:
             scores['white'] = self._match_template_at_position(
                 frame_gray, self.white_gray, x, y
