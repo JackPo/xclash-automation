@@ -20,16 +20,67 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
 from utils.back_button_matcher import BackButtonMatcher
 from utils.adb_helper import ADBHelper
+import numpy as np
 
 # Target resolution
 TARGET_RESOLUTION = "3840x2160"
 
-# Click position
+# Click positions
 BACK_BUTTON_CLICK = (1407, 2055)
+MAP_DESELECT_CLICK = (500, 1000)  # Click on empty map area to deselect troops
+CENTER_SCREEN_CLICK = (1920, 1600)  # Click center-bottom for "Tap to Close" popups
+
+# Template paths for state detection
+TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
+FORM_TEAM_TEMPLATE = TEMPLATE_DIR / "form_team_button_4k.png"
+RESOURCE_BAR_TEMPLATE = TEMPLATE_DIR / "resource_bar_4k.png"
 
 # Recovery limits
 MAX_BACK_CLICKS = 5
 MAX_RECOVERY_ATTEMPTS = 30  # Try more attempts before restarting game
+MAX_CONSECUTIVE_RESTARTS = 5  # Stop after this many consecutive restart failures
+
+# Track consecutive restarts (module-level state)
+_consecutive_restarts = 0
+
+# Cached templates
+_form_team_template = None
+_resource_bar_template = None
+
+
+def _load_templates():
+    """Load detection templates once."""
+    global _form_team_template, _resource_bar_template
+    if _form_team_template is None and FORM_TEAM_TEMPLATE.exists():
+        _form_team_template = cv2.imread(str(FORM_TEAM_TEMPLATE))
+    if _resource_bar_template is None and RESOURCE_BAR_TEMPLATE.exists():
+        _resource_bar_template = cv2.imread(str(RESOURCE_BAR_TEMPLATE))
+
+
+def _detect_troop_selected(frame) -> tuple[bool, float]:
+    """Detect if a troop is selected (Form Team button visible)."""
+    _load_templates()
+    if _form_team_template is None or frame is None:
+        return False, 1.0
+
+    # Search in bottom portion of screen
+    search_region = frame[1900:2160, 1000:1700]
+    result = cv2.matchTemplate(search_region, _form_team_template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+    return min_val < 0.1, min_val
+
+
+def _detect_resource_bar(frame) -> tuple[bool, float]:
+    """Detect resource bar at top (indicates TOWN/WORLD view even if button hidden)."""
+    _load_templates()
+    if _resource_bar_template is None or frame is None:
+        return False, 1.0
+
+    # Search in top portion of screen
+    search_region = frame[0:100, 0:600]
+    result = cv2.matchTemplate(search_region, _resource_bar_template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+    return min_val < 0.1, min_val
 
 
 def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
@@ -102,8 +153,8 @@ def _start_app(adb: ADBHelper, debug: bool = False):
     )
 
     if debug:
-        print("    [RETURN] Waiting 30s for game to load...")
-    time.sleep(30)
+        print("    [RETURN] Waiting 60s for game to load...")
+    time.sleep(60)
 
     _run_setup_bluestacks(debug)
     time.sleep(3)
@@ -126,6 +177,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     Returns:
         True when successfully in TOWN/WORLD (keeps trying until success).
     """
+    global _consecutive_restarts  # Track restart count across recursive calls
+
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     back_matcher = BackButtonMatcher()
 
@@ -163,6 +216,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Check if we're already in a good state
             view_state, view_score = detect_view(frame)
             if view_state in (ViewState.TOWN, ViewState.WORLD):
+                _consecutive_restarts = 0  # Reset on success
                 if debug:
                     print(f"    [RETURN] Reached {view_state.value} view (score={view_score:.3f})")
                 return True
@@ -192,46 +246,122 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if frame is not None:
             view_state, view_score = detect_view(frame)
             if view_state in (ViewState.TOWN, ViewState.WORLD):
+                _consecutive_restarts = 0  # Reset on success
                 if debug:
                     print(f"    [RETURN] Reached {view_state.value} view")
                 return True
 
-        # Phase 3: Unknown state - try clicking back button location to dismiss popup
-        # Save debug screenshot before blind back click
+        # Phase 3: Smart state detection - figure out what state we're in
         frame = win.get_screenshot_cv2()
         if frame is not None:
+            # Detect various states
+            troop_selected, troop_score = _detect_troop_selected(frame)
+            resource_bar, resource_score = _detect_resource_bar(frame)
+            back_present, back_score = back_matcher.is_present(frame)
+
+            # Save debug screenshot with state info
             debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             debug_path = debug_dir / f"return_unknown_state_a{attempt+1}_{timestamp}.png"
             cv2.imwrite(str(debug_path), frame)
+
             if debug:
-                print(f"    [RETURN] Saved UNKNOWN state screenshot: {debug_path.name}")
-        if debug:
-            print("    [RETURN] Unknown state, clicking back button location...")
-        adb.tap(*BACK_BUTTON_CLICK)
-        time.sleep(2.0)  # Give UI time to respond to click
+                print(f"    [RETURN] State detection results:")
+                print(f"      - View: UNKNOWN (score={view_score:.3f})")
+                print(f"      - Troop selected: {troop_selected} (score={troop_score:.3f})")
+                print(f"      - Resource bar: {resource_bar} (score={resource_score:.3f})")
+                print(f"      - Back button: {back_present} (score={back_score:.3f})")
+                print(f"    [RETURN] Saved debug screenshot: {debug_path.name}")
 
-        # Check again
-        frame = win.get_screenshot_cv2()
-        if frame is not None:
-            view_state, view_score = detect_view(frame)
-            if view_state in (ViewState.TOWN, ViewState.WORLD):
+            # Decision logic based on detected state
+            if troop_selected:
+                # Troop is selected - click map to deselect
                 if debug:
-                    print(f"    [RETURN] Reached {view_state.value} view after popup dismiss")
-                return True
+                    print("    [RETURN] TROOP SELECTED state detected - clicking map to deselect...")
+                adb.tap(*MAP_DESELECT_CLICK)
+                time.sleep(1.5)
 
-            # Also check for back button now - if visible, retry the loop
-            back_present, _ = back_matcher.is_present(frame)
-            if back_present or view_state == ViewState.CHAT:
+                # Check if we're now in TOWN/WORLD
+                frame = win.get_screenshot_cv2()
+                if frame is not None:
+                    view_state, view_score = detect_view(frame)
+                    if view_state in (ViewState.TOWN, ViewState.WORLD):
+                        _consecutive_restarts = 0
+                        if debug:
+                            print(f"    [RETURN] SUCCESS: Reached {view_state.value} after troop deselect")
+                        return True
+                continue  # Retry detection
+
+            elif resource_bar and not back_present:
+                # Resource bar visible but no World button - might be popup or panned view
                 if debug:
-                    print(f"    [RETURN] Now in known state ({view_state.value}), retrying...")
-                continue  # Go back to phase 1
+                    print("    [RETURN] RESOURCE BAR visible but World button hidden - trying center click...")
+                adb.tap(*CENTER_SCREEN_CLICK)
+                time.sleep(1.5)
+
+                frame = win.get_screenshot_cv2()
+                if frame is not None:
+                    view_state, view_score = detect_view(frame)
+                    if view_state in (ViewState.TOWN, ViewState.WORLD):
+                        _consecutive_restarts = 0
+                        if debug:
+                            print(f"    [RETURN] SUCCESS: Reached {view_state.value} after center click")
+                        return True
+                continue
+
+            elif back_present:
+                # Back button visible - we're in some menu/dialog
+                if debug:
+                    print("    [RETURN] BACK BUTTON visible - clicking to exit dialog...")
+                adb.tap(*BACK_BUTTON_CLICK)
+                time.sleep(2.0)
+                continue
+
+            else:
+                # Unknown state - try sequence of clicks
+                if debug:
+                    print("    [RETURN] UNKNOWN state - trying back button location...")
+                adb.tap(*BACK_BUTTON_CLICK)
+                time.sleep(2.0)
+
+                # Check again
+                frame = win.get_screenshot_cv2()
+                if frame is not None:
+                    view_state, view_score = detect_view(frame)
+                    if view_state in (ViewState.TOWN, ViewState.WORLD):
+                        _consecutive_restarts = 0
+                        if debug:
+                            print(f"    [RETURN] SUCCESS: Reached {view_state.value} after back click")
+                        return True
+
+                # Try center click for "Tap to Close" popups
+                if debug:
+                    print("    [RETURN] Trying center screen click...")
+                adb.tap(*CENTER_SCREEN_CLICK)
+                time.sleep(1.5)
+
+                frame = win.get_screenshot_cv2()
+                if frame is not None:
+                    view_state, view_score = detect_view(frame)
+                    if view_state in (ViewState.TOWN, ViewState.WORLD):
+                        _consecutive_restarts = 0
+                        if debug:
+                            print(f"    [RETURN] SUCCESS: Reached {view_state.value} after center click")
+                        return True
 
         if debug:
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
     # STEP 3: All attempts failed - restart app and RETRY
+    _consecutive_restarts += 1
+
+    # Check restart limit
+    if _consecutive_restarts >= MAX_CONSECUTIVE_RESTARTS:
+        print(f"    [RETURN] *** FATAL: {_consecutive_restarts} consecutive restarts failed ***")
+        print(f"    [RETURN] Giving up - manual intervention required")
+        return False
+
     # CRITICAL: Save debug screenshot with detailed marker BEFORE restart
     frame = win.get_screenshot_cv2()
     if frame is not None:
@@ -243,13 +373,13 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Also detect view state for the marker
         view_state, view_score = detect_view(frame)
         back_present, back_score = back_matcher.is_present(frame)
-        print(f"    [RETURN] *** RESTART TRIGGERED ***")
+        print(f"    [RETURN] *** RESTART TRIGGERED ({_consecutive_restarts}/{MAX_CONSECUTIVE_RESTARTS}) ***")
         print(f"    [RETURN] Screenshot saved: {debug_path.name}")
         print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")
         print(f"    [RETURN] Back button present: {back_present} (score={back_score:.3f})")
         print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
     else:
-        print(f"    [RETURN] *** RESTART TRIGGERED (no screenshot available) ***")
+        print(f"    [RETURN] *** RESTART TRIGGERED ({_consecutive_restarts}/{MAX_CONSECUTIVE_RESTARTS}) (no screenshot available) ***")
         print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
 
     if debug:
