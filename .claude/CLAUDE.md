@@ -72,6 +72,31 @@ Key components:
 - `utils/` - Reusable utilities and matchers
 - `config.py`, `config_local.py` - Configuration files
 
+## ⚠️ CRITICAL: Configuration Files
+
+**TWO config files exist - know the difference:**
+
+| File | Purpose | Git Status |
+|------|---------|------------|
+| `config.py` | **Defaults & universal settings** (positions, thresholds, template sizes) | Tracked |
+| `config_local.py` | **User overrides** (API keys, personal preferences) | **Gitignored** |
+
+**RULE: User-specific settings go in `config_local.py`, NOT `config.py`**
+
+Settings that belong in `config_local.py`:
+- `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY` - API credentials
+- `IDLE_THRESHOLD` - Personal idle time preference
+- `RALLY_JOIN_ENABLED` - Feature toggles
+- Any setting the user wants different from defaults
+
+Settings that belong in `config.py`:
+- Template positions (BARRACKS_POSITIONS, HOSPITAL_ICON_POSITION)
+- Template sizes (BARRACKS_TEMPLATE_SIZE, HOSPITAL_ICON_SIZE)
+- Match thresholds (BARRACKS_MATCH_THRESHOLD, HOSPITAL_MATCH_THRESHOLD)
+- Universal constants that apply to everyone
+
+**How it works**: `config.py` loads first, then `config_local.py` overrides any values it defines.
+
 **Root directory should ONLY contain:**
 - Config files (config.py, config_local.py, config_local.py.example)
 - Documentation (README.md, ARCHITECTURE.md, ARMS_RACE_SCHEDULE.md, etc.)
@@ -167,6 +192,19 @@ Located in `templates/ground_truth/`:
 
 **Anchor Templates:**
 - `dog_house_4k.png` - Dog house for town view alignment verification (position: 1605,882, size: 172x197, threshold: 0.1)
+
+**Barracks State Templates (bubble icons, size 61x67, threshold 0.03):**
+- `stopwatch_barrack_4k.png` - Timer icon for TRAINING state
+- `white_soldier_barrack_4k.png` - White soldier for PENDING state
+- `yellow_soldier_barrack_4k.png` - Yellow soldier v1 (purple hat) for READY state
+- `yellow_soldier_barrack_v2_4k.png` - Yellow soldier v2 (purple hat, different frame)
+- `yellow_soldier_barrack_v3_4k.png` - Yellow soldier v3 (red hat)
+- `yellow_soldier_barrack_v4_4k.png` - Yellow soldier v4 (orange hat)
+- `yellow_soldier_barrack_v5_4k.png` - Yellow soldier v5 (yellow/orange hat)
+
+NOTE: Different soldier types have different face icons! Multiple yellow soldier
+templates are needed to match all variants. Both barracks_state_matcher and
+hospital_state_matcher use the same yellow soldier templates.
 
 **Soldier Tile Templates (barracks panel, fixed Y=810-967, size 148x157):**
 - `soldier_lv3_4k.png` - Level 3 soldier tile
