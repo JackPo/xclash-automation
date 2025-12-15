@@ -85,10 +85,8 @@ from config import (
     UNION_GIFTS_COOLDOWN,
     UNION_TECHNOLOGY_COOLDOWN,
     UNION_FLOW_SEPARATION,
-    SOLDIER_TRAINING_COOLDOWN,
     BAG_FLOW_COOLDOWN,
     GIFT_BOX_COOLDOWN,
-    UNION_GIFTS_IDLE_THRESHOLD,
     UNKNOWN_STATE_TIMEOUT,
     STAMINA_REGION,
     # Arms Race automation settings
@@ -186,10 +184,9 @@ class IconDaemon:
         self.last_afk_rewards_time = 0
         self.AFK_REWARDS_COOLDOWN = AFK_REWARDS_COOLDOWN
 
-        # Union gifts cooldown - once per hour, requires 20 min idle (from config)
+        # Union gifts cooldown - once per hour (from config)
         self.last_union_gifts_time = 0
         self.UNION_GIFTS_COOLDOWN = UNION_GIFTS_COOLDOWN
-        self.UNION_GIFTS_IDLE_THRESHOLD = UNION_GIFTS_IDLE_THRESHOLD
 
         # Bag flow cooldown - once per hour, requires 5 min idle
         self.last_bag_flow_time = 0
@@ -203,25 +200,25 @@ class IconDaemon:
         self.last_tavern_scan_time = 0
         self.TAVERN_SCAN_COOLDOWN = TAVERN_SCAN_COOLDOWN
 
-        # Union technology cooldown - once per hour, requires 20 min idle
+        # Union technology cooldown - once per hour
         # Must be 10 min apart from union gifts to avoid clobbering
         self.last_union_technology_time = 0
         self.UNION_TECHNOLOGY_COOLDOWN = UNION_TECHNOLOGY_COOLDOWN
         self.UNION_FLOW_SEPARATION = UNION_FLOW_SEPARATION
 
-        # Soldier training cooldown - once per 5 minutes
-        self.last_soldier_training_time = 0
-        self.SOLDIER_TRAINING_COOLDOWN = SOLDIER_TRAINING_COOLDOWN
+        # Return-to-town tracking - every 5 idle iterations, go back to TOWN
+        self.idle_iteration_count = 0
+        self.IDLE_RETURN_TO_TOWN_INTERVAL = 5  # Every 5 iterations when idle
 
         # Initialize unified scheduler with config overrides
+        # All flows now use IDLE_THRESHOLD from config (default 5 min)
         self.scheduler = get_scheduler(config_overrides={
             "afk_rewards": {"cooldown": AFK_REWARDS_COOLDOWN, "idle_required": IDLE_THRESHOLD},
-            "union_gifts": {"cooldown": UNION_GIFTS_COOLDOWN, "idle_required": UNION_GIFTS_IDLE_THRESHOLD},
-            "union_technology": {"cooldown": UNION_TECHNOLOGY_COOLDOWN, "idle_required": UNION_GIFTS_IDLE_THRESHOLD},
+            "union_gifts": {"cooldown": UNION_GIFTS_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "union_technology": {"cooldown": UNION_TECHNOLOGY_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "tavern_scan": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
-            "soldier_training": {"cooldown": SOLDIER_TRAINING_COOLDOWN, "idle_required": IDLE_THRESHOLD},
         })
 
         # Unified stamina validation - ONE system for all stamina-based triggers
@@ -816,6 +813,7 @@ class IconDaemon:
 
                 # Format hospital state for logging
                 hospital_state_char = {
+                    HospitalState.TRAINING: "TRAIN",
                     HospitalState.HEALING: "HEAL",
                     HospitalState.SOLDIERS_WOUNDED: "WOUND",
                     HospitalState.IDLE: "IDLE",
@@ -868,26 +866,31 @@ class IconDaemon:
                             self.unknown_state_left_time = None
                             continue  # Skip rest of iteration, start fresh
 
-                # Idle recovery - every 5 min when idle 5+ min, go to town and ensure alignment
-                if effective_idle_secs >= self.IDLE_THRESHOLD:
-                    current_time = time.time()
-                    if current_time - self.last_idle_check_time >= self.IDLE_CHECK_INTERVAL:
-                        self.last_idle_check_time = current_time
+                # Idle return-to-town - every 5 iterations when idle, return to TOWN
+                # Most scanning happens in TOWN view, so we want to be there when idle
+                if effective_idle_secs >= self.IDLE_THRESHOLD and not self.critical_flow_active:
+                    self.idle_iteration_count += 1
+
+                    if self.idle_iteration_count >= self.IDLE_RETURN_TO_TOWN_INTERVAL:
+                        self.idle_iteration_count = 0  # Reset counter
 
                         # Not in town - navigate there (handles CHAT, WORLD)
                         if view_state != "TOWN" and view_state != "UNKNOWN":
-                            self.logger.info(f"[{iteration}] IDLE RECOVERY: In {view_state}, navigating to TOWN...")
+                            self.logger.info(f"[{iteration}] IDLE RETURN: In {view_state}, navigating to TOWN...")
                             self._switch_to_town()
                         elif view_state == "TOWN":
                             # In TOWN - check if dog house is aligned
                             is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
                             if not is_aligned:
-                                self.logger.info(f"[{iteration}] IDLE RECOVERY: Town view misaligned (dog_score={dog_score:.4f}), resetting view...")
+                                self.logger.info(f"[{iteration}] IDLE RETURN: Town view misaligned (dog_score={dog_score:.4f}), resetting view...")
                                 # Go to WORLD then back to TOWN to reset alignment
                                 go_to_world(self.adb, debug=False)
                                 time.sleep(1.0)
                                 go_to_town(self.adb, debug=False)
-                                self.logger.info(f"[{iteration}] IDLE RECOVERY: View reset complete")
+                                self.logger.info(f"[{iteration}] IDLE RETURN: View reset complete")
+                else:
+                    # Not idle or critical flow active - reset counter
+                    self.idle_iteration_count = 0
 
                 # =================================================================
                 # UNIFIED STAMINA VALIDATION
@@ -1191,19 +1194,17 @@ class IconDaemon:
 
                 # Barracks: Check for READY barracks to collect soldiers (non-Arms Race ONLY)
                 # During Arms Race "Soldier Training" event or VS promotion days, we use soldier_upgrade_flow instead
-                # Requires TOWN view, alignment, and 5-minute cooldown
+                # No cooldown - just requires TOWN view, alignment, and idle
                 is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                if world_present and harvest_aligned and not is_arms_race_soldier_active:
-                    if self.scheduler.is_flow_ready("soldier_training", idle_seconds=effective_idle_secs):
-                        # Get barracks states
-                        from utils.barracks_state_matcher import BarrackState
-                        states = self.barracks_matcher.get_all_states(frame)
-                        ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
+                if world_present and harvest_aligned and harvest_idle_ok and not is_arms_race_soldier_active:
+                    # Get barracks states
+                    from utils.barracks_state_matcher import BarrackState
+                    states = self.barracks_matcher.get_all_states(frame)
+                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
 
-                        if ready_count > 0:
-                            self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
-                            self._run_flow("soldier_training", soldier_training_flow)
-                            self.scheduler.record_flow_run("soldier_training")
+                    if ready_count > 0:
+                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
+                        self._run_flow("soldier_training", soldier_training_flow)
 
                 # AFK rewards: requires AFK icon detected + harvest conditions + cooldown
                 if afk_present and world_present and harvest_aligned:

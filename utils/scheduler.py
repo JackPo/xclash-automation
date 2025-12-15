@@ -19,18 +19,19 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any
 
+from config import IDLE_THRESHOLD
+
 logger = logging.getLogger(__name__)
 
 # Flow configurations: cooldown (seconds), idle required (seconds)
-# These are defaults; can be overridden by config.py values
+# All flows use IDLE_THRESHOLD from config.py as the default idle requirement
 FLOW_CONFIGS = {
-    "afk_rewards": {"cooldown": 3600, "idle_required": 300},
-    "union_gifts": {"cooldown": 3600, "idle_required": 1200},
-    "union_technology": {"cooldown": 3600, "idle_required": 1200},
-    "bag_flow": {"cooldown": 3600, "idle_required": 300},
-    "gift_box": {"cooldown": 3600, "idle_required": 300},
-    "tavern_scan": {"cooldown": 1800, "idle_required": 300},
-    "soldier_training": {"cooldown": 300, "idle_required": 300},
+    "afk_rewards": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
+    "union_gifts": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
+    "union_technology": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
+    "bag_flow": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
+    "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
+    "tavern_scan": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
 }
 
 

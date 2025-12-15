@@ -518,13 +518,14 @@ The daemon supports two idle detection modes, controlled by `USE_BLUESTACKS_IDLE
 
 The daemon logs both values: `idle:` (system-wide) and `bs:` (BlueStacks-specific).
 
-### Idle Recovery (5 minutes)
+### Idle Return-to-Town (Every 5 Iterations)
 
-When user is idle for 5+ minutes, daemon automatically:
-1. Detects current view state
-2. If not in TOWN, navigates to TOWN using `go_to_town()`
-3. If in TOWN, checks dog house alignment. If misaligned, resets view (WORLD → TOWN)
-4. Handles CHAT/WORLD/UNKNOWN states automatically
+When user is idle for 5+ minutes, every 5 daemon iterations (~10 seconds):
+1. If not in TOWN, navigates to TOWN using `go_to_town()`
+2. If in TOWN, checks dog house alignment. If misaligned, resets view (WORLD → TOWN)
+3. Counter resets when user becomes active or critical flow is running
+
+This ensures most scanning happens in TOWN view where harvest bubbles and barracks are visible.
 
 ### Harvest Action Requirements
 
@@ -663,6 +664,40 @@ python scripts/flows/soldier_upgrade_flow.py
 - `VS_SOLDIER_PROMOTION_DAYS = [2]` - Days when soldier promotion runs all day (Day 2 = Thursday)
 - No cooldown, no block limitation - runs continuously during event or VS day
 
+### Non-Arms-Race Soldier Training (Timed)
+
+**Trigger**: NOT during Soldier Training event AND NOT VS promotion day, READY barracks detected, 5+ min idle, TOWN view, dog house aligned
+
+**Pattern**: "ONE code path via `soldier_training_flow` with automatic Arms Race timing"
+
+**Flow sequence**:
+1. Daemon detects READY barracks (no cooldown - triggers immediately when conditions met)
+2. Calls `soldier_training_flow` which:
+   - Collects from READY barracks (click yellow bubbles)
+   - Trains PENDING barracks via `train_soldier_at_barrack()`
+3. `train_soldier_at_barrack()` calculates time until next "Soldier Training" Arms Race event
+4. If training would exceed that time → uses `barracks_training_flow` with `target_hours` to finish just before event
+5. If training fits within time → uses max training time
+
+**Arms Race Timing Logic** (`train_soldier_at_barrack()`):
+```python
+time_until = get_time_until_soldier_training()
+if time_until and time_until.total_seconds() > 0:
+    max_hours = (time_until.total_seconds() - 300) / 3600  # 5 min buffer
+    max_hours = max(0.5, max_hours)  # Minimum 30 min training
+    # Use barracks_training_flow with target_hours
+else:
+    # During Soldier Training event - use max time (upgrade flow handles this)
+```
+
+**Key files**:
+- `scripts/flows/soldier_training_flow.py`: `train_soldier_at_barrack()` with timing logic
+- `scripts/flows/barracks_training_flow.py`: Slider adjustment for precise timing
+
+**Config**:
+- No cooldown - triggers immediately when READY barracks detected and conditions met
+- Requires: 5+ min idle, TOWN view, dog house aligned
+
 ### Rally Join Flow (Union War)
 
 **Trigger**: Handshake icon detected → opens Union War panel → `rally_join_flow`
@@ -694,18 +729,12 @@ python scripts/flows/soldier_upgrade_flow.py
 **Config** (`config.py`):
 ```python
 RALLY_MONSTERS = [
-    {
-        "name": "Zombie Overlord",
-        "auto_join": True,
-        "max_level": 130,
-        "track_daily_limit": False,  # Never mark exhausted
-    },
-    {
-        "name": "Elite Zombie",
-        "auto_join": True,
-        "max_level": 30,
-        "track_daily_limit": True,   # Track daily exhaustion
-    },
+    {"name": "Zombie Overlord", "auto_join": True, "max_level": 130, "track_daily_limit": False},
+    {"name": "Elite Zombie", "auto_join": True, "max_level": 25, "track_daily_limit": True},
+    {"name": "Union Boss", "auto_join": True, "max_level": 9999, "track_daily_limit": False},
+    {"name": "Nightfall Servant", "auto_join": True, "max_level": 25, "track_daily_limit": True},
+    {"name": "Undead Boss", "auto_join": True, "max_level": 25, "track_daily_limit": True},
+    {"name": "Klass", "auto_join": True, "max_level": 30, "track_daily_limit": True},
 ]
 ```
 

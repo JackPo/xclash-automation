@@ -117,7 +117,6 @@ SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collecti
 BAG_FLOW_COOLDOWN = 3600           # 1 hour between bag flow runs
 GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
 TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
-UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes idle required for union gifts
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
