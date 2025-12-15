@@ -84,7 +84,6 @@ from config import (
     AFK_REWARDS_COOLDOWN,
     UNION_GIFTS_COOLDOWN,
     UNION_TECHNOLOGY_COOLDOWN,
-    UNION_FLOW_SEPARATION,
     BAG_FLOW_COOLDOWN,
     GIFT_BOX_COOLDOWN,
     UNKNOWN_STATE_TIMEOUT,
@@ -201,10 +200,8 @@ class IconDaemon:
         self.TAVERN_SCAN_COOLDOWN = TAVERN_SCAN_COOLDOWN
 
         # Union technology cooldown - once per hour
-        # Must be 10 min apart from union gifts to avoid clobbering
         self.last_union_technology_time = 0
         self.UNION_TECHNOLOGY_COOLDOWN = UNION_TECHNOLOGY_COOLDOWN
-        self.UNION_FLOW_SEPARATION = UNION_FLOW_SEPARATION
 
         # Return-to-town tracking - every 5 idle iterations, go back to TOWN
         self.idle_iteration_count = 0
@@ -1213,22 +1210,14 @@ class IconDaemon:
                         self._run_flow("afk_rewards", afk_rewards_flow)
                         self.scheduler.record_flow_run("afk_rewards")
 
-                # Union gifts: 20 min idle, 1 hour cooldown
-                # Must be 10 min apart from union technology (check time since last tech run)
-                union_tech_history = self.scheduler.get_flow_history("union_technology")
-                union_tech_last = union_tech_history[-1] if union_tech_history else None
-                union_separation_ok = union_tech_last is None or (datetime.now() - union_tech_last).total_seconds() >= self.UNION_FLOW_SEPARATION
-                if self.scheduler.is_flow_ready("union_gifts", idle_seconds=effective_idle_secs) and union_separation_ok:
+                # Union gifts: 1 hour cooldown
+                if self.scheduler.is_flow_ready("union_gifts", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] UNION GIFTS: idle={idle_str}, triggering flow...")
                     self._run_flow("union_gifts", union_gifts_flow)
                     self.scheduler.record_flow_run("union_gifts")
 
-                # Union technology: 20 min idle, 1 hour cooldown
-                # Must be 10 min apart from union gifts (check time since last gifts run)
-                union_gifts_history = self.scheduler.get_flow_history("union_gifts")
-                union_gifts_last = union_gifts_history[-1] if union_gifts_history else None
-                tech_separation_ok = union_gifts_last is None or (datetime.now() - union_gifts_last).total_seconds() >= self.UNION_FLOW_SEPARATION
-                if self.scheduler.is_flow_ready("union_technology", idle_seconds=effective_idle_secs) and tech_separation_ok:
+                # Union technology: 1 hour cooldown
+                if self.scheduler.is_flow_ready("union_technology", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] UNION TECHNOLOGY: idle={idle_str}, triggering flow...")
                     self._run_flow("union_technology", union_technology_flow)
                     self.scheduler.record_flow_run("union_technology")

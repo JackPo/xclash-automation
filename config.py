@@ -108,6 +108,11 @@ ARMS_RACE_SOLDIER_TRAINING_ENABLED = True      # Enable/disable soldier upgrade 
 # Example: [2] = Day 2 only, [2, 5] = Day 2 and Day 5
 VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in current cycle
 
+# VS Level Chest Days
+# When the current Arms Race day is in this list, open level chests (Lv2, Lv3, Lv4) in bag
+# Example: [3] = Day 3 only (Wednesday)
+VS_LEVEL_CHEST_DAYS = [3]  # Day 3 = Wednesday in current cycle
+
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims

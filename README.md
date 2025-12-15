@@ -5,6 +5,7 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 ## Table of Contents
 
 - [Features](#features)
+- [VS Day Automation](#vs-day-automation)
 - [Technology Stack](#technology-stack)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -28,9 +29,9 @@ These features run continuously and don't require any special timing:
 - **Treasure Maps**: Opens and collects treasure map rewards
 - **Harvest Boxes**: Opens surprise harvest boxes
 - **AFK Rewards**: Claims idle/AFK reward popups (1h cooldown)
-- **Union Gifts**: Collects alliance gift packages (when idle 20+ min, 1h cooldown)
-- **Union Technology Donations**: Donates to alliance technology research (when idle 20+ min, 1h cooldown, 10 min separation from Union Gifts)
-- **Bag Items**: Opens bag and claims items from all tabs - Special (chests), Hero (chests), Resources (diamonds) (5 min idle, 1h cooldown)
+- **Union Gifts**: Collects alliance gift packages (5 min idle, 1h cooldown)
+- **Union Technology Donations**: Donates to alliance technology research (5 min idle, 1h cooldown)
+- **Bag Items**: Opens bag and claims items from all tabs - Special (8 chest types), Hero (chests), Resources (diamonds) (5 min idle, 1h cooldown)
 - **Gift Box Rewards**: Claims accumulated loot rewards from gift box icon in WORLD view (5 min idle, 1h cooldown)
 - **Rally Joining**: Automatically joins Union War rallies based on monster type and level
 - **Hospital Healing**: Detects hospital state (healing/wounded) and manages troop healing
@@ -121,17 +122,55 @@ The daemon automatically manages tavern quests:
 ### Technical Features
 
 - **24/7 Background Operation**: Runs continuously as a daemon, checking every 3 seconds
-- **Idle-Aware**: Only triggers resource harvesting when you're AFK (5+ minutes idle)
+- **Idle-Aware**: Only triggers resource harvesting when you're AFK (configurable idle threshold)
+- **BlueStacks-Specific Idle**: Tracks idle time per-window - typing in Chrome doesn't reset idle timer
 - **Crash Recovery**: Automatically restarts the game if it crashes or gets stuck
 - **View Navigation**: Detects TOWN/WORLD/CHAT views and navigates as needed
 - **Template Matching**: Sub-pixel accurate icon detection using OpenCV
 - **Separate OCR Server**: Qwen2.5-VL runs in parallel Flask server on GPU for stamina reading (no cloud API needed)
 - **Arms Race Tracking**: Tracks the 5-activity Arms Race rotation and triggers event-specific flows
-- **Unified Scheduler**: Persistent tracking of cooldowns, quest timers, and daily limits (survives restarts)
-- **Hospital State Detection**: Unified matcher detects HEALING/WOUNDED/IDLE states with consecutive frame validation
+- **Unified Scheduler**: Robust JSON-based scheduler with persistent cooldowns, quest timers, and daily limits (survives restarts)
+- **Hospital State Detection**: Unified matcher detects TRAINING/HEALING/WOUNDED/IDLE states with consecutive frame validation
 - **Template Verification**: Validates all required templates exist at startup to catch missing files early
 - **Resource Replenishment**: Automatically detects and confirms resource shortages across all flows
-- **Configurable**: All coordinates, thresholds, and timings can be customized
+- **Auto Return-to-Town**: Every 5 iterations when idle, daemon returns to TOWN view for optimal scanning
+- **Configurable**: All coordinates, thresholds, and timings can be customized via `config_local.py`
+
+## VS Day Automation
+
+The bot includes special automation that triggers only on specific VS (Versus) event days to maximize points:
+
+### Day 2 (Thursday) - Soldier Promotion Day
+
+**Config**: `VS_SOLDIER_PROMOTION_DAYS = [2]`
+
+On VS Day 2, soldier promotions run **ALL DAY** regardless of which 4-hour Arms Race event is active:
+- Automatically promotes soldiers at PENDING barracks
+- Overrides the normal "only during Soldier Training event" restriction
+- Daemon log shows `[VS:Promo]` when this override is active
+
+### Day 3 (Wednesday) - Level Chest Day
+
+**Config**: `VS_LEVEL_CHEST_DAYS = [3]`
+
+On VS Day 3, the bag flow opens **level chests** (Lv1-Lv4) in addition to regular chests:
+- Regular days: Opens 8 regular chest types only
+- VS Day 3: Opens 8 regular + 4 level chests (Lv1, Lv2, Lv3, Lv4)
+- Level chests give VS points, so we save them for the chest-opening VS event day
+
+**Level Chest Templates**:
+- `bag_chest_lv1_4k.png` - Level 1 chest
+- `bag_chest_lv2_4k.png` - Level 2 chest (gold ornate)
+- `bag_chest_lv3_4k.png` - Level 3 chest (blue striped)
+- `bag_chest_lv4_4k.png` - Level 4 chest (purple striped)
+
+### Configuration
+
+Override VS days in `config_local.py`:
+```python
+VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday
+VS_LEVEL_CHEST_DAYS = [3]        # Day 3 = Wednesday
+```
 
 ## Technology Stack
 
@@ -309,12 +348,29 @@ notepad config_local.py
 ```python
 # Daemon behavior
 DAEMON_INTERVAL = 3.0              # Seconds between detection cycles
-IDLE_THRESHOLD = 300               # Seconds of inactivity before "idle" mode (5 min)
-IDLE_CHECK_INTERVAL = 300          # Seconds between idle recovery checks (5 min)
+IDLE_THRESHOLD = 300               # Seconds of inactivity before "idle" mode (5 min default)
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS unknown state before recovery
 ```
+
+### Unified Scheduler
+
+The daemon uses a robust JSON-based scheduler (`utils/scheduler.py`) that:
+- **Persists across restarts**: All cooldowns, quest timers, and daily limits saved to `data/daemon_schedule.json`
+- **Centralized idle threshold**: All flows use `IDLE_THRESHOLD` from config (override in `config_local.py`)
+- **Daily limit tracking**: Tracks exhausted rallies per monster type with server reset at 02:00 UTC
+- **Quest timer tracking**: OCRs tavern quest completion times and triggers collection at the right moment
+
+**Scheduler-managed flows and their cooldowns**:
+| Flow | Cooldown | Idle Required |
+|------|----------|---------------|
+| `afk_rewards` | 1 hour | `IDLE_THRESHOLD` |
+| `union_gifts` | 1 hour | `IDLE_THRESHOLD` |
+| `union_technology` | 1 hour | `IDLE_THRESHOLD` |
+| `bag_flow` | 1 hour | `IDLE_THRESHOLD` |
+| `gift_box` | 1 hour | `IDLE_THRESHOLD` |
+| `tavern_scan` | 30 min | `IDLE_THRESHOLD` |
 
 ### Game-Specific Parameters
 
@@ -325,10 +381,9 @@ UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS unknown state before 
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina for elite zombie rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
 
-# Cooldowns (seconds)
-AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK reward claims
-UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims
-UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 min idle required for union gifts
+# VS Day overrides (day numbers in Arms Race 7-day cycle)
+VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2: soldier promotions run ALL DAY
+VS_LEVEL_CHEST_DAYS = [3]        # Day 3: open level chests (Lv1-Lv4) in bag
 ```
 
 ### Screen Regions
@@ -666,7 +721,7 @@ The daemon automatically manages soldier training at all 4 barracks buildings wi
 ```python
 SOLDIER_TRAINING_DEFAULT_LEVEL = 4  # Soldier level to train (3-8)
 BARRACKS_POSITIONS = [...]           # Fixed positions for 4 barracks
-SOLDIER_TRAINING_COOLDOWN = 300      # 5 minutes between training runs
+# No cooldown - triggers immediately when READY barracks detected
 ```
 
 ### ⚠️ Setup-Specific Flows (Requires Calibration)
@@ -682,7 +737,8 @@ These flows click at **fixed coordinates** and require calibration for your acco
 | Cabbage | `cabbage_matcher.py` | `cabbage_flow.py` | 5 min idle + aligned |
 | Equipment | `equipment_enhancement_matcher.py` | `equipment_enhancement_flow.py` | 5 min idle + aligned |
 | Elite Zombie | (stamina-based) | `elite_zombie_flow.py` | Stamina >= 118, 5 min idle |
-| Union Gifts | (time-based) | `union_gifts_flow.py` | 20 min idle, 1h cooldown |
+| Union Gifts | (scheduler-based) | `union_gifts_flow.py` | `IDLE_THRESHOLD` idle, 1h cooldown |
+| Union Technology | (scheduler-based) | `union_technology_flow.py` | `IDLE_THRESHOLD` idle, 1h cooldown |
 
 **"Aligned" condition**: The daemon checks if the dog house is at expected coordinates before triggering harvest flows. If the camera has panned, bubbles won't be at the right locations.
 

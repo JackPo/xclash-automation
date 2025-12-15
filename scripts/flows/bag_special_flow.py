@@ -4,7 +4,7 @@ Bag Special Tab Flow - Chest claiming from Special tab.
 Opens the bag (defaults to Special tab), finds chest tiles using multi-template
 matching, and uses them one at a time. Rescans after each use since items shift.
 
-Templates used:
+Regular templates (opened every day):
 - bag_button_4k.png - Verify bag button present
 - bag_tab_4k.png - Verify bag menu opened
 - bag_special_tab_active_4k.png - Verify Special tab is active
@@ -14,6 +14,14 @@ Templates used:
 - bag_purple_gold_chest_4k.png - Purple crystal chest
 - bag_chest_blue_4k.png - Blue/cyan crystal chest
 - bag_chest_purple_4k.png - Purple chest with gold trim
+- bag_chest_question_4k.png - Mystery chest with question mark
+- bag_chest_wooden_4k.png - Wooden chest with question mark medallion
+
+Level chest templates (VS Wednesday only - Day 3):
+- bag_chest_lv4_4k.png - Lv4 chest (purple striped)
+- bag_chest_lv3_4k.png - Lv3 chest (blue striped)
+- bag_chest_lv2_4k.png - Lv2 chest (gold ornate)
+- bag_chest_lv1_4k.png - Lv1 chest
 """
 from __future__ import annotations
 
@@ -29,6 +37,8 @@ import cv2
 import numpy as np
 
 from scripts.flows.bag_use_item_subflow import use_item_subflow
+from utils.arms_race import get_arms_race_status
+from config import VS_LEVEL_CHEST_DAYS
 
 # Fixed positions (4K resolution)
 BAG_BUTTON_REGION = (3679, 1577, 86, 93)
@@ -45,15 +55,25 @@ VERIFICATION_THRESHOLD = 0.01
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
-# Chest templates for Special tab (all variants)
+# Regular chest templates for Special tab (opened every day)
 CHEST_TEMPLATES = [
-    "bag_chest_special_4k.png",     # Open chest with blue gems
+    "bag_chest_special_4k.png",      # Open chest with blue gems
     "bag_golden_chest_4k.png",       # Golden wooden chest
     "bag_green_chest_4k.png",        # Green crystal chest
     "bag_purple_gold_chest_4k.png",  # Purple crystal chest
     "bag_chest_blue_4k.png",         # Blue/cyan crystal chest
     "bag_chest_purple_4k.png",       # Purple chest with gold trim
     "bag_chest_question_4k.png",     # Mystery chest with question mark
+    "bag_chest_wooden_4k.png",       # Wooden chest with question mark medallion
+]
+
+# Level chest templates (VS Wednesday only - Day 3)
+# These give VS points so we save them for the chest-opening VS event day
+LEVEL_CHEST_TEMPLATES = [
+    "bag_chest_lv4_4k.png",  # Lv4 chest (purple striped)
+    "bag_chest_lv3_4k.png",  # Lv3 chest (blue striped)
+    "bag_chest_lv2_4k.png",  # Lv2 chest (gold ornate)
+    "bag_chest_lv1_4k.png",  # Lv1 chest
 ]
 
 
@@ -66,10 +86,10 @@ def _load_template(name: str) -> np.ndarray:
     return template
 
 
-def _load_chest_templates() -> list[tuple[str, np.ndarray]]:
-    """Load all chest templates, skip missing ones."""
+def _load_chest_templates(template_names: list[str]) -> list[tuple[str, np.ndarray]]:
+    """Load chest templates from a list of names, skip missing ones."""
     templates = []
-    for name in CHEST_TEMPLATES:
+    for name in template_names:
         path = TEMPLATES_DIR / name
         template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         if template is not None:
@@ -141,7 +161,19 @@ def bag_special_flow(adb, win=None, debug: bool = False, open_bag: bool = True) 
     bag_template = _load_template("bag_button_4k.png")
     bag_tab_template = _load_template("bag_tab_4k.png")
     special_tab_active_template = _load_template("bag_special_tab_active_4k.png")
-    chest_templates = _load_chest_templates()
+
+    # Check if VS level chest day (Day 3 = Wednesday)
+    arms_race = get_arms_race_status()
+    is_level_chest_day = arms_race['day'] in VS_LEVEL_CHEST_DAYS
+
+    # Build template list - always include regular chests, add level chests on VS day
+    template_names = CHEST_TEMPLATES.copy()
+    if is_level_chest_day:
+        template_names.extend(LEVEL_CHEST_TEMPLATES)
+        if debug:
+            print(f"VS Day {arms_race['day']} - including level chest templates")
+
+    chest_templates = _load_chest_templates(template_names)
 
     if debug:
         print(f"Loaded {len(chest_templates)} chest templates: {[n for n, _ in chest_templates]}")
