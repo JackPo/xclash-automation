@@ -282,6 +282,9 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     """
     Open training panel at a barrack and select a soldier level to train.
 
+    IMPORTANT: Automatically limits training time to finish before the next
+    Arms Race "Soldier Training" event. Uses barracks_training_flow for timed training.
+
     Args:
         adb: ADBHelper instance
         win: WindowsScreenshotHelper instance
@@ -294,6 +297,22 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     """
     if target_level is None:
         target_level = SOLDIER_TRAINING_DEFAULT_LEVEL
+
+    # Calculate max allowed training time based on Arms Race schedule
+    from utils.arms_race import get_time_until_soldier_training
+    time_until = get_time_until_soldier_training()
+
+    if time_until and time_until.total_seconds() > 0:
+        # Subtract 5 min buffer to ensure completion before event
+        max_hours = (time_until.total_seconds() - 300) / 3600
+        max_hours = max(0.5, max_hours)  # Minimum 30 min training
+        if debug:
+            print(f"  Arms Race limit: {max_hours:.2f}h until next Soldier Training event")
+    else:
+        # During Soldier Training event or can't determine - use max (will be handled by upgrade flow)
+        max_hours = None
+        if debug:
+            print(f"  No Arms Race time limit (event active or unknown)")
 
     # Click the barrack to open training panel
     click_x, click_y = get_barrack_click_position(barrack_index)
@@ -310,6 +329,28 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     if debug:
         print(f"  Panel opened successfully")
 
+    # If we have a time limit, use barracks_training_flow for precise timing
+    if max_hours is not None:
+        if debug:
+            print(f"  Using timed training: Lv{target_level} for max {max_hours:.2f}h")
+
+        from scripts.flows.barracks_training_flow import barracks_training_flow
+        # barracks_training_flow expects panel to already be open
+        # But it will find and click the soldier level itself
+        # We need to close this panel first since barracks_training_flow opens it
+        adb.tap(500, 500)  # Dismiss panel
+        time.sleep(0.3)
+
+        # Now call barracks_training_flow which handles everything including timing
+        success = barracks_training_flow(
+            adb,
+            soldier_level=target_level,
+            target_hours=max_hours,
+            debug=debug
+        )
+        return success
+
+    # No time limit - use simple click-and-train (max time)
     # Find and click the target soldier level
     success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
 
@@ -372,6 +413,10 @@ def soldier_training_flow(adb, target_level=None, debug=False):
     1. Collect soldiers from all READY (yellow) barracks
     2. Start training at all PENDING (white) barracks
     3. Return to base view (cleanup)
+
+    IMPORTANT: Training time is automatically limited to finish before the next
+    Arms Race "Soldier Training" event starts. If max training time would exceed
+    the time until Arms Race, the slider is adjusted to finish just before.
 
     Args:
         adb: ADBHelper instance

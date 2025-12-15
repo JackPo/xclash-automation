@@ -55,22 +55,24 @@ from utils.iron_bar_matcher import IronBarMatcher
 from utils.gem_matcher import GemMatcher
 from utils.cabbage_matcher import CabbageMatcher
 from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
-from utils.healing_bubble_matcher import HealingBubbleMatcher
+from utils.hospital_state_matcher import HospitalStateMatcher, HospitalState
 from utils.back_button_matcher import BackButtonMatcher
 from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.bluestacks_idle_detector import get_bluestacks_idle_detector, format_bluestacks_idle_time
-from utils.user_idle_tracker import get_user_idle_tracker, format_user_idle_time
+# user_idle_tracker removed - using raw Windows idle (idle_detector) instead
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
-from utils.return_to_base_view import return_to_base_view
+from utils.return_to_base_view import return_to_base_view, _get_current_resolution, _run_setup_bluestacks
 from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states, format_barracks_states_detailed
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
+from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
 from utils.arms_race import get_arms_race_status
+from utils.scheduler import get_scheduler
 
 # Import configurable parameters
 from config import (
@@ -112,6 +114,13 @@ from config import (
     RALLY_MARCH_BUTTON_COOLDOWN,
     UNION_BOSS_MODE_DURATION,
     UNION_BOSS_RALLY_COOLDOWN,
+    # Hospital state detection
+    HOSPITAL_CONSECUTIVE_REQUIRED,
+    # Resolution check
+    RESOLUTION_CHECK_INTERVAL,
+    EXPECTED_RESOLUTION,
+    # Tavern quest scan
+    TAVERN_SCAN_COOLDOWN,
 )
 
 
@@ -146,7 +155,7 @@ class IconDaemon:
         self.gem_matcher = None
         self.cabbage_matcher = None
         self.equipment_enhancement_matcher = None
-        self.healing_matcher = None
+        self.hospital_matcher = None  # Unified hospital state matcher
         self.back_button_matcher = None
         self.dog_house_matcher = None
         self.afk_rewards_matcher = None
@@ -168,8 +177,7 @@ class IconDaemon:
         # BlueStacks-specific idle detection (deprecated - keeping for logging only)
         self.bluestacks_idle_detector = get_bluestacks_idle_detector()
 
-        # User idle tracker - excludes daemon's own clicks from idle calculation
-        self.user_idle_tracker = get_user_idle_tracker()
+        # User idle tracker removed - using raw Windows idle instead
 
         # Elite zombie rally - stamina threshold (from config)
         self.ELITE_ZOMBIE_STAMINA_THRESHOLD = ELITE_ZOMBIE_STAMINA_THRESHOLD
@@ -191,6 +199,10 @@ class IconDaemon:
         self.last_gift_box_time = 0
         self.GIFT_BOX_COOLDOWN = GIFT_BOX_COOLDOWN
 
+        # Tavern scan cooldown - every 30 minutes, requires 5 min idle + TOWN view
+        self.last_tavern_scan_time = 0
+        self.TAVERN_SCAN_COOLDOWN = TAVERN_SCAN_COOLDOWN
+
         # Union technology cooldown - once per hour, requires 20 min idle
         # Must be 10 min apart from union gifts to avoid clobbering
         self.last_union_technology_time = 0
@@ -200,6 +212,17 @@ class IconDaemon:
         # Soldier training cooldown - once per 5 minutes
         self.last_soldier_training_time = 0
         self.SOLDIER_TRAINING_COOLDOWN = SOLDIER_TRAINING_COOLDOWN
+
+        # Initialize unified scheduler with config overrides
+        self.scheduler = get_scheduler(config_overrides={
+            "afk_rewards": {"cooldown": AFK_REWARDS_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "union_gifts": {"cooldown": UNION_GIFTS_COOLDOWN, "idle_required": UNION_GIFTS_IDLE_THRESHOLD},
+            "union_technology": {"cooldown": UNION_TECHNOLOGY_COOLDOWN, "idle_required": UNION_GIFTS_IDLE_THRESHOLD},
+            "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "tavern_scan": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "soldier_training": {"cooldown": SOLDIER_TRAINING_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+        })
 
         # Unified stamina validation - ONE system for all stamina-based triggers
         # Tracks last 3 readings, requires all 3 to be valid (0-200) and consistent (diff <= 20)
@@ -214,6 +237,10 @@ class IconDaemon:
         self.unknown_state_left_time = None  # When we left UNKNOWN (for hysteresis)
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
         self.UNKNOWN_HYSTERESIS = 10  # Seconds out of UNKNOWN before resetting timer
+
+        # Resolution check (proactive, not just on recovery)
+        self.RESOLUTION_CHECK_INTERVAL = RESOLUTION_CHECK_INTERVAL
+        self.EXPECTED_RESOLUTION = EXPECTED_RESOLUTION
 
         # Scheduled + continuous idle triggers - DISABLED
         # Hero upgrade now only triggers during Arms Race "Enhance Hero" event (lines 800-816)
@@ -262,6 +289,10 @@ class IconDaemon:
         self.barracks_state_history = [[], [], [], []]  # Per-barrack state history
         self.BARRACKS_CONSECUTIVE_REQUIRED = 10
         self.BARRACKS_MIN_LETTER_RATIO = 0.6  # 60% must be a specific letter
+
+        # Hospital state history - same pattern as barracks
+        self.hospital_state_history = []  # List of HospitalState values
+        self.HOSPITAL_CONSECUTIVE_REQUIRED = HOSPITAL_CONSECUTIVE_REQUIRED
 
         # Setup logging
         self.log_dir = Path('logs')
@@ -342,8 +373,8 @@ class IconDaemon:
             raise RuntimeError("Could not start OCR server!")
         print("  OCR server is running")
 
-        # ADB - with callback to track daemon actions for accurate idle detection
-        self.adb = ADBHelper(on_action=self.user_idle_tracker.mark_daemon_action)
+        # ADB
+        self.adb = ADBHelper()
         print(f"  Connected to device: {self.adb.device}")
 
         # Windows screenshot helper
@@ -385,8 +416,8 @@ class IconDaemon:
         self.equipment_enhancement_matcher = EquipmentEnhancementMatcher(debug_dir=debug_dir)
         print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.template_path.name} (threshold={self.equipment_enhancement_matcher.threshold})")
 
-        self.healing_matcher = HealingBubbleMatcher()
-        print(f"  Healing bubble matcher: healing_bubble_4k.png (threshold=0.06)")
+        self.hospital_matcher = HospitalStateMatcher()
+        print(f"  Hospital state matcher: threshold={self.hospital_matcher.threshold}, consecutive={self.HOSPITAL_CONSECUTIVE_REQUIRED}")
 
         self.back_button_matcher = BackButtonMatcher(debug_dir=debug_dir)
         print(f"  Back button matcher: {self.back_button_matcher.template_path.name} (threshold={BackButtonMatcher.THRESHOLD})")
@@ -414,6 +445,16 @@ class IconDaemon:
         # - Restarts and retries if stuck
         self.logger.info("STARTUP: Running recovery to ensure ready state...")
         return_to_base_view(self.adb, self.windows_helper, debug=True)
+
+        # Log scheduler status on startup
+        self.logger.info("STARTUP: Scheduler status:")
+        self.scheduler.log_status()
+
+        # Check for missed flows and log them
+        missed = self.scheduler.get_missed_flows()
+        if missed:
+            self.logger.info(f"STARTUP: Missed flows (will catch up): {missed}")
+
         self.logger.info("STARTUP: Ready")
 
     def _run_flow(self, flow_name: str, flow_func, critical: bool = False):
@@ -504,6 +545,41 @@ class IconDaemon:
             return 'com.xman.na.gp' in result.stdout
         except Exception as e:
             self.logger.error(f"Failed to check foreground app: {e}")
+            return False
+
+    def _check_resolution(self, iteration: int, idle_seconds: float) -> bool:
+        """
+        Check resolution periodically when idle and fix if wrong.
+
+        Only checks every RESOLUTION_CHECK_INTERVAL iterations AND when user is idle.
+        If resolution is wrong, runs setup_bluestacks.py to fix it.
+
+        Returns True if resolution is OK, False if fix failed.
+        """
+        # Only check every N iterations
+        if iteration % self.RESOLUTION_CHECK_INTERVAL != 0:
+            return True  # Not time to check yet
+
+        # Only check when user is idle (no point fixing resolution during active use)
+        if idle_seconds < self.IDLE_THRESHOLD:
+            return True  # User is active, skip check
+
+        current_res = _get_current_resolution(self.adb)
+        if current_res == self.EXPECTED_RESOLUTION:
+            self.logger.debug(f"[{iteration}] Resolution check: {current_res} (OK)")
+            return True
+
+        self.logger.warning(f"[{iteration}] Resolution wrong: {current_res}, expected {self.EXPECTED_RESOLUTION}")
+        self.logger.info(f"[{iteration}] Running setup_bluestacks.py to fix...")
+        _run_setup_bluestacks(debug=self.debug)
+
+        # Verify fix
+        new_res = _get_current_resolution(self.adb)
+        if new_res == self.EXPECTED_RESOLUTION:
+            self.logger.info(f"[{iteration}] Resolution fixed: {new_res}")
+            return True
+        else:
+            self.logger.error(f"[{iteration}] Resolution still wrong after fix: {new_res}")
             return False
 
     def _validate_barrack_state(self, barrack_index: int) -> tuple:
@@ -612,6 +688,12 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
                     self._run_flow("harvest_box", harvest_box_flow)
 
+                # Tavern Quest scheduled claim - check if completion is imminent (within 15 seconds)
+                # Critical flow - blocks other daemon actions while polling for claim
+                if self.scheduler.is_tavern_completion_imminent():
+                    self.logger.info(f"[{iteration}] TAVERN QUEST completion imminent, triggering claim flow")
+                    self._run_flow("tavern_quest_claim", tavern_quest_claim_flow, critical=True)
+
                 # Get current time for cooldown checks
                 current_time = time.time()
 
@@ -695,7 +777,7 @@ class IconDaemon:
                 gem_present, gem_score = self.gem_matcher.is_present(frame)
                 cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
                 equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
-                healing_present, healing_score = self.healing_matcher.is_present(frame)
+                hospital_state, hospital_score = self.hospital_matcher.get_state(frame)
                 afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
                 # Get view state using view_state_detector
                 view_state_enum, view_score = detect_view(frame)
@@ -706,19 +788,15 @@ class IconDaemon:
                 world_present = (view_state == "TOWN")
                 town_present = (view_state == "WORLD")
 
-                # Get idle time (system-wide) - for logging only
+                # Get idle time (Windows system-wide) - this is what we use for all checks
                 idle_secs = get_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
 
-                # Get user idle time (excludes daemon's own clicks)
-                # This is the REAL idle time - daemon ADB clicks don't reset this
-                self.user_idle_tracker.update()
-                user_idle_secs = self.user_idle_tracker.get_user_idle_seconds()
-                user_idle_str = format_user_idle_time(user_idle_secs)
+                # Use Windows idle directly for all automation checks
+                effective_idle_secs = idle_secs
 
-                # Use user idle for all automation checks
-                # The old bluestacks_idle and system_idle are kept for logging only
-                effective_idle_secs = user_idle_secs
+                # Check resolution periodically when idle (every 100 iterations)
+                self._check_resolution(iteration, idle_secs)
 
                 # Get Pacific time for logging
                 pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
@@ -736,8 +814,16 @@ class IconDaemon:
                 vs_promo_active = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 vs_indicator = " [VS:Promo]" if vs_promo_active else ""
 
+                # Format hospital state for logging
+                hospital_state_char = {
+                    HospitalState.HEALING: "HEAL",
+                    HospitalState.SOLDIERS_WOUNDED: "WOUND",
+                    HospitalState.IDLE: "IDLE",
+                    HospitalState.UNKNOWN: "?"
+                }.get(hospital_state, "?")
+
                 # Log status line with view state, stamina, barracks, and arms race
-                self.logger.info(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} sys:{idle_str} user:{user_idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                self.logger.info(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} Hosp:{hospital_state_char}({hospital_score:.3f}) AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Log detailed barracks scores (s=stopwatch, y=yellow, w=white)
                 # Only log when barracks has UNKNOWN or PENDING state (to avoid noise)
@@ -1026,96 +1112,6 @@ class IconDaemon:
 
                             self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades}/{pending_count} upgrade(s)")
 
-                # Non-Arms Race Soldier Training: when NOT in Soldier Training event, train PENDING barracks
-                # with duration timed to complete just before next Soldier Training event
-                # Requires: NOT in Soldier Training event, NOT a VS promotion day, idle 5+ min, TOWN view, dog house aligned
-                # NOTE: On VS promotion days, we use immediate upgrades instead of timed training
-                if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
-                    arms_race_event != "Soldier Training" and
-                    not is_vs_promotion_day and  # Skip timed training on VS days - use immediate upgrades instead
-                    effective_idle_secs >= self.IDLE_THRESHOLD):
-                    self.logger.debug(f"[{iteration}] NON-ARMS-RACE TRAINING: Outer conditions PASS (enabled={self.ARMS_RACE_SOLDIER_TRAINING_ENABLED}, event={arms_race_event}, idle={idle_secs}s)")
-
-                    # Get current barracks states and update history (reuses same history as Arms Race section)
-                    from utils.barracks_state_matcher import BarrackState
-                    states = self.barracks_matcher.get_all_states(frame)
-
-                    # Update per-barrack state history
-                    for i, (state, _) in enumerate(states):
-                        self.barracks_state_history[i].append(state)
-                        if len(self.barracks_state_history[i]) > self.BARRACKS_CONSECUTIVE_REQUIRED:
-                            self.barracks_state_history[i].pop(0)
-
-                    # Validate each barrack with 60% rule
-                    validated_states = []
-                    for i in range(4):
-                        is_valid, dominant_state, ratio = self._validate_barrack_state(i)
-                        validated_states.append((is_valid, dominant_state, ratio))
-
-                    # Check if we have enough readings
-                    if len(self.barracks_state_history[0]) < self.BARRACKS_CONSECUTIVE_REQUIRED:
-                        self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Not enough readings ({len(self.barracks_state_history[0])}/{self.BARRACKS_CONSECUTIVE_REQUIRED})")
-                    else:
-                        # Count validated PENDING barracks
-                        pending_indices = [i for i, (valid, state, _) in enumerate(validated_states)
-                                           if valid and state == BarrackState.PENDING]
-                        pending_count = len(pending_indices)
-
-                        if pending_count == 0:
-                            self.logger.debug(f"[{iteration}] NON-ARMS-RACE: No validated PENDING barracks")
-                        elif not world_present:
-                            self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Not in TOWN view")
-                        else:
-                            # pending_count > 0 and world_present
-                            # Check alignment
-                            is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
-                            if not is_aligned:
-                                self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Blocked - dog house misaligned (score={dog_score:.4f})")
-                            else:
-                                # Calculate target time: just under time until next Soldier Training event
-                                from utils.arms_race import get_time_until_soldier_training
-                                time_until = get_time_until_soldier_training()
-
-                                if time_until and time_until.total_seconds() > 0:
-                                    # Subtract 5 min buffer to ensure completion before event
-                                    target_hours = (time_until.total_seconds() - 300) / 3600
-                                    target_hours = max(0.5, target_hours)  # Minimum 30 min training
-
-                                    # Use validated pending indices
-                                    idle_mins = int(idle_secs / 60)
-                                    self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: idle {idle_mins}min, {pending_count} PENDING barrack(s), target={target_hours:.2f}h until next Soldier Training")
-
-                                    # Train each PENDING barrack with timed duration
-                                    from scripts.flows.barracks_training_flow import barracks_training_flow
-                                    from scripts.flows.soldier_training_flow import get_barrack_click_position
-                                    trained = 0
-                                    for idx in pending_indices:
-                                        self.logger.info(f"[{iteration}] NON-ARMS-RACE: Training barrack {idx+1} for {target_hours:.2f}h...")
-
-                                        # Click to open this barrack's panel
-                                        click_x, click_y = get_barrack_click_position(idx)
-                                        self.adb.tap(click_x, click_y)
-                                        time.sleep(1.0)
-
-                                        # Run training flow with target time
-                                        success = barracks_training_flow(
-                                            self.adb,
-                                            soldier_level=4,
-                                            target_hours=target_hours,
-                                            debug=True
-                                        )
-                                        if success:
-                                            trained += 1
-                                            self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training started")
-                                        else:
-                                            self.logger.info(f"[{iteration}] NON-ARMS-RACE: Barrack {idx+1} training failed")
-
-                                        time.sleep(0.5)
-
-                                    self.logger.info(f"[{iteration}] NON-ARMS-RACE TRAINING: Started {trained}/{pending_count} barrack(s)")
-                                else:
-                                    self.logger.debug(f"[{iteration}] NON-ARMS-RACE: Could not determine time until next Soldier Training event")
-
                 # Harvest actions: require TOWN view, 5min idle, and dog house aligned
                 # Check alignment once for all harvest actions
                 harvest_idle_ok = effective_idle_secs >= self.IDLE_THRESHOLD
@@ -1153,72 +1149,106 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
-                # Healing bubble: click to open panel, then run healing flow
-                if healing_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] HEALING BUBBLE detected (diff={healing_score:.4f})")
-                    # Click healing bubble to open panel
-                    click_x, click_y = self.healing_matcher.get_click_position()
-                    self.adb.tap(click_x, click_y)
-                    time.sleep(1.5)  # Wait for panel to open
-                    # Run healing flow (panel should now be open)
-                    self._run_flow("healing", healing_flow)
+                # Hospital state detection with consecutive frame validation
+                # Update hospital state history (same pattern as barracks)
+                if world_present and harvest_aligned:
+                    self.hospital_state_history.append(hospital_state)
+                    if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                        self.hospital_state_history.pop(0)
+
+                    # Check if we have enough consecutive readings of an actionable state
+                    if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and harvest_idle_ok:
+                        # Count HEALING and SOLDIERS_WOUNDED in history
+                        healing_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HEALING)
+                        wounded_count = sum(1 for s in self.hospital_state_history if s == HospitalState.SOLDIERS_WOUNDED)
+
+                        # Trigger if ALL readings are the same actionable state
+                        if healing_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive)")
+                            # Click hospital building to open panel
+                            click_x, click_y = self.hospital_matcher.get_click_position()
+                            self.adb.tap(click_x, click_y)
+                            time.sleep(1.5)  # Wait for panel to open
+                            # Run healing flow (panel should now be open)
+                            self._run_flow("healing", healing_flow)
+                            # Clear history after triggering
+                            self.hospital_state_history = []
+
+                        elif wounded_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive)")
+                            # Click hospital building to open panel
+                            click_x, click_y = self.hospital_matcher.get_click_position()
+                            self.adb.tap(click_x, click_y)
+                            time.sleep(1.5)  # Wait for panel to open
+                            # Run healing flow (panel should now be open)
+                            self._run_flow("healing", healing_flow)
+                            # Clear history after triggering
+                            self.hospital_state_history = []
+                else:
+                    # Not in TOWN or not aligned - reset hospital state history
+                    if self.hospital_state_history:
+                        self.hospital_state_history = []
 
                 # Barracks: Check for READY barracks to collect soldiers (non-Arms Race ONLY)
                 # During Arms Race "Soldier Training" event or VS promotion days, we use soldier_upgrade_flow instead
                 # Requires TOWN view, alignment, and 5-minute cooldown
                 is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                soldier_cooldown_ok = (current_time - self.last_soldier_training_time) >= self.SOLDIER_TRAINING_COOLDOWN
-                if world_present and harvest_idle_ok and harvest_aligned and soldier_cooldown_ok and not is_arms_race_soldier_active:
-                    # Get barracks states
-                    from utils.barracks_state_matcher import BarrackState
-                    states = self.barracks_matcher.get_all_states(frame)
-                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
+                if world_present and harvest_aligned and not is_arms_race_soldier_active:
+                    if self.scheduler.is_flow_ready("soldier_training", idle_seconds=effective_idle_secs):
+                        # Get barracks states
+                        from utils.barracks_state_matcher import BarrackState
+                        states = self.barracks_matcher.get_all_states(frame)
+                        ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
 
-                    if ready_count > 0:
-                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
-                        self.last_soldier_training_time = current_time
-                        self._run_flow("soldier_training", soldier_training_flow)
+                        if ready_count > 0:
+                            self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
+                            self._run_flow("soldier_training", soldier_training_flow)
+                            self.scheduler.record_flow_run("soldier_training")
 
-                # AFK rewards: requires all harvest conditions + 1 hour cooldown
-                current_time = time.time()
-                afk_cooldown_ok = (current_time - self.last_afk_rewards_time) >= self.AFK_REWARDS_COOLDOWN
-                if afk_present and world_present and harvest_idle_ok and harvest_aligned and afk_cooldown_ok:
-                    self.logger.info(f"[{iteration}] AFK REWARDS detected (diff={afk_score:.4f})")
-                    self.last_afk_rewards_time = current_time
-                    self._run_flow("afk_rewards", afk_rewards_flow)
+                # AFK rewards: requires AFK icon detected + harvest conditions + cooldown
+                if afk_present and world_present and harvest_aligned:
+                    if self.scheduler.is_flow_ready("afk_rewards", idle_seconds=effective_idle_secs):
+                        self.logger.info(f"[{iteration}] AFK REWARDS detected (diff={afk_score:.4f})")
+                        self._run_flow("afk_rewards", afk_rewards_flow)
+                        self.scheduler.record_flow_run("afk_rewards")
 
-                # Union gifts: requires TOWN view, 20 min idle, 1 hour cooldown
-                # Must be 10 min apart from union technology
-                union_idle_ok = effective_idle_secs >= self.UNION_GIFTS_IDLE_THRESHOLD
-                union_cooldown_ok = (current_time - self.last_union_gifts_time) >= self.UNION_GIFTS_COOLDOWN
-                union_separation_ok = (current_time - self.last_union_technology_time) >= self.UNION_FLOW_SEPARATION
-                if world_present and union_idle_ok and union_cooldown_ok and union_separation_ok:
+                # Union gifts: 20 min idle, 1 hour cooldown
+                # Must be 10 min apart from union technology (check time since last tech run)
+                union_tech_history = self.scheduler.get_flow_history("union_technology")
+                union_tech_last = union_tech_history[-1] if union_tech_history else None
+                union_separation_ok = union_tech_last is None or (datetime.now() - union_tech_last).total_seconds() >= self.UNION_FLOW_SEPARATION
+                if self.scheduler.is_flow_ready("union_gifts", idle_seconds=effective_idle_secs) and union_separation_ok:
                     self.logger.info(f"[{iteration}] UNION GIFTS: idle={idle_str}, triggering flow...")
-                    self.last_union_gifts_time = current_time
                     self._run_flow("union_gifts", union_gifts_flow)
+                    self.scheduler.record_flow_run("union_gifts")
 
-                # Union technology: requires TOWN view, 20 min idle, 1 hour cooldown
-                # Must be 10 min apart from union gifts
-                tech_cooldown_ok = (current_time - self.last_union_technology_time) >= self.UNION_TECHNOLOGY_COOLDOWN
-                tech_separation_ok = (current_time - self.last_union_gifts_time) >= self.UNION_FLOW_SEPARATION
-                if world_present and union_idle_ok and tech_cooldown_ok and tech_separation_ok:
+                # Union technology: 20 min idle, 1 hour cooldown
+                # Must be 10 min apart from union gifts (check time since last gifts run)
+                union_gifts_history = self.scheduler.get_flow_history("union_gifts")
+                union_gifts_last = union_gifts_history[-1] if union_gifts_history else None
+                tech_separation_ok = union_gifts_last is None or (datetime.now() - union_gifts_last).total_seconds() >= self.UNION_FLOW_SEPARATION
+                if self.scheduler.is_flow_ready("union_technology", idle_seconds=effective_idle_secs) and tech_separation_ok:
                     self.logger.info(f"[{iteration}] UNION TECHNOLOGY: idle={idle_str}, triggering flow...")
-                    self.last_union_technology_time = current_time
                     self._run_flow("union_technology", union_technology_flow)
+                    self.scheduler.record_flow_run("union_technology")
 
                 # Bag flow: 5 min idle, 1 hour cooldown (navigates to TOWN itself)
-                bag_cooldown_ok = (current_time - self.last_bag_flow_time) >= self.BAG_FLOW_COOLDOWN
-                if harvest_idle_ok and bag_cooldown_ok:
+                if self.scheduler.is_flow_ready("bag_flow", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
-                    self.last_bag_flow_time = current_time
                     self._run_flow("bag", bag_flow, critical=True)
+                    self.scheduler.record_flow_run("bag_flow")
 
-                # Gift box flow: requires WORLD view, 5 min idle, 1 hour cooldown
-                gift_box_cooldown_ok = (current_time - self.last_gift_box_time) >= self.GIFT_BOX_COOLDOWN
-                if town_present and harvest_idle_ok and gift_box_cooldown_ok:
+                # Tavern scan: 5 min idle, 30 min cooldown (claims completed quests + updates schedule)
+                if self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
+                    self.logger.info(f"[{iteration}] TAVERN SCAN: idle={idle_str}, triggering scan flow...")
+                    self._run_flow("tavern_scan", tavern_scan_flow)
+                    self.scheduler.record_flow_run("tavern_scan")
+
+                # Gift box flow: requires WORLD view (town_present means we're in WORLD), 5 min idle, 1 hour cooldown
+                if town_present and self.scheduler.is_flow_ready("gift_box", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] GIFT BOX: idle={idle_str}, triggering flow...")
-                    self.last_gift_box_time = current_time
                     self._run_flow("gift_box", gift_box_flow)
+                    self.scheduler.record_flow_run("gift_box")
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
                 # Track continuous idle start time (using BlueStacks-specific idle)

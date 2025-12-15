@@ -116,10 +116,15 @@ UNION_FLOW_SEPARATION = 600        # 10 minutes minimum between union gifts and 
 SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collection attempts
 BAG_FLOW_COOLDOWN = 3600           # 1 hour between bag flow runs
 GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
+TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
 UNION_GIFTS_IDLE_THRESHOLD = 1200  # 20 minutes idle required for union gifts
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
+
+# Resolution check (prevents template matching failures from resolution drift)
+RESOLUTION_CHECK_INTERVAL = 100    # Check resolution every N daemon iterations
+EXPECTED_RESOLUTION = "3840x2160"  # Expected BlueStacks resolution for templates
 
 # Screen regions (4K resolution: 3840x2160)
 STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
@@ -313,6 +318,15 @@ RALLY_MONSTERS = [
         "name": "Undead Boss",
         "auto_join": True,       # Auto-join rallies for this monster
         "max_level": 25,         # Join if level <= 25
+        "has_level": True,
+        "level_increment": 1,
+        "level_range": "1-40",
+        "track_daily_limit": True,   # Has daily limit, track exhaustion
+    },
+    {
+        "name": "Klass",
+        "auto_join": True,       # Auto-join rallies for this monster
+        "max_level": 30,         # Join if level <= 30
         "has_level": True,
         "level_increment": 1,
         "level_range": "1-40",
