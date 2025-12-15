@@ -5,7 +5,6 @@ Trigger Conditions:
 - User idle for 20+ minutes
 - No other flows currently running (lowest priority)
 - At most once per hour (cooldown: 60 minutes)
-- Must be in TOWN view with dog house aligned
 
 Sequence:
 1. Click Union button (bottom bar)
@@ -239,17 +238,6 @@ def union_technology_flow(adb) -> bool:
     _log("=== UNION TECHNOLOGY FLOW START ===")
 
     win = WindowsScreenshotHelper()
-
-    # Step 0: Verify we're in TOWN view
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "00_initial_state")
-        state, score = detect_view(frame)
-        _log(f"Current view: {state.name} (score={score:.4f})")
-
-        if state != ViewState.TOWN:
-            _log("FAILED: Not in TOWN view, aborting")
-            return False
 
     # Step 1: Click Union button
     _log(f"Step 1: Clicking Union button at {UNION_BUTTON_CLICK}")

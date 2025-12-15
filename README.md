@@ -32,15 +32,28 @@ These features run continuously and don't require any special timing:
 - **Union Technology Donations**: Donates to alliance technology research (when idle 20+ min, 1h cooldown, 10 min separation from Union Gifts)
 - **Bag Items**: Opens bag and claims items from all tabs - Special (chests), Hero (chests), Resources (diamonds) (5 min idle, 1h cooldown)
 - **Gift Box Rewards**: Claims accumulated loot rewards from gift box icon in WORLD view (5 min idle, 1h cooldown)
-- **Rally Joining**: Automatically joins Union War rallies based on monster type and level (disabled by default, see config)
+- **Rally Joining**: Automatically joins Union War rallies based on monster type and level
+- **Hospital Healing**: Detects hospital state (healing/wounded) and manages troop healing
+- **Tavern Quest Automation**: Claims completed quests, starts gold scroll quests, tracks completion times
 
 ### Rally Joining & Union Boss Mode
 
-When enabled (`RALLY_JOIN_ENABLED = True`), the bot automatically joins Union War rallies:
+The bot automatically joins Union War rallies based on configurable monster rules:
 
 - **Monster Filtering**: Only joins specific monsters below max level (configurable in `RALLY_MONSTERS`)
 - **Daily Limit Tracking**: Tracks exhausted monsters (e.g., Elite Zombie daily limit) and skips them
 - **Idle Hero Selection**: Only joins if an idle hero (Zz icon) is available
+
+**Supported Monsters** (configurable in `config.py`):
+
+| Monster | Max Level | Daily Limit |
+|---------|-----------|-------------|
+| Zombie Overlord | 130 | No |
+| Elite Zombie | 25 | Yes |
+| Union Boss | Any | No |
+| Nightfall Servant | 25 | Yes |
+| Undead Boss | 25 | Yes |
+| Klass | 30 | Yes |
 
 **Union Boss Mode**: When a Union Boss rally is detected and joined, the bot enters a special 30-minute mode:
 - **Faster Cooldown**: 15 seconds between joins (vs 30s normal)
@@ -84,6 +97,27 @@ The bot automates 3 of these events using strategies that maximize points while 
 - **Tech Research** - Requires research slots, research takes hours (can't concentrate points)
 - **Beast VS upgrades** - These consume battle materials (we only do rallies which use stamina)
 
+### Tavern Quest Automation
+
+**Goal: Maximize quest completions without manual intervention.**
+
+The daemon automatically manages tavern quests:
+
+- **Scan & Claim**: Periodically scans tavern for completed quests and claims them (30 min cooldown)
+- **Gold Scroll Priority**: Detects Gold Scroll Lv4 quests and clicks "Go" to start them
+- **Bounty Quest Handling**: Auto-dispatches heroes for bounty quests (Auto Dispatch → Proceed)
+- **Timer Tracking**: OCRs quest completion timers and tracks them in `data/daemon_schedule.json`
+- **Pre-Arrival Claiming**: When a quest is about to complete (within 15 seconds), navigates to tavern to claim immediately
+
+**Flow sequence**:
+1. Opens tavern via clipboard button
+2. Switches to "My Quests" tab
+3. Claims any completed quests (Claim buttons)
+4. Finds Gold Scroll Lv4 rewards and clicks "Go"
+5. Handles Bounty Quest dialogs (Auto Dispatch → Proceed)
+6. Scrolls to find more quests
+7. Returns to base view
+
 ### Technical Features
 
 - **24/7 Background Operation**: Runs continuously as a daemon, checking every 3 seconds
@@ -93,6 +127,8 @@ The bot automates 3 of these events using strategies that maximize points while 
 - **Template Matching**: Sub-pixel accurate icon detection using OpenCV
 - **Separate OCR Server**: Qwen2.5-VL runs in parallel Flask server on GPU for stamina reading (no cloud API needed)
 - **Arms Race Tracking**: Tracks the 5-activity Arms Race rotation and triggers event-specific flows
+- **Unified Scheduler**: Persistent tracking of cooldowns, quest timers, and daily limits (survives restarts)
+- **Hospital State Detection**: Unified matcher detects HEALING/WOUNDED/IDLE states with consecutive frame validation
 - **Template Verification**: Validates all required templates exist at startup to catch missing files early
 - **Resource Replenishment**: Automatically detects and confirms resource shortages across all flows
 - **Configurable**: All coordinates, thresholds, and timings can be customized
@@ -430,12 +466,19 @@ xclash/
 │       ├── harvest_box_flow.py
 │       ├── corn_harvest_flow.py
 │       ├── elite_zombie_flow.py
-│       ├── soldier_upgrade_flow.py
+│       ├── soldier_training_flow.py # Barracks collection + training (Arms Race timing)
+│       ├── soldier_upgrade_flow.py  # Soldier promotion during Arms Race
+│       ├── tavern_quest_flow.py     # Quest claiming + gold scroll start
+│       ├── healing_flow.py          # Hospital troop healing
+│       ├── rally_join_flow.py       # Union War rally joining
 │       ├── faction_trials_flow.py   # Manual: faction trials battles
 │       └── ...
 │
 ├── screenshots/
 │   └── debug/                   # Debug screenshots and test captures
+│
+├── data/
+│   └── daemon_schedule.json     # Persistent scheduler state (cooldowns, quest timers)
 │
 ├── utils/
 │   ├── adb_helper.py            # ADB command wrapper
@@ -446,7 +489,10 @@ xclash/
 │   ├── idle_detector.py         # Windows idle time detection
 │   ├── return_to_base_view.py   # Recovery logic
 │   ├── arms_race.py             # Arms Race schedule calculator
+│   ├── scheduler.py             # Unified flow scheduler (cooldowns, timers)
 │   ├── replenish_all_helper.py  # Resource replenishment subflow
+│   ├── hospital_state_matcher.py  # Hospital HEALING/WOUNDED/IDLE detection
+│   ├── rally_monster_validator.py # Rally monster OCR and config validation
 │   │
 │   │ # Template matchers (one per icon type)
 │   ├── handshake_icon_matcher.py
@@ -581,10 +627,12 @@ These flows detect standard UI popups and work on any account:
 | AFK Rewards | `afk_rewards_matcher.py` | `afk_rewards_flow.py` | 5 min idle, 1h cooldown |
 | Bag Items | (idle-based) | `bag_flow.py` | TOWN view, 5 min idle, 1h cooldown |
 | Gift Box | (idle-based) | `gift_box_flow.py` | WORLD view, 5 min idle, 1h cooldown |
+| Tavern Scan | (scheduler-based) | `tavern_quest_flow.py` | 5 min idle, 30 min cooldown |
+| Hospital | `hospital_state_matcher.py` | `healing_flow.py` | TOWN view, 5 min idle, consecutive detection |
 
 ### Barracks Soldier Training (Automated)
 
-The daemon automatically manages soldier training at all 4 barracks buildings.
+The daemon automatically manages soldier training at all 4 barracks buildings with **Arms Race timing awareness**.
 
 **Barracks States:**
 - **READY** (yellow soldier) - Soldiers ready to collect
@@ -603,6 +651,12 @@ The daemon automatically manages soldier training at all 4 barracks buildings.
 - Starts training on all PENDING barracks
 - Default training level: Lv4 (configurable)
 
+**Arms Race Timing** (automatic):
+- Training duration is automatically limited to finish BEFORE the next "Soldier Training" Arms Race event
+- If max training time would exceed time until Arms Race, the slider is adjusted to finish 5 minutes before
+- This ensures soldiers complete training just in time for the Arms Race event (where upgrades earn points)
+- During Soldier Training event: uses max time (handled by upgrade flow instead)
+
 **Requirements** (same as harvest actions):
 - TOWN view (world button visible)
 - User idle 5+ minutes
@@ -612,6 +666,7 @@ The daemon automatically manages soldier training at all 4 barracks buildings.
 ```python
 SOLDIER_TRAINING_DEFAULT_LEVEL = 4  # Soldier level to train (3-8)
 BARRACKS_POSITIONS = [...]           # Fixed positions for 4 barracks
+SOLDIER_TRAINING_COOLDOWN = 300      # 5 minutes between training runs
 ```
 
 ### ⚠️ Setup-Specific Flows (Requires Calibration)

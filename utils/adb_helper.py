@@ -37,14 +37,17 @@ class ADBHelper:
     ADB_PATH = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
     EXPECTED_RESOLUTION = (3840, 2160)  # 4K
 
-    def __init__(self, auto_connect=True):
+    def __init__(self, auto_connect=True, on_action=None):
         """
         Initialize ADB helper.
 
         Args:
             auto_connect: If True, automatically find and connect to device
+            on_action: Optional callback to invoke before each tap/swipe action.
+                       Used by UserIdleTracker to track daemon actions.
         """
         self.device = None
+        self._on_action = on_action
 
         if auto_connect:
             self.ensure_connected()
@@ -194,6 +197,10 @@ class ADBHelper:
         if not self.ensure_connected():
             raise RuntimeError("No ADB device connected")
 
+        # Notify tracker before action (for idle detection)
+        if self._on_action:
+            self._on_action()
+
         self._run_adb(["shell", "input", "tap", str(x), str(y)])
 
     def swipe(self, x1, y1, x2, y2, duration=300):
@@ -207,6 +214,10 @@ class ADBHelper:
         """
         if not self.ensure_connected():
             raise RuntimeError("No ADB device connected")
+
+        # Notify tracker before action (for idle detection)
+        if self._on_action:
+            self._on_action()
 
         self._run_adb([
             "shell", "input", "swipe",

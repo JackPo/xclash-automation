@@ -287,8 +287,12 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
         # Mark monster as exhausted for today (only if track_daily_limit is True)
         monster_config = _get_monster_config(monster_name)
         if monster_config and monster_config.get('track_daily_limit', True):
-            from utils.rally_exhaustion_tracker import mark_exhausted
-            mark_exhausted(monster_name)
+            from utils.scheduler import get_scheduler, DaemonScheduler
+            scheduler = get_scheduler()
+            limit_name = f"rally_{monster_name.lower().replace(' ', '_')}"
+            reset_time = DaemonScheduler.get_next_server_reset()
+            scheduler.mark_exhausted(limit_name, reset_time)
+            print(f"[RALLY-JOIN]   Marked {monster_name} as exhausted until {reset_time}")
         else:
             print(f"[RALLY-JOIN]   {monster_name} has track_daily_limit=False, not marking exhausted")
 
@@ -317,6 +321,11 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
         win: Screenshot helper
         back_button_matcher: Back button matcher
     """
+    # Always try to dismiss any popup first (harmless if no popup)
+    # Team Up panel has no back button - must click outside to dismiss
+    adb.tap(1100, 1100)
+    time.sleep(0.3)
+
     # Click back button up to 2 times to close dialogs
     for attempt in range(2):
         time.sleep(0.3)

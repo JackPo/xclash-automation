@@ -28,8 +28,6 @@ import numpy as np
 # Use button can be at different Y positions depending on dialog type
 USE_BUTTON_X_REGION = (1750, 2100)  # X range to search
 USE_BUTTON_Y_REGION = (1400, 1700)  # Y range to search (covers both dialog types)
-SLIDER_Y_REGION = (1400, 1650)  # Y range for slider search
-SLIDER_RIGHT_X = 2400  # Far right of slider track to drag to max
 BACK_BUTTON_CLICK = (1407, 2055)
 
 # Bag header region for verification (same as bag_special_flow)
@@ -102,16 +100,40 @@ def _find_use_button(frame_gray: np.ndarray, template: np.ndarray,
     return None, min_val
 
 
-def _find_slider(frame_gray: np.ndarray, slider_template: np.ndarray,
+def _find_plus_button(frame_gray: np.ndarray, plus_template: np.ndarray,
+                      threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
+    """Find plus button using full image search."""
+    ph, pw = plus_template.shape
+    result = cv2.matchTemplate(frame_gray, plus_template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+
+    if min_val <= threshold:
+        center_x = min_loc[0] + pw // 2
+        center_y = min_loc[1] + ph // 2
+        return (center_x, center_y), min_val
+    return None, min_val
+
+
+def _find_slider(frame_gray: np.ndarray, slider_template: np.ndarray, plus_y: int,
                  threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
     """
-    Find slider circle in the search region.
+    Find slider circle, using plus button Y as reference for correct Y position.
+
+    Args:
+        frame_gray: Grayscale frame
+        slider_template: Slider circle template
+        plus_y: Y coordinate from plus button (slider is at same Y)
+        threshold: Match threshold
 
     Returns:
         ((x, y), score) or (None, score) if not found
     """
     sh, sw = slider_template.shape
-    y1, y2 = SLIDER_Y_REGION
+
+    # Search in a narrow Y band around the plus button Y
+    y_margin = 50
+    y1 = max(0, plus_y - y_margin)
+    y2 = min(frame_gray.shape[0], plus_y + y_margin)
 
     roi = frame_gray[y1:y2, :]
     result = cv2.matchTemplate(roi, slider_template, cv2.TM_SQDIFF_NORMED)
@@ -119,7 +141,8 @@ def _find_slider(frame_gray: np.ndarray, slider_template: np.ndarray,
 
     if min_val <= threshold:
         slider_x = min_loc[0] + sw // 2
-        slider_y = y1 + min_loc[1] + sh // 2
+        # Use plus_y directly since slider is at same Y as plus/minus buttons
+        slider_y = plus_y
         return (slider_x, slider_y), min_val
     return None, min_val
 
@@ -155,8 +178,19 @@ def use_item_subflow(adb, win, debug: bool = False) -> bool:
 
     use_click_x, use_click_y = use_pos
 
-    # Find slider position (searches Y range)
-    slider_pos, score = _find_slider(frame_gray, slider_template)
+    # Find plus button to get correct Y coordinate for slider
+    plus_pos, plus_score = _find_plus_button(frame_gray, plus_template)
+    if plus_pos is None:
+        if debug:
+            print(f"  ERROR: Plus button not found (score={plus_score:.4f})")
+        return False
+
+    plus_x, plus_y = plus_pos
+    if debug:
+        print(f"  Plus button at ({plus_x}, {plus_y}), score={plus_score:.4f}")
+
+    # Find slider position using plus button Y as reference
+    slider_pos, score = _find_slider(frame_gray, slider_template, plus_y)
     if slider_pos is None:
         if debug:
             print(f"  ERROR: Slider not found (score={score:.4f})")
@@ -166,10 +200,11 @@ def use_item_subflow(adb, win, debug: bool = False) -> bool:
     if debug:
         print(f"  Slider at ({slider_x}, {slider_y}), score={score:.4f}")
 
-    # Drag slider to max (use found Y position)
+    # Drag slider to max (drag to just before plus button X)
+    drag_end_x = plus_x - 40  # Stop just before the plus button
     if debug:
-        print(f"  Dragging slider from ({slider_x}, {slider_y}) to ({SLIDER_RIGHT_X}, {slider_y})...")
-    adb.swipe(slider_x, slider_y, SLIDER_RIGHT_X, slider_y, duration=500)
+        print(f"  Dragging slider from ({slider_x}, {slider_y}) to ({drag_end_x}, {slider_y})...")
+    adb.swipe(slider_x, slider_y, drag_end_x, slider_y, duration=500)
     time.sleep(0.3)
 
     # Click Use button at found position

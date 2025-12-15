@@ -233,8 +233,10 @@ class RallyMonsterValidator:
 
                 # Check daily exhaustion (only for monsters with track_daily_limit=True)
                 if monster.get("track_daily_limit", False):
-                    from utils.rally_exhaustion_tracker import is_exhausted
-                    if is_exhausted(config_name):
+                    from utils.scheduler import get_scheduler
+                    scheduler = get_scheduler()
+                    limit_name = f"rally_{config_name.lower().replace(' ', '_')}"
+                    if scheduler.is_exhausted(limit_name):
                         print(f"    [RALLY] {monster['name']} is exhausted for today, skipping")
                         return False, True  # Known but exhausted
 

@@ -41,7 +41,7 @@ BACK_H = 220
 TOGGLE_BUTTON_CLICK = (3720, 2040)  # Center of World/Town button
 BACK_BUTTON_CLICK = (1407, 2055)    # Center of back button
 
-THRESHOLD = 0.08  # For TM_SQDIFF_NORMED (lower = better match, increased from 0.05)
+THRESHOLD = 0.05  # For TM_SQDIFF_NORMED (lower = better match)
 BACK_THRESHOLD = 0.7  # For TM_CCOEFF_NORMED (higher = better match)
 
 BASE_DIR = Path(__file__).resolve().parent.parent / "templates" / "ground_truth"
