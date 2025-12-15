@@ -2,6 +2,7 @@
 Hospital State Matcher - Detects state of hospital building.
 
 The hospital has a floating bubble icon above it indicating its state:
+- Handshake icon = HELP_READY (ready for allies to help speed up - ALWAYS CLICK)
 - Stopwatch icon = TRAINING (healing in progress, countdown active)
 - Briefcase icon = HEALING (soldiers ready to claim after healing)
 - Yellow soldier face = SOLDIERS_WOUNDED (soldiers wounded, need healing)
@@ -11,6 +12,7 @@ Detection logic (follows barracks pattern):
 1. Extract ROI at fixed position (3312, 344) size 61x67
 2. Match all templates using TM_SQDIFF_NORMED
 3. If lowest score <= threshold:
+   - Handshake wins → HELP_READY (always click!)
    - Stopwatch wins → TRAINING
    - Briefcase wins → HEALING
    - Yellow soldier wins → SOLDIERS_WOUNDED
@@ -21,6 +23,7 @@ Multiple yellow soldier templates are loaded to match all variants.
 Templates are shared with barracks_state_matcher.
 
 Templates:
+- handshake_hospital_4k.png - Handshake icon for HELP_READY state (always click)
 - stopwatch_barrack_4k.png - Stopwatch icon for TRAINING state (shared with barracks)
 - healing_bubble_tight_4k.png - Briefcase icon for HEALING state
 - yellow_soldier_barrack_4k.png - Yellow soldier variant 1 (shared with barracks)
@@ -41,6 +44,7 @@ from config import (
 
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
+HANDSHAKE_TEMPLATE = TEMPLATE_DIR / "handshake_hospital_4k.png"  # Help ready - always click
 STOPWATCH_TEMPLATE = TEMPLATE_DIR / "stopwatch_barrack_4k.png"  # Shared with barracks
 HEALING_TEMPLATE = TEMPLATE_DIR / "healing_bubble_tight_4k.png"
 # Multiple yellow soldier variants (different soldier types have different faces)
@@ -55,6 +59,7 @@ YELLOW_SOLDIER_TEMPLATES = [
 
 
 class HospitalState(Enum):
+    HELP_READY = "help_ready"     # Handshake icon - ready for allies to help (ALWAYS CLICK)
     TRAINING = "training"         # Stopwatch icon - healing in progress (countdown)
     HEALING = "healing"           # Briefcase icon - soldiers ready to claim
     SOLDIERS_WOUNDED = "wounded"  # Yellow soldier - soldiers wounded, need healing
@@ -67,6 +72,7 @@ class HospitalStateMatcher:
 
     def __init__(self):
         # Load templates
+        self.handshake_template = cv2.imread(str(HANDSHAKE_TEMPLATE))
         self.stopwatch_template = cv2.imread(str(STOPWATCH_TEMPLATE))
         self.healing_template = cv2.imread(str(HEALING_TEMPLATE))
 
@@ -79,6 +85,8 @@ class HospitalStateMatcher:
             else:
                 print(f"Warning: Could not load {path}")
 
+        if self.handshake_template is None:
+            print(f"Warning: Could not load {HANDSHAKE_TEMPLATE}")
         if self.stopwatch_template is None:
             print(f"Warning: Could not load {STOPWATCH_TEMPLATE}")
         if self.healing_template is None:
@@ -100,9 +108,9 @@ class HospitalStateMatcher:
             frame: BGR numpy array screenshot (4K resolution)
 
         Returns:
-            dict with 'stopwatch', 'healing', 'yellow_soldier' scores (1.0 if template not loaded)
+            dict with 'handshake', 'stopwatch', 'healing', 'yellow_soldier' scores (1.0 if template not loaded)
         """
-        scores = {'stopwatch': 1.0, 'healing': 1.0, 'yellow_soldier': 1.0}
+        scores = {'handshake': 1.0, 'stopwatch': 1.0, 'healing': 1.0, 'yellow_soldier': 1.0}
 
         # Extract ROI at fixed position
         roi = frame[self.icon_y:self.icon_y + self.icon_h,
@@ -112,6 +120,10 @@ class HospitalStateMatcher:
             return scores
 
         # Match templates
+        if self.handshake_template is not None:
+            result = cv2.matchTemplate(roi, self.handshake_template, cv2.TM_SQDIFF_NORMED)
+            scores['handshake'] = result[0, 0]
+
         if self.stopwatch_template is not None:
             result = cv2.matchTemplate(roi, self.stopwatch_template, cv2.TM_SQDIFF_NORMED)
             scores['stopwatch'] = result[0, 0]
@@ -143,19 +155,25 @@ class HospitalStateMatcher:
         """
         scores = self.get_scores(frame)
 
+        handshake_score = scores['handshake']
         stopwatch_score = scores['stopwatch']
         healing_score = scores['healing']
         yellow_score = scores['yellow_soldier']
 
         # Find best match
-        best_score = min(stopwatch_score, healing_score, yellow_score)
+        best_score = min(handshake_score, stopwatch_score, healing_score, yellow_score)
 
         if debug:
-            print(f"  Hospital: stopwatch={stopwatch_score:.4f}, healing={healing_score:.4f}, yellow={yellow_score:.4f}, threshold={self.threshold}")
+            print(f"  Hospital: handshake={handshake_score:.4f}, stopwatch={stopwatch_score:.4f}, healing={healing_score:.4f}, yellow={yellow_score:.4f}, threshold={self.threshold}")
 
         # Check if best match passes threshold
         if best_score <= self.threshold:
-            if stopwatch_score <= healing_score and stopwatch_score <= yellow_score:
+            # Handshake takes priority - always click when detected
+            if handshake_score <= stopwatch_score and handshake_score <= healing_score and handshake_score <= yellow_score:
+                if debug:
+                    print(f"  Hospital: HELP_READY (score={handshake_score:.4f})")
+                return HospitalState.HELP_READY, handshake_score
+            elif stopwatch_score <= healing_score and stopwatch_score <= yellow_score:
                 if debug:
                     print(f"  Hospital: TRAINING (score={stopwatch_score:.4f})")
                 return HospitalState.TRAINING, stopwatch_score
@@ -189,6 +207,7 @@ class HospitalStateMatcher:
         """
         state, score = self.get_state(frame)
         state_char = {
+            HospitalState.HELP_READY: "HELP",
             HospitalState.TRAINING: "TRAIN",
             HospitalState.HEALING: "HEAL",
             HospitalState.SOLDIERS_WOUNDED: "WOUND",
@@ -205,18 +224,19 @@ class HospitalStateMatcher:
             frame: BGR numpy array screenshot
 
         Returns:
-            String like "H:TRAIN(s=0.010,h=0.150,y=0.200)"
+            String like "H:HELP(hs=0.010,s=0.150,h=0.200,y=0.300)"
         """
         scores = self.get_scores(frame)
         state, _ = self.get_state(frame)
         state_char = {
+            HospitalState.HELP_READY: "HELP",
             HospitalState.TRAINING: "TRAIN",
             HospitalState.HEALING: "HEAL",
             HospitalState.SOLDIERS_WOUNDED: "WOUND",
             HospitalState.IDLE: "IDLE",
             HospitalState.UNKNOWN: "?"
         }.get(state, "?")
-        return f"H:{state_char}(s={scores['stopwatch']:.3f},h={scores['healing']:.3f},y={scores['yellow_soldier']:.3f})"
+        return f"H:{state_char}(hs={scores['handshake']:.3f},s={scores['stopwatch']:.3f},h={scores['healing']:.3f},y={scores['yellow_soldier']:.3f})"
 
 
 # Singleton instance

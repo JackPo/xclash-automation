@@ -5,7 +5,6 @@ A fully automated bot for **X-Clash** (`com.xman.na.gp`) running on BlueStacks A
 ## Table of Contents
 
 - [Features](#features)
-- [VS Day Automation](#vs-day-automation)
 - [Technology Stack](#technology-stack)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -45,7 +44,7 @@ The bot automatically joins Union War rallies based on configurable monster rule
 - **Daily Limit Tracking**: Tracks exhausted monsters (e.g., Elite Zombie daily limit) and skips them
 - **Idle Hero Selection**: Only joins if an idle hero (Zz icon) is available
 
-**Supported Monsters** (configurable in `config.py`):
+**Supported Monsters** (configurable in `config_local.py`):
 
 | Monster | Max Level | Daily Limit |
 |---------|-----------|-------------|
@@ -136,41 +135,20 @@ The daemon automatically manages tavern quests:
 - **Auto Return-to-Town**: Every 5 iterations when idle, daemon returns to TOWN view for optimal scanning
 - **Configurable**: All coordinates, thresholds, and timings can be customized via `config_local.py`
 
-## VS Day Automation
+### VS Day Automation
 
-The bot includes special automation that triggers only on specific VS (Versus) event days to maximize points:
+Special automation that triggers only on specific VS (Versus) event days to maximize points:
 
-### Day 2 (Thursday) - Soldier Promotion Day
-
-**Config**: `VS_SOLDIER_PROMOTION_DAYS = [2]`
-
-On VS Day 2, soldier promotions run **ALL DAY** regardless of which 4-hour Arms Race event is active:
-- Automatically promotes soldiers at PENDING barracks
+**Day 2 (Thursday) - Soldier Promotion Day** (`VS_SOLDIER_PROMOTION_DAYS = [2]`)
+- Soldier promotions run **ALL DAY** regardless of which 4-hour Arms Race event is active
 - Overrides the normal "only during Soldier Training event" restriction
 - Daemon log shows `[VS:Promo]` when this override is active
 
-### Day 3 (Wednesday) - Level Chest Day
-
-**Config**: `VS_LEVEL_CHEST_DAYS = [3]`
-
-On VS Day 3, the bag flow opens **level chests** (Lv1-Lv4) in addition to regular chests:
+**Day 3 (Wednesday) - Level Chest Day** (`VS_LEVEL_CHEST_DAYS = [3]`)
+- Bag flow opens **level chests** (Lv1-Lv4) in addition to regular chests
 - Regular days: Opens 8 regular chest types only
-- VS Day 3: Opens 8 regular + 4 level chests (Lv1, Lv2, Lv3, Lv4)
+- VS Day 3: Opens 8 regular + 4 level chests
 - Level chests give VS points, so we save them for the chest-opening VS event day
-
-**Level Chest Templates**:
-- `bag_chest_lv1_4k.png` - Level 1 chest
-- `bag_chest_lv2_4k.png` - Level 2 chest (gold ornate)
-- `bag_chest_lv3_4k.png` - Level 3 chest (blue striped)
-- `bag_chest_lv4_4k.png` - Level 4 chest (purple striped)
-
-### Configuration
-
-Override VS days in `config_local.py`:
-```python
-VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday
-VS_LEVEL_CHEST_DAYS = [3]        # Day 3 = Wednesday
-```
 
 ## Technology Stack
 
@@ -333,9 +311,11 @@ All configuration has sensible defaults. You only need to create `config_local.p
 
 | File | Purpose | Git Status |
 |------|---------|------------|
-| `config.py` | Default values, config loader | Tracked |
+| `config.py` | Default values (DO NOT EDIT) | Tracked |
 | `config_local.py` | Your overrides (optional) | **Gitignored** |
 | `config_local.py.example` | Template showing available options | Tracked |
+
+> **Important**: Never edit `config.py` directly. All customizations go in `config_local.py`. The code examples below show the default values - copy only what you need to change into `config_local.py`.
 
 To customize, copy the example and uncomment what you need:
 ```bash
@@ -410,6 +390,8 @@ KEY_PAN_RIGHT = 'right'
 ### Town Layout Coordinates (Required for Harvest Flows)
 
 **Important**: The resource harvest flows (corn, gold, iron, gem, cabbage, equipment) click at **fixed coordinates** based on your town layout. You **must calibrate these** for your account or they will click in the wrong locations.
+
+> **Note**: The values shown below are the **defaults** in `config.py`. To override them, copy only the values you need to change into your `config_local.py`. Never edit `config.py` directly.
 
 **Reference town layout** (this is how the developer's town is arranged - your coordinates will differ):
 

@@ -810,6 +810,7 @@ class IconDaemon:
 
                 # Format hospital state for logging
                 hospital_state_char = {
+                    HospitalState.HELP_READY: "HELP",
                     HospitalState.TRAINING: "TRAIN",
                     HospitalState.HEALING: "HEAL",
                     HospitalState.SOLDIERS_WOUNDED: "WOUND",
@@ -1158,12 +1159,21 @@ class IconDaemon:
 
                     # Check if we have enough consecutive readings of an actionable state
                     if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and harvest_idle_ok:
-                        # Count HEALING and SOLDIERS_WOUNDED in history
+                        # Count states in history
+                        help_ready_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HELP_READY)
                         healing_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HEALING)
                         wounded_count = sum(1 for s in self.hospital_state_history if s == HospitalState.SOLDIERS_WOUNDED)
 
-                        # Trigger if ALL readings are the same actionable state
-                        if healing_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                        # HELP_READY: Just click to request ally help (no panel needed)
+                        if help_ready_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed ({help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive) - requesting ally help")
+                            click_x, click_y = self.hospital_matcher.get_click_position()
+                            self.adb.tap(click_x, click_y)
+                            # Clear history after clicking
+                            self.hospital_state_history = []
+
+                        # HEALING: Click to open panel, run healing flow
+                        elif healing_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
                             self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive)")
                             # Click hospital building to open panel
                             click_x, click_y = self.hospital_matcher.get_click_position()
@@ -1174,6 +1184,7 @@ class IconDaemon:
                             # Clear history after triggering
                             self.hospital_state_history = []
 
+                        # SOLDIERS_WOUNDED: Click to open panel, run healing flow
                         elif wounded_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
                             self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive)")
                             # Click hospital building to open panel

@@ -232,7 +232,7 @@ HOSPITAL_ICON_POSITION = (3312, 344)  # x, y - top-left corner
 HOSPITAL_ICON_SIZE = (61, 67)         # width, height
 
 # Click position - hospital building center (not bubble center)
-HOSPITAL_CLICK_POSITION = (3329, 511)
+HOSPITAL_CLICK_POSITION = (3342, 377)  # Icon center, not building
 
 # Match threshold (TM_SQDIFF_NORMED) - stricter than barracks
 HOSPITAL_MATCH_THRESHOLD = 0.03
