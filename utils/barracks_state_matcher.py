@@ -50,6 +50,7 @@ YELLOW_TEMPLATES = [
     TEMPLATE_DIR / "yellow_soldier_barrack_v3_4k.png",   # Red hat soldier
     TEMPLATE_DIR / "yellow_soldier_barrack_v4_4k.png",   # Orange hat soldier
     TEMPLATE_DIR / "yellow_soldier_barrack_v5_4k.png",   # Yellow/orange hat soldier
+    TEMPLATE_DIR / "yellow_soldier_barrack_v6_4k.png",   # Purple hat soldier (golden background)
 ]
 WHITE_TEMPLATE = TEMPLATE_DIR / "white_soldier_barrack_4k.png"
 STOPWATCH_TEMPLATE = TEMPLATE_DIR / "stopwatch_barrack_4k.png"

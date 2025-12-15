@@ -335,13 +335,8 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
             print(f"  Using timed training: Lv{target_level} for max {max_hours:.2f}h")
 
         from scripts.flows.barracks_training_flow import barracks_training_flow
-        # barracks_training_flow expects panel to already be open
-        # But it will find and click the soldier level itself
-        # We need to close this panel first since barracks_training_flow opens it
-        adb.tap(500, 500)  # Dismiss panel
-        time.sleep(0.3)
-
-        # Now call barracks_training_flow which handles everything including timing
+        # barracks_training_flow expects panel to already be open (which it is)
+        # It will find and click the soldier level itself
         success = barracks_training_flow(
             adb,
             soldier_level=target_level,

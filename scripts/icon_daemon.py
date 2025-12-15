@@ -1200,7 +1200,7 @@ class IconDaemon:
                     if self.hospital_state_history:
                         self.hospital_state_history = []
 
-                # Barracks: Check for READY barracks to collect soldiers (non-Arms Race ONLY)
+                # Barracks: Check for READY/PENDING barracks to collect/train soldiers (non-Arms Race ONLY)
                 # During Arms Race "Soldier Training" event or VS promotion days, we use soldier_upgrade_flow instead
                 # No cooldown - just requires TOWN view, alignment, and idle
                 is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
@@ -1209,9 +1209,10 @@ class IconDaemon:
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
+                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
-                    if ready_count > 0:
-                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY barrack(s) detected, triggering soldier collection...")
+                    if ready_count > 0 or pending_count > 0:
+                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY, {pending_count} PENDING barrack(s), triggering soldier training...")
                         self._run_flow("soldier_training", soldier_training_flow)
 
                 # AFK rewards: requires AFK icon detected + harvest conditions + cooldown
