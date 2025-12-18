@@ -501,6 +501,11 @@ class IconDaemon:
                 self.logger.debug(f"SKIP: {flow_name} blocked by critical flow {self.critical_flow_name}")
                 return False
 
+            # Block ALL flows if ANY flow is active (prevent parallel UI interference)
+            if self.active_flows:
+                self.logger.debug(f"SKIP: {flow_name} blocked - another flow is active: {self.active_flows}")
+                return False
+
             self.active_flows.add(flow_name)
 
         thread = threading.Thread(target=wrapper, daemon=True)
