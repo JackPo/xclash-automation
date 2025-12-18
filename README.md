@@ -144,10 +144,10 @@ Special automation that triggers only on specific VS (Versus) event days to maxi
 - Overrides the normal "only during Soldier Training event" restriction
 - Daemon log shows `[VS:Promo]` when this override is active
 
-**Day 3 (Wednesday) - Level Chest Day** (`VS_LEVEL_CHEST_DAYS = [3]`)
-- Bag flow opens **level chests** (Lv1-Lv4) in addition to regular chests
-- Regular days: Opens 8 regular chest types only
-- VS Day 3: Opens 8 regular + 4 level chests
+**Day 7 (Tuesday) - Level Chest Day** (`VS_LEVEL_CHEST_DAYS = [7]`)
+- Level chests (Lv1-Lv4) are only opened in the **last 10 minutes** of Day 7
+- Surprise strategy: competitors don't see your points until very end
+- Bag flow triggers at checkpoints: 10, 5, and 1 minutes remaining
 - Level chests give VS points, so we save them for the chest-opening VS event day
 
 ## Technology Stack
@@ -743,20 +743,34 @@ The daemon tracks the Arms Race event rotation and triggers event-specific flows
 
 **Stamina Management** (during Beast Training):
 
-The daemon automatically manages stamina during Mystic Beast events:
+The daemon automatically manages stamina during Mystic Beast events with an optimized strategy:
 
-1. **Stamina Claim** (free, every 4 hours):
-   - Triggers when stamina < 60 AND red notification dot visible on stamina display
-   - Red dot detection: checks 25x20px region at position (170, 223) to the right of stamina bar
-   - Threshold: 100+ red pixels required (out of 500 total in region)
-   - Prevents false positives by checking exact location where notification dot appears
+**Pre-Event Preparation** (6 minutes before Beast Training):
+- Claims free stamina if red dot visible, starting the 4-hour cooldown early
+- Blocks Elite Zombie rallies to preserve stamina for the event
+- Log shows: `PRE-BEAST TRAINING: X.X min until Beast Training, claiming stamina early...`
+- Log shows: `ELITE ZOMBIE: BLOCKED - Beast Training starts in X.X min, preserving stamina`
 
-2. **Stamina Use** (recovery items, +50 stamina):
-   - Triggers when stamina < 20, idle since block start, rally count < 15
-   - Max 4 uses per block, 3-minute cooldown between uses
-   - **Conservation logic**: 1st-2nd uses anytime; 3rd-4th uses only in last 10 minutes
-   - This allows natural stamina regeneration early in the block, saving items for when time runs out
-   - Only uses if Claim button not available (prioritizes free claims)
+**During Event - Optimized Sequence** (for last 6 minutes):
+1. **Claim** - Free stamina if red dot visible (4h cooldown now ready from pre-claim)
+2. **Rally** - Burn existing stamina with rallies FIRST
+3. **Use** - Only use +50 recovery items AFTER rallies burn stamina down to < 20
+4. **Rally again** - With the +50 stamina from Use button
+
+This sequence maximizes the 4-hour cooldown timing and ensures rallies happen first before using recovery items.
+
+**Stamina Claim Details** (free, every 4 hours):
+- Triggers when stamina < 60 AND red notification dot visible on stamina display
+- Red dot detection: checks 25x20px region at position (170, 223) to the right of stamina bar
+- Threshold: 100+ red pixels required (out of 500 total in region)
+- Prevents false positives by checking exact location where notification dot appears
+
+**Stamina Use Details** (recovery items, +50 stamina):
+- Triggers when stamina < 20, idle since block start, rally count < 15
+- Max 4 uses per block, 3-minute cooldown between uses
+- **Conservation logic**: 1st-2nd uses anytime; 3rd-4th uses only in last 10 minutes
+- This allows natural stamina regeneration early in the block, saving items for when time runs out
+- Only uses if Claim button not available (prioritizes free claims)
 
 **Configuration options** (in `config_local.py`):
 ```python
@@ -765,6 +779,7 @@ ARMS_RACE_BEAST_TRAINING_ENABLED = True        # Set False to disable
 ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Trigger window (last N minutes)
 ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
+ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES = 6 # Pre-event prep window (claim + block elite rallies)
 
 # Stamina Claim (free claim, every 4 hours)
 ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim if stamina < 60

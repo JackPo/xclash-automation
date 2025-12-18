@@ -171,6 +171,40 @@ def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
         return None
 
 
+def get_time_until_beast_training(now: datetime = None) -> timedelta | None:
+    """
+    Get time until next Mystic Beast Training event.
+
+    Returns:
+        timedelta(0) if currently in Beast Training
+        timedelta with positive value if Beast Training is upcoming
+        None on error
+    """
+    try:
+        status = get_arms_race_status(now)
+
+        # If currently Mystic Beast Training, return 0
+        if status['current'] == 'Mystic Beast Training':
+            return timedelta(0)
+
+        # Search forward in table
+        current_idx = status['event_index']
+
+        for offset in range(1, 43):
+            check_idx = (current_idx + offset) % 42
+            _, _, activity = SCHEDULE[check_idx]
+
+            if activity == 'Mystic Beast Training':
+                # Found it
+                events_away = offset
+                return status['time_remaining'] + timedelta(hours=(events_away - 1) * EVENT_HOURS)
+
+        return None
+
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
     print_status()
 

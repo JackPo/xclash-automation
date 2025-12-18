@@ -63,6 +63,7 @@ ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60     # Only trigger in last N minutes 
 ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim free stamina when stamina < this value
+ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES = 6 # Claim stamina + block elite rallies this many min BEFORE event
 
 # Use Button during Beast Training (consumes stamina recovery items)
 ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True    # Enable/disable Use button automation

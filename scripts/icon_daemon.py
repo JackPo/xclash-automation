@@ -71,7 +71,7 @@ from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
-from utils.arms_race import get_arms_race_status
+from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.scheduler import get_scheduler
 
 # Import configurable parameters
@@ -104,6 +104,7 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
     ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
     ARMS_RACE_SOLDIER_TRAINING_ENABLED,
+    ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES,
     # VS Event overrides
     VS_SOLDIER_PROMOTION_DAYS,
     # Rally joining
@@ -276,6 +277,11 @@ class IconDaemon:
         # Soldier Training: when idle 5+ min, any barrack PENDING during Soldier Training event
         # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
         self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
+
+        # Pre-Beast Training: claim stamina + block elite rallies N minutes before event
+        self.BEAST_TRAINING_PRE_EVENT_MINUTES = ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES
+        self.beast_training_pre_claim_done = False  # Track if we've claimed pre-event stamina
+        self.beast_training_pre_claim_block = None  # Track which upcoming block we've pre-claimed for
 
         # VS Event overrides - soldier promotions all day on specific days
         self.VS_SOLDIER_PROMOTION_DAYS = VS_SOLDIER_PROMOTION_DAYS
@@ -922,11 +928,45 @@ class IconDaemon:
                 stamina_confirmed = len(self.stamina_history) >= self.STAMINA_CONSECUTIVE_REQUIRED
                 confirmed_stamina = self.stamina_history[-1] if stamina_confirmed else None
 
+                # =================================================================
+                # PRE-BEAST TRAINING: Claim stamina + block elite rallies before event
+                # =================================================================
+                # Calculate time until Beast Training starts
+                time_until_beast = get_time_until_beast_training()
+                minutes_until_beast = time_until_beast.total_seconds() / 60 if time_until_beast else 999
+
+                # Track if we're in the pre-event window (0 < minutes <= 6)
+                in_pre_beast_window = 0 < minutes_until_beast <= self.BEAST_TRAINING_PRE_EVENT_MINUTES
+
+                # Pre-event stamina claim: 6 min before Beast Training, claim if red dot visible
+                # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
+                if in_pre_beast_window and effective_idle_secs >= self.IDLE_THRESHOLD:
+                    # Calculate which upcoming block this is for
+                    upcoming_beast_block = arms_race['block_end']  # Next block starts when current ends
+
+                    # Only claim once per upcoming block
+                    if self.beast_training_pre_claim_block != upcoming_beast_block:
+                        # Check for red notification dot
+                        has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
+                        if has_dot:
+                            self.logger.info(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until Beast Training, red dot detected ({red_count} pixels), claiming stamina early to start cooldown...")
+                            claim_success = self._run_flow("stamina_claim", stamina_claim_flow)
+                            if claim_success:
+                                self.beast_training_pre_claim_block = upcoming_beast_block
+                                self.logger.info(f"[{iteration}] PRE-BEAST TRAINING: Stamina claimed, cooldown started. Will claim again in last 6 min of event.")
+                        elif self.debug:
+                            self.logger.debug(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until event, but no red dot ({red_count} pixels)")
+
                 # Elite zombie rally - stamina >= 118 and idle 5+ min
+                # BLOCKED: if Beast Training starts in < 6 minutes (preserve stamina for event)
+                elite_rally_blocked = in_pre_beast_window
                 if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and effective_idle_secs >= self.IDLE_THRESHOLD:
-                    self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
-                    self._run_flow("elite_zombie", elite_zombie_flow, critical=True)
-                    self.stamina_history = []  # Reset after triggering
+                    if elite_rally_blocked:
+                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
+                    else:
+                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
+                        self._run_flow("elite_zombie", elite_zombie_flow, critical=True)
+                        self.stamina_history = []  # Reset after triggering
 
                 # =================================================================
                 # ARMS RACE EVENT TRACKING
@@ -936,6 +976,14 @@ class IconDaemon:
 
                 # Beast Training: Mystic Beast Training last N minutes, stamina >= 20, cooldown
                 # Uses the SAME stamina_confirmed from unified validation above
+                #
+                # Sequence order (optimized for last 6 minutes):
+                # 1. Claim free stamina (if red dot visible)
+                # 2. Rally (burn stamina down to < 20)
+                # 3. Use +50 recovery items (only when stamina < 20, after rallies burn it down)
+                # 4. Rally again (with the +50 stamina from Use)
+                #
+                # This order ensures we do rallies FIRST with existing stamina, THEN use recovery items.
                 if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
                     arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES):
@@ -952,7 +1000,7 @@ class IconDaemon:
                     time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
                     idle_since_block_start = effective_idle_secs >= time_elapsed_secs
 
-                    # Stamina Claim: if stamina < 60 AND red dot visible, try to claim free stamina
+                    # STEP 1: Stamina Claim - if stamina < 60 AND red dot visible, claim free stamina
                     # Track if claim was attempted (to know if we should try Use button)
                     claim_triggered = False
                     if (stamina_confirmed and
@@ -965,9 +1013,27 @@ class IconDaemon:
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, but no red dot ({red_count} pixels), skipping claim")
 
-                    # Use Button Logic (stamina recovery items):
-                    # Conditions: idle entire block, rally count < 15, no Claim available (stamina already at threshold),
-                    # stamina < 20, Use clicks < 4, 3 min cooldown
+                    # STEP 2: Rally - if stamina >= 20 and cooldown ok, do rallies FIRST
+                    # This burns down stamina so we can then use recovery items
+                    rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
+                    rally_triggered = False
+                    if (stamina_confirmed and
+                        confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
+                        rally_cooldown_ok and
+                        not claim_triggered):  # Don't rally if we just claimed (wait for stamina to update)
+                        self.beast_training_rally_count += 1
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally #{self.beast_training_rally_count}...")
+                        # Use elite_zombie_flow with 0 plus clicks
+                        import config
+                        original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
+                        config.ELITE_ZOMBIE_PLUS_CLICKS = 0
+                        rally_triggered = self._run_flow("beast_training", elite_zombie_flow, critical=True)
+                        config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
+                        self.beast_training_last_rally = current_time
+                        self.stamina_history = []  # Reset after triggering
+
+                    # STEP 3: Use Button - only AFTER rallies have burned stamina down to < 20
+                    # Conditions: idle entire block, rally count < 15, stamina < 20, Use clicks < 4, cooldown
                     # For 3rd+ uses, require being in the last N minutes of the block
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
@@ -980,28 +1046,13 @@ class IconDaemon:
                         self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
                         use_cooldown_ok and
                         use_allowed_by_time and
-                        not claim_triggered):  # Only use if claim wasn't just triggered
+                        not claim_triggered and  # Only use if claim wasn't just triggered
+                        not rally_triggered):    # Only use if rally wasn't just triggered (wait for stamina to update)
                         # All conditions met - use stamina recovery item
                         self.beast_training_use_count += 1
                         self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.BEAST_TRAINING_USE_STAMINA_THRESHOLD}, using recovery item (use #{self.beast_training_use_count}/{self.BEAST_TRAINING_USE_MAX}, rally #{self.beast_training_rally_count}/{self.BEAST_TRAINING_MAX_RALLIES})...")
                         self._run_flow("stamina_use", stamina_use_flow)
                         self.beast_training_last_use_time = current_time
-
-                    # Rally: if stamina >= 20 and cooldown ok
-                    rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
-                    if (stamina_confirmed and
-                        confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
-                        rally_cooldown_ok):
-                        self.beast_training_rally_count += 1
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally #{self.beast_training_rally_count}...")
-                        # Use elite_zombie_flow with 0 plus clicks
-                        import config
-                        original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
-                        config.ELITE_ZOMBIE_PLUS_CLICKS = 0
-                        self._run_flow("beast_training", elite_zombie_flow, critical=True)
-                        config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
-                        self.beast_training_last_rally = current_time
-                        self.stamina_history = []  # Reset after triggering
 
                 # Enhance Hero: last N minutes, runs once per block
                 # Requires user to be idle since the START of the Enhance Hero block
