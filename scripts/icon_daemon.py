@@ -199,6 +199,11 @@ class IconDaemon:
         self.last_tavern_scan_time = 0
         self.TAVERN_SCAN_COOLDOWN = TAVERN_SCAN_COOLDOWN
 
+        # VS Day 7 chest surprise - trigger bag flow at 10, 5, 1 min remaining
+        self.VS_CHEST_CHECKPOINTS = [10, 5, 1]  # Minutes before day ends
+        self.vs_chest_triggered = set()  # Track which checkpoints we've hit
+        self.vs_chest_last_day = None  # Reset tracking when day changes
+
         # Union technology cooldown - once per hour
         self.last_union_technology_time = 0
         self.UNION_TECHNOLOGY_COOLDOWN = UNION_TECHNOLOGY_COOLDOWN
@@ -1234,7 +1239,26 @@ class IconDaemon:
                     self._run_flow("union_technology", union_technology_flow)
                     self.scheduler.record_flow_run("union_technology")
 
-                # Bag flow: 5 min idle, 1 hour cooldown (navigates to TOWN itself)
+                # VS Day 7 chest surprise: trigger bag flow at 10, 5, 1 min remaining
+                # This opens level chests right before VS day ends to surprise competitors
+                vs_day = arms_race['day']
+                vs_minutes_remaining = arms_race.get('minutes_remaining', 999)
+
+                # Reset checkpoint tracking when day changes
+                if vs_day != self.vs_chest_last_day:
+                    self.vs_chest_triggered.clear()
+                    self.vs_chest_last_day = vs_day
+
+                # On Day 7, check if we should trigger bag flow at checkpoint
+                if vs_day == 7 and effective_idle_secs >= self.IDLE_THRESHOLD:
+                    for checkpoint in self.VS_CHEST_CHECKPOINTS:
+                        if vs_minutes_remaining <= checkpoint and checkpoint not in self.vs_chest_triggered:
+                            self.logger.info(f"[{iteration}] VS CHEST SURPRISE: Day 7, {vs_minutes_remaining:.1f} min left (checkpoint {checkpoint}), triggering bag flow...")
+                            self._run_flow("bag", bag_flow, critical=True)
+                            self.vs_chest_triggered.add(checkpoint)
+                            break  # Only trigger once per iteration
+
+                # Bag flow: idle threshold, cooldown (navigates to TOWN itself)
                 if self.scheduler.is_flow_ready("bag_flow", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
                     self._run_flow("bag", bag_flow, critical=True)

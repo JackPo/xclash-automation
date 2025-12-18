@@ -65,6 +65,9 @@ CHEST_TEMPLATES = [
     "bag_chest_purple_4k.png",       # Purple chest with gold trim
     "bag_chest_question_4k.png",     # Mystery chest with question mark
     "bag_chest_wooden_4k.png",       # Wooden chest with question mark medallion
+    "bag_chest_blue_striped_4k.png", # Blue striped chest with purple gem
+    "bag_chest_gold_ornate_4k.png",  # Blue striped chest on blue background
+    "bag_chest_purple_striped_4k.png",  # Gold/teal chest with blue gem
 ]
 
 # Level chest templates (VS Wednesday only - Day 3)
@@ -162,16 +165,20 @@ def bag_special_flow(adb, win=None, debug: bool = False, open_bag: bool = True) 
     bag_tab_template = _load_template("bag_tab_4k.png")
     special_tab_active_template = _load_template("bag_special_tab_active_4k.png")
 
-    # Check if VS level chest day (Day 3 = Wednesday)
+    # Check if VS level chest day AND in last 10 minutes (surprise strategy)
     arms_race = get_arms_race_status()
     is_level_chest_day = arms_race['day'] in VS_LEVEL_CHEST_DAYS
+    minutes_remaining = arms_race.get('minutes_remaining', 999)
 
-    # Build template list - always include regular chests, add level chests on VS day
+    # Only include level chests in last 10 minutes of VS day (surprise competitors)
+    include_level_chests = is_level_chest_day and minutes_remaining <= 10
+
+    # Build template list - always include regular chests, add level chests only in last 10 min
     template_names = CHEST_TEMPLATES.copy()
-    if is_level_chest_day:
+    if include_level_chests:
         template_names.extend(LEVEL_CHEST_TEMPLATES)
         if debug:
-            print(f"VS Day {arms_race['day']} - including level chest templates")
+            print(f"VS Day {arms_race['day']}, {minutes_remaining:.1f} min left - including level chest templates")
 
     chest_templates = _load_chest_templates(template_names)
 

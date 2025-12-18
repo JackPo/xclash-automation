@@ -111,7 +111,7 @@ VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in current cycle
 # VS Level Chest Days
 # When the current Arms Race day is in this list, open level chests (Lv2, Lv3, Lv4) in bag
 # Example: [3] = Day 3 only (Wednesday)
-VS_LEVEL_CHEST_DAYS = [3]  # Day 3 = Wednesday in current cycle
+VS_LEVEL_CHEST_DAYS = [7]  # Day 7 = chest-opening VS event day
 
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
@@ -119,7 +119,7 @@ UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims
 UNION_TECHNOLOGY_COOLDOWN = 3600   # 1 hour between union technology donations
 UNION_FLOW_SEPARATION = 600        # 10 minutes minimum between union gifts and union technology
 SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collection attempts
-BAG_FLOW_COOLDOWN = 3600           # 1 hour between bag flow runs
+BAG_FLOW_COOLDOWN = 1200           # 20 minutes between bag flow runs
 GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
 TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
 

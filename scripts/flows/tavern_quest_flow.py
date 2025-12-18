@@ -45,7 +45,7 @@ SHORT_TIMER_THRESHOLD = 30 # seconds - timer considered "about to complete"
 TEMPLATE_DIR = "templates/ground_truth"
 MY_QUESTS_ACTIVE_TEMPLATE = f"{TEMPLATE_DIR}/tavern_my_quests_active_4k.png"
 ALLY_QUESTS_ACTIVE_TEMPLATE = f"{TEMPLATE_DIR}/tavern_ally_quests_active_4k.png"
-CLAIM_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/claim_button_4k.png"
+CLAIM_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/claim_button_tavern_4k.png"
 GOLD_SCROLL_LV4_TEMPLATE = f"{TEMPLATE_DIR}/gold_scroll_lv4_4k.png"
 GO_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/go_button_4k.png"
 
@@ -78,17 +78,17 @@ CLAIM_X_END = 2500
 CLAIM_THRESHOLD = 0.02  # Strict threshold to avoid false positives
 
 # Gold scroll and Go button detection
-GOLD_SCROLL_THRESHOLD = 0.02
+GOLD_SCROLL_THRESHOLD = 0.003  # Very strict - gold scroll Lv4 is unique
 GO_BUTTON_THRESHOLD = 0.02
 GO_BUTTON_X_START = 2100  # Go buttons are in same column as Claim
 GO_BUTTON_X_END = 2500
 Y_TOLERANCE = 80  # Y tolerance for matching scroll with Go button on same row
 
-# Scroll parameters
-SCROLL_START_Y = 1800  # Bottom of quest list
-SCROLL_END_Y = 1000    # Top of quest list
+# Scroll parameters - grab center and drag up to scroll down
+SCROLL_START_Y = 1400  # Center of quest list
+SCROLL_END_Y = 800     # Drag to top to scroll content down (reveal more below)
 SCROLL_X = 1920        # Center X
-SCROLL_DURATION = 300  # ms
+SCROLL_DURATION = 500  # ms - longer for smoother scroll
 
 
 def load_template_gray(path: str) -> np.ndarray:
