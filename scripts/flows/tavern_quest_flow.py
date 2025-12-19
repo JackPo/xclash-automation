@@ -232,10 +232,10 @@ def find_quest_timers(frame: np.ndarray, frame_gray: np.ndarray, ocr=None) -> li
     return timers
 
 
-def scan_and_schedule_quest_completions(frame: np.ndarray, ocr) -> list[datetime]:
+def scan_quest_timers(frame: np.ndarray, ocr) -> list[datetime]:
     """
     Scan tavern screen, OCR all timers, calculate completion times.
-    Saves schedule to JSON file and returns list of completion datetimes.
+    Does NOT save - caller should accumulate and save once at the end.
 
     Args:
         frame: Screenshot of tavern screen (BGR numpy array)
@@ -255,7 +255,22 @@ def scan_and_schedule_quest_completions(frame: np.ndarray, ocr) -> list[datetime
             completions.append(completion_time)
             logger.info(f"Quest timer: {t['timer_text']} -> completes at {completion_time.strftime('%H:%M:%S')}")
 
-    # Save to file
+    return completions
+
+
+def scan_and_schedule_quest_completions(frame: np.ndarray, ocr) -> list[datetime]:
+    """
+    Scan tavern screen, OCR all timers, calculate completion times, and save.
+    Use scan_quest_timers() if you need to accumulate across multiple screens.
+
+    Args:
+        frame: Screenshot of tavern screen (BGR numpy array)
+        ocr: OCR client instance (e.g., OCRClient)
+
+    Returns:
+        List of datetime objects for when each quest will complete
+    """
+    completions = scan_quest_timers(frame, ocr)
     save_quest_schedule(completions)
     return completions
 
@@ -452,6 +467,56 @@ def is_in_tavern(frame_gray: np.ndarray) -> tuple[bool, str]:
         return True, "my_quests"
 
 
+# Back button position for dismissing popups
+BACK_BUTTON_CLICK = (1407, 2055)
+
+
+def wait_for_tavern_tabs(adb: ADBHelper, win: WindowsScreenshotHelper,
+                         max_attempts: int = 10, debug: bool = False) -> bool:
+    """
+    Poll until we can see the Tavern tabs (My Quests / Ally Quests).
+
+    If tabs not visible, clicks back button and checks again.
+    Used after clicking Claim to dismiss the rewards popup.
+
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        max_attempts: Maximum number of back button clicks before giving up
+        debug: Enable debug logging
+
+    Returns:
+        True if back in Tavern (tabs visible), False if gave up or exited to TOWN/WORLD
+    """
+    from utils.view_state_detector import detect_view, ViewState
+
+    for attempt in range(max_attempts):
+        frame = win.get_screenshot_cv2()
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Check if we can see Tavern tabs
+        in_tavern, active_tab = is_in_tavern(frame_gray)
+        if in_tavern:
+            if debug:
+                logger.debug(f"[POPUP] Back in Tavern after {attempt} clicks (tab={active_tab})")
+            return True
+
+        # Check if we exited to TOWN/WORLD (popup dismissed us out of Tavern entirely)
+        view_state, _ = detect_view(frame)
+        if view_state in (ViewState.TOWN, ViewState.WORLD):
+            logger.warning(f"[POPUP] Exited to {view_state.name} - Tavern closed unexpectedly")
+            return False
+
+        # Still in popup - click back button to dismiss
+        if debug:
+            logger.debug(f"[POPUP] Attempt {attempt + 1}/{max_attempts}: Tabs not visible, clicking back")
+        adb.tap(*BACK_BUTTON_CLICK)
+        time.sleep(0.5)
+
+    logger.warning(f"[POPUP] Failed to return to Tavern after {max_attempts} attempts")
+    return False
+
+
 def handle_bounty_quest_dialog(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> bool:
     """
     Handle the Bounty Quest dialog that appears after clicking Go on a gold scroll quest.
@@ -500,7 +565,7 @@ def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr, deb
     Poll for Claim button every 0.5s. Clicks immediately when found.
 
     Exit conditions:
-    - Claim found → click it, handle popup, return to polling (may have more claims)
+    - Claim found → click it, dismiss popup, return to polling (may have more claims)
     - No timer < 30s visible → exit immediately
 
     Returns:
@@ -520,12 +585,15 @@ def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr, deb
             logger.info(f"[POLL] Claim button found at ({x}, {y}), clicking!")
             adb.tap(x, y)
             claims_made += 1
-            time.sleep(0.5)  # Wait for congratulations popup
+            time.sleep(0.5)  # Wait for rewards popup to appear
 
-            # Click back button to dismiss popup
-            logger.info("[POLL] Clicking back to dismiss popup")
-            adb.tap(1407, 2055)
-            time.sleep(1.0)
+            # Dismiss popup by polling until we see Tavern tabs again
+            logger.info("[POLL] Waiting for popup to dismiss...")
+            if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
+                # Exited Tavern or couldn't dismiss - abort
+                logger.warning("[POLL] Could not return to Tavern after claim, aborting")
+                return claims_made
+
             continue  # Keep polling for more claims
 
         # Check for timers < 30s - exit if none
@@ -683,42 +751,71 @@ def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=No
         logger.info(f"Switching to My Quests tab (current: {active_tab})")
         adb.tap(*MY_QUESTS_CLICK)
         time.sleep(0.5)
-        frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Step 4: Claim any completed quests
+    # Step 4: Process claims and timers across all screens (scroll through list)
     claim_template = load_template_gray(CLAIM_BUTTON_TEMPLATE)
     total_claims = 0
+    all_completions = []
+    max_scroll_iterations = 3  # Scroll up to 3 times to cover full list
 
-    while True:
-        claim_buttons = find_claim_buttons(frame_gray, claim_template)
-        if not claim_buttons:
-            break
+    for scroll_iter in range(max_scroll_iterations + 1):  # +1 for initial screen
+        logger.info(f"Step 4.{scroll_iter + 1}: Processing screen {scroll_iter + 1}")
 
-        x, y = claim_buttons[0]
-        logger.info(f"Claiming completed quest at ({x}, {y})")
-        adb.tap(x, y)
-        total_claims += 1
-        time.sleep(0.5)
-
-        # Dismiss congratulations popup
-        adb.tap(1407, 2055)
-        time.sleep(1.0)
-
-        # Re-screenshot for next iteration
         frame = win.get_screenshot_cv2()
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Step 5: OCR timers and update schedule
-    logger.info("Step 5: Scanning quest timers and updating schedule")
-    completions = scan_and_schedule_quest_completions(frame, ocr)
+        # Process all Claim buttons on current screen
+        while True:
+            claim_buttons = find_claim_buttons(frame_gray, claim_template)
+            if not claim_buttons:
+                break
+
+            x, y = claim_buttons[0]
+            logger.info(f"Claiming completed quest at ({x}, {y})")
+            adb.tap(x, y)
+            total_claims += 1
+            time.sleep(0.5)  # Wait for rewards popup to appear
+
+            # Dismiss popup by polling until we see Tavern tabs again
+            logger.info("Waiting for popup to dismiss...")
+            if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
+                # Exited Tavern or couldn't dismiss - abort this screen
+                logger.warning("Could not return to Tavern after claim, aborting scan")
+                # Try to save what we have so far
+                if all_completions:
+                    save_quest_schedule(all_completions)
+                return_to_base_view(adb, win, debug=debug)
+                return {"claims": total_claims, "scheduled": len(all_completions), "success": False}
+
+            # Re-screenshot for next claim on same screen
+            frame = win.get_screenshot_cv2()
+            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Scan timers on current screen (don't save yet - accumulate first)
+        completions = scan_quest_timers(frame, ocr)
+        if completions:
+            all_completions.extend(completions)
+            logger.info(f"Found {len(completions)} timer(s) on screen {scroll_iter + 1}")
+
+        # Scroll down for next iteration (except on last iteration)
+        if scroll_iter < max_scroll_iterations:
+            logger.info(f"Scrolling down...")
+            # Slower scroll (500ms) + longer wait (1s) to let UI settle
+            adb.swipe(1920, 1500, 1920, 900, duration=500)
+            time.sleep(1.0)
+
+    # Save all completions at once - dedup logic in scheduler will merge duplicates
+    save_quest_schedule(all_completions)
+    # Get actual unique count from scheduler
+    unique_completions = load_quest_schedule()
+    logger.info(f"Step 5: Total claims: {total_claims}, Unique scheduled: {len(unique_completions)} (from {len(all_completions)} detected)")
 
     # Step 6: Return to base view
     logger.info("Returning to base view")
     return_to_base_view(adb, win, debug=debug)
 
-    logger.info(f"=== TAVERN SCAN FLOW END === Claims: {total_claims}, Scheduled: {len(completions)}")
-    return {"claims": total_claims, "scheduled": len(completions), "success": True}
+    logger.info(f"=== TAVERN SCAN FLOW END === Claims: {total_claims}, Scheduled: {len(unique_completions)}")
+    return {"claims": total_claims, "scheduled": len(unique_completions), "success": True}
 
 
 def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict:
@@ -770,13 +867,15 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
             x, y = claim_buttons[0]
             logger.info(f"Clicking Claim at ({x}, {y})")
             adb.tap(x, y)
-            time.sleep(0.5)  # Wait for congratulations popup
+            time.sleep(0.5)  # Wait for rewards popup to appear
             total_claims += 1
 
-            # Click back button to dismiss congratulations popup
-            logger.info("Clicking back button to dismiss popup")
-            adb.tap(1407, 2055)  # Back button position
-            time.sleep(1.0)  # Wait longer for popup to fully dismiss
+            # Dismiss popup by polling until we see Tavern tabs again
+            logger.info("Waiting for popup to dismiss...")
+            if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
+                # Exited Tavern or couldn't dismiss - abort
+                logger.warning("Could not return to Tavern after claim, aborting")
+                return {"claims": total_claims, "go_clicks": total_go_clicks}
             continue
 
         # Priority 2: Click Go for gold scroll quests
