@@ -65,14 +65,14 @@ def find_highest_unlocked_level(frame, adb, debug=False):
         debug: Enable debug output
 
     Returns:
-        int: Highest unlocked level (3-8), or None if none found
+        tuple: (highest_level, visible_tiles_dict) or (None, None) if none found
     """
-    visible = find_visible_soldiers(frame)
+    visible = find_visible_soldiers(frame, debug_timing=debug)
 
     if not visible:
         if debug:
             print("  ERROR: No soldier tiles detected")
-        return None
+        return None, None
 
     highest = max(visible.keys())
 
@@ -83,7 +83,7 @@ def find_highest_unlocked_level(frame, adb, debug=False):
             print(f"    Lv{level}: x={visible[level]['x']}, score={visible[level]['score']:.6f}")
         print(f"  Highest unlocked: Lv{highest}")
 
-    return highest
+    return highest, visible
 
 
 def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, scroll_and_select=False):
@@ -115,12 +115,21 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         print("=" * 50)
 
     try:
+        flow_start = time.time()
+
         # Step 0: Verify panel is open
         if debug:
             print("Step 0: Verifying soldier training panel is open...")
 
+        step_start = time.time()
         frame = win.get_screenshot_cv2()
+        if debug:
+            print(f"  Screenshot took: {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
         panel_open, score = is_panel_open(frame, debug=debug)
+        if debug:
+            print(f"  Panel check took: {(time.time() - step_start)*1000:.1f}ms")
 
         if not panel_open:
             if debug:
@@ -135,8 +144,15 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         if debug:
             print("Step 1: Finding highest unlocked soldier level...")
 
+        step_start = time.time()
         frame = win.get_screenshot_cv2()
-        highest = find_highest_unlocked_level(frame, adb, debug=debug)
+        if debug:
+            print(f"  Screenshot took: {(time.time() - step_start)*1000:.1f}ms")
+
+        step_start = time.time()
+        highest, visible_tiles = find_highest_unlocked_level(frame, adb, debug=debug)
+        if debug:
+            print(f"  find_highest_unlocked_level took: {(time.time() - step_start)*1000:.1f}ms")
 
         if highest is None:
             if debug:
@@ -162,7 +178,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
             return highest
 
         # Get the center position of the highest level tile for scrolling
-        visible_tiles = find_visible_soldiers(frame)
+        # Reuse visible_tiles from find_highest_unlocked_level (no second scan needed)
         highest_tile_center = visible_tiles[highest]['center']
         scroll_start_x, scroll_start_y = highest_tile_center
 
@@ -173,7 +189,10 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         if debug:
             print(f"Step 2: Finding Lv{target_level} tile...")
 
+        step_start = time.time()
         target_info = find_soldier_level(frame, target_level)
+        if debug:
+            print(f"  find_soldier_level took: {(time.time() - step_start)*1000:.1f}ms")
 
         # If not visible, swipe from the highest tile center to the right
         max_scrolls = 3
@@ -281,8 +300,9 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         time.sleep(0.5)
 
         if debug:
+            total_time = (time.time() - flow_start) * 1000
             print("=" * 50)
-            print("Soldier upgrade flow complete!")
+            print(f"Soldier upgrade flow complete! Total time: {total_time:.1f}ms")
 
         return True
 

@@ -22,6 +22,14 @@ SOLDIER_Y_END = 969   # 890 + 79
 SOLDIER_HEIGHT = 79   # Bottom half of original 157
 SOLDIER_WIDTH = 148
 
+# ROI for template matching (reduces computation by ~95%)
+# Panel X range: ~1300 to ~2600 (soldier tiles appear here)
+# Y range: 890 - 20 to 969 + 20 (soldier tiles with margin)
+ROI_X_START = 1300
+ROI_X_END = 2600
+ROI_Y_START = 870  # SOLDIER_Y_START - 20 margin
+ROI_Y_END = 990    # SOLDIER_Y_END + 20 margin
+
 # Match threshold (TM_SQDIFF_NORMED - lower is better)
 MATCH_THRESHOLD = 0.02
 
@@ -40,24 +48,48 @@ class SoldierTileMatcher:
             else:
                 print(f"Warning: Could not load {path}")
 
-    def find_visible_soldiers(self, frame):
+    def find_visible_soldiers(self, frame, debug_timing=False):
         """
         Find all visible soldier tiles in the barracks panel.
 
+        Uses ROI cropping to reduce template matching area by ~95%.
+
         Args:
             frame: BGR numpy array screenshot
+            debug_timing: If True, print timing info for each template match
 
         Returns:
             dict: {level: {'x': x_position, 'score': match_score, 'center': (cx, cy)}}
+                  Coordinates are in FULL FRAME space (not ROI space)
         """
+        import time as _time
         results = {}
 
+        if debug_timing:
+            total_start = _time.time()
+
+        # Crop to ROI for faster template matching
+        roi = frame[ROI_Y_START:ROI_Y_END, ROI_X_START:ROI_X_END]
+
+        if debug_timing:
+            print(f"    ROI size: {roi.shape[1]}x{roi.shape[0]} (vs full frame {frame.shape[1]}x{frame.shape[0]})")
+
         for level, template in self.templates.items():
-            # Use TM_SQDIFF_NORMED for matching
-            result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
+            if debug_timing:
+                match_start = _time.time()
+
+            # Use TM_SQDIFF_NORMED for matching on ROI
+            result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-            x, y = min_loc
+            if debug_timing:
+                match_time = (_time.time() - match_start) * 1000
+                print(f"    Lv{level} template match: {match_time:.1f}ms")
+
+            # Convert ROI coordinates back to full frame coordinates
+            roi_x, roi_y = min_loc
+            x = roi_x + ROI_X_START
+            y = roi_y + ROI_Y_START
 
             # Only count as found if score is below threshold and Y is in expected range
             if min_val < MATCH_THRESHOLD and SOLDIER_Y_START - 10 <= y <= SOLDIER_Y_START + 10:
@@ -70,11 +102,17 @@ class SoldierTileMatcher:
                     'center': (center_x, center_y)
                 }
 
+        if debug_timing:
+            total_time = (_time.time() - total_start) * 1000
+            print(f"    Total find_visible_soldiers: {total_time:.1f}ms")
+
         return results
 
     def find_soldier_level(self, frame, target_level):
         """
         Find a specific soldier level in the panel.
+
+        Uses ROI cropping for faster matching.
 
         Args:
             frame: BGR numpy array screenshot
@@ -82,15 +120,22 @@ class SoldierTileMatcher:
 
         Returns:
             dict or None: {'x': x, 'y': y, 'score': score, 'center': (cx, cy)} if found
+                          Coordinates are in FULL FRAME space
         """
         if target_level not in self.templates:
             return None
 
+        # Crop to ROI for faster template matching
+        roi = frame[ROI_Y_START:ROI_Y_END, ROI_X_START:ROI_X_END]
+
         template = self.templates[target_level]
-        result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
+        result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-        x, y = min_loc
+        # Convert ROI coordinates back to full frame coordinates
+        roi_x, roi_y = min_loc
+        x = roi_x + ROI_X_START
+        y = roi_y + ROI_Y_START
 
         # Check if found at expected Y position
         if min_val < MATCH_THRESHOLD and SOLDIER_Y_START - 10 <= y <= SOLDIER_Y_START + 10:
@@ -154,9 +199,9 @@ def get_matcher():
     return _matcher
 
 
-def find_visible_soldiers(frame):
+def find_visible_soldiers(frame, debug_timing=False):
     """Convenience function to find all visible soldier tiles."""
-    return get_matcher().find_visible_soldiers(frame)
+    return get_matcher().find_visible_soldiers(frame, debug_timing=debug_timing)
 
 
 def find_soldier_level(frame, target_level):
