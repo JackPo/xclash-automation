@@ -686,6 +686,9 @@ class IconDaemon:
 
     def _load_runtime_state(self):
         """Load runtime state from scheduler on startup for resumability."""
+        from utils.barracks_state_matcher import BarrackState
+        from utils.hospital_state_matcher import HospitalState
+
         state = self.scheduler.get_daemon_state()
         if not state:
             self.logger.info("STARTUP: No saved daemon state found, starting fresh")
@@ -693,8 +696,21 @@ class IconDaemon:
 
         # Restore state from persistent storage
         self.stamina_history = state.get("stamina_history", [])
-        self.barracks_state_history = state.get("barracks_state_history", [[], [], [], []])
-        self.hospital_state_history = state.get("hospital_state_history", [])
+
+        # Convert string names back to BarrackState enums
+        saved_barracks = state.get("barracks_state_history", [[], [], [], []])
+        self.barracks_state_history = [
+            [BarrackState[s] if s in BarrackState.__members__ else BarrackState.UNKNOWN for s in history]
+            for history in saved_barracks
+        ]
+
+        # Convert string names back to HospitalState enums
+        saved_hospital = state.get("hospital_state_history", [])
+        self.hospital_state_history = [
+            HospitalState[s] if s in HospitalState.__members__ else HospitalState.IDLE
+            for s in saved_hospital
+        ]
+
         self.vs_chest_triggered = set(state.get("vs_chest_triggered", []))
         self.vs_chest_last_day = state.get("vs_chest_last_day")
         self.beast_training_last_rally = state.get("beast_training_last_rally", 0)
@@ -707,10 +723,20 @@ class IconDaemon:
 
     def _save_runtime_state(self):
         """Save runtime state to scheduler (called periodically + on shutdown)."""
+        # Convert enum values to strings for JSON serialization
+        barracks_history_serializable = [
+            [s.name if hasattr(s, 'name') else str(s) for s in history]
+            for history in self.barracks_state_history
+        ]
+        hospital_history_serializable = [
+            s.name if hasattr(s, 'name') else str(s)
+            for s in self.hospital_state_history
+        ]
+
         self.scheduler.update_daemon_state(
             stamina_history=self.stamina_history,
-            barracks_state_history=self.barracks_state_history,
-            hospital_state_history=self.hospital_state_history,
+            barracks_state_history=barracks_history_serializable,
+            hospital_state_history=hospital_history_serializable,
             vs_chest_triggered=list(self.vs_chest_triggered),
             vs_chest_last_day=self.vs_chest_last_day,
             beast_training_last_rally=self.beast_training_last_rally,
@@ -1073,6 +1099,106 @@ class IconDaemon:
                     barracks_detailed = format_barracks_states_detailed(frame)
                     self.logger.info(f"[{iteration}] Barracks detailed: {barracks_detailed}")
 
+                # =================================================================
+                # IN-TOWN QUICK ACTIONS (harvest, hospital, barracks)
+                # These run FIRST because they're quick clicks that don't navigate away.
+                # Must run before Elite Zombie/Bag/Tavern which leave TOWN view.
+                # =================================================================
+
+                # Harvest/Hospital/Barracks conditions
+                harvest_idle_ok = effective_idle_secs >= self.IDLE_THRESHOLD
+                if not harvest_idle_ok:
+                    self.logger.debug(f"[{iteration}] HARVEST: Blocked - idle time {idle_secs}s < threshold {self.IDLE_THRESHOLD}s")
+                harvest_aligned = False
+                if harvest_idle_ok and world_present:
+                    is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                    harvest_aligned = is_aligned
+                    if not is_aligned:
+                        self.logger.debug(f"[{iteration}] HARVEST: Blocked - misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
+
+                # Corn, Gold, Iron, Gem, Cabbage, Equip - quick bubble clicks in TOWN
+                if corn_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] CORN: Triggering harvest flow (score={corn_score:.4f})")
+                    self._run_flow("corn_harvest", corn_harvest_flow)
+
+                if gold_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
+                    self._run_flow("gold_coin", gold_coin_flow)
+
+                if iron_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
+                    self._run_flow("iron_bar", iron_bar_flow)
+
+                if gem_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
+                    self._run_flow("gem", gem_flow)
+
+                if cabbage_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] CABBAGE detected (diff={cabbage_score:.4f})")
+                    self._run_flow("cabbage", cabbage_flow)
+
+                if equip_present and world_present and harvest_idle_ok and harvest_aligned:
+                    self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
+                    self._run_flow("equipment_enhancement", equipment_enhancement_flow)
+
+                # Hospital state detection with consecutive frame validation
+                if world_present and harvest_aligned:
+                    self.hospital_state_history.append(hospital_state)
+                    if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                        self.hospital_state_history.pop(0)
+
+                    # Check if we have enough consecutive readings of an actionable state
+                    if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and harvest_idle_ok:
+                        help_ready_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HELP_READY)
+                        healing_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HEALING)
+                        wounded_count = sum(1 for s in self.hospital_state_history if s == HospitalState.SOLDIERS_WOUNDED)
+
+                        # HELP_READY: Just click to request ally help
+                        if help_ready_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed - requesting ally help")
+                            click_x, click_y = self.hospital_matcher.get_click_position()
+                            self.adb.tap(click_x, click_y)
+                            self.hospital_state_history = []
+
+                        # HEALING: Click to open panel, run healing flow
+                        elif healing_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed")
+                            click_x, click_y = self.hospital_matcher.get_click_position()
+                            self.adb.tap(click_x, click_y)
+                            time.sleep(1.5)
+                            self._run_flow("healing", healing_flow)
+                            self.hospital_state_history = []
+
+                        # SOLDIERS_WOUNDED: Click to open panel, run healing flow
+                        elif wounded_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed")
+                            click_x, click_y = self.hospital_matcher.get_click_position()
+                            self.adb.tap(click_x, click_y)
+                            time.sleep(1.5)
+                            self._run_flow("healing", healing_flow)
+                            self.hospital_state_history = []
+                else:
+                    # Not in TOWN or not aligned - reset hospital state history
+                    if self.hospital_state_history:
+                        self.hospital_state_history = []
+
+                # Barracks: READY/PENDING barracks (non-Arms Race ONLY)
+                # During Arms Race "Soldier Training" or VS promotion days, soldier_upgrade_flow handles this
+                is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
+                if world_present and harvest_aligned and harvest_idle_ok and not is_arms_race_soldier_active:
+                    from utils.barracks_state_matcher import BarrackState
+                    states = self.barracks_matcher.get_all_states(frame)
+                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
+                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
+
+                    if ready_count > 0 or pending_count > 0:
+                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY, {pending_count} PENDING, triggering soldier training...")
+                        self._run_flow("soldier_training", soldier_training_flow)
+
+                # =================================================================
+                # UNKNOWN STATE TRACKING AND RECOVERY
+                # =================================================================
+
                 # Track UNKNOWN state duration (with hysteresis to prevent flicker resets)
                 if view_state == "UNKNOWN":
                     # Back in UNKNOWN - reset the "left" timer
@@ -1404,107 +1530,10 @@ class IconDaemon:
 
                             self.logger.info(f"[{iteration}] SOLDIER UPGRADE: Completed {upgrades}/{pending_count} upgrade(s)")
 
-                # Harvest actions: require TOWN view, 5min idle, and dog house aligned
-                # Check alignment once for all harvest actions
-                harvest_idle_ok = effective_idle_secs >= self.IDLE_THRESHOLD
-                if not harvest_idle_ok:
-                    self.logger.debug(f"[{iteration}] HARVEST: Blocked - idle time {idle_secs}s < threshold {self.IDLE_THRESHOLD}s")
-                harvest_aligned = False
-                if harvest_idle_ok and world_present:
-                    is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
-                    harvest_aligned = is_aligned
-                    if not is_aligned:
-                        self.logger.debug(f"[{iteration}] HARVEST: Blocked - misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
-
-                # Corn, Gold, Iron, Gem, Cabbage, Equip only activate when idle 5+ min and aligned
-                if corn_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] CORN: Triggering harvest flow (score={corn_score:.4f})")
-                    self._run_flow("corn_harvest", corn_harvest_flow)
-
-                if gold_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
-                    self._run_flow("gold_coin", gold_coin_flow)
-
-                if iron_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
-                    self._run_flow("iron_bar", iron_bar_flow)
-
-                if gem_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
-                    self._run_flow("gem", gem_flow)
-
-                if cabbage_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] CABBAGE detected (diff={cabbage_score:.4f})")
-                    self._run_flow("cabbage", cabbage_flow)
-
-                if equip_present and world_present and harvest_idle_ok and harvest_aligned:
-                    self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
-                    self._run_flow("equipment_enhancement", equipment_enhancement_flow)
-
-                # Hospital state detection with consecutive frame validation
-                # Update hospital state history (same pattern as barracks)
-                if world_present and harvest_aligned:
-                    self.hospital_state_history.append(hospital_state)
-                    if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                        self.hospital_state_history.pop(0)
-
-                    # Check if we have enough consecutive readings of an actionable state
-                    if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and harvest_idle_ok:
-                        # Count states in history
-                        help_ready_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HELP_READY)
-                        healing_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HEALING)
-                        wounded_count = sum(1 for s in self.hospital_state_history if s == HospitalState.SOLDIERS_WOUNDED)
-
-                        # HELP_READY: Just click to request ally help (no panel needed)
-                        if help_ready_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                            self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed ({help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive) - requesting ally help")
-                            click_x, click_y = self.hospital_matcher.get_click_position()
-                            self.adb.tap(click_x, click_y)
-                            # Clear history after clicking
-                            self.hospital_state_history = []
-
-                        # HEALING: Click to open panel, run healing flow
-                        elif healing_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                            self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive)")
-                            # Click hospital building to open panel
-                            click_x, click_y = self.hospital_matcher.get_click_position()
-                            self.adb.tap(click_x, click_y)
-                            time.sleep(1.5)  # Wait for panel to open
-                            # Run healing flow (panel should now be open)
-                            self._run_flow("healing", healing_flow)
-                            # Clear history after triggering
-                            self.hospital_state_history = []
-
-                        # SOLDIERS_WOUNDED: Click to open panel, run healing flow
-                        elif wounded_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                            self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} consecutive)")
-                            # Click hospital building to open panel
-                            click_x, click_y = self.hospital_matcher.get_click_position()
-                            self.adb.tap(click_x, click_y)
-                            time.sleep(1.5)  # Wait for panel to open
-                            # Run healing flow (panel should now be open)
-                            self._run_flow("healing", healing_flow)
-                            # Clear history after triggering
-                            self.hospital_state_history = []
-                else:
-                    # Not in TOWN or not aligned - reset hospital state history
-                    if self.hospital_state_history:
-                        self.hospital_state_history = []
-
-                # Barracks: Check for READY/PENDING barracks to collect/train soldiers (non-Arms Race ONLY)
-                # During Arms Race "Soldier Training" event or VS promotion days, we use soldier_upgrade_flow instead
-                # No cooldown - just requires TOWN view, alignment, and idle
-                is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                if world_present and harvest_aligned and harvest_idle_ok and not is_arms_race_soldier_active:
-                    # Get barracks states
-                    from utils.barracks_state_matcher import BarrackState
-                    states = self.barracks_matcher.get_all_states(frame)
-                    ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
-                    pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
-
-                    if ready_count > 0 or pending_count > 0:
-                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY, {pending_count} PENDING barrack(s), triggering soldier training...")
-                        self._run_flow("soldier_training", soldier_training_flow)
+                # =================================================================
+                # SIDE QUESTS / NAVIGATING FLOWS (run after in-town actions)
+                # These flows navigate away from TOWN, so run them after harvest/hospital/barracks
+                # =================================================================
 
                 # AFK rewards: requires AFK icon detected + harvest conditions + cooldown
                 if afk_present and world_present and harvest_aligned:
