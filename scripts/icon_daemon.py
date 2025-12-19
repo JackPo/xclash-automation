@@ -722,26 +722,81 @@ class IconDaemon:
 
     def trigger_flow(self, flow_name: str) -> dict:
         """
-        API: Trigger a specific flow immediately.
+        API: Trigger a specific flow immediately and wait for result.
 
         Args:
             flow_name: Name of flow to trigger (e.g., "tavern_quest", "bag_flow")
 
         Returns:
-            dict with success status and flow name
+            dict with success status, flow name, and flow result
         """
         flow_map = self.get_available_flows()
         if flow_name not in flow_map:
             return {"success": False, "error": f"Unknown flow: {flow_name}", "available": list(flow_map.keys())}
 
         flow_func, critical = flow_map[flow_name]
-        success = self._run_flow(flow_name, flow_func, critical=critical)
+
+        # Run flow synchronously and capture result
+        result = self._run_flow_sync(flow_name, flow_func, critical=critical)
 
         # Broadcast event to connected clients
         if self.command_server:
-            self.command_server.broadcast("flow_triggered", {"flow": flow_name, "success": success, "critical": critical})
+            self.command_server.broadcast("flow_completed", {
+                "flow": flow_name,
+                "success": result.get("success", False),
+                "critical": critical,
+                "result": result.get("result")
+            })
 
-        return {"success": success, "flow": flow_name, "critical": critical}
+        return result
+
+    def _run_flow_sync(self, flow_name: str, flow_func, critical: bool = False) -> dict:
+        """
+        Run a flow synchronously (blocking) and return its result.
+
+        Used by the WebSocket API to wait for flow completion.
+        """
+        with self.flow_lock:
+            if flow_name in self.active_flows:
+                return {"success": False, "error": f"{flow_name} already running"}
+
+            if not critical and self.critical_flow_active:
+                return {"success": False, "error": f"Blocked by critical flow {self.critical_flow_name}"}
+
+            if self.active_flows:
+                return {"success": False, "error": f"Another flow is active: {self.active_flows}"}
+
+            self.active_flows.add(flow_name)
+
+        try:
+            if critical:
+                with self.flow_lock:
+                    self.critical_flow_active = True
+                    self.critical_flow_name = flow_name
+                self.logger.info(f"CRITICAL FLOW START: {flow_name}")
+            else:
+                self.logger.info(f"FLOW START: {flow_name}")
+
+            # Run flow and capture result
+            flow_result = flow_func(self.adb)
+
+            if critical:
+                self.logger.info(f"CRITICAL FLOW END: {flow_name}")
+            else:
+                self.logger.info(f"FLOW END: {flow_name}")
+
+            return {"success": True, "flow": flow_name, "critical": critical, "result": flow_result}
+
+        except Exception as e:
+            self.logger.error(f"FLOW ERROR: {flow_name} - {e}")
+            return {"success": False, "flow": flow_name, "error": str(e)}
+
+        finally:
+            with self.flow_lock:
+                self.active_flows.discard(flow_name)
+                if critical and self.critical_flow_name == flow_name:
+                    self.critical_flow_active = False
+                    self.critical_flow_name = None
 
     def get_available_flows(self) -> dict:
         """

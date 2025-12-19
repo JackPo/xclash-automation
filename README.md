@@ -494,9 +494,12 @@ The daemon includes a WebSocket server that allows external control without stop
 # Check daemon status
 python scripts/daemon_cli.py status
 
-# Trigger a specific flow
-python scripts/daemon_cli.py run_flow tavern_quest
+# Trigger a specific flow (waits for completion, returns result)
+python scripts/daemon_cli.py run_flow tavern_scan
+# Returns: {"success": true, "flow": "tavern_scan", "result": {"claims": 2, "scheduled": 3}}
+
 python scripts/daemon_cli.py run_flow bag_flow
+# Returns: {"success": true, "flow": "bag_flow", "result": {"special_claims": 1, "hero_claims": 0}}
 
 # List all available flows
 python scripts/daemon_cli.py list_flows
@@ -511,6 +514,8 @@ python scripts/daemon_cli.py get_state
 # Watch live events (streaming)
 python scripts/daemon_cli.py watch
 ```
+
+**Synchronous Flow Execution**: When you trigger a flow via the API, the command blocks until the flow completes and returns the actual result data. No need to check logs - the response contains everything.
 
 **Available Flows** (can be triggered via API):
 - `tavern_quest`, `tavern_scan` - Tavern automation
