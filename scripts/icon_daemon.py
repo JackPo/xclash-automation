@@ -1225,17 +1225,40 @@ class IconDaemon:
                                 self.unknown_state_start = None
                                 self.unknown_state_left_time = None
 
-                # UNKNOWN state recovery - if in UNKNOWN for 1+ min AND idle 5+ min, run return_to_base_view
+                # UNKNOWN state recovery - two-tier approach:
+                # 1. Quick recovery (10s): Click safe ground tile to dismiss popup
+                # 2. Full recovery (180s): Run return_to_base_view if quick recovery fails
                 if view_state == "UNKNOWN" and effective_idle_secs >= self.IDLE_THRESHOLD:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
+
+                        # Quick recovery: After 10s in UNKNOWN, try clicking safe ground
+                        if 10 <= unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
+                            from utils.safe_ground_matcher import find_safe_ground
+                            ground_pos = find_safe_ground(frame, debug=self.debug)
+                            if ground_pos:
+                                self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
+                                self.adb.tap(*ground_pos)
+                                time.sleep(0.5)
+                                # Re-check view state
+                                new_frame = self.windows_helper.get_screenshot_cv2()
+                                new_state, _ = detect_view(new_frame)
+                                if new_state.name in ("TOWN", "WORLD"):
+                                    self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Success! Now in {new_state.name}")
+                                    self.unknown_state_start = None
+                                    self.unknown_state_left_time = None
+                                    continue  # Skip rest of iteration, start fresh
+                                else:
+                                    self.logger.debug(f"[{iteration}] UNKNOWN QUICK RECOVERY: Still in {new_state.name}, will retry")
+
+                        # Full recovery: After 180s, run return_to_base_view
                         if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT:
-                            self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
+                            self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY: In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
                             success = return_to_base_view(self.adb, self.windows_helper, debug=True)
                             if success:
-                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Successfully reached base view")
+                                self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY: Successfully reached base view")
                             else:
-                                self.logger.warning(f"[{iteration}] UNKNOWN RECOVERY: Had to restart app")
+                                self.logger.warning(f"[{iteration}] UNKNOWN FULL RECOVERY: Had to restart app")
                             self.unknown_state_start = None  # Reset after recovery attempt
                             self.unknown_state_left_time = None
                             continue  # Skip rest of iteration, start fresh
