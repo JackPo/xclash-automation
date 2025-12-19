@@ -1141,28 +1141,32 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
-                # Hospital state detection with consecutive frame validation
+                # Hospital state detection with majority vote (same 60% rule as barracks)
                 if world_present and harvest_aligned:
                     self.hospital_state_history.append(hospital_state)
                     if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
                         self.hospital_state_history.pop(0)
 
-                    # Check if we have enough consecutive readings of an actionable state
+                    # Check if we have enough readings and idle threshold met
                     if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and harvest_idle_ok:
+                        # Count each actionable state
                         help_ready_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HELP_READY)
                         healing_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HEALING)
                         wounded_count = sum(1 for s in self.hospital_state_history if s == HospitalState.SOLDIERS_WOUNDED)
 
+                        # Use 60% majority rule (same as barracks)
+                        min_required = int(self.HOSPITAL_CONSECUTIVE_REQUIRED * 0.6)  # 6 out of 10
+
                         # HELP_READY: Just click to request ally help
-                        if help_ready_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                            self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed - requesting ally help")
+                        if help_ready_count >= min_required:
+                            self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed ({help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {help_ready_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%) - requesting ally help")
                             click_x, click_y = self.hospital_matcher.get_click_position()
                             self.adb.tap(click_x, click_y)
                             self.hospital_state_history = []
 
                         # HEALING: Click to open panel, run healing flow
-                        elif healing_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                            self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed")
+                        elif healing_count >= min_required:
+                            self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {healing_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
                             click_x, click_y = self.hospital_matcher.get_click_position()
                             self.adb.tap(click_x, click_y)
                             time.sleep(1.5)
@@ -1170,8 +1174,8 @@ class IconDaemon:
                             self.hospital_state_history = []
 
                         # SOLDIERS_WOUNDED: Click to open panel, run healing flow
-                        elif wounded_count == self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                            self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed")
+                        elif wounded_count >= min_required:
+                            self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {wounded_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
                             click_x, click_y = self.hospital_matcher.get_click_position()
                             self.adb.tap(click_x, click_y)
                             time.sleep(1.5)
