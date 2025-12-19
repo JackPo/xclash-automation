@@ -144,13 +144,38 @@ def print_status(status: Dict[str, Any] = None):
     print(f"Ends:     {status['block_end'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
 
-def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
-    """Get time until next Soldier Training event."""
+# Valid event names for get_time_until_event()
+VALID_EVENTS = [
+    "Enhance Hero",
+    "City Construction",
+    "Soldier Training",
+    "Technology Research",
+    "Mystic Beast Training",
+]
+
+
+def get_time_until_event(event_name: str, now: datetime = None) -> timedelta | None:
+    """
+    Get time until next occurrence of specified Arms Race event.
+
+    Args:
+        event_name: One of "Enhance Hero", "City Construction", "Soldier Training",
+                    "Technology Research", "Mystic Beast Training"
+        now: Optional datetime (defaults to current UTC time)
+
+    Returns:
+        timedelta(0) if currently in the specified event
+        timedelta with positive value if event is upcoming
+        None on error or invalid event name
+    """
+    if event_name not in VALID_EVENTS:
+        return None
+
     try:
         status = get_arms_race_status(now)
 
-        # If currently Soldier Training, return 0
-        if status['current'] == 'Soldier Training':
+        # If currently in the specified event, return 0
+        if status['current'] == event_name:
             return timedelta(0)
 
         # Search forward in table
@@ -160,7 +185,7 @@ def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
             check_idx = (current_idx + offset) % 42
             _, _, activity = SCHEDULE[check_idx]
 
-            if activity == 'Soldier Training':
+            if activity == event_name:
                 # Found it
                 events_away = offset
                 return status['time_remaining'] + timedelta(hours=(events_away - 1) * EVENT_HOURS)
@@ -169,51 +194,124 @@ def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
 
     except Exception:
         return None
+
+
+def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
+    """Get time until next Soldier Training event. Alias for get_time_until_event()."""
+    return get_time_until_event("Soldier Training", now)
 
 
 def get_time_until_beast_training(now: datetime = None) -> timedelta | None:
+    """Get time until next Mystic Beast Training event. Alias for get_time_until_event()."""
+    return get_time_until_event("Mystic Beast Training", now)
+
+
+def get_time_until_vs_promotion_day(vs_days: list[int], now: datetime = None) -> timedelta | None:
     """
-    Get time until next Mystic Beast Training event.
+    Get time until next VS Soldier Promotion Day starts.
+
+    Args:
+        vs_days: List of days (1-7) when VS soldier promotions run all day
+        now: Optional datetime (defaults to current UTC time)
 
     Returns:
-        timedelta(0) if currently in Beast Training
-        timedelta with positive value if Beast Training is upcoming
-        None on error
+        timedelta(0) if currently on a VS promotion day
+        timedelta to next VS day start if approaching
+        None if vs_days is empty or error
     """
+    if not vs_days:
+        return None
+
     try:
         status = get_arms_race_status(now)
+        current_day = status['day']
 
-        # If currently Mystic Beast Training, return 0
-        if status['current'] == 'Mystic Beast Training':
+        # If currently on a VS promotion day, return 0
+        if current_day in vs_days:
             return timedelta(0)
 
-        # Search forward in table
-        current_idx = status['event_index']
+        # Find next VS day
+        # Days go 1->2->3->4->5->6->7->1->2...
+        for days_ahead in range(1, 8):
+            check_day = ((current_day - 1 + days_ahead) % 7) + 1
+            if check_day in vs_days:
+                # Calculate time until that day starts
+                # Day N starts when the first event of Day N begins
+                # That's at block_start of Day N's first event
 
-        for offset in range(1, 43):
-            check_idx = (current_idx + offset) % 42
-            _, _, activity = SCHEDULE[check_idx]
+                # Current position in cycle
+                hours_until_day_end = status['time_remaining'].total_seconds() / 3600
 
-            if activity == 'Mystic Beast Training':
-                # Found it
-                events_away = offset
-                return status['time_remaining'] + timedelta(hours=(events_away - 1) * EVENT_HOURS)
+                # How many 4-hour blocks until end of current day?
+                # Current event is at some block in current day
+                # Each day has 6 events (24 hours)
+                current_event_in_day = status['event_index'] % 6  # 0-5 within day
+                blocks_left_in_day = 5 - current_event_in_day
+
+                # Hours until current day ends = time remaining in current event + remaining blocks
+                hours_until_current_day_ends = hours_until_day_end + (blocks_left_in_day * EVENT_HOURS)
+
+                # Then add full days until the target day
+                full_days_between = days_ahead - 1
+                hours_of_full_days = full_days_between * 24
+
+                total_hours = hours_until_current_day_ends + hours_of_full_days
+                return timedelta(hours=total_hours)
 
         return None
 
     except Exception:
         return None
+
+
+def get_time_until_soldier_promotion_opportunity(vs_days: list[int] = None, now: datetime = None) -> timedelta | None:
+    """
+    Get time until next opportunity to promote soldiers.
+
+    Returns the MINIMUM of:
+    - Time until next Arms Race "Soldier Training" event
+    - Time until next VS Promotion Day starts
+
+    This ensures training completes before the earliest promotion opportunity.
+
+    Args:
+        vs_days: List of days (1-7) when VS soldier promotions run all day.
+                 If None or empty, only considers Arms Race schedule.
+        now: Optional datetime (defaults to current UTC time)
+
+    Returns:
+        timedelta(0) if currently in a promotion opportunity
+        timedelta to next opportunity
+        None if unable to determine
+    """
+    time_until_arms_race = get_time_until_soldier_training(now)
+    time_until_vs_day = get_time_until_vs_promotion_day(vs_days, now) if vs_days else None
+
+    # If both are None, return None
+    if time_until_arms_race is None and time_until_vs_day is None:
+        return None
+
+    # If only one is available, return that
+    if time_until_arms_race is None:
+        return time_until_vs_day
+    if time_until_vs_day is None:
+        return time_until_arms_race
+
+    # Return the minimum (earliest opportunity)
+    return min(time_until_arms_race, time_until_vs_day)
 
 
 if __name__ == "__main__":
     print_status()
 
-    # Show time until Soldier Training
-    time_until = get_time_until_soldier_training()
-    if time_until is not None:
-        if time_until.total_seconds() == 0:
-            print("\nSoldier Training is ACTIVE NOW!")
-        else:
-            hours = int(time_until.total_seconds() // 3600)
-            mins = int((time_until.total_seconds() % 3600) // 60)
-            print(f"\nSoldier Training starts in: {hours}h {mins}m")
+    # Show time until each event type using the generalized function
+    print("\n=== Time Until Each Event ===")
+    for event in VALID_EVENTS:
+        time_until = get_time_until_event(event)
+        if time_until is not None:
+            if time_until.total_seconds() == 0:
+                print(f"{event}: ACTIVE NOW!")
+            else:
+                hours = int(time_until.total_seconds() // 3600)
+                mins = int((time_until.total_seconds() % 3600) // 60)
+                print(f"{event}: {hours}h {mins}m")

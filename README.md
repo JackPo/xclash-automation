@@ -479,6 +479,65 @@ Output example:
 FLOW START: handshake
 ```
 
+### WebSocket API (Remote Control)
+
+The daemon includes a WebSocket server that allows external control without stopping the daemon. This enables:
+- **Claude Code integration**: Ask Claude to trigger flows while the daemon runs
+- **Remote monitoring**: Check daemon status from another terminal
+- **Dynamic control**: Pause/resume, trigger flows on-demand
+
+**Server runs automatically** on `ws://localhost:9876` when daemon starts.
+
+**CLI Client** (`scripts/daemon_cli.py`):
+
+```bash
+# Check daemon status
+python scripts/daemon_cli.py status
+
+# Trigger a specific flow
+python scripts/daemon_cli.py run_flow tavern_quest
+python scripts/daemon_cli.py run_flow bag_flow
+
+# List all available flows
+python scripts/daemon_cli.py list_flows
+
+# Pause/resume the daemon
+python scripts/daemon_cli.py pause
+python scripts/daemon_cli.py resume
+
+# Get full daemon state (for debugging)
+python scripts/daemon_cli.py get_state
+
+# Watch live events (streaming)
+python scripts/daemon_cli.py watch
+```
+
+**Available Flows** (can be triggered via API):
+- `tavern_quest`, `tavern_scan` - Tavern automation
+- `bag_flow` - Open bag and claim items
+- `union_gifts`, `union_technology` - Alliance rewards
+- `afk_rewards` - AFK popup claiming
+- `hero_upgrade`, `soldier_training`, `soldier_upgrade` - Arms Race flows
+- `healing` - Hospital management
+- `elite_zombie`, `handshake`, `treasure_map` - Icon-triggered flows
+- `corn_harvest`, `gold_coin`, `iron_bar`, `gem`, `cabbage` - Resource collection
+- And more...
+
+**Configuration** (`config.py`):
+```python
+DAEMON_SERVER_PORT = 9876          # WebSocket port
+DAEMON_SERVER_ENABLED = True       # Set False to disable
+```
+
+**Requires**: `pip install websockets`
+
+### State Persistence
+
+The daemon now persists runtime state to `data/daemon_schedule.json`, enabling:
+- **Resumability**: Restart daemon without losing stamina history, barrack states, etc.
+- **State inspection**: View current state via `daemon_cli.py get_state`
+- **Crash recovery**: State is saved every ~3 minutes and on shutdown
+
 ## Architecture
 
 ```
@@ -494,6 +553,7 @@ xclash/
 │
 ├── scripts/
 │   ├── icon_daemon.py           # Main daemon process
+│   ├── daemon_cli.py            # CLI client for WebSocket API
 │   ├── setup_bluestacks.py      # BlueStacks configuration
 │   ├── one_off/                 # One-off extraction/test scripts
 │   └── flows/                   # Automation flow modules
@@ -521,12 +581,13 @@ xclash/
 │   ├── adb_helper.py            # ADB command wrapper
 │   ├── windows_screenshot_helper.py  # Windows GDI screenshots
 │   ├── view_state_detector.py   # TOWN/WORLD/CHAT detection
+│   ├── daemon_server.py         # WebSocket API server for remote control
 │   ├── ocr_client.py            # OCR client (calls Flask server)
 │   ├── ocr_server.py            # Flask server with Qwen2.5-VL on GPU
 │   ├── idle_detector.py         # Windows idle time detection
 │   ├── return_to_base_view.py   # Recovery logic
 │   ├── arms_race.py             # Arms Race schedule calculator
-│   ├── scheduler.py             # Unified flow scheduler (cooldowns, timers)
+│   ├── scheduler.py             # Unified flow scheduler (cooldowns, timers, state)
 │   ├── replenish_all_helper.py  # Resource replenishment subflow
 │   ├── hospital_state_matcher.py  # Hospital HEALING/WOUNDED/IDLE detection
 │   ├── rally_monster_validator.py # Rally monster OCR and config validation

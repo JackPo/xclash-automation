@@ -119,6 +119,9 @@ from config import (
     EXPECTED_RESOLUTION,
     # Tavern quest scan
     TAVERN_SCAN_COOLDOWN,
+    # WebSocket API server
+    DAEMON_SERVER_PORT,
+    DAEMON_SERVER_ENABLED,
 )
 
 
@@ -320,6 +323,13 @@ class IconDaemon:
         )
         self.logger = logging.getLogger('IconDaemon')
 
+        # WebSocket API server for external control
+        self.command_server = None
+        self.paused = False  # Can be toggled via API
+
+        # State persistence tracking
+        self.state_save_interval = 60  # Save state every N iterations (~3 min at 3s interval)
+
     def _verify_templates(self):
         """
         Verify all required templates exist before startup.
@@ -459,6 +469,23 @@ class IconDaemon:
         missed = self.scheduler.get_missed_flows()
         if missed:
             self.logger.info(f"STARTUP: Missed flows (will catch up): {missed}")
+
+        # Load runtime state from persistent storage
+        self._load_runtime_state()
+
+        # Start WebSocket API server (for external control via daemon_cli.py)
+        if DAEMON_SERVER_ENABLED:
+            try:
+                from utils.daemon_server import DaemonWebSocketServer
+                self.command_server = DaemonWebSocketServer(self, port=DAEMON_SERVER_PORT)
+                self.command_server.start()
+                self.logger.info(f"STARTUP: WebSocket API server started on ws://localhost:{DAEMON_SERVER_PORT}")
+            except ImportError as e:
+                self.logger.warning(f"STARTUP: WebSocket server disabled (websockets not installed): {e}")
+            except Exception as e:
+                self.logger.error(f"STARTUP: WebSocket server failed to start: {e}")
+        else:
+            self.logger.info("STARTUP: WebSocket API server disabled by config")
 
         self.logger.info("STARTUP: Ready")
 
@@ -653,6 +680,143 @@ class IconDaemon:
 
         return False, None, ratio
 
+    # =========================================================================
+    # WebSocket API Methods (called by daemon_server.py)
+    # =========================================================================
+
+    def _load_runtime_state(self):
+        """Load runtime state from scheduler on startup for resumability."""
+        state = self.scheduler.get_daemon_state()
+        if not state:
+            self.logger.info("STARTUP: No saved daemon state found, starting fresh")
+            return
+
+        # Restore state from persistent storage
+        self.stamina_history = state.get("stamina_history", [])
+        self.barracks_state_history = state.get("barracks_state_history", [[], [], [], []])
+        self.hospital_state_history = state.get("hospital_state_history", [])
+        self.vs_chest_triggered = set(state.get("vs_chest_triggered", []))
+        self.vs_chest_last_day = state.get("vs_chest_last_day")
+        self.beast_training_last_rally = state.get("beast_training_last_rally", 0)
+        self.beast_training_rally_count = state.get("beast_training_rally_count", 0)
+        self.last_rally_march_click = state.get("last_rally_march_click", 0)
+        self.union_boss_mode_until = state.get("union_boss_mode_until", 0)
+        self.paused = state.get("paused", False)
+
+        self.logger.info(f"STARTUP: Loaded daemon state (paused={self.paused}, stamina_history={len(self.stamina_history)} readings)")
+
+    def _save_runtime_state(self):
+        """Save runtime state to scheduler (called periodically + on shutdown)."""
+        self.scheduler.update_daemon_state(
+            stamina_history=self.stamina_history,
+            barracks_state_history=self.barracks_state_history,
+            hospital_state_history=self.hospital_state_history,
+            vs_chest_triggered=list(self.vs_chest_triggered),
+            vs_chest_last_day=self.vs_chest_last_day,
+            beast_training_last_rally=self.beast_training_last_rally,
+            beast_training_rally_count=self.beast_training_rally_count,
+            last_rally_march_click=self.last_rally_march_click,
+            union_boss_mode_until=self.union_boss_mode_until,
+            paused=self.paused,
+        )
+
+    def trigger_flow(self, flow_name: str) -> dict:
+        """
+        API: Trigger a specific flow immediately.
+
+        Args:
+            flow_name: Name of flow to trigger (e.g., "tavern_quest", "bag_flow")
+
+        Returns:
+            dict with success status and flow name
+        """
+        flow_map = self.get_available_flows()
+        if flow_name not in flow_map:
+            return {"success": False, "error": f"Unknown flow: {flow_name}", "available": list(flow_map.keys())}
+
+        flow_func, critical = flow_map[flow_name]
+        success = self._run_flow(flow_name, flow_func, critical=critical)
+
+        # Broadcast event to connected clients
+        if self.command_server:
+            self.command_server.broadcast("flow_triggered", {"flow": flow_name, "success": success, "critical": critical})
+
+        return {"success": success, "flow": flow_name, "critical": critical}
+
+    def get_available_flows(self) -> dict:
+        """
+        Return dict of flow_name -> (flow_func, is_critical).
+
+        Used by WebSocket API to list and trigger flows.
+        """
+        return {
+            "tavern_quest": (tavern_quest_claim_flow, False),
+            "tavern_scan": (tavern_scan_flow, False),
+            "bag_flow": (bag_flow, True),
+            "union_gifts": (union_gifts_flow, False),
+            "union_technology": (union_technology_flow, False),
+            "afk_rewards": (afk_rewards_flow, False),
+            "hero_upgrade": (hero_upgrade_arms_race_flow, True),
+            "soldier_training": (lambda adb: soldier_training_flow(adb, self.windows_helper), True),
+            "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, self.windows_helper), True),
+            "healing": (healing_flow, False),
+            "elite_zombie": (elite_zombie_flow, False),
+            "handshake": (handshake_flow, False),
+            "treasure_map": (treasure_map_flow, True),
+            "corn_harvest": (corn_harvest_flow, False),
+            "gold_coin": (gold_coin_flow, False),
+            "iron_bar": (iron_bar_flow, False),
+            "gem": (gem_flow, False),
+            "cabbage": (cabbage_flow, False),
+            "equipment": (equipment_enhancement_flow, False),
+            "harvest_box": (harvest_box_flow, False),
+            "gift_box": (gift_box_flow, True),
+            "stamina_claim": (stamina_claim_flow, False),
+        }
+
+    def get_status(self) -> dict:
+        """
+        API: Get current daemon status.
+
+        Returns comprehensive status dict for monitoring.
+        """
+        arms_race = get_arms_race_status()
+        return {
+            "paused": self.paused,
+            "active_flows": list(self.active_flows),
+            "critical_flow": self.critical_flow_name,
+            "stamina": self.stamina_history[-1] if self.stamina_history else None,
+            "idle_seconds": get_idle_seconds(),
+            "arms_race": {
+                "event": arms_race.get("current"),
+                "day": arms_race.get("day"),
+                "time_remaining": str(arms_race.get("time_remaining", "")),
+            },
+            "server_port": DAEMON_SERVER_PORT,
+        }
+
+    def set_config(self, key: str, value) -> dict:
+        """
+        API: Dynamically update a config value.
+
+        Only allows whitelisted keys to prevent security issues.
+        """
+        valid_keys = {
+            "IDLE_THRESHOLD": "self.IDLE_THRESHOLD",
+            "interval": "self.interval",
+            "paused": "self.paused",
+        }
+
+        if key not in valid_keys:
+            return {"success": False, "error": f"Cannot set '{key}'. Allowed: {list(valid_keys.keys())}"}
+
+        try:
+            setattr(self, key if key != "IDLE_THRESHOLD" else "IDLE_THRESHOLD", value)
+            self.logger.info(f"API: Config updated: {key} = {value}")
+            return {"success": True, "key": key, "value": value}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def run(self):
         """Main detection loop."""
         self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
@@ -665,6 +829,17 @@ class IconDaemon:
             iteration += 1
 
             try:
+                # Check if paused via API
+                if self.paused:
+                    if iteration % 30 == 0:  # Log every ~1 min when paused
+                        self.logger.info(f"[{iteration}] PAUSED (use daemon_cli.py resume to unpause)")
+                    time.sleep(self.interval)
+                    continue
+
+                # Periodic state save (every N iterations for resumability)
+                if iteration % self.state_save_interval == 0:
+                    self._save_runtime_state()
+
                 # Check if xclash is running and in foreground
                 if not self._is_xclash_in_foreground():
                     self.logger.warning(f"[{iteration}] xclash not in foreground - running full recovery...")
@@ -1280,20 +1455,20 @@ class IconDaemon:
                 if afk_present and world_present and harvest_aligned:
                     if self.scheduler.is_flow_ready("afk_rewards", idle_seconds=effective_idle_secs):
                         self.logger.info(f"[{iteration}] AFK REWARDS detected (diff={afk_score:.4f})")
-                        self._run_flow("afk_rewards", afk_rewards_flow)
-                        self.scheduler.record_flow_run("afk_rewards")
+                        if self._run_flow("afk_rewards", afk_rewards_flow):
+                            self.scheduler.record_flow_run("afk_rewards")
 
                 # Union gifts: 1 hour cooldown
                 if self.scheduler.is_flow_ready("union_gifts", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] UNION GIFTS: idle={idle_str}, triggering flow...")
-                    self._run_flow("union_gifts", union_gifts_flow)
-                    self.scheduler.record_flow_run("union_gifts")
+                    if self._run_flow("union_gifts", union_gifts_flow):
+                        self.scheduler.record_flow_run("union_gifts")
 
                 # Union technology: 1 hour cooldown
                 if self.scheduler.is_flow_ready("union_technology", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] UNION TECHNOLOGY: idle={idle_str}, triggering flow...")
-                    self._run_flow("union_technology", union_technology_flow)
-                    self.scheduler.record_flow_run("union_technology")
+                    if self._run_flow("union_technology", union_technology_flow):
+                        self.scheduler.record_flow_run("union_technology")
 
                 # VS Day 7 chest surprise: trigger bag flow at 10, 5, 1 min remaining
                 # This opens level chests right before VS day ends to surprise competitors
@@ -1317,20 +1492,20 @@ class IconDaemon:
                 # Bag flow: idle threshold, cooldown (navigates to TOWN itself)
                 if self.scheduler.is_flow_ready("bag_flow", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
-                    self._run_flow("bag", bag_flow, critical=True)
-                    self.scheduler.record_flow_run("bag_flow")
+                    if self._run_flow("bag", bag_flow, critical=True):
+                        self.scheduler.record_flow_run("bag_flow")
 
                 # Tavern scan: 5 min idle, 30 min cooldown (claims completed quests + updates schedule)
                 if self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] TAVERN SCAN: idle={idle_str}, triggering scan flow...")
-                    self._run_flow("tavern_scan", tavern_scan_flow)
-                    self.scheduler.record_flow_run("tavern_scan")
+                    if self._run_flow("tavern_scan", tavern_scan_flow):
+                        self.scheduler.record_flow_run("tavern_scan")
 
                 # Gift box flow: requires WORLD view (town_present means we're in WORLD), 5 min idle, 1 hour cooldown
                 if town_present and self.scheduler.is_flow_ready("gift_box", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] GIFT BOX: idle={idle_str}, triggering flow...")
-                    self._run_flow("gift_box", gift_box_flow)
-                    self.scheduler.record_flow_run("gift_box")
+                    if self._run_flow("gift_box", gift_box_flow):
+                        self.scheduler.record_flow_run("gift_box")
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
                 # Track continuous idle start time (using BlueStacks-specific idle)
@@ -1415,8 +1590,15 @@ def main():
         daemon.initialize()
         daemon.run()
     except KeyboardInterrupt:
-        print("\n\nStopped by user")
+        print("\n\nStopping...")
+        # Save state on shutdown for resumability
+        try:
+            daemon._save_runtime_state()
+            print("State saved.")
+        except Exception:
+            pass
         stdout_file.close()
+        print("Stopped by user")
         sys.exit(0)
     except Exception as e:
         print(f"\nERROR: {e}")

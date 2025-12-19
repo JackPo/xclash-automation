@@ -27,6 +27,10 @@ DAEMON_INTERVAL = 2.0              # Check interval (seconds)
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
+# WebSocket API server
+DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
+DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
+
 # Idle detection mode (DEPRECATED - now using UserIdleTracker)
 # The new UserIdleTracker excludes daemon's own clicks from idle calculation,
 # which fixes the issue where daemon ADB clicks were resetting Windows idle.

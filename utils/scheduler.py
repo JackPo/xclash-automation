@@ -442,6 +442,45 @@ class DaemonScheduler:
         logger.info(f"Reset Arms Race state for block starting {block_start}")
 
     # =========================================================================
+    # Daemon Runtime State
+    # =========================================================================
+
+    def get_daemon_state(self) -> dict:
+        """
+        Get all daemon runtime state.
+
+        Returns:
+            Dict with all persisted daemon state (stamina_history, barracks_state, etc.)
+        """
+        return self.schedule.get("daemon_state", {}).copy()
+
+    def update_daemon_state(self, **kwargs) -> None:
+        """
+        Update daemon runtime state.
+
+        Args:
+            **kwargs: Key-value pairs to update (e.g., stamina_history=[120, 118])
+        """
+        if "daemon_state" not in self.schedule:
+            self.schedule["daemon_state"] = {}
+
+        for key, value in kwargs.items():
+            if isinstance(value, datetime):
+                self.schedule["daemon_state"][key] = value.isoformat()
+            elif isinstance(value, set):
+                self.schedule["daemon_state"][key] = list(value)
+            else:
+                self.schedule["daemon_state"][key] = value
+
+        self.save()
+
+    def clear_daemon_state(self) -> None:
+        """Clear all daemon runtime state (for clean restart)."""
+        self.schedule["daemon_state"] = {}
+        self.save()
+        logger.info("Cleared daemon runtime state")
+
+    # =========================================================================
     # Persistence
     # =========================================================================
 
@@ -496,6 +535,7 @@ class DaemonScheduler:
             },
             "daily_limits": {},
             "arms_race": {},
+            "daemon_state": {},
         }
 
     def _check_daily_reset(self) -> None:

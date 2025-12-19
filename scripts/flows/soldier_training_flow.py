@@ -298,9 +298,10 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     if target_level is None:
         target_level = SOLDIER_TRAINING_DEFAULT_LEVEL
 
-    # Calculate max allowed training time based on Arms Race schedule
-    from utils.arms_race import get_time_until_soldier_training
-    time_until = get_time_until_soldier_training()
+    # Calculate max allowed training time based on Arms Race schedule AND VS promotion days
+    from utils.arms_race import get_time_until_soldier_promotion_opportunity
+    from config import VS_SOLDIER_PROMOTION_DAYS
+    time_until = get_time_until_soldier_promotion_opportunity(VS_SOLDIER_PROMOTION_DAYS)
 
     if time_until and time_until.total_seconds() > 0:
         # Subtract 5 min buffer to ensure completion before event
