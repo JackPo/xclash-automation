@@ -720,10 +720,10 @@ else:
    - If dialog appears → click Cancel → mark exhausted (if track_daily_limit=True)
 9. Return to base view
 
-**Daily Limit Exhaustion**:
-- When "Since daily rally rewards..." dialog appears, the monster is marked exhausted
-- Exhausted monsters are skipped in future joins until server reset
-- Server day resets at **02:00 UTC** (6PM PT previous day)
+**Daily Limit Detection**:
+- Template: `daily_rally_limit_dialog_4k.png` (983x527) - "Tip" header + full text about daily rally rewards
+- Threshold: 0.05 (tight - template includes unique text to avoid false positives on other "Tip" dialogs)
+- When detected: clicks Cancel button, marks monster exhausted until server reset (02:00 UTC)
 - `track_daily_limit: False` monsters (like Zombie Overlord) are never tracked
 
 **Config** (`config.py`):
@@ -739,9 +739,9 @@ RALLY_MONSTERS = [
 ```
 
 **Templates**:
-- `team_up_button_4k.png` - Team Up button (wait for panel load)
-- `daily_rally_rewards_dialog_4k.png` - Daily limit dialog (979x726)
-- `cancel_button_4k.png` - Cancel button, click at (1670, 1291)
+- `team_up_button_4k.png` - Team Up button (region 1700,1550 420x180, threshold 0.05)
+- `daily_rally_limit_dialog_4k.png` - Daily limit dialog with full text (983x527, threshold 0.05)
+- `cancel_button_4k.png` - Cancel button (region 1450,1200 420x180, click 1670,1291)
 
 **Files**:
 - `scripts/flows/rally_join_flow.py` - Main flow

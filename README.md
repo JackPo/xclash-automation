@@ -41,7 +41,7 @@ These features run continuously and don't require any special timing:
 The bot automatically joins Union War rallies based on configurable monster rules:
 
 - **Monster Filtering**: Only joins specific monsters below max level (configurable in `RALLY_MONSTERS`)
-- **Daily Limit Tracking**: Tracks exhausted monsters (e.g., Elite Zombie daily limit) and skips them
+- **Daily Limit Tracking**: Detects "daily rally rewards claimed" dialog via template matching, clicks Cancel, marks monster exhausted until server reset (02:00 UTC)
 - **Idle Hero Selection**: Only joins if an idle hero (Zz icon) is available
 
 **Supported Monsters** (configurable in `config_local.py`):

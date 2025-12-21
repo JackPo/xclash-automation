@@ -51,17 +51,80 @@ DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 # Team Up button template path
 TEAM_UP_TEMPLATE_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "team_up_button_4k.png"
 
-# Daily limit dialog template path
-DAILY_LIMIT_DIALOG_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "daily_rally_rewards_dialog_4k.png"
+# Daily limit dialog template path (includes "Tip" header + full text about daily rally rewards)
+DAILY_LIMIT_DIALOG_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "daily_rally_limit_dialog_4k.png"
 
-# Cancel button position (from dialog detection)
-CANCEL_BUTTON_X = 1670
-CANCEL_BUTTON_Y = 1291
+# Cancel button template path
+CANCEL_BUTTON_TEMPLATE_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "cancel_button_4k.png"
+
+# Fixed positions and regions for buttons (4K resolution)
+# Team Up button: template 368x134, position around (1728, 1581)
+TEAM_UP_REGION = (1700, 1550, 420, 180)  # (x, y, w, h) - slightly larger than template
+TEAM_UP_CLICK = (1912, 1648)  # center click position
+
+# Cancel button: template 368x130, position around (1486, 1226)
+CANCEL_REGION = (1450, 1200, 420, 180)  # (x, y, w, h)
+CANCEL_CLICK = (1670, 1291)  # center click position
+
+
+def _verify_button_at_region(frame, template, region, threshold=0.05):
+    """
+    Verify a button exists at a fixed region.
+
+    Args:
+        frame: BGR screenshot
+        template: Template image
+        region: (x, y, w, h) region to check
+        threshold: Match threshold (lower = stricter)
+
+    Returns:
+        (found, score) tuple
+    """
+    rx, ry, rw, rh = region
+    roi = frame[ry:ry+rh, rx:rx+rw]
+
+    if roi.shape[0] < template.shape[0] or roi.shape[1] < template.shape[1]:
+        return False, 1.0
+
+    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, _, _ = cv2.minMaxLoc(result)
+    return min_val <= threshold, min_val
+
+
+def _poll_for_button(win, template, region, click_pos, name, timeout=3.0, threshold=0.05):
+    """
+    Poll for a button at fixed region, click when found.
+
+    Args:
+        win: WindowsScreenshotHelper
+        template: Template image
+        region: (x, y, w, h) region to check
+        click_pos: (x, y) position to click
+        name: Button name for logging
+        timeout: Max seconds to wait
+        threshold: Match threshold
+
+    Returns:
+        (success, frame) - success=True if button found, frame is last screenshot
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        frame = win.get_screenshot_cv2()
+        found, score = _verify_button_at_region(frame, template, region, threshold)
+
+        if found:
+            print(f"[RALLY-JOIN]   {name} verified (score={score:.4f})")
+            return True, frame
+
+        time.sleep(0.3)
+
+    print(f"[RALLY-JOIN]   {name} NOT FOUND after {timeout}s timeout")
+    return False, frame
 
 
 def _wait_for_team_up_panel(win, timeout=5.0):
     """
-    Wait for Team Up panel to fully load by detecting the Team Up button.
+    Wait for Team Up panel to fully load by detecting the Team Up button at fixed region.
 
     Args:
         win: WindowsScreenshotHelper instance
@@ -78,14 +141,13 @@ def _wait_for_team_up_panel(win, timeout=5.0):
     start_time = time.time()
     while time.time() - start_time < timeout:
         frame = win.get_screenshot_cv2()
-        result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+        found, score = _verify_button_at_region(frame, template, TEAM_UP_REGION, threshold=0.05)
 
-        if min_val < 0.05:  # Team Up button found (strict threshold to avoid false positives)
-            print(f"[RALLY-JOIN]   Team Up panel loaded (score={min_val:.4f})")
+        if found:
+            print(f"[RALLY-JOIN]   Team Up panel loaded (score={score:.4f})")
             return frame
 
-        print(f"[RALLY-JOIN]   Waiting for panel... (score={min_val:.4f})")
+        print(f"[RALLY-JOIN]   Waiting for panel... (score={score:.4f})")
         time.sleep(0.5)
 
     print("[RALLY-JOIN]   TIMEOUT waiting for Team Up panel")
@@ -114,7 +176,7 @@ def _check_daily_limit_dialog(win, timeout=2.0) -> bool:
         result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, _, _ = cv2.minMaxLoc(result)
 
-        if min_val < 0.1:  # Dialog found
+        if min_val < 0.05:  # Dialog found (tight threshold - template includes full text)
             print(f"[RALLY-JOIN]   Daily limit dialog detected (score={min_val:.4f})")
             return True
 
@@ -166,6 +228,15 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     )
     hero_selector = HeroSelector()
     back_button_matcher = BackButtonMatcher()
+
+    # Step 0: Check for leftover daily limit dialog and dismiss if present
+    # This prevents infinite loop when daemon re-triggers flow with dialog still on screen
+    if _check_daily_limit_dialog(win, timeout=0.5):
+        print("[RALLY-JOIN] Daily limit dialog detected at flow start - dismissing")
+        adb.tap(*CANCEL_CLICK)  # Click Cancel
+        time.sleep(0.5)
+        _cleanup_and_exit(adb, win, back_button_matcher)
+        return {'success': False, 'monster_name': None}
 
     # Step 1: Validate panel state
     print("[RALLY-JOIN] Step 1: Validating panel state")
@@ -225,8 +296,20 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
 
     plus_x, plus_y, monster_name, level = matched_rally
 
-    # Step 4: Click the plus button
+    # Step 4: Click the plus button (VERIFY it's still there)
     print(f"[RALLY-JOIN] Step 4: Clicking plus button for {monster_name} Lv.{level}")
+
+    # Re-detect plus button to verify it's still there
+    frame = win.get_screenshot_cv2()
+    plus_buttons = plus_matcher.find_all_plus_buttons(frame)
+    target_found = any(abs(px - plus_x) < 50 and abs(py - plus_y) < 50
+                       for px, py, _ in plus_buttons)
+
+    if not target_found:
+        print("[RALLY-JOIN] Plus button no longer at expected position, aborting")
+        _cleanup_and_exit(adb, win, back_button_matcher)
+        return {'success': False, 'monster_name': monster_name}
+
     click_x, click_y = plus_matcher.get_click_position(plus_x, plus_y)
     adb.tap(click_x, click_y)
 
@@ -269,19 +352,43 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     frame = win.get_screenshot_cv2()
     _save_debug_screenshot(frame, "03_after_hero_select")
 
-    # Step 6: Click Team Up button
+    # Step 6: Click Team Up button (poll for it at fixed region)
     print("[RALLY-JOIN] Step 6: Clicking Team Up button")
-    # Coordinates from template matching team_up_button_4k.png
-    TEAM_UP_X = 1912
-    TEAM_UP_Y = 1648
-    adb.tap(TEAM_UP_X, TEAM_UP_Y)
+
+    team_up_template = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
+    if team_up_template is None:
+        print("[RALLY-JOIN] WARNING: team_up_button_4k.png not found, aborting")
+        _cleanup_and_exit(adb, win, back_button_matcher)
+        return {'success': False, 'monster_name': monster_name}
+
+    # Poll for Team Up button at fixed region (3s timeout)
+    found, frame = _poll_for_button(win, team_up_template, TEAM_UP_REGION,
+                                     TEAM_UP_CLICK, "Team Up button", timeout=3.0)
+    if not found:
+        print("[RALLY-JOIN] Team Up button not found at expected region, aborting")
+        _cleanup_and_exit(adb, win, back_button_matcher)
+        return {'success': False, 'monster_name': monster_name}
+
+    # Click at fixed position (button is always here when found)
+    adb.tap(*TEAM_UP_CLICK)
 
     # Step 6b: Check for daily limit dialog
     if _check_daily_limit_dialog(win, timeout=2.0):
         print(f"[RALLY-JOIN]   Daily limit reached for {monster_name}!")
 
-        # Click Cancel button to dismiss dialog
-        adb.tap(CANCEL_BUTTON_X, CANCEL_BUTTON_Y)
+        # Poll for Cancel button at fixed region (2s timeout)
+        cancel_template = cv2.imread(str(CANCEL_BUTTON_TEMPLATE_PATH))
+        if cancel_template is not None:
+            found, frame = _poll_for_button(win, cancel_template, CANCEL_REGION,
+                                            CANCEL_CLICK, "Cancel button", timeout=2.0, threshold=0.1)
+            if found:
+                adb.tap(*CANCEL_CLICK)
+            else:
+                print("[RALLY-JOIN]   Cancel button not at expected region, clicking back instead")
+                back_button_matcher.click(adb)
+        else:
+            print("[RALLY-JOIN]   Cancel template not found, clicking back instead")
+            back_button_matcher.click(adb)
         time.sleep(0.5)
 
         # Mark monster as exhausted for today (only if track_daily_limit is True)
@@ -316,30 +423,28 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
     """
     Click back buttons and return to town.
 
+    NO blind clicks - only click where back button is verified via template matching.
+    The return_to_base_view() handles any remaining cleanup.
+
     Args:
         adb: ADB helper
         win: Screenshot helper
         back_button_matcher: Back button matcher
     """
-    # Always try to dismiss any popup first (harmless if no popup)
-    # Team Up panel has no back button - must click outside to dismiss
-    adb.tap(1100, 1100)
-    time.sleep(0.3)
-
-    # Click back button up to 2 times to close dialogs
-    for attempt in range(2):
+    # Click back button up to 3 times (VERIFIED via matcher)
+    for attempt in range(3):
         time.sleep(0.3)
         frame = win.get_screenshot_cv2()
-        back_present, _ = back_button_matcher.is_present(frame)
+        back_present, score = back_button_matcher.is_present(frame)
 
         if back_present:
-            print(f"[RALLY-JOIN]   Clicking back button (attempt {attempt+1})")
+            print(f"[RALLY-JOIN]   Clicking back button (attempt {attempt+1}, score={score:.4f})")
             back_button_matcher.click(adb)
             time.sleep(0.5)
         else:
             break
 
-    # Return to base view
+    # Return to base view (robust recovery)
     return_to_base_view(adb, win, debug=False)
 
 
