@@ -421,16 +421,27 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
 
 def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_matcher: BackButtonMatcher):
     """
-    Click back buttons and return to town.
+    Dismiss floating panels and return to base view.
 
-    NO blind clicks - only click where back button is verified via template matching.
-    The return_to_base_view() handles any remaining cleanup.
+    In WORLD view, floating panels (like Team Up) have no back button.
+    We dismiss them by clicking on grass outside the panel.
+    Then do normal back button clicking for any remaining dialogs.
 
     Args:
         adb: ADB helper
         win: Screenshot helper
         back_button_matcher: Back button matcher
     """
+    from utils.safe_grass_matcher import find_safe_grass
+
+    # First, try clicking on grass to dismiss floating panels (WORLD view)
+    frame = win.get_screenshot_cv2()
+    grass_pos = find_safe_grass(frame, debug=False)
+    if grass_pos:
+        print(f"[RALLY-JOIN]   Clicking grass at {grass_pos} to dismiss floating panel")
+        adb.tap(*grass_pos)
+        time.sleep(0.5)
+
     # Click back button up to 3 times (VERIFIED via matcher)
     for attempt in range(3):
         time.sleep(0.3)
