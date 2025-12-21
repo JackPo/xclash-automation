@@ -319,9 +319,83 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 continue
 
             else:
-                # Unknown state - try sequence of clicks
+                # Unknown state - try grass/ground click first (dismisses floating panels)
+                from utils.safe_grass_matcher import find_safe_grass, get_matcher as get_grass_matcher
+                from utils.safe_ground_matcher import find_safe_ground, get_matcher as get_ground_matcher
+
+                # Get scores for both grass (WORLD) and ground (TOWN)
+                from utils.safe_grass_matcher import SEARCH_REGIONS as GRASS_REGIONS
+                grass_matcher = get_grass_matcher()
+                ground_matcher = get_ground_matcher()
+
+                # Find best grass match
+                grass_pos = None
+                grass_score = 1.0
+                if grass_matcher.template is not None:
+                    # Search all regions and get best score
+                    for rx, ry, rw, rh in GRASS_REGIONS:
+                        if ry + rh <= frame.shape[0] and rx + rw <= frame.shape[1]:
+                            roi = frame[ry:ry+rh, rx:rx+rw]
+                            if roi.shape[0] >= grass_matcher.template.shape[0] and roi.shape[1] >= grass_matcher.template.shape[1]:
+                                result = cv2.matchTemplate(roi, grass_matcher.template, cv2.TM_SQDIFF_NORMED)
+                                min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+                                if min_val < grass_score:
+                                    grass_score = min_val
+                                    grass_pos = (rx + min_loc[0] + grass_matcher.template.shape[1]//2,
+                                                ry + min_loc[1] + grass_matcher.template.shape[0]//2)
+
+                # Find best ground match
+                ground_pos = None
+                ground_score = 1.0
+                if ground_matcher.template is not None:
+                    from utils.safe_ground_matcher import SEARCH_REGION as GROUND_REGION
+                    rx, ry, rw, rh = GROUND_REGION
+                    if ry + rh <= frame.shape[0] and rx + rw <= frame.shape[1]:
+                        roi = frame[ry:ry+rh, rx:rx+rw]
+                        if roi.shape[0] >= ground_matcher.template.shape[0] and roi.shape[1] >= ground_matcher.template.shape[1]:
+                            result = cv2.matchTemplate(roi, ground_matcher.template, cv2.TM_SQDIFF_NORMED)
+                            min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+                            ground_score = min_val
+                            ground_pos = (rx + min_loc[0] + ground_matcher.template.shape[1]//2,
+                                         ry + min_loc[1] + ground_matcher.template.shape[0]//2)
+
+                SAFE_CLICK_THRESHOLD = 0.01  # Super tight - must be confident
+
                 if debug:
-                    print("    [RETURN] UNKNOWN state - trying back button location...")
+                    print(f"    [RETURN] UNKNOWN state - checking grass/ground:")
+                    print(f"      - Grass score: {grass_score:.4f} (threshold {SAFE_CLICK_THRESHOLD})")
+                    print(f"      - Ground score: {ground_score:.4f} (threshold {SAFE_CLICK_THRESHOLD})")
+
+                # Click whichever passes threshold (prefer better score if both pass)
+                clicked_safe_area = False
+                if grass_score < SAFE_CLICK_THRESHOLD and grass_pos:
+                    if debug:
+                        print(f"    [RETURN] Grass detected (WORLD view) - clicking at {grass_pos}")
+                    adb.tap(*grass_pos)
+                    clicked_safe_area = True
+                    time.sleep(1.5)
+                elif ground_score < SAFE_CLICK_THRESHOLD and ground_pos:
+                    if debug:
+                        print(f"    [RETURN] Ground detected (TOWN view) - clicking at {ground_pos}")
+                    adb.tap(*ground_pos)
+                    clicked_safe_area = True
+                    time.sleep(1.5)
+
+                if clicked_safe_area:
+                    # Check if we're now in TOWN/WORLD
+                    frame = win.get_screenshot_cv2()
+                    if frame is not None:
+                        view_state, view_score = detect_view(frame)
+                        if view_state in (ViewState.TOWN, ViewState.WORLD):
+                            _consecutive_restarts = 0
+                            if debug:
+                                print(f"    [RETURN] SUCCESS: Reached {view_state.value} after safe area click")
+                            return True
+                    continue  # Retry from top
+
+                # Neither grass nor ground passed threshold - fall back to default recovery
+                if debug:
+                    print("    [RETURN] No confident grass/ground match - trying back button location...")
                 adb.tap(*BACK_BUTTON_CLICK)
                 time.sleep(2.0)
 
