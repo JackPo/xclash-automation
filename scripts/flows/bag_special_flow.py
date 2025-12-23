@@ -68,6 +68,7 @@ CHEST_TEMPLATES = [
     "bag_chest_blue_striped_4k.png", # Blue striped chest with purple gem
     "bag_chest_gold_ornate_4k.png",  # Blue striped chest on blue background
     "bag_chest_purple_striped_4k.png",  # Gold/teal chest with blue gem
+    "bag_giftbox_4k.png",            # Gift box (has quantity number below)
 ]
 
 # Level chest templates (VS Wednesday only - Day 3)
