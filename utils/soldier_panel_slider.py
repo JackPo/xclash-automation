@@ -20,8 +20,8 @@ SLIDER_MAX_X = 2132  # Circle center at MAX (rightmost)
 # Search region for slider circle template matching
 SEARCH_Y_START = 1100
 SEARCH_Y_END = 1250
-SEARCH_X_START = 1400
-SEARCH_X_END = 2300
+SEARCH_X_START = 1580  # Exclude minus button area (at x=1526)
+SEARCH_X_END = 2200    # Slightly past SLIDER_MAX_X (2132)
 
 # Plus/Minus buttons
 PLUS_BUTTON = (2207, 1179)
