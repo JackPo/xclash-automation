@@ -128,18 +128,6 @@ Direct setting to 4K does NOT work reliably - the resolution will not stick prop
 
 All templates and coordinates are calibrated for 3840x2160 resolution.
 
-### Window Size Enforcement
-
-**CRITICAL**: `WindowsScreenshotHelper` automatically enforces a fixed window size (1822x1040) to prevent coordinate drift from window resizing.
-
-```python
-# Auto-enforced on every screenshot capture
-TARGET_WINDOW_WIDTH = 1822
-TARGET_WINDOW_HEIGHT = 1040
-```
-
-**Why**: Window size variations cause scaling differences which break template matching. The helper auto-resizes BlueStacks to the target size before each screenshot.
-
 ### Taking Screenshots
 
 **For template matching and detection - use Windows screenshot:**
@@ -147,7 +135,7 @@ TARGET_WINDOW_HEIGHT = 1040
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 win = WindowsScreenshotHelper()
-frame = win.get_screenshot_cv2()  # BGR numpy array, 3840x2160 (auto-resizes window first)
+frame = win.get_screenshot_cv2()  # BGR numpy array, 3840x2160
 ```
 
 **For ADB operations (tap, swipe, etc):**
@@ -530,28 +518,6 @@ The daemon supports two idle detection modes, controlled by `USE_BLUESTACKS_IDLE
 
 The daemon logs both values: `idle:` (system-wide) and `bs:` (BlueStacks-specific).
 
-### Hot-Reload for Flow Modules
-
-The daemon supports hot-reloading flow code without restart. When flows are triggered via WebSocket API, all flow modules are automatically reloaded first:
-
-**Reloaded modules**:
-- `utils.windows_screenshot_helper`
-- `flows.bag_use_item_subflow`
-- `flows.bag_special_flow`
-- `flows.bag_hero_flow`
-- `flows.bag_resources_flow`
-- `flows.bag_flow`
-- `flows.tavern_quest_flow`
-- `flows.faction_trials_flow`
-
-**Usage**: Simply edit flow Python files and trigger via WebSocket - changes take effect immediately without daemon restart.
-
-**WebSocket API** (port 9876):
-```bash
-# Trigger bag flow with hot-reload
-curl -X POST http://localhost:9876/flow -H "Content-Type: application/json" -d '{"flow": "bag"}'
-```
-
 ### Idle Return-to-Town (Every 5 Iterations)
 
 When user is idle for 5+ minutes, every 5 daemon iterations (~10 seconds):
@@ -869,13 +835,11 @@ RALLY_MONSTERS = [
 - `bag_button_4k.png` - Bag button verification
 - `bag_tab_4k.png` - Verify bag menu opened (header)
 
-| Tab | Region (x, y, w, h) | Click Position | Active Template | Inactive Template |
-|-----|---------------------|----------------|-----------------|-------------------|
-| Special | (1520, 2015, 170, 100) | (1602, 2080) | `bag_special_tab_active_4k.png` | `bag_special_tab_4k.png` |
-| Hero | (2130, 2015, 170, 100) | (2257, 2078) | `bag_hero_tab_active_4k.png` | `bag_hero_tab_4k.png` |
-| Resources | (1760, 2045, 120, 70) | (1820, 2080) | `bag_resources_tab_active_4k.png` | `bag_resources_tab_4k.png` |
-
-**Bag Button**: Region (3679, 1596, 72, 77), Click (3725, 1624)
+| Tab | Region (x, y, w, h) | Active Template | Inactive Template |
+|-----|---------------------|-----------------|-------------------|
+| Special | (1525, 2033, 163, 96) | `bag_special_tab_active_4k.png` | `bag_special_tab_4k.png` |
+| Hero | (2158, 2015, 207, 127) | `bag_hero_tab_active_4k.png` | `bag_hero_tab_4k.png` |
+| Resources | (1732, 2018, 179, 111) | `bag_resources_tab_active_4k.png` | `bag_resources_tab_4k.png` |
 
 ### Matcher Thresholds
 
