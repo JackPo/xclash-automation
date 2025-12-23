@@ -29,6 +29,10 @@ class WindowsScreenshotHelper:
     TARGET_WIDTH = 3840  # 4K width
     TARGET_HEIGHT = 2160  # 4K height
 
+    # Target window size for consistent scaling
+    TARGET_WINDOW_WIDTH = 1822
+    TARGET_WINDOW_HEIGHT = 1040
+
     def __init__(self, window_title="BlueStacks App Player"):
         """Initialize the screenshot helper.
 
@@ -44,6 +48,15 @@ class WindowsScreenshotHelper:
         self.hwnd = win32gui.FindWindow(None, self.window_title)
         if not self.hwnd:
             raise RuntimeError(f"Could not find window: {self.window_title}")
+
+    def ensure_window_size(self):
+        """Resize BlueStacks window to target size for consistent scaling."""
+        import win32con
+        left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
+        if (right - left) != self.TARGET_WINDOW_WIDTH or (bottom - top) != self.TARGET_WINDOW_HEIGHT:
+            win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOP, left, top,
+                                  self.TARGET_WINDOW_WIDTH, self.TARGET_WINDOW_HEIGHT,
+                                  win32con.SWP_NOZORDER)
 
     def capture_window(self, max_retries=3):
         """Capture window content using PrintWindow API.
@@ -147,6 +160,9 @@ class WindowsScreenshotHelper:
         Returns:
             np.ndarray: BGR image at 4K resolution (3840x2160x3)
         """
+        # Ensure consistent window size before capture
+        self.ensure_window_size()
+
         # Capture raw window
         raw_img = self.capture_window()
 

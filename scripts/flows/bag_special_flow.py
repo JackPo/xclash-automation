@@ -46,7 +46,7 @@ BAG_BUTTON_CLICK = (3725, 1624)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
-SPECIAL_TAB_REGION = (1525, 2033, 163, 96)  # Same region for active/inactive
+SPECIAL_TAB_REGION = (1520, 2015, 170, 100)  # Same region for active/inactive
 SPECIAL_TAB_CLICK = (1602, 2080)  # Only needed if switching from another tab
 
 # Thresholds

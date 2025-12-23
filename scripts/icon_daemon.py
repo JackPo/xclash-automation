@@ -38,6 +38,7 @@ import time
 import argparse
 import threading
 import logging
+import importlib
 from pathlib import Path
 from datetime import datetime
 import pytz
@@ -71,6 +72,7 @@ from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
+from flows.faction_trials_flow import faction_trials_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.scheduler import get_scheduler
 
@@ -756,6 +758,12 @@ class IconDaemon:
         Returns:
             dict with success status, flow name, and flow result
         """
+        # Hot-reload flow modules to pick up code changes
+        try:
+            self.reload_flows()
+        except Exception as e:
+            self.logger.error(f"HOT-RELOAD ERROR: {e}")
+
         flow_map = self.get_available_flows()
         if flow_name not in flow_map:
             return {"success": False, "error": f"Unknown flow: {flow_name}", "available": list(flow_map.keys())}
@@ -824,6 +832,54 @@ class IconDaemon:
                     self.critical_flow_active = False
                     self.critical_flow_name = None
 
+    def reload_flows(self):
+        """
+        Hot-reload all flow modules for live code updates.
+
+        Called before trigger_flow() to pick up any code changes.
+        """
+        import sys
+
+        # List of modules to reload (in dependency order)
+        modules_to_reload = [
+            'utils.windows_screenshot_helper',
+            'flows.bag_use_item_subflow',
+            'flows.bag_special_flow',
+            'flows.bag_hero_flow',
+            'flows.bag_resources_flow',
+            'flows.bag_flow',
+            'flows.tavern_quest_flow',
+            'flows.faction_trials_flow',
+            'flows',
+        ]
+
+        for mod_name in modules_to_reload:
+            if mod_name in sys.modules:
+                importlib.reload(sys.modules[mod_name])
+            else:
+                self.logger.debug(f"HOT-RELOAD: Module {mod_name} not loaded, skipping")
+
+        # Re-import all flow functions after reload
+        global handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow
+        global harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow
+        global equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow
+        global union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow
+        global stamina_claim_flow, stamina_use_flow, soldier_training_flow
+        global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
+        global tavern_quest_claim_flow, tavern_scan_flow, faction_trials_flow
+
+        from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
+                          gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
+                          cabbage_flow, equipment_enhancement_flow, elite_zombie_flow,
+                          afk_rewards_flow, union_gifts_flow, union_technology_flow,
+                          hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow,
+                          soldier_training_flow, soldier_upgrade_flow, rally_join_flow,
+                          healing_flow, bag_flow, gift_box_flow)
+        from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
+        from flows.faction_trials_flow import faction_trials_flow
+
+        self.logger.info("HOT-RELOAD: All flow modules reloaded")
+
     def get_available_flows(self) -> dict:
         """
         Return dict of flow_name -> (flow_func, is_critical).
@@ -838,8 +894,8 @@ class IconDaemon:
             "union_technology": (union_technology_flow, False),
             "afk_rewards": (afk_rewards_flow, False),
             "hero_upgrade": (hero_upgrade_arms_race_flow, True),
-            "soldier_training": (lambda adb: soldier_training_flow(adb, self.windows_helper), True),
-            "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, self.windows_helper), True),
+            "soldier_training": (lambda adb: soldier_training_flow(adb, debug=False), True),
+            "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, debug=False), True),
             "healing": (healing_flow, False),
             "elite_zombie": (elite_zombie_flow, False),
             "handshake": (handshake_flow, False),
@@ -853,6 +909,7 @@ class IconDaemon:
             "harvest_box": (harvest_box_flow, False),
             "gift_box": (gift_box_flow, True),
             "stamina_claim": (stamina_claim_flow, False),
+            "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
         }
 
     def get_status(self) -> dict:
@@ -1169,7 +1226,7 @@ class IconDaemon:
                             self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {healing_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
                             click_x, click_y = self.hospital_matcher.get_click_position()
                             self.adb.tap(click_x, click_y)
-                            time.sleep(1.5)
+                            time.sleep(2.5)  # Wait for panel to fully open
                             self._run_flow("healing", healing_flow)
                             self.hospital_state_history = []
 
@@ -1178,7 +1235,7 @@ class IconDaemon:
                             self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {wounded_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
                             click_x, click_y = self.hospital_matcher.get_click_position()
                             self.adb.tap(click_x, click_y)
-                            time.sleep(1.5)
+                            time.sleep(2.5)  # Wait for panel to fully open
                             self._run_flow("healing", healing_flow)
                             self.hospital_state_history = []
                 else:
@@ -1228,7 +1285,8 @@ class IconDaemon:
                 # UNKNOWN state recovery - two-tier approach:
                 # 1. Quick recovery (10s): Click safe ground tile to dismiss popup
                 # 2. Full recovery (180s): Run return_to_base_view if quick recovery fails
-                if view_state == "UNKNOWN" and effective_idle_secs >= self.IDLE_THRESHOLD:
+                # CRITICAL: Skip recovery if ANY flow is active - flows control their own UI
+                if view_state == "UNKNOWN" and effective_idle_secs >= self.IDLE_THRESHOLD and not self.active_flows:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
 
@@ -1323,7 +1381,8 @@ class IconDaemon:
 
                 # Pre-event stamina claim: 6 min before Beast Training, claim if red dot visible
                 # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
-                if in_pre_beast_window and effective_idle_secs >= self.IDLE_THRESHOLD:
+                # Uses scheduler's pre_beast_stamina_claim flow config (idle_required=20s, lower than IDLE_THRESHOLD)
+                if in_pre_beast_window and self.scheduler.is_flow_ready("pre_beast_stamina_claim", idle_seconds=effective_idle_secs):
                     # Calculate which upcoming block this is for
                     upcoming_beast_block = arms_race['block_end']  # Next block starts when current ends
 
@@ -1336,6 +1395,7 @@ class IconDaemon:
                             claim_success = self._run_flow("stamina_claim", stamina_claim_flow)
                             if claim_success:
                                 self.beast_training_pre_claim_block = upcoming_beast_block
+                                self.scheduler.record_flow_run("pre_beast_stamina_claim")
                                 self.logger.info(f"[{iteration}] PRE-BEAST TRAINING: Stamina claimed, cooldown started. Will claim again in last 6 min of event.")
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until event, but no red dot ({red_count} pixels)")
@@ -1377,7 +1437,24 @@ class IconDaemon:
                         self.beast_training_current_block = block_start
                         self.beast_training_rally_count = 0
                         self.beast_training_use_count = 0  # Reset Use count for new block
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0")
+                        # Check if there's a pre-set target for this block
+                        arms_race_state = self.scheduler.get_arms_race_state()
+                        next_target = arms_race_state.get("beast_training_next_target_rallies")
+                        if next_target:
+                            # Copy next target to current target
+                            self.scheduler.update_arms_race_state(
+                                beast_training_target_rallies=next_target,
+                                beast_training_next_target_rallies=None,
+                                beast_training_rally_count=0
+                            )
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0, target={next_target} (from pre-set)")
+                        else:
+                            self.scheduler.update_arms_race_state(beast_training_rally_count=0)
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0")
+
+                    # Get target from scheduler (or use MAX_RALLIES as default)
+                    arms_race_state = self.scheduler.get_arms_race_state()
+                    rally_target = arms_race_state.get("beast_training_target_rallies") or self.BEAST_TRAINING_MAX_RALLIES
 
                     # Check if user was idle since block start (required for Use button)
                     time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
@@ -1396,16 +1473,19 @@ class IconDaemon:
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, but no red dot ({red_count} pixels), skipping claim")
 
-                    # STEP 2: Rally - if stamina >= 20 and cooldown ok, do rallies FIRST
+                    # STEP 2: Rally - if stamina >= 20, cooldown ok, and under target, do rallies FIRST
                     # This burns down stamina so we can then use recovery items
                     rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
                     rally_triggered = False
                     if (stamina_confirmed and
                         confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
                         rally_cooldown_ok and
+                        self.beast_training_rally_count < rally_target and  # Check against target
                         not claim_triggered):  # Don't rally if we just claimed (wait for stamina to update)
                         self.beast_training_rally_count += 1
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally #{self.beast_training_rally_count}...")
+                        self.scheduler.update_arms_race_state(beast_training_rally_count=self.beast_training_rally_count)
+                        remaining = rally_target - self.beast_training_rally_count
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally #{self.beast_training_rally_count}/{rally_target} ({remaining} remaining)...")
                         # Use elite_zombie_flow with 0 plus clicks
                         import config
                         original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
@@ -1416,7 +1496,7 @@ class IconDaemon:
                         self.stamina_history = []  # Reset after triggering
 
                     # STEP 3: Use Button - only AFTER rallies have burned stamina down to < 20
-                    # Conditions: idle entire block, rally count < 15, stamina < 20, Use clicks < 4, cooldown
+                    # Conditions: idle entire block, rally count < target, stamina < 20, Use clicks < 4, cooldown
                     # For 3rd+ uses, require being in the last N minutes of the block
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
@@ -1425,7 +1505,7 @@ class IconDaemon:
                         idle_since_block_start and
                         stamina_confirmed and
                         confirmed_stamina < self.BEAST_TRAINING_USE_STAMINA_THRESHOLD and
-                        self.beast_training_rally_count < self.BEAST_TRAINING_MAX_RALLIES and
+                        self.beast_training_rally_count < rally_target and  # Use target instead of MAX_RALLIES
                         self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
                         use_cooldown_ok and
                         use_allowed_by_time and
@@ -1433,7 +1513,8 @@ class IconDaemon:
                         not rally_triggered):    # Only use if rally wasn't just triggered (wait for stamina to update)
                         # All conditions met - use stamina recovery item
                         self.beast_training_use_count += 1
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.BEAST_TRAINING_USE_STAMINA_THRESHOLD}, using recovery item (use #{self.beast_training_use_count}/{self.BEAST_TRAINING_USE_MAX}, rally #{self.beast_training_rally_count}/{self.BEAST_TRAINING_MAX_RALLIES})...")
+                        remaining = rally_target - self.beast_training_rally_count
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.BEAST_TRAINING_USE_STAMINA_THRESHOLD}, using recovery item (use #{self.beast_training_use_count}/{self.BEAST_TRAINING_USE_MAX}, rally #{self.beast_training_rally_count}/{rally_target}, {remaining} remaining)...")
                         self._run_flow("stamina_use", stamina_use_flow)
                         self.beast_training_last_use_time = current_time
 

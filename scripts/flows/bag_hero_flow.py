@@ -27,13 +27,13 @@ import numpy as np
 from scripts.flows.bag_use_item_subflow import use_item_subflow
 
 # Fixed positions (4K resolution)
-BAG_BUTTON_REGION = (3679, 1577, 86, 93)
-BAG_BUTTON_CLICK = (3732, 1633)
+BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_CLICK = (3725, 1624)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
-HERO_TAB_REGION = (2158, 2015, 207, 127)  # Same region for active/inactive
-HERO_TAB_CLICK = (2261, 2078)
+HERO_TAB_REGION = (2130, 2015, 170, 100)  # Same region for active/inactive
+HERO_TAB_CLICK = (2257, 2078)
 
 # Thresholds
 CHEST_THRESHOLD = 0.01

@@ -29,11 +29,11 @@ import numpy as np
 from scripts.flows.bag_use_item_subflow import use_item_subflow
 
 # Fixed positions (4K resolution)
-BAG_BUTTON_REGION = (3679, 1577, 86, 93)
-BAG_BUTTON_CLICK = (3732, 1633)
+BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_CLICK = (3725, 1624)
 
-RESOURCES_TAB_REGION = (1732, 2018, 179, 111)  # Same region for active/inactive
-RESOURCES_TAB_CLICK = (1831, 2076)
+RESOURCES_TAB_REGION = (1760, 2045, 120, 70)  # Same region for active/inactive
+RESOURCES_TAB_CLICK = (1820, 2080)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
