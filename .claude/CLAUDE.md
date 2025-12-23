@@ -762,7 +762,7 @@ RALLY_MONSTERS = [
 | Healing | `healing_bubble_matcher.py` | 0.06 | (3340, 364) | `healing_flow` |
 | Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
 | Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
-| Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3732, 1633) | `bag_flow` |
+| Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3725, 1624) | `bag_flow` |
 
 ### Tavern Quest Flow (Not Yet Integrated)
 
@@ -801,7 +801,7 @@ RALLY_MONSTERS = [
 
 **Flow sequence**:
 1. Navigate to TOWN view via `go_to_town()`
-2. Click bag button (3732, 1633)
+2. Click bag button (3725, 1624)
 3. Run `bag_special_flow` - claim chests from Special tab (7 templates)
 4. Run `bag_hero_flow` - claim chests from Hero tab (2 templates)
 5. Run `bag_resources_flow` - claim diamonds from Resources tab

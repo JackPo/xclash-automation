@@ -29,8 +29,9 @@ from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import go_to_town
 
 # Fixed positions (4K resolution)
-BAG_BUTTON_REGION = (3679, 1577, 86, 93)
-BAG_BUTTON_CLICK = (3732, 1633)
+# Template excludes notification badge area (top-right corner)
+BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_CLICK = (3725, 1624)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 BACK_BUTTON_CLICK = (1407, 2055)
 

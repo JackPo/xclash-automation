@@ -1116,6 +1116,25 @@ The daemon should auto-recover after 180 seconds (3 min continuous). If stuck:
 3. Restart daemon if needed
 4. Check `logs/` for error details
 
+### Parsec / Remote Desktop Display Issues
+
+**CRITICAL**: If using Parsec for remote access, the **host display resolution** must be set correctly.
+
+**Symptom**: When Parsec client disconnects, daemon gets stuck in UNKNOWN state with view detection failing (score=1.0). Screenshots show black areas or wrong dimensions.
+
+**Root Cause**: Parsec overrides display resolution while connected. When disconnected, Windows reverts to the host's native resolution. If host resolution is too small (e.g., 1080x1024), the BlueStacks window coordinates become invalid and screenshots capture black areas.
+
+**Fix**:
+1. Set **host display resolution** to **2560x1440 or higher** (Windows Settings → Display)
+2. In Parsec host settings, use "Host Resolution" (not a custom resolution)
+3. Ensure BlueStacks window fits entirely within the display
+
+**Verification**: When Parsec is disconnected, run:
+```bash
+python -c "from utils.windows_screenshot_helper import WindowsScreenshotHelper; w = WindowsScreenshotHelper(); f = w.get_screenshot_cv2(); print(f'Shape: {f.shape}, ROI mean: {f[1920:2160, 3600:3840].mean():.1f}')"
+# Should show: Shape: (2160, 3840, 3), ROI mean: >10 (not ~0)
+```
+
 ### Flows not triggering
 
 Check conditions:

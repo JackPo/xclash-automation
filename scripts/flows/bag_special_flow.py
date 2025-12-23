@@ -41,8 +41,8 @@ from utils.arms_race import get_arms_race_status
 from config import VS_LEVEL_CHEST_DAYS
 
 # Fixed positions (4K resolution)
-BAG_BUTTON_REGION = (3679, 1577, 86, 93)
-BAG_BUTTON_CLICK = (3732, 1633)
+BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_CLICK = (3725, 1624)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 

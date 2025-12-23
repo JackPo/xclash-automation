@@ -37,10 +37,9 @@ RESOURCE_BAR_TEMPLATE = TEMPLATE_DIR / "resource_bar_4k.png"
 
 # Recovery limits
 MAX_BACK_CLICKS = 5
-MAX_RECOVERY_ATTEMPTS = 30  # Try more attempts before restarting game
-MAX_CONSECUTIVE_RESTARTS = 5  # Stop after this many consecutive restart failures
+MAX_RECOVERY_ATTEMPTS = 30  # Attempts before restarting game
 
-# Track consecutive restarts (module-level state)
+# Track consecutive restarts (module-level state, for logging only - never gives up)
 _consecutive_restarts = 0
 
 # Cached templates
@@ -427,14 +426,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if debug:
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
-    # STEP 3: All attempts failed - restart app and RETRY
+    # STEP 3: All attempts failed - restart app and RETRY (never give up)
     _consecutive_restarts += 1
-
-    # Check restart limit
-    if _consecutive_restarts >= MAX_CONSECUTIVE_RESTARTS:
-        print(f"    [RETURN] *** FATAL: {_consecutive_restarts} consecutive restarts failed ***")
-        print(f"    [RETURN] Giving up - manual intervention required")
-        return False
 
     # CRITICAL: Save debug screenshot with detailed marker BEFORE restart
     frame = win.get_screenshot_cv2()
@@ -447,13 +440,13 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Also detect view state for the marker
         view_state, view_score = detect_view(frame)
         back_present, back_score = back_matcher.is_present(frame)
-        print(f"    [RETURN] *** RESTART TRIGGERED ({_consecutive_restarts}/{MAX_CONSECUTIVE_RESTARTS}) ***")
+        print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")
         print(f"    [RETURN] Screenshot saved: {debug_path.name}")
         print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")
         print(f"    [RETURN] Back button present: {back_present} (score={back_score:.3f})")
         print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
     else:
-        print(f"    [RETURN] *** RESTART TRIGGERED ({_consecutive_restarts}/{MAX_CONSECUTIVE_RESTARTS}) (no screenshot available) ***")
+        print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying (no screenshot) ***")
         print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
 
     if debug:

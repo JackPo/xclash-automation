@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Flow configurations: cooldown (seconds), idle required (seconds)
 # All flows use IDLE_THRESHOLD from config.py as the default idle requirement
+# Exception: pre_beast_stamina_claim uses a lower idle threshold (20s) because it's time-critical
 FLOW_CONFIGS = {
     "afk_rewards": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "union_gifts": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
@@ -32,6 +33,7 @@ FLOW_CONFIGS = {
     "bag_flow": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "tavern_scan": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
+    "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 20},  # 4hr cooldown, 20s idle
 }
 
 
@@ -325,7 +327,9 @@ class DaemonScheduler:
 
         try:
             resets_at = datetime.fromisoformat(resets_at_str)
-            return datetime.now() < resets_at
+            # Compare using UTC time (resets_at is stored in UTC)
+            now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+            return now_utc < resets_at
         except (ValueError, TypeError):
             return False
 
@@ -351,7 +355,8 @@ class DaemonScheduler:
     def _clear_expired_limits(self) -> None:
         """Clear daily limits that have expired (called on load)."""
         limits = self.schedule.get("daily_limits", {})
-        now = datetime.now()
+        # Use UTC time for comparison (resets_at is stored in UTC)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         expired = []
 
         for limit_name, limit_data in limits.items():
@@ -499,7 +504,8 @@ class DaemonScheduler:
         )
         try:
             with os.fdopen(fd, 'w') as f:
-                json.dump(self.schedule, f, indent=2)
+                # Use custom encoder to handle enums
+                json.dump(self.schedule, f, indent=2, default=self._json_serialize)
 
             # Atomic rename (works on same filesystem)
             os.replace(temp_path, self.SCHEDULE_FILE)
@@ -508,6 +514,16 @@ class DaemonScheduler:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             raise
+
+    @staticmethod
+    def _json_serialize(obj):
+        """Custom JSON serializer for objects not serializable by default."""
+        from enum import Enum
+        if isinstance(obj, Enum):
+            return obj.name
+        if hasattr(obj, 'isoformat'):  # datetime
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
     def _load_or_create(self) -> dict:
         """Load schedule from file or create new."""
