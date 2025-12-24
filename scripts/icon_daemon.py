@@ -62,7 +62,8 @@ from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
 from utils.bluestacks_idle_detector import get_bluestacks_idle_detector, format_bluestacks_idle_time
-# user_idle_tracker removed - using raw Windows idle (idle_detector) instead
+from utils.user_idle_tracker import get_user_idle_seconds, mark_daemon_action
+from utils.stamina_reader import StaminaReader
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view, _get_current_resolution, _run_setup_bluestacks
@@ -75,7 +76,7 @@ from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, 
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
-from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
+from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.scheduler import get_scheduler
@@ -234,9 +235,8 @@ class IconDaemon:
         })
 
         # Unified stamina validation - ONE system for all stamina-based triggers
-        # Tracks last 3 readings, requires all 3 to be valid (0-200) and consistent (diff <= 20)
-        self.stamina_history = []  # List of last 3 valid readings
-        self.STAMINA_CONSECUTIVE_REQUIRED = ELITE_ZOMBIE_CONSECUTIVE_REQUIRED  # 3
+        # Uses StaminaReader for MODE-based confirmation with consistency check
+        self.stamina_reader = StaminaReader()
 
         # Pacific timezone for logging
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
@@ -518,6 +518,8 @@ class IconDaemon:
                 else:
                     self.logger.info(f"FLOW START: {flow_name}")
 
+                # Mark daemon action before flow clicks (filters from idle tracking)
+                mark_daemon_action()
                 flow_func(self.adb)
 
                 if critical:
@@ -704,7 +706,7 @@ class IconDaemon:
             return
 
         # Restore state from persistent storage
-        self.stamina_history = state.get("stamina_history", [])
+        self.stamina_reader.history = state.get("stamina_history", [])
 
         # Convert string names back to BarrackState enums
         saved_barracks = state.get("barracks_state_history", [[], [], [], []])
@@ -728,7 +730,7 @@ class IconDaemon:
         self.union_boss_mode_until = state.get("union_boss_mode_until", 0)
         self.paused = state.get("paused", False)
 
-        self.logger.info(f"STARTUP: Loaded daemon state (paused={self.paused}, stamina_history={len(self.stamina_history)} readings)")
+        self.logger.info(f"STARTUP: Loaded daemon state (paused={self.paused}, stamina_history={len(self.stamina_reader.history)} readings)")
 
     def _save_runtime_state(self):
         """Save runtime state to scheduler (called periodically + on shutdown)."""
@@ -743,7 +745,7 @@ class IconDaemon:
         ]
 
         self.scheduler.update_daemon_state(
-            stamina_history=self.stamina_history,
+            stamina_history=self.stamina_reader.history,
             barracks_state_history=barracks_history_serializable,
             hospital_state_history=hospital_history_serializable,
             vs_chest_triggered=list(self.vs_chest_triggered),
@@ -818,6 +820,8 @@ class IconDaemon:
             else:
                 self.logger.info(f"FLOW START: {flow_name}")
 
+            # Mark daemon action before flow clicks (filters from idle tracking)
+            mark_daemon_action()
             # Run flow and capture result
             flow_result = flow_func(self.adb)
 
@@ -873,7 +877,7 @@ class IconDaemon:
         global union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow
         global stamina_claim_flow, stamina_use_flow, soldier_training_flow
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
-        global tavern_quest_claim_flow, tavern_scan_flow, faction_trials_flow
+        global tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow, faction_trials_flow
 
         from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
@@ -882,7 +886,7 @@ class IconDaemon:
                           hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow,
                           soldier_training_flow, soldier_upgrade_flow, rally_join_flow,
                           healing_flow, bag_flow, gift_box_flow)
-        from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
+        from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow
         from flows.faction_trials_flow import faction_trials_flow
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
@@ -894,8 +898,8 @@ class IconDaemon:
         Used by WebSocket API to list and trigger flows.
         """
         return {
-            "tavern_quest": (tavern_quest_claim_flow, False),
-            "tavern_scan": (tavern_scan_flow, False),
+            "tavern_quest": (run_tavern_quest_flow, True),  # Double-pass claim strategy
+            "tavern_scan": (tavern_scan_flow, False),  # Legacy scan flow
             "bag_flow": (bag_flow, True),
             "union_gifts": (union_gifts_flow, False),
             "union_technology": (union_technology_flow, False),
@@ -930,7 +934,7 @@ class IconDaemon:
             "paused": self.paused,
             "active_flows": list(self.active_flows),
             "critical_flow": self.critical_flow_name,
-            "stamina": self.stamina_history[-1] if self.stamina_history else None,
+            "stamina": self.stamina_reader.history[-1] if self.stamina_reader.history else None,
             "idle_seconds": get_idle_seconds(),
             "arms_race": {
                 "event": arms_race.get("current"),
@@ -1061,6 +1065,7 @@ class IconDaemon:
                             self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}{mode_str}")
                             # Click the march button to open Union War panel
                             click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
+                            mark_daemon_action()
                             self.adb.tap(click_x, click_y)
                             self.last_rally_march_click = current_time
                             time.sleep(0.5)  # Brief wait for panel to start loading
@@ -1118,8 +1123,8 @@ class IconDaemon:
                 world_present = (view_state == "TOWN")
                 town_present = (view_state == "WORLD")
 
-                # Get idle time (Windows system-wide) - this is what we use for all checks
-                idle_secs = get_idle_seconds()
+                # Get idle time (filtered - ignores daemon clicks and BlueStacks noise)
+                idle_secs = get_user_idle_seconds()
                 idle_str = format_idle_time(idle_secs)
 
                 # Use Windows idle directly for all automation checks
@@ -1225,6 +1230,7 @@ class IconDaemon:
                         if help_ready_count >= min_required:
                             self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed ({help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {help_ready_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%) - requesting ally help")
                             click_x, click_y = self.hospital_matcher.get_click_position()
+                            mark_daemon_action()
                             self.adb.tap(click_x, click_y)
                             self.hospital_state_history = []
 
@@ -1232,6 +1238,7 @@ class IconDaemon:
                         elif healing_count >= min_required:
                             self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {healing_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
                             click_x, click_y = self.hospital_matcher.get_click_position()
+                            mark_daemon_action()
                             self.adb.tap(click_x, click_y)
                             time.sleep(2.5)  # Wait for panel to fully open
                             self._run_flow("healing", healing_flow)
@@ -1241,6 +1248,7 @@ class IconDaemon:
                         elif wounded_count >= min_required:
                             self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {wounded_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
                             click_x, click_y = self.hospital_matcher.get_click_position()
+                            mark_daemon_action()
                             self.adb.tap(click_x, click_y)
                             time.sleep(2.5)  # Wait for panel to fully open
                             self._run_flow("healing", healing_flow)
@@ -1311,6 +1319,7 @@ class IconDaemon:
                                 # Waited long enough, click Confirm
                                 confirm_pos = get_confirm_button_position()
                                 self.logger.info(f"[{iteration}] DISCONNECTION DIALOG: Waited {wait_elapsed:.0f}s, clicking Confirm at {confirm_pos}...")
+                                mark_daemon_action()
                                 self.adb.tap(*confirm_pos)
                                 self.disconnection_dialog_detected_time = None
                                 self.unknown_state_start = None
@@ -1335,6 +1344,7 @@ class IconDaemon:
                             ground_pos = find_safe_ground(frame, debug=self.debug)
                             if ground_pos:
                                 self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
+                                mark_daemon_action()
                                 self.adb.tap(*ground_pos)
                                 time.sleep(0.5)
                                 # Re-check view state
@@ -1389,24 +1399,9 @@ class IconDaemon:
                 # =================================================================
                 # UNIFIED STAMINA VALIDATION
                 # =================================================================
-                # ONE system for all stamina-based triggers (elite zombie, beast training, etc.)
-                # Requires 3 consecutive valid readings (0-200) with consistency (diff <= 20)
-                stamina_valid = stamina is not None and 0 <= stamina <= 200
-                if stamina_valid:
-                    # Check consistency with previous readings
-                    if self.stamina_history and abs(stamina - self.stamina_history[-1]) > 20:
-                        # Too much variance from last reading, reset
-                        self.stamina_history = [stamina]
-                    else:
-                        self.stamina_history.append(stamina)
-                        if len(self.stamina_history) > self.STAMINA_CONSECUTIVE_REQUIRED:
-                            self.stamina_history = self.stamina_history[-self.STAMINA_CONSECUTIVE_REQUIRED:]
-                else:
-                    self.stamina_history = []  # Reset on invalid reading
-
-                # stamina_confirmed: True if we have 3 consecutive valid, consistent readings
-                stamina_confirmed = len(self.stamina_history) >= self.STAMINA_CONSECUTIVE_REQUIRED
-                confirmed_stamina = self.stamina_history[-1] if stamina_confirmed else None
+                # Uses StaminaReader for MODE-based confirmation with consistency check
+                # Requires 3 consistent readings (max-min <= 10), returns MODE value
+                stamina_confirmed, confirmed_stamina = self.stamina_reader.add_reading(stamina)
 
                 # =================================================================
                 # PRE-BEAST TRAINING: Claim stamina + block elite rallies before event
@@ -1448,7 +1443,7 @@ class IconDaemon:
                     else:
                         self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
                         self._run_flow("elite_zombie", elite_zombie_flow, critical=True)
-                        self.stamina_history = []  # Reset after triggering
+                        self.stamina_reader.reset()  # Reset after triggering
 
                 # =================================================================
                 # ARMS RACE EVENT TRACKING
@@ -1532,7 +1527,7 @@ class IconDaemon:
                         rally_triggered = self._run_flow("beast_training", elite_zombie_flow, critical=True)
                         config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
                         self.beast_training_last_rally = current_time
-                        self.stamina_history = []  # Reset after triggering
+                        self.stamina_reader.reset()  # Reset after triggering
 
                     # STEP 3: Use Button - only AFTER rallies have burned stamina down to < 20
                     # Conditions: idle entire block, rally count < target, stamina < 20, Use clicks < 4, cooldown
@@ -1645,6 +1640,7 @@ class IconDaemon:
                                 for idx in ready_indices:
                                     click_x, click_y = get_barrack_click_position(idx)
                                     self.logger.info(f"[{iteration}] SOLDIER: Collecting from barrack {idx+1} at ({click_x}, {click_y})")
+                                    mark_daemon_action()
                                     self.adb.tap(click_x, click_y)
                                     time.sleep(0.5)
                                     # Clear history for this barrack after collecting
@@ -1660,6 +1656,7 @@ class IconDaemon:
                                 # Click to open this barrack's panel
                                 click_x, click_y = get_barrack_click_position(idx)
                                 self.logger.info(f"[{iteration}] SOLDIER: Clicking barrack {idx+1} at ({click_x}, {click_y})")
+                                mark_daemon_action()
                                 self.adb.tap(click_x, click_y)
                                 time.sleep(1.0)
 
@@ -1726,10 +1723,10 @@ class IconDaemon:
                     if self._run_flow("bag", bag_flow, critical=True):
                         self.scheduler.record_flow_run("bag_flow")
 
-                # Tavern scan: 5 min idle, 30 min cooldown (claims completed quests + updates schedule)
+                # Tavern quest: 5 min idle, 30 min cooldown (double-pass claim strategy)
                 if self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
-                    self.logger.info(f"[{iteration}] TAVERN SCAN: idle={idle_str}, triggering scan flow...")
-                    if self._run_flow("tavern_scan", tavern_scan_flow):
+                    self.logger.info(f"[{iteration}] TAVERN QUEST: idle={idle_str}, triggering quest flow (double-pass)...")
+                    if self._run_flow("tavern_quest", run_tavern_quest_flow):
                         self.scheduler.record_flow_run("tavern_scan")
 
                 # Gift box flow: requires WORLD view (town_present means we're in WORLD), 5 min idle, 1 hour cooldown

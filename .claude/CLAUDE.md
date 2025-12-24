@@ -340,9 +340,33 @@ ADB screenshots have different pixel values than Windows screenshots, causing te
 - **EasyOCR**: Slow (~5s per image), inaccurate on small UI text
 - **PaddleOCR**: Complex dependencies, mediocre accuracy
 - **Windows OCR API**: Can't handle decorative game fonts
-- **`utils/stamina_extractor.py`**: Old Tesseract-based extractor (deprecated)
+- **`deprecated/stamina_extractor.py`**: Old Tesseract-based extractor (moved to deprecated/)
 
 **Use instead**: `utils/qwen_ocr.py` - Qwen2.5-VL-3B vision model on GPU
+
+## Stamina Confirmation
+
+Use `utils/stamina_reader.py` for multi-read stamina validation:
+
+```python
+from utils.stamina_reader import StaminaReader
+
+reader = StaminaReader()
+
+# In daemon loop - add each OCR reading:
+confirmed, stamina = reader.add_reading(ocr_value)
+if confirmed:
+    # stamina is the MODE of 3 consistent readings
+    do_something_with_stamina(stamina)
+    reader.reset()  # Reset after triggering action
+```
+
+**Why this exists**: OCR occasionally misreads stamina (e.g., reads 23 when it's 5). Using the LAST value would trigger rallies incorrectly. StaminaReader:
+- Requires 3 readings
+- Checks consistency: max-min ≤ 10 (resets if too spread)
+- Returns MODE (most common value), not last value
+
+**Example**: With readings [5, 5, 23], returns (False, None) because max-min=18>10. With [23, 22, 23], returns (True, 23) because max-min=1≤10 and MODE=23
 
 **Why Qwen wins**: Vision-language models understand context, not just pixel patterns. They read stylized game text reliably without preprocessing.
 
@@ -777,6 +801,27 @@ RALLY_MONSTERS = [
 | Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` ✓ |
 | Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
 | Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3725, 1624) | `bag_flow` |
+| Snowman Party | Chat message | `snowman_chat_matcher.py` | N/A | `snowman_flow` (scaffolding) |
+
+### Snowman Party Flow (Scaffolding - Claim Step TBD)
+
+**Trigger**: "Snowman Party" chat message detected (not yet in daemon)
+
+**Flow sequence**:
+1. Detect "Snowman Party" yellow chat bubble (search-based, center of screen)
+2. Click chat message to navigate to snowman location
+3. Wait for snowman to appear, verify arrival (template matching)
+4. (PLACEHOLDER) Click claim bubble above snowman - template not yet extracted
+5. Return to base view
+
+**Templates**:
+- `snowman_party_chat_4k.png` - Yellow chat bubble (772x80, search center screen)
+- `snowman_4k.png` - Snowman character (254x212, search center screen)
+- `snowman_claim_bubble_4k.png` - TBD when user gets bubble
+
+**Matchers**:
+- `snowman_chat_matcher.py` - Search region X=1100-2800, full Y
+- `snowman_matcher.py` - Search region center screen
 
 ### Tavern Quest Flow (Not Yet Integrated)
 
@@ -784,23 +829,27 @@ RALLY_MONSTERS = [
 
 **Entry**: Click tavern button at (80, 1220) to open Tavern menu
 
+**Double-Pass Strategy**:
+After clicking any Claim button, the UI can get glitchy. To avoid missing claims:
+1. Click Claim → dismiss popup → exit tavern completely (return_to_base_view)
+2. Re-enter tavern and run the flow again
+3. Do this twice back-to-back to ensure nothing is missed
+
 **Tab Detection**:
 - Match `tavern_my_quests_active_4k.png` OR `tavern_ally_quests_active_4k.png` to verify in Tavern
 - Both tabs must be visible (one active, one inactive) for validation
 
-**My Quests Flow**:
-1. If not on My Quests tab, click (1654, 755) to switch
-2. Column-restricted Claim button search (X: 2100-2500, full Y scan)
-3. Click FIRST Claim button found
-4. Wait for congratulations popup
-5. Click back button (1407, 2055) to dismiss
-6. Loop back to re-detect remaining Claim buttons
-7. Scroll down if no Claim buttons found, rescan
-8. Stop after 2 consecutive scrolls with no claims
+**My Quests Flow** (per pass):
+1. Navigate to TOWN
+2. Click tavern button to open
+3. If not on My Quests tab, click (1654, 755) to switch
+4. Column-restricted Claim button search (X: 2100-2500, full Y scan)
+5. If Claim found: click it, dismiss popup, EXIT tavern (return_to_base_view)
+6. If no Claim: scroll down, rescan. Stop after 2 consecutive scrolls with no claims.
 
 **Ally Quests Flow**: TBD by user (more complex logic, not just clicking all Assist)
 
-**Cleanup**: `return_to_base_view()` at end
+**Cleanup**: `return_to_base_view()` after each pass
 
 **Templates**:
 - `tavern_button_4k.png` - Clipboard icon (position: 62,1192, click: 80,1220)
