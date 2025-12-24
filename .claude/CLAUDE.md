@@ -518,6 +518,20 @@ The daemon supports two idle detection modes, controlled by `USE_BLUESTACKS_IDLE
 
 The daemon logs both values: `idle:` (system-wide) and `bs:` (BlueStacks-specific).
 
+### Disconnection Dialog Handling
+
+When user opens the game on mobile, BlueStacks gets disconnected and shows a "Tip: Disconnected from the server. Error Code:7" dialog. The daemon handles this gracefully:
+
+1. **Detection**: Template matches full dialog (Tip header + message text)
+2. **5-minute wait**: Gives user time to manage things on mobile
+3. **Auto-dismiss**: Clicks Confirm after wait to reconnect automation
+
+**Templates**:
+- `disconnection_dialog_4k.png` - Full dialog for detection (980x350)
+- `confirm_button_4k.png` - Confirm button click position (1912, 1289)
+
+**Config**: `DISCONNECTION_WAIT_SECONDS = 300` (5 minutes, in icon_daemon.py)
+
 ### Idle Return-to-Town (Every 5 Iterations)
 
 When user is idle for 5+ minutes, every 5 daemon iterations (~10 seconds):

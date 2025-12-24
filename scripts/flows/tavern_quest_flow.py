@@ -820,8 +820,16 @@ def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=No
 
 def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict:
     """
-    Claim all completed quests and click Go for gold scroll quests.
-    Returns dict with claims and go_clicks counts.
+    Claim ONE completed quest OR click Go for gold scroll quests.
+
+    After clicking a Claim button, immediately exits (returns with claimed=True)
+    so the caller can restart the flow fresh. This avoids UI display glitches
+    that can cause missed claims.
+
+    Returns dict with:
+        - claims: number of claims made (0 or 1)
+        - go_clicks: number of Go clicks made
+        - claimed: True if a claim was made (caller should restart flow)
     """
     logger.info("Starting My Quests flow")
 
@@ -843,7 +851,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         in_tavern, active_tab = is_in_tavern(frame_gray)
         if not in_tavern:
             logger.warning("Not in Tavern! Aborting My Quests flow.")
-            return {"claims": total_claims, "go_clicks": total_go_clicks}
+            return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": total_claims > 0}
 
         # Check if My Quests tab is active
         if active_tab != "my_quests":
@@ -863,20 +871,21 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
 
         # Priority 1: Click Claim buttons first
         if claim_buttons:
-            no_action_count = 0
             x, y = claim_buttons[0]
             logger.info(f"Clicking Claim at ({x}, {y})")
             adb.tap(x, y)
             time.sleep(0.5)  # Wait for rewards popup to appear
             total_claims += 1
 
-            # Dismiss popup by polling until we see Tavern tabs again
-            logger.info("Waiting for popup to dismiss...")
-            if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
-                # Exited Tavern or couldn't dismiss - abort
-                logger.warning("Could not return to Tavern after claim, aborting")
-                return {"claims": total_claims, "go_clicks": total_go_clicks}
-            continue
+            # Dismiss popup by clicking back button
+            logger.info("Clicking back to dismiss popup...")
+            adb.tap(*BACK_BUTTON_CLICK)
+            time.sleep(0.5)
+
+            # EXIT IMMEDIATELY after claim - don't continue in same session
+            # UI can get glitchy after claiming, so we return and let caller restart
+            logger.info("Claim made - exiting flow for fresh restart")
+            return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True}
 
         # Priority 2: Click Go for gold scroll quests
         if gold_scroll_go_buttons:
@@ -896,7 +905,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
             else:
                 # Dialog not detected - might have navigated elsewhere
                 logger.warning("Bounty Quest dialog not detected after clicking Go")
-                return {"claims": total_claims, "go_clicks": total_go_clicks}
+                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
 
         # No actions found - scroll
         logger.info("No Claim or Gold Scroll Go buttons found, scrolling...")
@@ -907,13 +916,18 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         time.sleep(0.5)
 
     logger.info(f"My Quests flow complete. Claims: {total_claims}, Go clicks: {total_go_clicks}")
-    return {"claims": total_claims, "go_clicks": total_go_clicks}
+    return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
 
 
 def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = None, debug: bool = False) -> dict:
     """
-    Main tavern quest flow.
-    Assumes Tavern is already open.
+    Main tavern quest flow with double-pass strategy.
+
+    Opens tavern from TOWN, claims quests, and if any claim is made,
+    exits completely and re-runs the flow. This avoids UI display glitches
+    that can cause missed claims.
+
+    Does TWO passes back-to-back to ensure nothing is missed.
 
     Returns dict with claim counts and go clicks.
     """
@@ -922,25 +936,65 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
     if win is None:
         win = WindowsScreenshotHelper()
 
+    from utils.view_state_detector import go_to_town
+
     results = {
         "my_quests_claims": 0,
         "my_quests_go_clicks": 0,
         "ally_quests_claims": 0,
     }
 
-    # Run My Quests flow
-    my_quests_result = run_my_quests_flow(adb, win, debug)
-    results["my_quests_claims"] = my_quests_result["claims"]
-    results["my_quests_go_clicks"] = my_quests_result["go_clicks"]
+    TAVERN_BUTTON_CLICK = (80, 1220)
+    MAX_PASSES = 2  # Run flow twice back-to-back
+
+    for pass_num in range(1, MAX_PASSES + 1):
+        logger.info(f"=== TAVERN QUEST FLOW PASS {pass_num}/{MAX_PASSES} ===")
+
+        # Step 1: Navigate to TOWN
+        logger.info("Navigating to TOWN view")
+        if not go_to_town(adb, debug=debug):
+            logger.warning("Failed to navigate to TOWN! Aborting.")
+            return results
+
+        # Step 2: Click tavern button to open
+        logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
+        adb.tap(*TAVERN_BUTTON_CLICK)
+        time.sleep(1.5)  # Wait for tavern to open
+
+        # Step 3: Verify we're in Tavern
+        frame = win.get_screenshot_cv2()
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        in_tavern, active_tab = is_in_tavern(frame_gray)
+        if not in_tavern:
+            logger.warning("Not in Tavern after clicking button! Aborting pass.")
+            return_to_base_view(adb, win, debug=debug)
+            continue  # Try next pass
+
+        # Switch to My Quests if needed
+        if active_tab != "my_quests":
+            logger.info(f"Switching to My Quests tab (current: {active_tab})")
+            adb.tap(*MY_QUESTS_CLICK)
+            time.sleep(0.5)
+
+        # Step 4: Run My Quests flow
+        my_quests_result = run_my_quests_flow(adb, win, debug)
+        results["my_quests_claims"] += my_quests_result["claims"]
+        results["my_quests_go_clicks"] += my_quests_result["go_clicks"]
+
+        # Step 5: Exit tavern completely after this pass
+        logger.info(f"Pass {pass_num} complete - returning to base view")
+        return_to_base_view(adb, win, debug=debug)
+
+        # If a claim was made, the next pass will catch any remaining claims
+        if my_quests_result.get("claimed", False):
+            logger.info("Claim was made - next pass will verify nothing was missed")
 
     # Ally Quests flow - TBD by user
     # More complex logic, not just clicking all Assist buttons
     logger.info("Ally Quests flow not implemented yet (TBD)")
 
-    # Return to base view
-    logger.info("Returning to base view")
-    return_to_base_view(adb, win, debug=debug)
-
+    logger.info(f"=== TAVERN QUEST FLOW COMPLETE === Total claims: {results['my_quests_claims']}")
     return results
 
 
