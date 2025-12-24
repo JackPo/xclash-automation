@@ -69,6 +69,10 @@ from utils.return_to_base_view import return_to_base_view, _get_current_resoluti
 from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states, format_barracks_states_detailed
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
+from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
+
+# Disconnection dialog wait time (user playing on mobile)
+DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow
@@ -242,6 +246,9 @@ class IconDaemon:
         self.unknown_state_left_time = None  # When we left UNKNOWN (for hysteresis)
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
         self.UNKNOWN_HYSTERESIS = 10  # Seconds out of UNKNOWN before resetting timer
+
+        # Disconnection dialog tracking (user playing on mobile)
+        self.disconnection_dialog_detected_time = None  # When we first saw the dialog
 
         # Resolution check (proactive, not just on recovery)
         self.RESOLUTION_CHECK_INTERVAL = RESOLUTION_CHECK_INTERVAL
@@ -1282,13 +1289,45 @@ class IconDaemon:
                                 self.unknown_state_start = None
                                 self.unknown_state_left_time = None
 
-                # UNKNOWN state recovery - two-tier approach:
+                # UNKNOWN state recovery - three-tier approach:
+                # 0. Disconnection dialog (5min): User playing on mobile, wait before dismissing
                 # 1. Quick recovery (10s): Click safe ground tile to dismiss popup
                 # 2. Full recovery (180s): Run return_to_base_view if quick recovery fails
                 # CRITICAL: Skip recovery if ANY flow is active - flows control their own UI
                 if view_state == "UNKNOWN" and effective_idle_secs >= self.IDLE_THRESHOLD and not self.active_flows:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
+
+                        # Check for disconnection dialog (user playing on mobile)
+                        is_disconnected, disc_score = is_disconnection_dialog_visible(frame, debug=self.debug)
+                        if is_disconnected:
+                            # Track when we first saw the dialog
+                            if self.disconnection_dialog_detected_time is None:
+                                self.disconnection_dialog_detected_time = time.time()
+                                self.logger.info(f"[{iteration}] DISCONNECTION DIALOG: Detected! User may be on mobile. Waiting {DISCONNECTION_WAIT_SECONDS}s before dismissing...")
+
+                            wait_elapsed = time.time() - self.disconnection_dialog_detected_time
+                            if wait_elapsed >= DISCONNECTION_WAIT_SECONDS:
+                                # Waited long enough, click Confirm
+                                confirm_pos = get_confirm_button_position()
+                                self.logger.info(f"[{iteration}] DISCONNECTION DIALOG: Waited {wait_elapsed:.0f}s, clicking Confirm at {confirm_pos}...")
+                                self.adb.tap(*confirm_pos)
+                                self.disconnection_dialog_detected_time = None
+                                self.unknown_state_start = None
+                                self.unknown_state_left_time = None
+                                time.sleep(2)  # Wait for reconnect
+                                continue
+                            else:
+                                # Still waiting, skip normal recovery
+                                remaining = DISCONNECTION_WAIT_SECONDS - wait_elapsed
+                                if iteration % 10 == 0:  # Log every 10 iterations
+                                    self.logger.debug(f"[{iteration}] DISCONNECTION DIALOG: Waiting... {remaining:.0f}s remaining")
+                                continue
+                        else:
+                            # No disconnection dialog, reset timer if it was set
+                            if self.disconnection_dialog_detected_time is not None:
+                                self.logger.debug(f"[{iteration}] DISCONNECTION DIALOG: Dialog dismissed externally")
+                                self.disconnection_dialog_detected_time = None
 
                         # Quick recovery: After 10s in UNKNOWN, try clicking safe ground
                         if 10 <= unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
