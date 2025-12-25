@@ -1776,6 +1776,74 @@ class IconDaemon:
             time.sleep(self.interval)
 
 
+# ==============================================================================
+# PID Lock File - Prevents multiple daemon instances from running
+# ==============================================================================
+
+PID_FILE = Path(__file__).parent.parent / 'logs' / 'daemon.pid'
+
+
+def _is_process_running(pid: int) -> bool:
+    """Check if a process with given PID is running."""
+    import subprocess
+    try:
+        # On Windows, use tasklist to check if PID exists
+        result = subprocess.run(
+            ['tasklist', '/FI', f'PID eq {pid}', '/NH'],
+            capture_output=True, text=True, timeout=5
+        )
+        # tasklist returns "INFO: No tasks are running..." if not found
+        return str(pid) in result.stdout and 'No tasks' not in result.stdout
+    except Exception:
+        return False
+
+
+def acquire_daemon_lock() -> bool:
+    """
+    Acquire exclusive daemon lock. Returns True if acquired, False if another instance running.
+
+    Creates a PID file with current process ID. Before creating, checks if existing
+    PID file points to a running process - if so, refuses to start.
+    """
+    import os
+
+    # Ensure logs directory exists
+    PID_FILE.parent.mkdir(exist_ok=True)
+
+    if PID_FILE.exists():
+        try:
+            existing_pid = int(PID_FILE.read_text().strip())
+            if _is_process_running(existing_pid):
+                print(f"ERROR: Another daemon instance is already running (PID {existing_pid})")
+                print(f"       Kill it first with: taskkill /F /PID {existing_pid}")
+                print(f"       Or delete the lock file: {PID_FILE}")
+                return False
+            else:
+                print(f"Stale PID file found (PID {existing_pid} not running), removing...")
+                PID_FILE.unlink()
+        except (ValueError, OSError) as e:
+            print(f"Warning: Could not read PID file, removing: {e}")
+            try:
+                PID_FILE.unlink()
+            except OSError:
+                pass
+
+    # Write current PID
+    current_pid = os.getpid()
+    PID_FILE.write_text(str(current_pid))
+    print(f"Daemon lock acquired (PID {current_pid})")
+    return True
+
+
+def release_daemon_lock():
+    """Release the daemon lock by removing PID file."""
+    try:
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+    except OSError:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Icon auto-clicker daemon"
@@ -1791,8 +1859,33 @@ def main():
         action='store_true',
         help="Enable debug logging (logs all scores, not just detections)"
     )
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help="Force start: kill existing daemon instance if running"
+    )
 
     args = parser.parse_args()
+
+    # ============================================================
+    # CRITICAL: Acquire lock FIRST - prevents multiple instances
+    # ============================================================
+    if args.force:
+        # Force mode: kill existing daemon if running
+        if PID_FILE.exists():
+            try:
+                existing_pid = int(PID_FILE.read_text().strip())
+                if _is_process_running(existing_pid):
+                    print(f"Force mode: Killing existing daemon (PID {existing_pid})...")
+                    import subprocess
+                    subprocess.run(['taskkill', '/F', '/PID', str(existing_pid)], capture_output=True)
+                    time.sleep(1)  # Wait for process to die
+                PID_FILE.unlink()
+            except Exception as e:
+                print(f"Warning: Could not kill existing daemon: {e}")
+
+    if not acquire_daemon_lock():
+        sys.exit(1)
 
     # Redirect stdout to logs/current_daemon.log for easy access
     log_dir = Path(__file__).parent.parent / 'logs'
@@ -1829,6 +1922,7 @@ def main():
         except Exception:
             pass
         stdout_file.close()
+        release_daemon_lock()
         print("Stopped by user")
         sys.exit(0)
     except Exception as e:
@@ -1836,7 +1930,11 @@ def main():
         import traceback
         traceback.print_exc()
         stdout_file.close()
+        release_daemon_lock()
         sys.exit(1)
+    finally:
+        # Always release lock on exit
+        release_daemon_lock()
 
 
 if __name__ == "__main__":
