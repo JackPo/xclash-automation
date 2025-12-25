@@ -1145,6 +1145,18 @@ class IconDaemon:
                 # Get barracks states
                 barracks_state_str = format_barracks_states(frame)
 
+                # Update barracks history EVERY iteration during Soldier Training/VS day
+                # This allows history to build up BEFORE idle threshold is met
+                is_soldier_event_active = arms_race_event == "Soldier Training"
+                is_vs_promo_day = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
+                if view_state == "TOWN" and (is_soldier_event_active or is_vs_promo_day):
+                    from utils.barracks_state_matcher import BarrackState
+                    states = self.barracks_matcher.get_all_states(frame)
+                    for i, (state, _) in enumerate(states):
+                        self.barracks_state_history[i].append(state)
+                        if len(self.barracks_state_history[i]) > self.BARRACKS_CONSECUTIVE_REQUIRED:
+                            self.barracks_state_history[i].pop(0)
+
                 # Check if VS promotion day is active (for logging)
                 vs_promo_active = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 vs_indicator = " [VS:Promo]" if vs_promo_active else ""
@@ -1583,17 +1595,8 @@ class IconDaemon:
                     trigger_reason = "VS Day" if is_vs_promotion_day and not is_soldier_event else "Soldier Training event"
                     self.logger.debug(f"[{iteration}] SOLDIER: Outer conditions PASS (reason={trigger_reason}, day={arms_race['day']}, event={arms_race_event}, idle={idle_secs}s)")
 
-                    # Get current barracks states and update history
-                    from utils.barracks_state_matcher import BarrackState
-                    states = self.barracks_matcher.get_all_states(frame)
-
-                    # Update per-barrack state history
-                    for i, (state, _) in enumerate(states):
-                        self.barracks_state_history[i].append(state)
-                        if len(self.barracks_state_history[i]) > self.BARRACKS_CONSECUTIVE_REQUIRED:
-                            self.barracks_state_history[i].pop(0)
-
-                    # Validate each barrack with 60% rule (allows ? mixed with consistent letter)
+                    # History is already updated every iteration above (lines 1148-1158)
+                    # Just validate with 60% rule (allows ? mixed with consistent letter)
                     validated_states = []
                     for i in range(4):
                         is_valid, dominant_state, ratio = self._validate_barrack_state(i)
