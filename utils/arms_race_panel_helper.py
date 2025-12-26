@@ -84,7 +84,8 @@ def is_arms_race_icon_visible(frame: np.ndarray, use_active: bool = False) -> tu
     """
     Check if Arms Race icon is visible anywhere in the bottom bar.
 
-    Searches full X-axis at the Y range where icons appear.
+    Searches full X-axis at fixed Y range where icons appear (Y is constant,
+    only X varies due to scrolling).
 
     Args:
         frame: BGR screenshot
@@ -109,14 +110,19 @@ def is_arms_race_icon_visible(frame: np.ndarray, use_active: bool = False) -> tu
     else:
         frame_gray = frame
 
-    # Search full screen (icon may be at different positions)
+    # Extract horizontal strip at fixed Y (bottom bar) - only X varies
+    # Y range: 1935 to 1935+219 = 2154
+    strip_y_start = ARMS_RACE_ICON_Y
+    strip_y_end = ARMS_RACE_ICON_Y + ARMS_RACE_ICON_H
+    strip = frame_gray[strip_y_start:strip_y_end, :]
+
     try:
-        result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
+        result = cv2.matchTemplate(strip, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
-        # Calculate click center
+        # Calculate click center (add back the Y offset)
         click_x = min_loc[0] + template.shape[1] // 2
-        click_y = min_loc[1] + template.shape[0] // 2
+        click_y = strip_y_start + template.shape[0] // 2
 
         threshold = 0.05
         return min_val <= threshold, min_val, (click_x, click_y)
