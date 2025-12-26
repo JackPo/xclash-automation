@@ -1,33 +1,45 @@
 """
-Hero Upgrade Arms Race flow - Check hero tiles for red notification dots and upgrade available heroes.
+Hero Upgrade Arms Race flow - Check progress and upgrade heroes if needed.
 
-Triggered during Arms Race "Enhance Hero" event in the last N minutes (configurable),
-if user was idle since the START of the Enhance Hero block.
+Triggered during Arms Race "Enhance Hero" event in the last 10 minutes.
+NO idle requirement - we check real-time points data instead of guessing.
 
 Flow sequence:
-1. Click Fing Hero button at (2272, 2038)
-2. Wait for hero grid to load
-3. Scan 3x4 grid of hero tiles for red notification dots
-4. For each tile with red dot:
-   a. Click tile
-   b. Check if upgrade button is available (green) or unavailable (gray)
-   c. If available: click upgrade
-   d. Click back to return to hero grid
-5. Click back to exit hero grid
+1. Click Events button to open Arms Race panel
+2. OCR current points
+3. If points >= chest3 (12000): close panel, return to town, DONE
+4. If points < chest3: close panel, proceed with upgrades:
+   a. Click Fing Hero button
+   b. Scan hero grid for red notification dots
+   c. For each tile with red dot: check and upgrade if available
+5. Return to base view
 
 Templates:
-- Fing Hero button: templates/ground_truth/heroes_button_4k.png (123x177 at 2211,1950)
+- Events button: templates/ground_truth/events_icon_4k.png (click: 3718, 642)
+- Fing Hero button: templates/ground_truth/heroes_button_4k.png (click: 2272, 2038)
 - Upgrade available: templates/ground_truth/upgrade_button_available_4k.png
 - Upgrade unavailable: templates/ground_truth/upgrade_button_unavailable_4k.png
 """
 
 import time
+import logging
+import subprocess
 
 from config import ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.hero_tile_detector import detect_tiles_with_red_dots
 from utils.upgrade_button_matcher import UpgradeButtonMatcher
 from utils.return_to_base_view import return_to_base_view
+from utils.ocr_client import OCRClient
+from utils.arms_race import get_event_metadata
+
+logger = logging.getLogger(__name__)
+
+# Events button position (right side of screen, opens Arms Race panel)
+EVENTS_BUTTON_CLICK = (3718, 632)
+
+# Arms Race current points OCR region (same for all events)
+CURRENT_POINTS_REGION = (1466, 693, 135, 50)
 
 # Fing Hero button position
 FING_HERO_BUTTON_CLICK = (2272, 2038)
@@ -35,10 +47,97 @@ FING_HERO_BUTTON_CLICK = (2272, 2038)
 # Back button position (for returning to hero grid after checking a hero)
 BACK_BUTTON_CLICK = (1407, 2055)
 
+# Get chest3 threshold from metadata JSON
+def _get_chest3_threshold() -> int:
+    """Get chest3 threshold from Arms Race metadata JSON."""
+    meta = get_event_metadata("Enhance Hero")
+    return meta["chest3"]
+
+# ADB path for hardware back button
+ADB_PATH = "C:/Program Files/BlueStacks_nxt/hd-adb.exe"
+
+
+def _press_hardware_back():
+    """Press Android hardware back button to close panels that don't have visible back buttons."""
+    try:
+        subprocess.run([ADB_PATH, '-s', 'emulator-5554', 'shell', 'input', 'keyevent', 'KEYCODE_BACK'],
+                      capture_output=True, timeout=5)
+        time.sleep(0.5)
+    except Exception as e:
+        logger.warning(f"Hardware back failed: {e}")
+
+
+def check_enhance_hero_progress(adb, win) -> dict:
+    """
+    Open Events panel and check current Enhance Hero points.
+
+    Returns:
+        {
+            "success": bool,
+            "current_points": int or None,
+            "chest3_reached": bool,
+        }
+    """
+    result = {
+        "success": False,
+        "current_points": None,
+        "chest3_reached": False,
+    }
+
+    try:
+        # Click Events button
+        logger.info(f"Opening Events panel at {EVENTS_BUTTON_CLICK}")
+        adb.tap(*EVENTS_BUTTON_CLICK)
+        time.sleep(1.5)
+
+        # Take screenshot and OCR current points
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            logger.error("Failed to get screenshot")
+            return result
+
+        x, y, w, h = CURRENT_POINTS_REGION
+        roi = frame[y:y+h, x:x+w]
+
+        ocr = OCRClient()
+        points_text = ocr.extract_text(roi)
+
+        if points_text:
+            # Parse the number
+            points_text = points_text.strip().replace(",", "").replace(" ", "")
+            try:
+                current_points = int(points_text)
+                result["current_points"] = current_points
+                chest3 = _get_chest3_threshold()
+                result["chest3_reached"] = current_points >= chest3
+                result["success"] = True
+                logger.info(f"Current points: {current_points}/{chest3}, chest3_reached: {result['chest3_reached']}")
+            except ValueError:
+                logger.warning(f"Failed to parse points: {points_text}")
+        else:
+            logger.warning("OCR returned empty text")
+
+        # Close Events panel (click back or tap outside)
+        adb.tap(*BACK_BUTTON_CLICK)
+        time.sleep(0.5)
+
+    except Exception as e:
+        logger.error(f"Error checking progress: {e}")
+        # Try to close panel
+        try:
+            adb.tap(*BACK_BUTTON_CLICK)
+        except:
+            pass
+
+    return result
+
 
 def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
     """
-    Complete Hero Upgrade Arms Race flow: open heroes -> find tiles with red dots -> upgrade if available.
+    Smart Hero Upgrade Arms Race flow:
+    1. Check current points from Events panel
+    2. If chest3 reached: exit early
+    3. If not: proceed with hero upgrades
 
     Args:
         adb: ADBHelper instance
@@ -50,48 +149,66 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     upgrade_matcher = UpgradeButtonMatcher()
 
-    # Step 1: Click Fing Hero button
-    print(f"    [HERO_UPGRADE] Step 1: Clicking Fing Hero button at {FING_HERO_BUTTON_CLICK}")
+    # Step 1: Check current progress
+    logger.info("Step 1: Checking Enhance Hero progress...")
+    progress = check_enhance_hero_progress(adb, win)
+
+    chest3 = _get_chest3_threshold()
+
+    if progress["success"] and progress["chest3_reached"]:
+        logger.info(f"Chest3 already reached ({progress['current_points']}/{chest3}). Skipping upgrades.")
+        _press_hardware_back()  # Close any open panel
+        return_to_base_view(adb, win, debug=False)
+        return True
+
+    if progress["success"]:
+        logger.info(f"Progress: {progress['current_points']}/{chest3}. Proceeding with upgrades...")
+    else:
+        logger.warning("Failed to check progress, proceeding with upgrades anyway...")
+
+    # Step 2: Click Fing Hero button
+    logger.info(f"Step 2: Clicking Fing Hero button at {FING_HERO_BUTTON_CLICK}")
     adb.tap(*FING_HERO_BUTTON_CLICK)
 
-    # Step 2: Wait for hero grid to load
+    # Step 3: Wait for hero grid to load
     time.sleep(1.5)
 
-    # Step 3: Take screenshot and detect tiles with red dots
-    print("    [HERO_UPGRADE] Step 2: Scanning hero grid for red dots...")
+    # Step 4: Take screenshot and detect tiles with red dots
+    logger.info("Step 3: Scanning hero grid for red dots...")
     frame = win.get_screenshot_cv2()
     if frame is None:
-        print("    [HERO_UPGRADE] Failed to get screenshot")
+        logger.error("Failed to get screenshot")
         return False
 
     tiles_with_dots = detect_tiles_with_red_dots(frame, debug=True)
 
     if not tiles_with_dots:
-        print("    [HERO_UPGRADE] No tiles with red dots found")
-        # Still click back to exit hero grid
-        adb.tap(*BACK_BUTTON_CLICK)
+        logger.info("No tiles with red dots found")
+        # Close hero panel with hardware back (no visible close button)
+        _press_hardware_back()
+        return_to_base_view(adb, win, debug=False)
         return True
 
-    print(f"    [HERO_UPGRADE] Found {len(tiles_with_dots)} tiles with red dots")
+    logger.info(f"Found {len(tiles_with_dots)} tiles with red dots")
 
     upgrades_done = 0
 
-    # Step 4: Process each tile with red dot
+    # Step 5: Process each tile with red dot
     for i, tile in enumerate(tiles_with_dots):
         tile_name = tile['name']
         click_pos = tile['click']
 
-        print(f"    [HERO_UPGRADE] Step 3.{i+1}: Processing tile {tile_name}")
+        logger.info(f"Step 4.{i+1}: Processing tile {tile_name}")
 
         # Click the tile
-        print(f"    [HERO_UPGRADE]   Clicking tile at {click_pos}")
+        logger.debug(f"Clicking tile at {click_pos}")
         adb.tap(*click_pos)
         time.sleep(1.0)
 
         # Take screenshot and check upgrade button
         frame = win.get_screenshot_cv2()
         if frame is None:
-            print("    [HERO_UPGRADE]   Failed to get screenshot")
+            logger.error("Failed to get screenshot")
             adb.tap(*BACK_BUTTON_CLICK)
             time.sleep(0.5)
             continue
@@ -101,36 +218,38 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
         if is_available:
             # Click upgrade button
             upgrade_click = upgrade_matcher.get_click_position()
-            print(f"    [HERO_UPGRADE]   Upgrade AVAILABLE! Clicking at {upgrade_click}")
+            logger.info(f"Upgrade AVAILABLE! Clicking at {upgrade_click}")
             adb.tap(*upgrade_click)
             time.sleep(0.5)
             upgrades_done += 1
 
             # Check if we've hit the max upgrades
             if upgrades_done >= ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES:
-                print(f"    [HERO_UPGRADE]   Reached max upgrades ({ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES}) - returning to base view...")
-                return_to_base_view(adb, win, debug=True)
-                print(f"    [HERO_UPGRADE] Flow complete - {upgrades_done} upgrade(s) performed")
+                logger.info(f"Reached max upgrades ({ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES})")
+                _press_hardware_back()  # Close hero panel
+                return_to_base_view(adb, win, debug=False)
+                logger.info(f"Flow complete - {upgrades_done} upgrade(s) performed")
                 return True
 
             # More upgrades allowed, click back to continue
-            print(f"    [HERO_UPGRADE]   Upgrade {upgrades_done}/{ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES} done, clicking back for more...")
+            logger.info(f"Upgrade {upgrades_done}/{ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES} done, continuing...")
             adb.tap(*BACK_BUTTON_CLICK)
             time.sleep(0.5)
         else:
-            print(f"    [HERO_UPGRADE]   Upgrade not available (scores: avail={avail_score:.3f}, unavail={unavail_score:.3f})")
+            logger.debug(f"Upgrade not available (avail={avail_score:.3f}, unavail={unavail_score:.3f})")
 
         # Click back to return to hero grid
-        print(f"    [HERO_UPGRADE]   Clicking back to return to grid")
+        logger.debug("Clicking back to return to grid")
         adb.tap(*BACK_BUTTON_CLICK)
         time.sleep(0.5)
 
         # Re-take screenshot for next iteration (grid may have changed)
         frame = win.get_screenshot_cv2()
 
-    # Step 5: Exit hero grid and return to base view
-    print(f"    [HERO_UPGRADE] Step 4: Returning to base view...")
-    return_to_base_view(adb, win, debug=True)
+    # Step 6: Exit hero grid and return to base view
+    logger.info("Step 5: Returning to base view...")
+    _press_hardware_back()  # Close hero panel (no visible close button)
+    return_to_base_view(adb, win, debug=False)
 
-    print(f"    [HERO_UPGRADE] Flow complete - {upgrades_done} upgrades performed")
+    logger.info(f"Flow complete - {upgrades_done} upgrades performed")
     return True
