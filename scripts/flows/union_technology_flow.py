@@ -75,7 +75,7 @@ MIN_DISTANCE_BETWEEN_MATCHES = 50  # Pixels, to avoid duplicate detections
 # Timing constants
 CLICK_DELAY = 0.5
 SCREEN_TRANSITION_DELAY = 1.5
-LONG_PRESS_DURATION = 1500  # 1.5 seconds in milliseconds
+LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
 
 # Load templates once
 _header_template = None
@@ -295,8 +295,8 @@ def union_technology_flow(adb) -> bool:
     if not is_dialog_visible:
         _log("WARNING: Donate dialog not detected, trying to click anyway")
 
-    # Step 7: Long press on donate button (1 second hold)
-    _log(f"Step 7: Long pressing donate button at {DONATE_BUTTON_CLICK} for 1 second")
+    # Step 7: Long press on donate button (3 second hold)
+    _log(f"Step 7: Long pressing donate button at {DONATE_BUTTON_CLICK} for 3 seconds")
     x, y = DONATE_BUTTON_CLICK
     adb.swipe(x, y, x, y, duration=LONG_PRESS_DURATION)
     time.sleep(CLICK_DELAY)

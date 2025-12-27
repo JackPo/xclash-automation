@@ -1,15 +1,12 @@
 """
 Hospital Panel Slider Helper - Multi-row slider control for Hospital healing panel.
 
-Adapts the proven soldier_panel_slider.py pattern for multiple rows.
-Each row has its own Y position but same X range for slider.
-
-The hospital panel has multiple soldier type rows, each with:
-- Slider circle that moves along X axis
-- Same X range for all rows (MIN to MAX)
-- Different Y position per row
-
-Uses same template: slider_circle_4k.png
+Pattern (same as soldier_panel_slider but with dynamic row detection):
+1. Detect plus button to find row position (plus_x, plus_y)
+2. Calculate slider_y = plus_y + SLIDER_Y_OFFSET (fixed offset)
+3. Calculate slider X range relative to plus button
+4. Find slider circle X position
+5. Swipe from (circle_x, slider_y) to (target_x, slider_y)
 """
 
 import cv2
@@ -17,30 +14,38 @@ import re
 import time
 from pathlib import Path
 
-# Template path (same as soldier_panel_slider)
-TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "ground_truth" / "slider_circle_4k.png"
-PLUS_TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "ground_truth" / "plus_button_4k.png"
+# Template paths - Hospital uses SCALED (0.8x) versions of button templates
+TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
+SLIDER_TEMPLATE_PATH = TEMPLATE_DIR / "hospital_slider_circle_4k.png"
+PLUS_TEMPLATE_PATH = TEMPLATE_DIR / "hospital_plus_button_4k.png"
 
-# Slider X range (same for all rows)
-# When at MIN, circle is at left end of green bar (~1720)
-# When at MAX, circle is at right end of green bar (~2180)
-SLIDER_MIN_X = 1720   # Circle center at MIN (leftmost)
-SLIDER_MAX_X = 2180   # Circle center at MAX (rightmost)
+# FIXED OFFSETS relative to plus button position
+# Hospital: Plus at (2258, 698), Minus at (1617, 698) - SAME Y level
+SLIDER_Y_OFFSET = 0        # Slider Y is SAME as plus button Y (both at 698)
+MINUS_X_OFFSET = -641      # Minus is 641 pixels LEFT of plus (2258 - 1617 = 641)
 
-# Search X range for template matching
-# Use full range but require X >= SLIDER_MIN_X to filter false matches
-SEARCH_X_START = 1700  # Just before MIN to catch edge cases
-SEARCH_X_END = 2220
+# Slider X range - padding from button CENTERS to get onto slider bar
+# Minus button is ~80px wide, plus button is ~77px wide (scaled templates)
+SLIDER_MIN_PADDING = 60    # From minus center to slider bar start
+SLIDER_MAX_PADDING = 60    # From plus center to slider bar end
 
-# Plus button search region (to find rows)
-PLUS_SEARCH_X_START = 2200
-PLUS_SEARCH_X_END = 2350
+# Panel search region (Y range for finding plus buttons - excludes Healing button)
 PANEL_Y_START = 550
-PANEL_Y_END = 1250
+PANEL_Y_END = 800
+PANEL_X_START = 1500
+PANEL_X_END = 2400
 
 # Healing button
 HEALING_BUTTON_CLICK = (2148, 1477)
 HEALING_TIME_REGION = (1966, 1404, 364, 146)  # x, y, w, h
+
+# Safety limits
+MAX_SAFE_HEAL_SECONDS = 5400  # 90 minutes
+
+# Scroll region
+SCROLL_CENTER_X = 1920
+SCROLL_TOP_Y = 700
+SCROLL_BOTTOM_Y = 1100
 
 # Template caches
 _slider_template = None
@@ -48,262 +53,247 @@ _plus_template = None
 
 
 def _get_slider_template():
-    """Load and cache slider circle template."""
     global _slider_template
     if _slider_template is None:
-        _slider_template = cv2.imread(str(TEMPLATE_PATH), cv2.IMREAD_GRAYSCALE)
+        _slider_template = cv2.imread(str(SLIDER_TEMPLATE_PATH), cv2.IMREAD_GRAYSCALE)
     return _slider_template
 
 
 def _get_plus_template():
-    """Load and cache plus button template."""
     global _plus_template
     if _plus_template is None:
         _plus_template = cv2.imread(str(PLUS_TEMPLATE_PATH), cv2.IMREAD_GRAYSCALE)
     return _plus_template
 
 
-def find_soldier_rows(frame, debug=False):
+def find_plus_buttons(frame, debug=False):
     """
-    Find all row Y positions by detecting plus buttons.
+    Find all plus button positions in the hospital panel.
 
-    Args:
-        frame: BGR screenshot (4K)
-        debug: Enable debug output
-
-    Returns:
-        List of Y positions sorted top to bottom
+    Returns list of (plus_x, plus_y, score) for each row found.
     """
-    template = _get_plus_template()
-    if template is None:
+    plus_template = _get_plus_template()
+    if plus_template is None:
         if debug:
             print("  ERROR: Could not load plus button template")
         return []
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    h, w = template.shape[:2]
+    h, w = plus_template.shape
 
-    # Search in plus button region
-    search_region = gray[PANEL_Y_START:PANEL_Y_END, PLUS_SEARCH_X_START:PLUS_SEARCH_X_END]
-    result = cv2.matchTemplate(search_region, template, cv2.TM_SQDIFF_NORMED)
+    # Search in panel region
+    search_region = gray[PANEL_Y_START:PANEL_Y_END, PANEL_X_START:PANEL_X_END]
+    result = cv2.matchTemplate(search_region, plus_template, cv2.TM_SQDIFF_NORMED)
 
-    threshold = 0.05
-    rows = []
+    threshold = 0.02  # Strict threshold to filter false positives
+    buttons = []
 
-    # Scan each Y line for best match
+    # Scan for matches
     for y in range(result.shape[0]):
         min_x = result[y].argmin()
         min_val = result[y, min_x]
         if min_val < threshold:
+            full_x = PANEL_X_START + min_x + w // 2
             full_y = PANEL_Y_START + y + h // 2
 
             # Deduplicate within 80px Y
             is_dup = False
-            for ry, rs in rows:
-                if abs(ry - full_y) < 80:
-                    if min_val < rs:
-                        rows.remove((ry, rs))
-                    else:
-                        is_dup = True
+            for i, (bx, by, bs) in enumerate(buttons):
+                if abs(by - full_y) < 80:
+                    if min_val < bs:
+                        buttons[i] = (full_x, full_y, min_val)
+                    is_dup = True
                     break
             if not is_dup:
-                rows.append((full_y, min_val))
+                buttons.append((full_x, full_y, min_val))
 
-    rows.sort(key=lambda r: r[0])
-    result_y = [r[0] for r in rows]
+    buttons.sort(key=lambda b: b[1])  # Sort by Y
 
     if debug:
-        print(f"  Found {len(result_y)} soldier rows at Y: {result_y}")
+        print(f"  Found {len(buttons)} plus buttons:")
+        for i, (x, y, s) in enumerate(buttons):
+            print(f"    Row {i+1}: plus at ({x}, {y}), score={s:.4f}")
 
-    return result_y
+    return buttons
 
 
-def find_slider_circle_at_y(frame, row_y, debug=False):
+def find_slider_circle(frame, plus_x, plus_y, debug=False):
     """
-    Find slider circle X position at a specific row Y.
-
-    Follows same pattern as soldier_panel_slider.find_slider_circle()
-    but with parameterized Y.
+    Find slider circle X position for a row.
 
     Args:
-        frame: BGR screenshot (4K)
-        row_y: Y position of the row
-        debug: Enable debug output
+        frame: BGR screenshot
+        plus_x: X position of the plus button (to constrain search)
+        plus_y: Y position of the plus button for this row
 
     Returns:
-        (x, score) tuple, or (None, score) if not found
+        (circle_x, score) or (None, score) if not found
     """
     template = _get_slider_template()
     if template is None:
         return None, 1.0
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
-    h, w = template.shape[:2]
+    h, w = template.shape
 
-    # Search band around row_y
-    y_start = row_y - 50
-    y_end = row_y + 50
+    # Calculate slider Y from plus button Y
+    slider_y = plus_y + SLIDER_Y_OFFSET
 
-    search_region = gray[y_start:y_end, SEARCH_X_START:SEARCH_X_END]
+    # Search ONLY between minus and plus buttons (not full panel width)
+    x_start = plus_x + MINUS_X_OFFSET - 50  # A bit left of minus button
+    x_end = plus_x + 50                      # A bit right of plus button
+    y_start = slider_y - 50
+    y_end = slider_y + 50
+
+    search_region = gray[y_start:y_end, x_start:x_end]
     result = cv2.matchTemplate(search_region, template, cv2.TM_SQDIFF_NORMED)
     min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
-    x = SEARCH_X_START + min_loc[0] + w // 2
+    circle_x = x_start + min_loc[0] + w // 2
 
-    # Validate: X must be within valid slider range
-    # This filters out false matches with minus button (X ~1679)
-    if min_val < 0.1 and x >= SLIDER_MIN_X - 20:
+    if min_val < 0.1:
         if debug:
-            print(f"  Row Y={row_y}: slider at X={x}, score={min_val:.4f}")
-        return x, min_val
+            print(f"  Slider circle at X={circle_x}, score={min_val:.4f}")
+        return circle_x, min_val
 
     if debug:
-        print(f"  Row Y={row_y}: slider not found (x={x}, score={min_val:.4f})")
+        print(f"  Slider circle not found (score={min_val:.4f})")
     return None, min_val
 
 
-def drag_slider_to_min_at_y(adb, frame, row_y, debug=False):
+def get_slider_y(plus_y):
+    """Get the slider Y coordinate for a row given its plus button Y."""
+    return plus_y + SLIDER_Y_OFFSET
+
+
+def get_slider_min_x(plus_x):
+    """Get the slider minimum X (leftmost position) for a row."""
+    return plus_x + MINUS_X_OFFSET + SLIDER_MIN_PADDING
+
+
+def get_slider_max_x(plus_x):
+    """Get the slider maximum X (rightmost position) for a row."""
+    return plus_x - SLIDER_MAX_PADDING
+
+
+def drag_slider_to_min(adb, frame, plus_x, plus_y, debug=False):
     """
-    Drag slider at row_y to minimum (leftmost) position.
+    Drag slider to minimum (leftmost) position.
 
     Args:
         adb: ADBHelper
         frame: BGR screenshot
-        row_y: Y position of the row
-        debug: Enable debug output
+        plus_x, plus_y: Plus button position for this row
 
     Returns:
         bool: True if successful
     """
-    circle_x, score = find_slider_circle_at_y(frame, row_y, debug=False)
+    circle_x, score = find_slider_circle(frame, plus_x, plus_y, debug=False)
     if circle_x is None:
         if debug:
-            print(f"  Row Y={row_y}: slider not found (score={score:.4f})")
+            print(f"  Slider not found (score={score:.4f})")
         return False
 
-    if debug:
-        print(f"  Row Y={row_y}: dragging from X={circle_x} to min X={SLIDER_MIN_X}")
+    slider_y = get_slider_y(plus_y)
+    target_x = get_slider_min_x(plus_x)
 
-    adb.swipe(circle_x, row_y, SLIDER_MIN_X, row_y, duration=500)
+    if debug:
+        print(f"  Dragging from ({circle_x}, {slider_y}) to ({target_x}, {slider_y})")
+
+    adb.swipe(circle_x, slider_y, target_x, slider_y, duration=500)
     return True
 
 
-def drag_slider_to_max_at_y(adb, frame, row_y, debug=False):
+def drag_slider_to_max(adb, frame, plus_x, plus_y, debug=False):
     """
-    Drag slider at row_y to maximum (rightmost) position.
-
-    Args:
-        adb: ADBHelper
-        frame: BGR screenshot
-        row_y: Y position of the row
-        debug: Enable debug output
-
-    Returns:
-        bool: True if successful
+    Drag slider to maximum (rightmost) position.
     """
-    circle_x, score = find_slider_circle_at_y(frame, row_y, debug=False)
+    circle_x, score = find_slider_circle(frame, plus_x, plus_y, debug=False)
     if circle_x is None:
         if debug:
-            print(f"  Row Y={row_y}: slider not found (score={score:.4f})")
+            print(f"  Slider not found (score={score:.4f})")
         return False
 
-    if debug:
-        print(f"  Row Y={row_y}: dragging from X={circle_x} to max X={SLIDER_MAX_X}")
+    slider_y = get_slider_y(plus_y)
+    target_x = get_slider_max_x(plus_x)
 
-    adb.swipe(circle_x, row_y, SLIDER_MAX_X, row_y, duration=500)
+    if debug:
+        print(f"  Dragging from ({circle_x}, {slider_y}) to ({target_x}, {slider_y})")
+
+    adb.swipe(circle_x, slider_y, target_x, slider_y, duration=500)
     return True
 
 
-def drag_slider_to_position_at_y(adb, frame, row_y, target_x, debug=False):
+def drag_slider_to_position(adb, frame, plus_x, plus_y, target_x, debug=False):
     """
-    Drag slider at row_y to a specific X position.
-
-    Args:
-        adb: ADBHelper
-        frame: BGR screenshot
-        row_y: Y position of the row
-        target_x: Target X coordinate
-        debug: Enable debug output
-
-    Returns:
-        bool: True if successful
+    Drag slider to a specific X position.
     """
-    circle_x, score = find_slider_circle_at_y(frame, row_y, debug=False)
+    circle_x, score = find_slider_circle(frame, plus_x, plus_y, debug=False)
     if circle_x is None:
         if debug:
-            print(f"  Row Y={row_y}: slider not found (score={score:.4f})")
+            print(f"  Slider not found (score={score:.4f})")
         return False
 
-    if debug:
-        print(f"  Row Y={row_y}: dragging from X={circle_x} to X={target_x}")
+    slider_y = get_slider_y(plus_y)
 
-    adb.swipe(circle_x, row_y, target_x, row_y, duration=500)
+    if debug:
+        print(f"  Dragging from ({circle_x}, {slider_y}) to ({target_x}, {slider_y})")
+
+    adb.swipe(circle_x, slider_y, target_x, slider_y, duration=500)
     return True
 
 
-def calculate_slider_x(ratio):
+def calculate_slider_x(plus_x, ratio):
     """
     Calculate slider X position for a given ratio.
 
     Args:
+        plus_x: Plus button X position
         ratio: 0.0 (min) to 1.0 (max)
 
     Returns:
         X coordinate
     """
     ratio = max(0.0, min(1.0, ratio))
-    return SLIDER_MIN_X + int(ratio * (SLIDER_MAX_X - SLIDER_MIN_X))
+    min_x = get_slider_min_x(plus_x)
+    max_x = get_slider_max_x(plus_x)
+    return min_x + int(ratio * (max_x - min_x))
 
 
-def reset_all_sliders(adb, win, rows, debug=False):
+def reset_all_sliders(adb, win, buttons, debug=False):
     """
-    Reset all sliders to minimum (zero soldiers selected).
+    Reset all sliders to minimum.
 
     Args:
         adb: ADBHelper
         win: WindowsScreenshotHelper
-        rows: List of row Y positions
-        debug: Enable debug output
+        buttons: List of (plus_x, plus_y, score) from find_plus_buttons
     """
     if debug:
-        print(f"  Resetting {len(rows)} sliders to minimum...")
+        print(f"  Resetting {len(buttons)} sliders to minimum...")
 
-    for row_y in rows:
+    for plus_x, plus_y, _ in buttons:
         frame = win.get_screenshot_cv2()
-        drag_slider_to_min_at_y(adb, frame, row_y, debug=debug)
+        drag_slider_to_min(adb, frame, plus_x, plus_y, debug=debug)
         time.sleep(0.5)
 
 
+# === OCR and Healing Functions ===
+
 def parse_healing_time(text):
-    """
-    Parse healing time text to total seconds.
-
-    Formats:
-    - "1d 02:34:52" -> 1 day + 2h 34m 52s
-    - "02:34:52" -> 2h 34m 52s
-    - "34:52" -> 34m 52s
-
-    Returns:
-        Total seconds, or 0 if parsing fails
-    """
+    """Parse healing time text to total seconds."""
     if not text:
         return 0
 
-    # Remove emoji and extra text
     text = re.sub(r'[^\d:d ]', '', text.lower()).strip()
 
-    days = 0
-    hours = 0
-    minutes = 0
-    seconds = 0
+    days = hours = minutes = seconds = 0
 
-    # Check for days
     if 'd' in text:
         parts = text.split('d')
         days = int(parts[0].strip()) if parts[0].strip().isdigit() else 0
         text = parts[1].strip() if len(parts) > 1 else ''
 
-    # Parse time portion
     if text:
         time_parts = text.split(':')
         time_parts = [int(p) for p in time_parts if p.isdigit()]
@@ -319,17 +309,7 @@ def parse_healing_time(text):
 
 
 def get_healing_time_seconds(frame, ocr_client, debug=False):
-    """
-    OCR the healing button and parse time to seconds.
-
-    Args:
-        frame: BGR screenshot
-        ocr_client: OCRClient instance
-        debug: Enable debug output
-
-    Returns:
-        Total seconds, or 0 if parsing fails
-    """
+    """OCR the healing button and parse time to seconds."""
     x, y, w, h = HEALING_TIME_REGION
     roi = frame[y:y+h, x:x+w]
 
@@ -356,3 +336,10 @@ def click_healing_button(adb, debug=False):
     if debug:
         print(f"  Clicking Healing button at ({x}, {y})")
     adb.tap(x, y)
+
+
+def scroll_panel_down(adb, debug=False):
+    """Scroll the hospital panel down."""
+    if debug:
+        print(f"  Scrolling panel down")
+    adb.swipe(SCROLL_CENTER_X, SCROLL_BOTTOM_Y, SCROLL_CENTER_X, SCROLL_TOP_Y, duration=300)

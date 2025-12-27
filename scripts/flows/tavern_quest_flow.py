@@ -48,6 +48,7 @@ ALLY_QUESTS_ACTIVE_TEMPLATE = f"{TEMPLATE_DIR}/tavern_ally_quests_active_4k.png"
 CLAIM_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/claim_button_tavern_4k.png"
 GOLD_SCROLL_LV4_TEMPLATE = f"{TEMPLATE_DIR}/gold_scroll_lv4_4k.png"
 GO_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/go_button_4k.png"
+QUESTION_MARK_TILE_TEMPLATE = f"{TEMPLATE_DIR}/quest_question_tile_4k.png"
 
 # Bounty Quest dialog templates
 BOUNTY_QUEST_TITLE_TEMPLATE = f"{TEMPLATE_DIR}/bounty_quest_title_4k.png"
@@ -84,6 +85,9 @@ GO_BUTTON_X_START = 2100  # Go buttons are in same column as Claim
 GO_BUTTON_X_END = 2500
 Y_TOLERANCE = 80  # Y tolerance for matching scroll with Go button on same row
 
+# Question mark tile detection
+QUESTION_MARK_THRESHOLD = 0.02  # Similar to gold scroll
+
 # Scroll parameters - grab center and drag up to scroll down
 SCROLL_START_Y = 1400  # Center of quest list
 SCROLL_END_Y = 800     # Drag to top to scroll content down (reveal more below)
@@ -97,6 +101,75 @@ def load_template_gray(path: str) -> np.ndarray:
     if template is None:
         raise FileNotFoundError(f"Template not found: {path}")
     return template
+
+
+# =============================================================================
+# Time and VS Day Helpers
+# =============================================================================
+
+def _is_after_quest_start_time() -> bool:
+    """
+    Check if current time is in the allowed quest start window.
+
+    Allowed window: 10:30 PM Pacific until server reset (6 PM Pacific next day)
+    Blocked window: 6 PM Pacific to 10:30 PM Pacific (4.5 hours)
+
+    This means quests can be started from 10:30 PM through the night and next day
+    until 6 PM when the server resets.
+    """
+    try:
+        import pytz
+        from config import TAVERN_QUEST_START_HOUR, TAVERN_QUEST_START_MINUTE, TAVERN_SERVER_RESET_HOUR
+    except ImportError:
+        # Fallback defaults if config not available
+        TAVERN_QUEST_START_HOUR = 22
+        TAVERN_QUEST_START_MINUTE = 30
+        TAVERN_SERVER_RESET_HOUR = 18
+
+    try:
+        pacific = pytz.timezone('America/Los_Angeles')
+        now = datetime.now(pacific)
+
+        # Blocked window: from server reset (18:00) to quest start time (22:30)
+        # If hour is between reset and start hour, we're blocked
+        if TAVERN_SERVER_RESET_HOUR <= now.hour < TAVERN_QUEST_START_HOUR:
+            return False
+        # If hour equals start hour but before start minute, still blocked
+        if now.hour == TAVERN_QUEST_START_HOUR and now.minute < TAVERN_QUEST_START_MINUTE:
+            return False
+
+        # All other times are allowed (22:30 to 17:59 next day)
+        return True
+    except Exception as e:
+        logger.warning(f"Time check failed: {e}, defaulting to True")
+        return True  # Fail open - allow quest starts if time check fails
+
+
+def _should_start_question_mark_quests() -> bool:
+    """
+    Check if question mark quests should be started (not on Day 6).
+
+    Day 6 is the day before chest opening (Day 7), so we save question mark
+    rewards for the chest opening day to maximize rewards.
+    """
+    try:
+        from utils.arms_race import get_arms_race_status
+        from config import VS_QUESTION_MARK_SKIP_DAYS
+    except ImportError:
+        # Fallback if imports fail - allow question mark quests
+        return True
+
+    try:
+        status = get_arms_race_status()
+        current_day = status.get('day', 0)
+
+        if current_day in VS_QUESTION_MARK_SKIP_DAYS:
+            logger.info(f"Day {current_day} is in VS_QUESTION_MARK_SKIP_DAYS - skipping question mark quests")
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"VS day check failed: {e}, defaulting to True")
+        return True  # Fail open - allow question mark quests if check fails
 
 
 # =============================================================================
@@ -422,6 +495,99 @@ def find_gold_scroll_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]
                 matched_go_buttons.append((go_x, go_y))
                 logger.debug(f"Matched: Scroll Y={scroll_y} with Go Y={go_y}")
                 break  # One Go per scroll
+
+    # Sort by Y position (top to bottom)
+    matched_go_buttons.sort(key=lambda b: b[1])
+
+    return matched_go_buttons
+
+
+def find_question_mark_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]:
+    """
+    Find Go buttons for quests that have question mark reward tiles.
+
+    Logic (same as gold scroll):
+    1. Find all question mark tiles in the frame
+    2. Find all Go buttons in the rightmost column
+    3. Match tiles with Go buttons on the same Y-axis (within tolerance)
+    4. Return click positions for matched Go buttons
+    """
+    try:
+        question_mark_template = load_template_gray(QUESTION_MARK_TILE_TEMPLATE)
+    except FileNotFoundError:
+        logger.warning("Question mark tile template not found")
+        return []
+
+    go_button_template = load_template_gray(GO_BUTTON_TEMPLATE)
+
+    # Find all question mark tile positions
+    tile_result = cv2.matchTemplate(frame_gray, question_mark_template, cv2.TM_SQDIFF_NORMED)
+    tile_locations = np.where(tile_result < QUESTION_MARK_THRESHOLD)
+
+    tile_h, tile_w = question_mark_template.shape[:2]
+    tiles = []
+    for y, x in zip(tile_locations[0], tile_locations[1]):
+        score = tile_result[y, x]
+        center_y = y + tile_h // 2
+        tiles.append((x, center_y, score))
+
+    # Non-maximum suppression for tiles (min spacing 100px)
+    tiles.sort(key=lambda t: t[2])  # Sort by score
+    filtered_tiles = []
+    for x, y, score in tiles:
+        is_distinct = True
+        for fx, fy, _ in filtered_tiles:
+            if abs(y - fy) < 100 and abs(x - fx) < 100:
+                is_distinct = False
+                break
+        if is_distinct:
+            filtered_tiles.append((x, y, score))
+
+    if not filtered_tiles:
+        return []
+
+    logger.debug(f"Found {len(filtered_tiles)} question mark tiles")
+
+    # Find all Go buttons in the right column
+    column_roi = frame_gray[:, GO_BUTTON_X_START:GO_BUTTON_X_END]
+    go_result = cv2.matchTemplate(column_roi, go_button_template, cv2.TM_SQDIFF_NORMED)
+    go_locations = np.where(go_result < GO_BUTTON_THRESHOLD)
+
+    go_h, go_w = go_button_template.shape[:2]
+    go_buttons = []
+    for y, x in zip(go_locations[0], go_locations[1]):
+        score = go_result[y, x]
+        # Convert to full frame coords
+        full_x = GO_BUTTON_X_START + x + go_w // 2
+        center_y = y + go_h // 2
+        go_buttons.append((full_x, center_y, score))
+
+    # Non-maximum suppression for Go buttons
+    go_buttons.sort(key=lambda g: g[2])
+    filtered_go = []
+    for x, y, score in go_buttons:
+        is_distinct = True
+        for fx, fy, _ in filtered_go:
+            if abs(y - fy) < 80:
+                is_distinct = False
+                break
+        if is_distinct:
+            filtered_go.append((x, y, score))
+
+    if not filtered_go:
+        return []
+
+    logger.debug(f"Found {len(filtered_go)} Go buttons")
+
+    # Match tiles with Go buttons on same row (Y within tolerance)
+    matched_go_buttons = []
+    for tile_x, tile_y, _ in filtered_tiles:
+        for go_x, go_y, _ in filtered_go:
+            if abs(tile_y - go_y) <= Y_TOLERANCE:
+                # Found a match! Add Go button click position
+                matched_go_buttons.append((go_x, go_y))
+                logger.debug(f"Matched: Question mark Y={tile_y} with Go Y={go_y}")
+                break  # One Go per tile
 
     # Sort by Y position (top to bottom)
     matched_go_buttons.sort(key=lambda b: b[1])
@@ -866,29 +1032,37 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         # Find Go buttons for gold scroll quests
         gold_scroll_go_buttons = find_gold_scroll_go_buttons(frame_gray)
 
-        if debug:
-            logger.debug(f"Found {len(claim_buttons)} Claim buttons, {len(gold_scroll_go_buttons)} Gold Scroll Go buttons")
+        # Find Go buttons for question mark quests (only if not Day 6 and allowed)
+        question_mark_go_buttons = []
+        if _should_start_question_mark_quests():
+            question_mark_go_buttons = find_question_mark_go_buttons(frame_gray)
 
-        # Priority 1: Click Claim buttons first
+        if debug:
+            logger.debug(f"Found {len(claim_buttons)} Claim buttons, "
+                        f"{len(gold_scroll_go_buttons)} Gold Scroll Go buttons, "
+                        f"{len(question_mark_go_buttons)} Question Mark Go buttons")
+
+        # Priority 1: Click Claim buttons first (no time restriction)
         if claim_buttons:
             x, y = claim_buttons[0]
             logger.info(f"Clicking Claim at ({x}, {y})")
             adb.tap(x, y)
             time.sleep(0.5)  # Wait for rewards popup to appear
             total_claims += 1
+            no_action_count = 0  # Reset scroll counter
 
-            # Dismiss popup by clicking back button
-            logger.info("Clicking back to dismiss popup...")
-            adb.tap(*BACK_BUTTON_CLICK)
-            time.sleep(0.5)
+            # Dismiss popup by polling until we see Tavern tabs again
+            logger.info("Waiting for popup to dismiss...")
+            if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
+                # Exited Tavern or couldn't dismiss - abort
+                logger.warning("Could not return to Tavern after claim, aborting")
+                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True}
 
-            # EXIT IMMEDIATELY after claim - don't continue in same session
-            # UI can get glitchy after claiming, so we return and let caller restart
-            logger.info("Claim made - exiting flow for fresh restart")
-            return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True}
+            # Continue loop to re-scan for more claims
+            continue
 
-        # Priority 2: Click Go for gold scroll quests
-        if gold_scroll_go_buttons:
+        # Priority 2: Click Go for gold scroll quests (time gated)
+        if gold_scroll_go_buttons and _is_after_quest_start_time():
             no_action_count = 0
             x, y = gold_scroll_go_buttons[0]
             logger.info(f"Clicking Go for gold scroll quest at ({x}, {y})")
@@ -906,9 +1080,35 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
                 # Dialog not detected - might have navigated elsewhere
                 logger.warning("Bounty Quest dialog not detected after clicking Go")
                 return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
+        elif gold_scroll_go_buttons:
+            # Gold scroll quests found but before start time
+            logger.debug("Gold scroll Go buttons found but before quest start time - skipping")
+
+        # Priority 3: Click Go for question mark quests (time gated, Day 6 excluded)
+        if question_mark_go_buttons and _is_after_quest_start_time():
+            no_action_count = 0
+            x, y = question_mark_go_buttons[0]
+            logger.info(f"Clicking Go for question mark quest at ({x}, {y})")
+            adb.tap(x, y)
+            time.sleep(1.0)  # Wait for Bounty Quest dialog
+            total_go_clicks += 1
+
+            # Handle Bounty Quest dialog (Auto Dispatch + Proceed)
+            if handle_bounty_quest_dialog(adb, win, debug):
+                logger.info("Question mark Bounty Quest started successfully")
+                # Dialog dismissed, we're back in tavern - continue loop
+                time.sleep(0.5)
+                continue
+            else:
+                # Dialog not detected - might have navigated elsewhere
+                logger.warning("Bounty Quest dialog not detected after clicking Go")
+                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
+        elif question_mark_go_buttons:
+            # Question mark quests found but before start time
+            logger.debug("Question mark Go buttons found but before quest start time - skipping")
 
         # No actions found - scroll
-        logger.info("No Claim or Gold Scroll Go buttons found, scrolling...")
+        logger.info("No actionable buttons found (Claim/Go), scrolling...")
         no_action_count += 1
 
         # Scroll down

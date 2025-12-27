@@ -164,7 +164,8 @@ def elite_zombie_flow(adb) -> bool:
             _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
 
         # Find LEFTMOST hero (IGNORE Zz status - force select leftmost regardless)
-        # Elite zombie (beast training) always uses leftmost hero, busy or not
+        # Elite zombie = YOU start the rally as leader, troops commit when timer ends
+        # Safe to use busy hero since you're initiating, not joining
         idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='ignore')
 
         if idle_slot:

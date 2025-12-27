@@ -153,6 +153,60 @@ VALID_EVENTS = [
     "Mystic Beast Training",
 ]
 
+# Event metadata - chest thresholds, header templates, OCR regions
+# chest1/chest2/chest3: Point thresholds for reward chests (static per event)
+# header_template: Template file for detecting active event
+# Values of None indicate data not yet collected via OCR
+ARMS_RACE_EVENTS = {
+    "Mystic Beast Training": {
+        "chest1": 4000,
+        "chest2": 10000,
+        "chest3": 30000,
+        "header_template": "mystic_beast_training_4k.png",
+    },
+    "Soldier Training": {
+        "chest1": None,
+        "chest2": None,
+        "chest3": None,
+        "header_template": "soldier_training_header_4k.png",
+    },
+    "Enhance Hero": {
+        "chest1": 2000,
+        "chest2": 4000,
+        "chest3": 12000,
+        "header_template": "enhance_hero_header_4k.png",
+    },
+    "City Construction": {
+        "chest1": None,
+        "chest2": None,
+        "chest3": None,
+        "header_template": "city_construction_4k.png",
+    },
+    "Technology Research": {
+        "chest1": None,
+        "chest2": None,
+        "chest3": None,
+        "header_template": "technology_research_4k.png",
+    },
+}
+
+
+def get_event_metadata(event_name: str) -> dict:
+    """Get metadata for an event including chest thresholds."""
+    return ARMS_RACE_EVENTS.get(event_name, {})
+
+
+def get_chest3_target(event_name: str) -> int | None:
+    """Get the chest 3 threshold for calculating required points."""
+    meta = get_event_metadata(event_name)
+    return meta.get("chest3")
+
+
+def is_event_data_complete(event_name: str) -> bool:
+    """Check if we have all chest threshold data for an event."""
+    meta = get_event_metadata(event_name)
+    return meta.get("chest3") is not None
+
 
 def get_time_until_event(event_name: str, now: datetime = None) -> timedelta | None:
     """

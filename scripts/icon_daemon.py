@@ -19,8 +19,9 @@ Currently detects:
 Arms Race event tracking:
 - Beast Training: During Mystic Beast Training last hour, if stamina >= 20 (3 consecutive reads),
   triggers elite_zombie_flow with 0 plus clicks. 90s cooldown between rallies.
-- Enhance Hero: During Enhance Hero last N minutes (configurable), triggers hero_upgrade_arms_race_flow
-  ONLY if user was idle since the START of the Enhance Hero block (ensures no interruption).
+- Enhance Hero: During Enhance Hero last 10 minutes, triggers hero_upgrade_arms_race_flow.
+  Flow checks real-time progress from Events panel - skips if chest3 (12000) already reached.
+  NO idle requirement - the progress check is quick and non-disruptive.
 
 Idle recovery (every 5 min when idle 5+ min):
 - If back button visible (chat window) → click back to exit
@@ -75,10 +76,16 @@ from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, 
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_last_6_minutes_phase, check_progress_quick
 from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
+from utils.arms_race_data_collector import (
+    load_persisted_into_memory,
+    should_collect_event_data,
+    collect_and_save_current_event,
+)
+from utils.arms_race_panel_helper import check_beast_training_progress, check_arms_race_progress
 from utils.scheduler import get_scheduler
 
 # Import configurable parameters
@@ -268,6 +275,7 @@ class IconDaemon:
         self.beast_training_last_rally = 0
         self.beast_training_rally_count = 0  # Track total rallies in current Beast Training block
         self.beast_training_current_block = None  # Track which block we're in
+        self.beast_training_progress_checked = False  # Track if we've done OCR progress check this block
         self.STAMINA_CLAIM_THRESHOLD = ARMS_RACE_STAMINA_CLAIM_THRESHOLD  # Claim when stamina < this
 
         # Use Button tracking (for stamina recovery items during Beast Training)
@@ -280,6 +288,11 @@ class IconDaemon:
         self.beast_training_use_count = 0  # Track Use button clicks per block
         self.beast_training_last_use_time = 0  # Track cooldown between uses
         self.beast_training_claim_attempted = False  # Track if we tried to claim this iteration
+
+        # Smart Beast Training flow phases (Claude CLI integration)
+        self.beast_training_hour_mark_done = False  # Phase 1: Hour mark check done
+        self.beast_training_last_6_done = False  # Phase 2: Last 6 minutes check done
+        self.beast_training_last_progress_check = 0  # Timestamp of last progress check
 
         # Enhance Hero: last N minutes of Enhance Hero, runs once per block
         self.ARMS_RACE_ENHANCE_HERO_ENABLED = ARMS_RACE_ENHANCE_HERO_ENABLED
@@ -408,6 +421,10 @@ class IconDaemon:
         # Stamina OCR (via OCR server)
         self.ocr_client = OCRClient()
         print("  OCR client initialized (uses OCR server)")
+
+        # Load persisted Arms Race event data (chest thresholds)
+        load_persisted_into_memory()
+        print("  Arms Race event data loaded")
 
         # Matchers
         debug_dir = Path('templates/debug')
@@ -921,6 +938,7 @@ class IconDaemon:
             "gift_box": (gift_box_flow, True),
             "stamina_claim": (stamina_claim_flow, False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
+            "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),
         }
 
     def get_status(self) -> dict:
@@ -1161,6 +1179,25 @@ class IconDaemon:
                 vs_promo_active = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 vs_indicator = " [VS:Promo]" if vs_promo_active else ""
 
+                # =================================================================
+                # ARMS RACE DATA COLLECTION (automated, runs once per event type)
+                # Triggers in first 15 min of block when idle 5+ min and data missing
+                # =================================================================
+                time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
+                if (effective_idle_secs >= 300 and  # 5+ min idle
+                    time_elapsed_secs < 900 and  # First 15 min of block
+                    view_state == "TOWN" and
+                    should_collect_event_data(arms_race_event)):
+                    self.logger.info(f"[{iteration}] ARMS RACE DATA: Collecting missing data for {arms_race_event}...")
+                    try:
+                        success = collect_and_save_current_event(self.adb, self.windows_helper, debug=self.debug)
+                        if success:
+                            self.logger.info(f"[{iteration}] ARMS RACE DATA: Successfully collected data for {arms_race_event}")
+                        else:
+                            self.logger.warning(f"[{iteration}] ARMS RACE DATA: Failed to collect data for {arms_race_event}")
+                    except Exception as e:
+                        self.logger.error(f"[{iteration}] ARMS RACE DATA: Error collecting data: {e}")
+
                 # Format hospital state for logging
                 hospital_state_char = {
                     HospitalState.HELP_READY: "HELP",
@@ -1223,7 +1260,8 @@ class IconDaemon:
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 
                 # Hospital state detection with majority vote (same 60% rule as barracks)
-                if world_present and harvest_aligned:
+                # History accumulates when in TOWN, idle check is only for ACTION
+                if world_present:
                     self.hospital_state_history.append(hospital_state)
                     if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
                         self.hospital_state_history.pop(0)
@@ -1266,7 +1304,7 @@ class IconDaemon:
                             self._run_flow("healing", healing_flow)
                             self.hospital_state_history = []
                 else:
-                    # Not in TOWN or not aligned - reset hospital state history
+                    # Not in TOWN - reset hospital state history
                     if self.hospital_state_history:
                         self.hospital_state_history = []
 
@@ -1483,6 +1521,9 @@ class IconDaemon:
                         self.beast_training_current_block = block_start
                         self.beast_training_rally_count = 0
                         self.beast_training_use_count = 0  # Reset Use count for new block
+                        self.beast_training_progress_checked = False  # Need to check progress for this block
+                        self.beast_training_hour_mark_done = False  # Reset hour mark phase
+                        self.beast_training_last_6_done = False  # Reset last 6 minutes phase
                         # Check if there's a pre-set target for this block
                         arms_race_state = self.scheduler.get_arms_race_state()
                         next_target = arms_race_state.get("beast_training_next_target_rallies")
@@ -1497,6 +1538,73 @@ class IconDaemon:
                         else:
                             self.scheduler.update_arms_race_state(beast_training_rally_count=0)
                             self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0")
+
+                    # =========================================================
+                    # SMART BEAST TRAINING FLOW - With Claude CLI decision
+                    # Phase 1: Hour mark (60 min remaining) - inventory + progress + claim upfront
+                    # Phase 2: Last 6 minutes - re-check + claim remainder
+                    # =========================================================
+
+                    # PHASE 1: Hour Mark Check (runs once when entering last hour, idle 5+ min)
+                    if (not self.beast_training_hour_mark_done and
+                        effective_idle_secs >= 300):  # 5+ min idle
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Running Hour Mark Phase (Claude CLI)...")
+                        result = run_hour_mark_phase(self.adb, self.windows_helper, debug=self.debug)
+
+                        if result["success"]:
+                            dynamic_target = result["rallies_needed"]
+                            current_pts = result.get("current_points")
+                            stamina_claimed = result.get("stamina_claimed", 0)
+
+                            self.logger.info(
+                                f"[{iteration}] BEAST TRAINING: Hour Mark complete - "
+                                f"Progress {current_pts}/30000 pts, need {dynamic_target} rallies, "
+                                f"claimed {stamina_claimed} stamina"
+                            )
+
+                            if dynamic_target == 0:
+                                self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 already reached! Skipping rallies.")
+                                self.scheduler.update_arms_race_state(beast_training_target_rallies=0)
+                            else:
+                                self.scheduler.update_arms_race_state(beast_training_target_rallies=dynamic_target)
+                                self.logger.info(f"[{iteration}] BEAST TRAINING: Dynamic target set to {dynamic_target} rallies")
+
+                            self.beast_training_hour_mark_done = True
+                            self.beast_training_progress_checked = True
+                        else:
+                            self.logger.warning(f"[{iteration}] BEAST TRAINING: Hour Mark phase failed, using default target")
+                            self.beast_training_hour_mark_done = True
+                            self.beast_training_progress_checked = True
+
+                    # PHASE 2: Last 6 Minutes Re-check (runs once when in last 6 min)
+                    if (arms_race_remaining_mins <= 6 and
+                        not self.beast_training_last_6_done and
+                        effective_idle_secs >= 300):  # 5+ min idle
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: Running Last 6 Minutes Phase (Claude CLI)...")
+                        result = run_last_6_minutes_phase(self.adb, self.windows_helper, debug=self.debug)
+
+                        if result["success"]:
+                            new_target = result["rallies_needed"]
+                            current_pts = result.get("current_points")
+                            stamina_claimed = result.get("stamina_claimed", 0)
+
+                            self.logger.info(
+                                f"[{iteration}] BEAST TRAINING: Last 6 Min complete - "
+                                f"Progress {current_pts}/30000 pts, need {new_target} rallies, "
+                                f"claimed {stamina_claimed} stamina"
+                            )
+
+                            if new_target == 0:
+                                self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 reached! Mission accomplished.")
+                                self.scheduler.update_arms_race_state(beast_training_target_rallies=0)
+                            else:
+                                # Update target with new value
+                                self.scheduler.update_arms_race_state(beast_training_target_rallies=new_target)
+
+                            self.beast_training_last_6_done = True
+                        else:
+                            self.logger.warning(f"[{iteration}] BEAST TRAINING: Last 6 Minutes phase failed")
+                            self.beast_training_last_6_done = True
 
                     # Get target from scheduler (or use MAX_RALLIES as default)
                     arms_race_state = self.scheduler.get_arms_race_state()
@@ -1565,22 +1673,17 @@ class IconDaemon:
                         self.beast_training_last_use_time = current_time
 
                 # Enhance Hero: last N minutes, runs once per block
-                # Requires user to be idle since the START of the Enhance Hero block
+                # NO idle requirement - flow checks real-time progress and skips if chest3 reached
                 if (self.ARMS_RACE_ENHANCE_HERO_ENABLED and
                     arms_race_event == "Enhance Hero" and
                     arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES):
                     # Check if we already triggered for this block
                     block_start = arms_race['block_start']
                     if self.enhance_hero_last_block_start != block_start:
-                        # User must be idle since the START of the Enhance Hero block
-                        # (not just idle for 5 minutes)
-                        time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
-                        if effective_idle_secs >= time_elapsed_secs:
-                            idle_mins = int(idle_secs / 60)
-                            elapsed_mins = int(time_elapsed_secs / 60)
-                            self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins}min of Enhance Hero, idle {idle_mins}min >= {elapsed_mins}min since block start, triggering hero upgrade flow...")
-                            self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
-                            self.enhance_hero_last_block_start = block_start
+                        # Trigger flow - it will check progress and skip if chest3 reached
+                        self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins:.0f}min of Enhance Hero, checking progress and upgrading if needed...")
+                        self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
+                        self.enhance_hero_last_block_start = block_start
 
                 # Soldier Training: during Soldier Training event OR VS promotion day, idle 5+ min
                 # Requires TOWN view and dog house aligned (same as harvest conditions)

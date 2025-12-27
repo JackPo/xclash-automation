@@ -90,32 +90,43 @@ def check_enhance_hero_progress(adb, win) -> dict:
         adb.tap(*EVENTS_BUTTON_CLICK)
         time.sleep(1.5)
 
-        # Take screenshot and OCR current points
-        frame = win.get_screenshot_cv2()
-        if frame is None:
-            logger.error("Failed to get screenshot")
-            return result
-
-        x, y, w, h = CURRENT_POINTS_REGION
-        roi = frame[y:y+h, x:x+w]
-
+        # OCR current points with triple verification
+        from collections import Counter
         ocr = OCRClient()
-        points_text = ocr.extract_text(roi)
+        results = []
 
-        if points_text:
-            # Parse the number
-            points_text = points_text.strip().replace(",", "").replace(" ", "")
-            try:
-                current_points = int(points_text)
+        for i in range(3):
+            frame = win.get_screenshot_cv2()
+            if frame is None:
+                continue
+
+            x, y, w, h = CURRENT_POINTS_REGION
+            roi = frame[y:y+h, x:x+w]
+            points_text = ocr.extract_text(roi)
+
+            if points_text:
+                points_text = points_text.strip().replace(",", "").replace(" ", "")
+                try:
+                    results.append(int(points_text))
+                except ValueError:
+                    pass
+            if i < 2:
+                time.sleep(0.1)
+
+        if results:
+            counter = Counter(results)
+            most_common, count = counter.most_common(1)[0]
+            if count >= 2:
+                current_points = most_common
                 result["current_points"] = current_points
                 chest3 = _get_chest3_threshold()
                 result["chest3_reached"] = current_points >= chest3
                 result["success"] = True
                 logger.info(f"Current points: {current_points}/{chest3}, chest3_reached: {result['chest3_reached']}")
-            except ValueError:
-                logger.warning(f"Failed to parse points: {points_text}")
+            else:
+                logger.warning(f"OCR inconsistent: {results}")
         else:
-            logger.warning("OCR returned empty text")
+            logger.warning("OCR returned no valid results")
 
         # Close Events panel (click back or tap outside)
         adb.tap(*BACK_BUTTON_CLICK)

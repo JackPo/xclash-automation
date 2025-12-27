@@ -11,9 +11,12 @@ Triggered by 5-minute idle (same as union gifts/donation).
 """
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
@@ -162,31 +165,23 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
     bag_tab_template = _load_template("bag_tab_4k.png")
 
     # Step 0: Navigate to TOWN (bag button only visible in TOWN view)
-    if debug:
-        print("Step 0: Navigating to TOWN...")
+    logger.info("[BAG] Step 0: Navigating to TOWN...")
     go_to_town(adb, debug=debug)
     time.sleep(0.5)
 
     # Step 1: Verify bag button visible (confirms we're in TOWN)
-    if debug:
-        print("Step 1: Verifying bag button...")
-
     frame = win.get_screenshot_cv2()
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     is_present, score = _verify_at_fixed_region(frame_gray, bag_template, BAG_BUTTON_REGION)
     if not is_present:
-        if debug:
-            print(f"  Bag button not found (score={score:.4f})")
+        logger.warning(f"[BAG] Bag button not found (score={score:.4f}), aborting")
         return results
 
-    if debug:
-        print(f"  Bag button verified (score={score:.4f})")
+    logger.info(f"[BAG] Bag button verified (score={score:.4f})")
 
     # Step 2: Click bag button
-    if debug:
-        print("Step 2: Opening bag...")
-
+    logger.info(f"[BAG] Step 2: Opening bag at {BAG_BUTTON_CLICK}...")
     adb.tap(*BAG_BUTTON_CLICK)
     time.sleep(1.5)
 
@@ -196,53 +191,44 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     is_present, score = _verify_at_fixed_region(frame_gray, bag_tab_template, BAG_TAB_REGION)
     if not is_present:
-        if debug:
-            print(f"  Bag tab not found - bag didn't open (score={score:.4f})")
+        logger.warning(f"[BAG] Bag didn't open (tab score={score:.4f}), running recovery")
         return_to_base_view(adb, win, debug=debug)
         return results
 
-    if debug:
-        print(f"  Bag opened (score={score:.4f})")
+    logger.info(f"[BAG] Bag opened successfully (score={score:.4f})")
 
     # Step 3: Run Special tab flow
-    if debug:
-        print("\n=== Special Tab ===")
+    logger.info("[BAG] Step 3: Special tab...")
     if switch_to_tab(adb, win, "special", debug=debug):
         results["special"] = bag_special_flow(adb, win, debug=debug, open_bag=False)
+        logger.info(f"[BAG] Special tab claimed: {results['special']}")
     else:
-        if debug:
-            print("  Failed to switch to Special tab")
+        logger.warning("[BAG] Failed to switch to Special tab")
 
     # Step 4: Run Hero tab flow
-    if debug:
-        print("\n=== Hero Tab ===")
+    logger.info("[BAG] Step 4: Hero tab...")
     if switch_to_tab(adb, win, "hero", debug=debug):
         results["hero"] = bag_hero_flow(adb, win, debug=debug, open_bag=False)
+        logger.info(f"[BAG] Hero tab claimed: {results['hero']}")
     else:
-        if debug:
-            print("  Failed to switch to Hero tab")
+        logger.warning("[BAG] Failed to switch to Hero tab")
 
     # Step 5: Run Resources tab flow
-    if debug:
-        print("\n=== Resources Tab ===")
+    logger.info("[BAG] Step 5: Resources tab...")
     if switch_to_tab(adb, win, "resources", debug=debug):
         results["resources"] = bag_resources_flow(adb, win, debug=debug, open_bag=False)
+        logger.info(f"[BAG] Resources tab claimed: {results['resources']}")
     else:
-        if debug:
-            print("  Failed to switch to Resources tab")
+        logger.warning("[BAG] Failed to switch to Resources tab")
 
     # Step 6: Close bag and return to base view
-    if debug:
-        print("\nStep 6: Closing bag...")
-
+    logger.info("[BAG] Step 6: Closing bag...")
     adb.tap(*BACK_BUTTON_CLICK)
     time.sleep(0.5)
 
     return_to_base_view(adb, win, debug=debug)
 
-    if debug:
-        print(f"\n=== Bag Flow Complete ===")
-        print(f"Special: {results['special']}, Hero: {results['hero']}, Resources: {results['resources']}")
+    logger.info(f"[BAG] Complete: Special={results['special']}, Hero={results['hero']}, Resources={results['resources']}")
 
     return results
 

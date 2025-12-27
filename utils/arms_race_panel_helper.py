@@ -23,7 +23,7 @@ import cv2
 import numpy as np
 
 from utils.arms_race_ocr import (
-    get_current_points,
+    get_current_points_verified,
     detect_active_event,
     is_arms_race_panel_open,
     TITLE_REGION,
@@ -361,10 +361,10 @@ def check_beast_training_progress(adb, win, debug: bool = False) -> dict:
         else:
             logger.info(f"Mystic Beast Training verified (score={header_score:.4f})")
 
-        # OCR current points
-        current_points = get_current_points(frame)
+        # OCR current points (triple verification)
+        current_points = get_current_points_verified(win, retries=3)
         if current_points is None:
-            logger.warning("Failed to OCR current points")
+            logger.warning("Failed to OCR current points (no consensus after 3 attempts)")
             # Return to base view before failing
             return_to_base_view(adb, win, debug=debug)
             return result
@@ -385,6 +385,124 @@ def check_beast_training_progress(adb, win, debug: bool = False) -> dict:
 
     except Exception as e:
         logger.error(f"Error checking beast training progress: {e}")
+
+    finally:
+        # Always return to base view
+        try:
+            return_to_base_view(adb, win, debug=debug)
+        except Exception as e:
+            logger.warning(f"Failed to return to base view: {e}")
+
+    return result
+
+
+# =============================================================================
+# GENERIC ARMS RACE CHECK (for any event)
+# =============================================================================
+
+def check_arms_race_progress(adb, win, debug: bool = False) -> dict:
+    """
+    Generic Arms Race check - works for ANY event.
+
+    Opens panel, detects event, validates against scheduler, OCRs points,
+    and reports which flows would trigger.
+
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        debug: Enable debug logging
+
+    Returns:
+        Dict with:
+            - success: bool
+            - detected_event: str | None - Event detected from panel header
+            - expected_event: str | None - Event from scheduler
+            - event_match: bool - Whether detected matches expected
+            - current_points: int | None
+            - chest3_target: int | None - From metadata
+            - points_to_chest3: int | None - Remaining points needed
+            - would_trigger_flows: list[str] - Flows that would trigger
+    """
+    from utils.arms_race import get_arms_race_status, get_event_metadata
+    from utils.arms_race_ocr import detect_active_event, get_current_points_verified
+
+    result = {
+        "success": False,
+        "detected_event": None,
+        "expected_event": None,
+        "event_match": False,
+        "current_points": None,
+        "chest3_target": None,
+        "points_to_chest3": None,
+        "would_trigger_flows": [],
+    }
+
+    try:
+        # Get expected event from scheduler
+        arms_race_status = get_arms_race_status()
+        expected_event = arms_race_status.get("current")
+        result["expected_event"] = expected_event
+        logger.info(f"Scheduler expects event: {expected_event}")
+
+        # Open Arms Race panel
+        if not open_arms_race_panel(adb, win, debug=debug):
+            logger.error("Failed to open Arms Race panel")
+            return result
+
+        # Take screenshot and detect event
+        frame = win.get_screenshot_cv2()
+        detected_event, score = detect_active_event(frame)
+        result["detected_event"] = detected_event
+        logger.info(f"Detected event: {detected_event} (score={score:.4f})")
+
+        # Validate match
+        result["event_match"] = (detected_event == expected_event)
+        if not result["event_match"]:
+            logger.warning(f"EVENT MISMATCH: detected={detected_event}, expected={expected_event}")
+        else:
+            logger.info(f"Event validated: {detected_event}")
+
+        # OCR current points (triple verification)
+        current_points = get_current_points_verified(win, retries=3)
+        result["current_points"] = current_points
+
+        if current_points is None:
+            logger.warning("Failed to OCR current points")
+        else:
+            logger.info(f"Current points: {current_points}")
+
+            # Get chest3 target from metadata
+            if detected_event:
+                try:
+                    meta = get_event_metadata(detected_event)
+                    chest3 = meta.get("chest3")
+                    result["chest3_target"] = chest3
+                    if chest3:
+                        result["points_to_chest3"] = max(0, chest3 - current_points)
+                        logger.info(f"Chest3: {chest3}, need {result['points_to_chest3']} more points")
+                except Exception as e:
+                    logger.warning(f"Could not get metadata for {detected_event}: {e}")
+
+        # Determine which flows would trigger
+        flows = []
+        if detected_event == "Mystic Beast Training":
+            flows.append("beast_training_rally")
+        elif detected_event == "Enhance Hero":
+            flows.append("hero_upgrade")
+        elif detected_event == "Soldier Training":
+            flows.append("soldier_upgrade")
+
+        # Check if chest3 already reached
+        if result["points_to_chest3"] == 0:
+            flows = [f + " (SKIPPED - chest3 reached)" for f in flows]
+
+        result["would_trigger_flows"] = flows
+        result["success"] = True
+
+        logger.info(f"Would trigger flows: {flows}")
+
+    except Exception as e:
+        logger.error(f"Error checking arms race progress: {e}")
 
     finally:
         # Always return to base view

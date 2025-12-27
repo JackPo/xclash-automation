@@ -47,8 +47,48 @@ def ocr_number_from_region(frame: np.ndarray, region: tuple[int, int, int, int])
 
 
 def get_current_points(frame: np.ndarray) -> int | None:
-    """Get the player's current points from the Arms Race panel."""
+    """Get the player's current points from the Arms Race panel (single frame)."""
     return ocr_number_from_region(frame, CURRENT_POINTS_REGION)
+
+
+def get_current_points_verified(win, retries: int = 3) -> int | None:
+    """
+    Get the player's current points with triple verification.
+
+    Takes multiple screenshots and performs OCR on each, returning
+    result only if at least 2 readings match.
+
+    Args:
+        win: WindowsScreenshotHelper instance
+        retries: Number of screenshot/OCR attempts (default 3)
+
+    Returns:
+        Points if consistent across retries, None otherwise
+    """
+    import time
+    from collections import Counter
+
+    results = []
+    for i in range(retries):
+        frame = win.get_screenshot_cv2()
+        val = ocr_number_from_region(frame, CURRENT_POINTS_REGION)
+        if val is not None:
+            results.append(val)
+        if i < retries - 1:
+            time.sleep(0.1)  # Small delay between screenshots
+
+    if not results:
+        return None
+
+    # Return most common value if it appears at least 2 times
+    counter = Counter(results)
+    most_common, count = counter.most_common(1)[0]
+
+    if count >= 2:
+        return most_common
+
+    # If no consensus, return None
+    return None
 
 
 def get_chest_thresholds(frame: np.ndarray) -> dict[str, int | None]:

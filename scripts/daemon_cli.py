@@ -15,11 +15,24 @@ Usage:
     python daemon_cli.py resume              # Resume daemon loop
     python daemon_cli.py save_state          # Force save state to disk
     python daemon_cli.py watch               # Stream live events
+    python daemon_cli.py read_stamina        # Read current stamina (fresh OCR)
+    python daemon_cli.py get_view            # Get current view state
+    python daemon_cli.py return_to_base      # Navigate back to TOWN/WORLD
+
+Rally Target Commands (Beast Training):
+    python daemon_cli.py get_rally_status              # Show current rally count/target
+    python daemon_cli.py set_rally_count 5             # "I did 5 rallies manually"
+    python daemon_cli.py set_rally_target 12           # "Do 12 total this block"
+    python daemon_cli.py set_rally_target 15 --next    # "Do 15 in NEXT Beast Training"
+    python daemon_cli.py add_rallies 7                 # "Do 7 more from current count"
 
 Examples:
     python daemon_cli.py run_flow bag_flow
     python daemon_cli.py set_config IDLE_THRESHOLD 600
     python daemon_cli.py watch  # Press Ctrl+C to stop
+    python daemon_cli.py read_stamina  # Get fresh stamina reading
+    python daemon_cli.py set_rally_count 3  # Tell daemon you did 3 manual rallies
+    python daemon_cli.py add_rallies 10  # Ask daemon to run 10 more rallies
 
 For Claude Code integration:
     Claude can call this script to interact with the running daemon
@@ -44,7 +57,7 @@ except ImportError:
 DEFAULT_URI = "ws://localhost:9876"
 
 
-async def send_command(cmd: str, args: dict = None, uri: str = DEFAULT_URI) -> dict:
+async def send_command(cmd: str, args: dict = None, uri: str = DEFAULT_URI, timeout: int = None) -> dict:
     """
     Send a command to the daemon and return the response.
 
@@ -52,15 +65,20 @@ async def send_command(cmd: str, args: dict = None, uri: str = DEFAULT_URI) -> d
         cmd: Command name (e.g., "run_flow", "status")
         args: Command arguments dict
         uri: WebSocket URI (default ws://localhost:9876)
+        timeout: Response timeout in seconds (default: 30 for status, 180 for run_flow)
 
     Returns:
         Response dict from daemon
     """
+    # Flows can take a while (navigation, OCR, scrolling, etc.)
+    if timeout is None:
+        timeout = 180 if cmd == "run_flow" else 30
+
     try:
         async with websockets.connect(uri, close_timeout=5) as ws:
             request = {"cmd": cmd, "args": args or {}}
             await ws.send(json.dumps(request))
-            response = await asyncio.wait_for(ws.recv(), timeout=30)
+            response = await asyncio.wait_for(ws.recv(), timeout=timeout)
             return json.loads(response)
     except ConnectionRefusedError:
         return {"success": False, "error": "Cannot connect to daemon. Is it running?"}
@@ -161,6 +179,29 @@ def main():
             sys.exit(1)
         args["key"] = sys.argv[2]
         args["value"] = parse_value(sys.argv[3])
+
+    elif cmd == "set_rally_count":
+        if len(sys.argv) < 3:
+            print("Error: set_rally_count requires a count")
+            print("Usage: daemon_cli.py set_rally_count <count>")
+            sys.exit(1)
+        args["count"] = int(sys.argv[2])
+
+    elif cmd == "set_rally_target":
+        if len(sys.argv) < 3:
+            print("Error: set_rally_target requires a target")
+            print("Usage: daemon_cli.py set_rally_target <target> [--next]")
+            sys.exit(1)
+        args["target"] = int(sys.argv[2])
+        if "--next" in sys.argv:
+            args["next"] = True
+
+    elif cmd == "add_rallies":
+        if len(sys.argv) < 3:
+            print("Error: add_rallies requires a count")
+            print("Usage: daemon_cli.py add_rallies <count>")
+            sys.exit(1)
+        args["count"] = int(sys.argv[2])
 
     # Send command and print response
     result = asyncio.run(send_command(cmd, args))

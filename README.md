@@ -41,8 +41,23 @@ These features run continuously and don't require any special timing:
 The bot automatically joins Union War rallies based on configurable monster rules:
 
 - **Monster Filtering**: Only joins specific monsters below max level (configurable in `RALLY_MONSTERS`)
-- **Daily Limit Tracking**: Detects "daily rally rewards claimed" dialog via template matching, clicks Cancel, marks monster exhausted until server reset (02:00 UTC)
+- **Daily Limit Tracking**: Detects "daily rally rewards claimed" dialog via template matching, marks monster exhausted until server reset (02:00 UTC)
+- **Daily Limit Override**: Can be configured to ignore daily limits during festivals/events (click Confirm instead of Cancel)
 - **Idle Hero Selection**: Only joins if an idle hero (Zz icon) is available
+
+**Daily Limit Override** (help alliance even without rewards):
+```python
+# Global flag - always ignore daily limits
+RALLY_IGNORE_DAILY_LIMIT = False
+
+# Festival-based - ignore limits during specific date ranges (UTC)
+RALLY_IGNORE_DAILY_LIMIT_EVENTS = [
+    {"name": "Winter Fest", "start": "2025-12-22", "end": "2025-12-28"},
+    {"name": "New Year's Event", "start": "2025-12-31", "end": "2026-01-02"},
+]
+```
+
+When active, the bot clicks **Confirm** on the "daily rewards exhausted" dialog instead of Cancel, allowing you to help alliance members even after your daily rewards are claimed.
 
 **Supported Monsters** (configurable in `config_local.py`):
 

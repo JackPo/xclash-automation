@@ -106,6 +106,10 @@ def extract_text(image: Image.Image, prompt: str = None) -> str:
         generated_ids, skip_special_tokens=True
     )[0]
 
+    # Clean up GPU memory after each inference to prevent gradual memory accumulation
+    del inputs, output_ids, generated_ids
+    torch.cuda.empty_cache()
+
     return result.strip()
 
 

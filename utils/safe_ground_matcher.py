@@ -27,7 +27,7 @@ GROUND_TEMPLATE_PATH = TEMPLATE_DIR / "safe_ground_tile_4k.png"
 SEARCH_REGION = (500, 400, 2800, 1800)  # (x, y, width, height)
 
 # Match threshold (TM_SQDIFF_NORMED - lower is better)
-MATCH_THRESHOLD = 0.15  # Looser threshold since ground tiles vary slightly
+MATCH_THRESHOLD = 0.01  # Tight threshold - only click if we're SURE it's safe ground
 
 
 class SafeGroundMatcher:

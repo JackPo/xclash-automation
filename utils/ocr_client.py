@@ -42,8 +42,12 @@ SERVER_STARTUP_CHECK_INTERVAL = 2  # Check every 2 seconds
 # Path to OCR server script
 _OCR_SERVER_SCRIPT = Path(__file__).parent.parent / "services" / "ocr_server.py"
 
+# Path to OCR server log file
+_OCR_SERVER_LOG = Path(__file__).parent.parent / "logs" / "ocr_server.log"
+
 # Global server process handle
 _server_process = None
+_server_log_file = None  # Keep file handle open to prevent closure
 
 
 def start_ocr_server() -> bool:
@@ -53,7 +57,7 @@ def start_ocr_server() -> bool:
     Returns:
         bool: True if server started successfully, False otherwise
     """
-    global _server_process
+    global _server_process, _server_log_file
 
     if not _OCR_SERVER_SCRIPT.exists():
         print(f"ERROR: OCR server script not found: {_OCR_SERVER_SCRIPT}")
@@ -63,6 +67,15 @@ def start_ocr_server() -> bool:
     print("  This may take 30-60 seconds to load the model...")
 
     try:
+        # Ensure logs directory exists
+        _OCR_SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
+
+        # Open log file for OCR server output
+        # CRITICAL: Do NOT use subprocess.PIPE - it causes buffer deadlock on Windows!
+        # If stdout buffer fills (~64KB) and parent doesn't read, child blocks on print()
+        _server_log_file = open(_OCR_SERVER_LOG, 'w')
+        print(f"  OCR server output will be logged to: {_OCR_SERVER_LOG}")
+
         # Start server as background process
         # Use CREATE_NEW_PROCESS_GROUP on Windows to prevent CTRL+C from killing it
         kwargs = {}
@@ -71,7 +84,7 @@ def start_ocr_server() -> bool:
 
         _server_process = subprocess.Popen(
             [sys.executable, str(_OCR_SERVER_SCRIPT)],
-            stdout=subprocess.PIPE,
+            stdout=_server_log_file,
             stderr=subprocess.STDOUT,
             **kwargs
         )

@@ -79,10 +79,10 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when st
 
 # Enhance Hero (during Enhance Hero event)
 # Triggers hero_upgrade_arms_race_flow to upgrade heroes
-# IMPORTANT: Only triggers if user was idle since the START of the Enhance Hero block.
-# This ensures the automation doesn't interrupt active gameplay.
+# Flow checks current points from Events panel - skips if chest3 already reached
+# NO idle requirement - the quick progress check is non-disruptive
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
-ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 20       # Trigger in last N minutes of Enhance Hero
+ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 10       # Trigger in last N minutes of Enhance Hero
 ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max hero upgrades per block (1 is usually enough)
 
 # Soldier Training (during Soldier Training event)
@@ -117,6 +117,20 @@ VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in current cycle
 # When the current Arms Race day is in this list, open level chests (Lv2, Lv3, Lv4) in bag
 # Example: [3] = Day 3 only (Wednesday)
 VS_LEVEL_CHEST_DAYS = [7]  # Day 7 = chest-opening VS event day
+
+# VS Question Mark Quest Skip Days
+# On these days, skip starting quests with question mark reward tiles (only gold quests allowed)
+# Day 3 = gold quest event day
+# Day 6 = day before chest opening, save question marks for Day 7
+VS_QUESTION_MARK_SKIP_DAYS = [3, 6]
+
+# Tavern Quest Time Gating (Pacific Time)
+# Quest starts (clicking Go) only allowed from start time until server reset
+# This applies to BOTH gold scroll quests AND question mark quests
+TAVERN_QUEST_START_HOUR = 22  # 10 PM
+TAVERN_QUEST_START_MINUTE = 30  # :30
+# Server resets at 02:00 UTC = 18:00 Pacific (6 PM)
+TAVERN_SERVER_RESET_HOUR = 18  # 6 PM Pacific - blocked window starts here
 
 # Cooldowns (seconds)
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
@@ -279,6 +293,19 @@ KEY_PAN_RIGHT = 'right'
 # Rally joining enable/disable
 RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
 RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
+
+# Rally daily limit override
+# When True, click Confirm on "daily rewards exhausted" dialog instead of Cancel.
+# This joins rallies even without rewards (to help alliance members).
+RALLY_IGNORE_DAILY_LIMIT = False  # Global flag (always ignore)
+
+# Festival/event date ranges where daily limit is ignored (server time = UTC)
+# Server resets at 02:00 UTC daily - use that as your end boundary
+# Format: list of dicts with name, start, end (dates as "YYYY-MM-DD")
+RALLY_IGNORE_DAILY_LIMIT_EVENTS = [
+    {"name": "Winter Fest", "start": "2025-12-22", "end": "2025-12-28"},
+    # {"name": "New Year's Event", "start": "2025-12-31", "end": "2026-01-02"},
+]
 
 # Union Boss mode - faster rally joining when Union Boss detected
 UNION_BOSS_MODE_DURATION = 1800   # 30 minutes of faster rally joining

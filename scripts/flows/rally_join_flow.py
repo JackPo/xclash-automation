@@ -36,12 +36,54 @@ from utils.back_button_matcher import BackButtonMatcher
 try:
     from config import (
         RALLY_MONSTERS,
-        RALLY_DATA_GATHERING_MODE
+        RALLY_DATA_GATHERING_MODE,
+        RALLY_IGNORE_DAILY_LIMIT,
+        RALLY_IGNORE_DAILY_LIMIT_EVENTS,
     )
 except ImportError:
     # Fallback defaults if config not updated yet
     RALLY_MONSTERS = [{"name": "Zombie Overlord", "auto_join": True, "max_level": 130, "has_level": True}]
     RALLY_DATA_GATHERING_MODE = False
+    RALLY_IGNORE_DAILY_LIMIT = False
+    RALLY_IGNORE_DAILY_LIMIT_EVENTS = []
+
+
+from datetime import datetime, timezone, timedelta
+
+
+def _should_ignore_daily_limit() -> bool:
+    """
+    Check if daily limit should be ignored (click Confirm instead of Cancel).
+
+    Returns True if:
+    - RALLY_IGNORE_DAILY_LIMIT global flag is True, OR
+    - Current UTC time falls within any event in RALLY_IGNORE_DAILY_LIMIT_EVENTS
+
+    Event boundaries use SERVER RESET time (02:00 UTC):
+    - Start: 02:00 UTC on start date
+    - End: 02:00 UTC on the day AFTER end date
+    Example: end="2025-12-28" means active until 2025-12-29 02:00 UTC
+    """
+    if RALLY_IGNORE_DAILY_LIMIT:
+        return True
+
+    if RALLY_IGNORE_DAILY_LIMIT_EVENTS:
+        now = datetime.now(timezone.utc)
+        for event in RALLY_IGNORE_DAILY_LIMIT_EVENTS:
+            # Parse dates and add server reset time (02:00 UTC)
+            start_date = datetime.strptime(event["start"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(event["end"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+            # Event starts at 02:00 UTC on start date
+            event_start = start_date.replace(hour=2, minute=0, second=0)
+            # Event ends at 02:00 UTC on the day AFTER end date
+            event_end = (end_date + timedelta(days=1)).replace(hour=2, minute=0, second=0)
+
+            if event_start <= now < event_end:
+                print(f"[RALLY-JOIN]   Within {event['name']} event period - ignoring daily limit")
+                return True
+
+    return False
 
 
 # Debug directory
@@ -65,6 +107,9 @@ TEAM_UP_CLICK = (1912, 1648)  # center click position
 # Cancel button: template 368x130, position around (1486, 1226)
 CANCEL_REGION = (1450, 1200, 420, 180)  # (x, y, w, h)
 CANCEL_CLICK = (1670, 1291)  # center click position
+
+# Confirm button: right side of daily limit dialog
+CONFIRM_CLICK = (2150, 1291)  # center click position (same Y as Cancel)
 
 
 def _verify_button_at_region(frame, template, region, threshold=0.05):
@@ -232,8 +277,12 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     # Step 0: Check for leftover daily limit dialog and dismiss if present
     # This prevents infinite loop when daemon re-triggers flow with dialog still on screen
     if _check_daily_limit_dialog(win, timeout=0.5):
-        print("[RALLY-JOIN] Daily limit dialog detected at flow start - dismissing")
-        adb.tap(*CANCEL_CLICK)  # Click Cancel
+        if _should_ignore_daily_limit():
+            print("[RALLY-JOIN] Daily limit dialog at flow start - clicking Confirm (ignoring limit)")
+            adb.tap(*CONFIRM_CLICK)
+        else:
+            print("[RALLY-JOIN] Daily limit dialog detected at flow start - dismissing")
+            adb.tap(*CANCEL_CLICK)
         time.sleep(0.5)
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
@@ -374,38 +423,46 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
 
     # Step 6b: Check for daily limit dialog
     if _check_daily_limit_dialog(win, timeout=2.0):
-        print(f"[RALLY-JOIN]   Daily limit reached for {monster_name}!")
+        if _should_ignore_daily_limit():
+            # Ignore daily limit - click Confirm and continue
+            print(f"[RALLY-JOIN]   Daily limit reached but ignoring - clicking Confirm")
+            adb.tap(*CONFIRM_CLICK)
+            time.sleep(0.5)
+            # Don't mark as exhausted, don't return early - fall through to success path
+        else:
+            # Respect daily limit - click Cancel and exit
+            print(f"[RALLY-JOIN]   Daily limit reached for {monster_name}!")
 
-        # Poll for Cancel button at fixed region (2s timeout)
-        cancel_template = cv2.imread(str(CANCEL_BUTTON_TEMPLATE_PATH))
-        if cancel_template is not None:
-            found, frame = _poll_for_button(win, cancel_template, CANCEL_REGION,
-                                            CANCEL_CLICK, "Cancel button", timeout=2.0, threshold=0.1)
-            if found:
-                adb.tap(*CANCEL_CLICK)
+            # Poll for Cancel button at fixed region (2s timeout)
+            cancel_template = cv2.imread(str(CANCEL_BUTTON_TEMPLATE_PATH))
+            if cancel_template is not None:
+                found, frame = _poll_for_button(win, cancel_template, CANCEL_REGION,
+                                                CANCEL_CLICK, "Cancel button", timeout=2.0, threshold=0.1)
+                if found:
+                    adb.tap(*CANCEL_CLICK)
+                else:
+                    print("[RALLY-JOIN]   Cancel button not at expected region, clicking back instead")
+                    back_button_matcher.click(adb)
             else:
-                print("[RALLY-JOIN]   Cancel button not at expected region, clicking back instead")
+                print("[RALLY-JOIN]   Cancel template not found, clicking back instead")
                 back_button_matcher.click(adb)
-        else:
-            print("[RALLY-JOIN]   Cancel template not found, clicking back instead")
-            back_button_matcher.click(adb)
-        time.sleep(0.5)
+            time.sleep(0.5)
 
-        # Mark monster as exhausted for today (only if track_daily_limit is True)
-        monster_config = _get_monster_config(monster_name)
-        if monster_config and monster_config.get('track_daily_limit', True):
-            from utils.scheduler import get_scheduler, DaemonScheduler
-            scheduler = get_scheduler()
-            limit_name = f"rally_{monster_name.lower().replace(' ', '_')}"
-            reset_time = DaemonScheduler.get_next_server_reset()
-            scheduler.mark_exhausted(limit_name, reset_time)
-            print(f"[RALLY-JOIN]   Marked {monster_name} as exhausted until {reset_time}")
-        else:
-            print(f"[RALLY-JOIN]   {monster_name} has track_daily_limit=False, not marking exhausted")
+            # Mark monster as exhausted for today (only if track_daily_limit is True)
+            monster_config = _get_monster_config(monster_name)
+            if monster_config and monster_config.get('track_daily_limit', True):
+                from utils.scheduler import get_scheduler, DaemonScheduler
+                scheduler = get_scheduler()
+                limit_name = f"rally_{monster_name.lower().replace(' ', '_')}"
+                reset_time = DaemonScheduler.get_next_server_reset()
+                scheduler.mark_exhausted(limit_name, reset_time)
+                print(f"[RALLY-JOIN]   Marked {monster_name} as exhausted until {reset_time}")
+            else:
+                print(f"[RALLY-JOIN]   {monster_name} has track_daily_limit=False, not marking exhausted")
 
-        # Cleanup and exit
-        _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': monster_name}
+            # Cleanup and exit
+            _cleanup_and_exit(adb, win, back_button_matcher)
+            return {'success': False, 'monster_name': monster_name}
 
     time.sleep(0.5)
     frame = win.get_screenshot_cv2()
