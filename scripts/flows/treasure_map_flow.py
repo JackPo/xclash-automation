@@ -328,9 +328,14 @@ def _wait_and_collect_treasure(adb) -> bool:
             _log(f"  Clicking to collect at ({ready_matcher.CLICK_X}, {ready_matcher.CLICK_Y})")
             ready_matcher.click(adb)
 
-            # Phase 2: Keep clicking until blue circle is gone (turns white = collected)
+            # Phase 2: Keep clicking until blue circle is CONFIRMED gone
+            # Require 3 consecutive "not blue" frames to prevent false positives
+            # from click animations causing score fluctuations
             time.sleep(0.5)
-            for click_attempt in range(10):
+            consecutive_not_blue = 0
+            REQUIRED_CONSECUTIVE = 3
+
+            for click_attempt in range(20):  # Increased from 10
                 frame = win.get_screenshot_cv2()
 
                 if frame is None:
@@ -341,16 +346,23 @@ def _wait_and_collect_treasure(adb) -> bool:
                 _save_debug_screenshot(frame, f"13_collect_click_{click_attempt+1}_score{score:.3f}")
 
                 if not still_blue:
-                    _save_debug_screenshot(frame, "14_treasure_COLLECTED")
-                    _log(f"  Circle turned white - treasure COLLECTED!")
-                    return True
+                    consecutive_not_blue += 1
+                    _log(f"  Not blue ({consecutive_not_blue}/{REQUIRED_CONSECUTIVE}), score={score:.4f}")
+                    if consecutive_not_blue >= REQUIRED_CONSECUTIVE:
+                        _save_debug_screenshot(frame, "14_treasure_COLLECTED")
+                        _log(f"  Circle gone for {REQUIRED_CONSECUTIVE} consecutive checks - COLLECTED!")
+                        return True
+                else:
+                    # Reset counter if blue detected again
+                    consecutive_not_blue = 0
+                    _log(f"  Still blue (score={score:.4f}), clicking again ({click_attempt+1}/20)...")
+                    ready_matcher.click(adb)
 
-                _log(f"  Still blue (score={score:.4f}), clicking again ({click_attempt+1}/10)...")
-                ready_matcher.click(adb)
                 time.sleep(0.5)
 
-            # After 10 attempts, assume collected
-            _log("  Assuming treasure collected after 10 click attempts")
+            # After 20 attempts without 3 consecutive "not blue", warn but still return True
+            # (better to proceed than get stuck)
+            _log("  WARNING: Could not confirm collection after 20 attempts - proceeding anyway")
             return True
 
         time.sleep(MARCH_PROGRESS_CHECK_INTERVAL)
