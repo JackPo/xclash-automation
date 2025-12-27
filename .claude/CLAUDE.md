@@ -193,14 +193,26 @@ Located in `templates/ground_truth/`:
 **Anchor Templates:**
 - `dog_house_4k.png` - Dog house for town view alignment verification (position: 1605,882, size: 172x197, threshold: 0.1)
 
-**Barracks State Templates (bubble icons, size 61x67, threshold 0.03):**
+**Barracks State Templates (bubble icons, size 81x87, threshold 0.08):**
 - `stopwatch_barrack_4k.png` - Timer icon for TRAINING state
-- `white_soldier_barrack_4k.png` - White soldier for PENDING state
+- `white_soldier_barrack_4k.png` - White soldier for PENDING state (81x87)
 - `yellow_soldier_barrack_4k.png` - Yellow soldier v1 (purple hat) for READY state
 - `yellow_soldier_barrack_v2_4k.png` - Yellow soldier v2 (purple hat, different frame)
 - `yellow_soldier_barrack_v3_4k.png` - Yellow soldier v3 (red hat)
 - `yellow_soldier_barrack_v4_4k.png` - Yellow soldier v4 (orange hat)
 - `yellow_soldier_barrack_v5_4k.png` - Yellow soldier v5 (yellow/orange hat)
+
+**CRITICAL Barracks Config (DO NOT CHANGE without full recalibration):**
+```python
+BARRACKS_POSITIONS = [
+    (2891, 1317),  # Barrack 1
+    (2768, 1237),  # Barrack 2
+    (3005, 1237),  # Barrack 3
+    (2883, 1157),  # Barrack 4
+]
+BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height - MUST match template files
+BARRACKS_MATCH_THRESHOLD = 0.08   # Animation causes score variance 0.00-0.08
+```
 
 NOTE: Different soldier types have different face icons! Multiple yellow soldier
 templates are needed to match all variants. Both barracks_state_matcher and
