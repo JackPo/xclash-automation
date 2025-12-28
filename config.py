@@ -218,10 +218,10 @@ THRESHOLDS = {
 
 # Position where each barracks bubble appears (top-left corner of 81x87 template)
 BARRACKS_POSITIONS = [
-    (2901, 1327),  # Barrack 1 - lowest/rightmost (original working)
-    (2778, 1247),  # Barrack 2 - middle left
-    (3015, 1247),  # Barrack 3 - middle right
-    (2893, 1167),  # Barrack 4 - highest/center
+    (2891, 1317),  # Barrack 1 - lowest/rightmost
+    (2768, 1237),  # Barrack 2 - middle left
+    (3005, 1237),  # Barrack 3 - middle right
+    (2883, 1157),  # Barrack 4 - highest/center
 ]
 
 # Template size for barracks state detection
@@ -229,7 +229,7 @@ BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height
 
 # Match threshold for barracks state (TM_SQDIFF_NORMED)
 # Raised to 0.08 from 0.06 due to animation variance (scores 0.00-0.08)
-BARRACKS_MATCH_THRESHOLD = 0.15  # Increased for animation variance
+BARRACKS_MATCH_THRESHOLD = 0.08  # With yellow pixel verification for READY/PENDING
 
 # Yellow pixel threshold for READY vs PENDING verification
 # READY (yellow soldier) has ~1200-1600 yellow pixels, PENDING (white) has ~0
