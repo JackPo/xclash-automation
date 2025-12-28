@@ -432,7 +432,7 @@ def soldier_training_flow(adb, target_level=None, debug=False):
         if debug:
             print(f"Soldier Training Flow - target level: Lv{target_level}")
 
-        # Step 1: Collect from READY barracks
+        # Step 1: Detect ALL barracks states in ONE screenshot
         frame = win.get_screenshot_cv2()
         matcher = get_barracks_matcher()
         states = matcher.get_all_states(frame)
@@ -441,38 +441,42 @@ def soldier_training_flow(adb, target_level=None, debug=False):
             state_str = " ".join([f"B{i+1}:{s.value[0].upper()}" for i, (s, _) in enumerate(states)])
             print(f"  Barracks states: {state_str}")
 
+        # Build action queues - NO re-detection after this point
+        ready_barracks = []
+        pending_barracks = []
         for i, (state, score) in enumerate(states):
             if state == BarrackState.READY:
-                click_x, click_y = get_barrack_click_position(i)
-                if debug:
-                    print(f"  Collecting from barrack {i+1} (READY)")
-                adb.tap(click_x, click_y)
-                time.sleep(0.5)
-                results['collected'] += 1
+                ready_barracks.append(i)
+            elif state == BarrackState.PENDING:
+                pending_barracks.append(i)
 
-        # Step 2: Re-check states after collecting
-        if results['collected'] > 0:
-            time.sleep(0.5)
-            frame = win.get_screenshot_cv2()
-            states = matcher.get_all_states(frame)
+        if debug:
+            print(f"  Queue: READY={ready_barracks}, PENDING={pending_barracks}")
 
+        # Step 2: Click ALL READY barracks rapidly (no re-detection)
+        for i in ready_barracks:
+            click_x, click_y = get_barrack_click_position(i)
             if debug:
-                state_str = " ".join([f"B{i+1}:{s.value[0].upper()}" for i, (s, _) in enumerate(states)])
-                print(f"  States after collecting: {state_str}")
+                print(f"  Collecting from barrack {i+1}")
+            adb.tap(click_x, click_y)
+            time.sleep(0.3)  # Brief delay for animation
+            results['collected'] += 1
 
-        # Step 3: Train at PENDING barracks
-        for i, (state, score) in enumerate(states):
-            if state == BarrackState.PENDING:
-                if debug:
-                    print(f"  Training at barrack {i+1} (PENDING)")
-                success = train_soldier_at_barrack(adb, win, i, target_level, debug=debug)
-                if success:
-                    results['trained'] += 1
+        # After collecting, READY barracks become PENDING - add to queue
+        if ready_barracks:
+            time.sleep(0.3)  # Wait for state change
+            pending_barracks.extend(ready_barracks)
+            if debug:
+                print(f"  READY→PENDING, new queue: {pending_barracks}")
 
-                # Re-check states for next iteration
-                time.sleep(0.5)
-                frame = win.get_screenshot_cv2()
-                states = matcher.get_all_states(frame)
+        # Step 3: Train ALL PENDING barracks (no re-detection between each)
+        for i in pending_barracks:
+            if debug:
+                print(f"  Training at barrack {i+1}")
+            success = train_soldier_at_barrack(adb, win, i, target_level, debug=debug)
+            if success:
+                results['trained'] += 1
+            # NO re-detection here - just move to next barrack
 
         if debug:
             print(f"  Flow complete: collected={results['collected']}, trained={results['trained']}")
