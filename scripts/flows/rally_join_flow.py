@@ -261,6 +261,11 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     """
     print("[RALLY-JOIN] Starting rally join flow")
 
+    # Check if we should ignore daily limits (special events like Winter Fest)
+    ignore_limit = _should_ignore_daily_limit()
+    if ignore_limit:
+        print("[RALLY-JOIN] Daily limit checking DISABLED (special event active)")
+
     # Initialize components
     win = WindowsScreenshotHelper()
     panel_detector = UnionWarPanelDetector()
@@ -269,7 +274,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     monster_validator = RallyMonsterValidator(
         ocr_client=ocr,
         monsters_config=RALLY_MONSTERS,
-        data_gathering_mode=RALLY_DATA_GATHERING_MODE
+        data_gathering_mode=RALLY_DATA_GATHERING_MODE,
+        ignore_daily_limit=ignore_limit
     )
     hero_selector = HeroSelector()
     back_button_matcher = BackButtonMatcher()

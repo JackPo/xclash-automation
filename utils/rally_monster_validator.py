@@ -25,7 +25,8 @@ class RallyMonsterValidator:
     MONSTER_WIDTH = 290
     MONSTER_HEIGHT = 363
 
-    def __init__(self, ocr_client, monsters_config: list, data_gathering_mode: bool = False):
+    def __init__(self, ocr_client, monsters_config: list, data_gathering_mode: bool = False,
+                 ignore_daily_limit: bool = False):
         """
         Initialize validator.
 
@@ -33,10 +34,12 @@ class RallyMonsterValidator:
             ocr_client: OCRClient instance for text extraction
             monsters_config: List of monster dicts from RALLY_MONSTERS config
             data_gathering_mode: If True, save crops to matched/unknown subfolders
+            ignore_daily_limit: If True, skip exhaustion checks (e.g., during special events)
         """
         self.ocr = ocr_client
         self.monsters_config = monsters_config
         self.data_gathering_mode = data_gathering_mode
+        self.ignore_daily_limit = ignore_daily_limit
 
         # Create data gathering directories if needed
         if self.data_gathering_mode:
@@ -232,7 +235,8 @@ class RallyMonsterValidator:
                     return False, True  # Known but level too high
 
                 # Check daily exhaustion (only for monsters with track_daily_limit=True)
-                if monster.get("track_daily_limit", False):
+                # Skip this check if ignore_daily_limit is set (e.g., during Winter Fest)
+                if monster.get("track_daily_limit", False) and not self.ignore_daily_limit:
                     from utils.scheduler import get_scheduler
                     scheduler = get_scheduler()
                     limit_name = f"rally_{config_name.lower().replace(' ', '_')}"
