@@ -275,7 +275,6 @@ class IconDaemon:
         self.beast_training_last_rally = 0
         self.beast_training_rally_count = 0  # Track total rallies in current Beast Training block
         self.beast_training_current_block = None  # Track which block we're in
-        self.beast_training_progress_checked = False  # Track if we've done OCR progress check this block
         self.STAMINA_CLAIM_THRESHOLD = ARMS_RACE_STAMINA_CLAIM_THRESHOLD  # Claim when stamina < this
 
         # Use Button tracking (for stamina recovery items during Beast Training)
@@ -289,9 +288,7 @@ class IconDaemon:
         self.beast_training_last_use_time = 0  # Track cooldown between uses
         self.beast_training_claim_attempted = False  # Track if we tried to claim this iteration
 
-        # Smart Beast Training flow phases (Claude CLI integration)
-        self.beast_training_hour_mark_done = False  # Phase 1: Hour mark check done
-        self.beast_training_last_6_done = False  # Phase 2: Last 6 minutes check done
+        # Smart Beast Training flow phases use scheduler-based tracking (beast_training_hour_mark_block, beast_training_last_6_block)
         self.beast_training_last_progress_check = 0  # Timestamp of last progress check
 
         # Enhance Hero: last N minutes of Enhance Hero, runs once per block
@@ -1179,6 +1176,10 @@ class IconDaemon:
                 vs_promo_active = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 vs_indicator = " [VS:Promo]" if vs_promo_active else ""
 
+                # Check for active special events (for logging)
+                from utils.special_events import get_active_events_short
+                special_events_indicator = get_active_events_short()
+
                 # =================================================================
                 # ARMS RACE DATA COLLECTION (automated, runs once per event type)
                 # Triggers in first 15 min of block when idle 5+ min and data missing
@@ -1209,7 +1210,7 @@ class IconDaemon:
                 }.get(hospital_state, "?")
 
                 # Log status line with view state, stamina, barracks, and arms race
-                self.logger.info(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} Hosp:{hospital_state_char}({hospital_score:.3f}) AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                self.logger.info(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator}{special_events_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} Hosp:{hospital_state_char}({hospital_score:.3f}) AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Log detailed barracks scores (s=stopwatch, y=yellow, w=white)
                 # Only log when barracks has UNKNOWN or PENDING state (to avoid noise)
@@ -1521,9 +1522,6 @@ class IconDaemon:
                         self.beast_training_current_block = block_start
                         self.beast_training_rally_count = 0
                         self.beast_training_use_count = 0  # Reset Use count for new block
-                        self.beast_training_progress_checked = False  # Need to check progress for this block
-                        self.beast_training_hour_mark_done = False  # Reset hour mark phase
-                        self.beast_training_last_6_done = False  # Reset last 6 minutes phase
                         # Check if there's a pre-set target for this block
                         arms_race_state = self.scheduler.get_arms_race_state()
                         next_target = arms_race_state.get("beast_training_next_target_rallies")
@@ -1545,74 +1543,81 @@ class IconDaemon:
                     # Phase 2: Last 6 minutes - re-check + claim remainder
                     # =========================================================
 
-                    # PHASE 1: Hour Mark Check (runs once when entering last hour, idle 5+ min)
-                    if (not self.beast_training_hour_mark_done and
-                        effective_idle_secs >= 300):  # 5+ min idle
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Running Hour Mark Phase (Claude CLI)...")
-                        result = run_hour_mark_phase(self.adb, self.windows_helper, debug=self.debug)
+                    # PHASE 1: Hour Mark Check - retry until success (like union_technology)
+                    # Uses scheduler pattern: is_flow_ready() checks idle, record_flow_run() on success
+                    if self.scheduler.is_flow_ready("beast_training_hour_mark", idle_seconds=effective_idle_secs):
+                        # Check if already done for THIS block (block-based tracking)
+                        phase_state = self.scheduler.get_arms_race_state()
+                        hour_mark_block = phase_state.get("beast_training_hour_mark_block")
 
-                        if result["success"]:
-                            dynamic_target = result["rallies_needed"]
-                            current_pts = result.get("current_points")
-                            stamina_claimed = result.get("stamina_claimed", 0)
+                        if hour_mark_block != str(block_start):  # Not done for this block
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Hour Mark Phase (Claude CLI)...")
+                            result = run_hour_mark_phase(self.adb, self.windows_helper, debug=self.debug)
 
-                            self.logger.info(
-                                f"[{iteration}] BEAST TRAINING: Hour Mark complete - "
-                                f"Progress {current_pts}/30000 pts, need {dynamic_target} rallies, "
-                                f"claimed {stamina_claimed} stamina"
-                            )
+                            if result["success"]:
+                                dynamic_target = result["rallies_needed"]
+                                current_pts = result.get("current_points")
+                                stamina_claimed = result.get("stamina_claimed", 0)
 
-                            if dynamic_target == 0:
-                                self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 already reached! Skipping rallies.")
-                                self.scheduler.update_arms_race_state(beast_training_target_rallies=0)
+                                self.logger.info(
+                                    f"[{iteration}] BEAST TRAINING: Hour Mark complete - "
+                                    f"Progress {current_pts}/30000 pts, need {dynamic_target} rallies, "
+                                    f"claimed {stamina_claimed} stamina"
+                                )
+
+                                if dynamic_target == 0:
+                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 already reached! Skipping rallies.")
+                                    self.scheduler.update_arms_race_state(beast_training_target_rallies=0)
+                                else:
+                                    self.scheduler.update_arms_race_state(beast_training_target_rallies=dynamic_target)
+                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Dynamic target set to {dynamic_target} rallies")
+
+                                # Mark block as done and record flow run
+                                self.scheduler.update_arms_race_state(beast_training_hour_mark_block=str(block_start))
+                                self.scheduler.record_flow_run("beast_training_hour_mark")
                             else:
-                                self.scheduler.update_arms_race_state(beast_training_target_rallies=dynamic_target)
-                                self.logger.info(f"[{iteration}] BEAST TRAINING: Dynamic target set to {dynamic_target} rallies")
+                                # Failed - DON'T mark as done, will retry next iteration
+                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Hour Mark phase failed, will retry...")
 
-                            self.beast_training_hour_mark_done = True
-                            self.beast_training_progress_checked = True
-                        else:
-                            self.logger.warning(f"[{iteration}] BEAST TRAINING: Hour Mark phase failed, using default target")
-                            self.beast_training_hour_mark_done = True
-                            self.beast_training_progress_checked = True
-
-                    # PHASE 2: Last 6 Minutes Re-check (runs once when in last 6 min)
+                    # PHASE 2: Last 6 Minutes Re-check - retry until success
                     if (arms_race_remaining_mins <= 6 and
-                        not self.beast_training_last_6_done and
-                        effective_idle_secs >= 300):  # 5+ min idle
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Running Last 6 Minutes Phase (Claude CLI)...")
-                        result = run_last_6_minutes_phase(self.adb, self.windows_helper, debug=self.debug)
+                        self.scheduler.is_flow_ready("beast_training_last_6", idle_seconds=effective_idle_secs)):
+                        # Check if already done for THIS block
+                        phase_state = self.scheduler.get_arms_race_state()
+                        last_6_block = phase_state.get("beast_training_last_6_block")
 
-                        if result["success"]:
-                            new_target = result["rallies_needed"]
-                            current_pts = result.get("current_points")
-                            stamina_claimed = result.get("stamina_claimed", 0)
+                        if last_6_block != str(block_start):  # Not done for this block
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Last 6 Minutes Phase (Claude CLI)...")
+                            result = run_last_6_minutes_phase(self.adb, self.windows_helper, debug=self.debug)
 
-                            self.logger.info(
-                                f"[{iteration}] BEAST TRAINING: Last 6 Min complete - "
-                                f"Progress {current_pts}/30000 pts, need {new_target} rallies, "
-                                f"claimed {stamina_claimed} stamina"
-                            )
+                            if result["success"]:
+                                new_target = result["rallies_needed"]
+                                current_pts = result.get("current_points")
+                                stamina_claimed = result.get("stamina_claimed", 0)
 
-                            if new_target == 0:
-                                self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 reached! Mission accomplished.")
-                                self.scheduler.update_arms_race_state(beast_training_target_rallies=0)
+                                self.logger.info(
+                                    f"[{iteration}] BEAST TRAINING: Last 6 Min complete - "
+                                    f"Progress {current_pts}/30000 pts, need {new_target} rallies, "
+                                    f"claimed {stamina_claimed} stamina"
+                                )
+
+                                if new_target == 0:
+                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 reached! Mission accomplished.")
+                                    self.scheduler.update_arms_race_state(beast_training_target_rallies=0)
+                                else:
+                                    # Update target with new value
+                                    self.scheduler.update_arms_race_state(beast_training_target_rallies=new_target)
+
+                                # Mark block as done and record flow run
+                                self.scheduler.update_arms_race_state(beast_training_last_6_block=str(block_start))
+                                self.scheduler.record_flow_run("beast_training_last_6")
                             else:
-                                # Update target with new value
-                                self.scheduler.update_arms_race_state(beast_training_target_rallies=new_target)
-
-                            self.beast_training_last_6_done = True
-                        else:
-                            self.logger.warning(f"[{iteration}] BEAST TRAINING: Last 6 Minutes phase failed")
-                            self.beast_training_last_6_done = True
+                                # Failed - DON'T mark as done, will retry next iteration
+                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Last 6 Minutes phase failed, will retry...")
 
                     # Get target from scheduler (or use MAX_RALLIES as default)
                     arms_race_state = self.scheduler.get_arms_race_state()
                     rally_target = arms_race_state.get("beast_training_target_rallies") or self.BEAST_TRAINING_MAX_RALLIES
-
-                    # Check if user was idle since block start (required for Use button)
-                    time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
-                    idle_since_block_start = effective_idle_secs >= time_elapsed_secs
 
                     # STEP 1: Stamina Claim - if stamina < 60 AND red dot visible, claim free stamina
                     # Track if claim was attempted (to know if we should try Use button)
@@ -1650,13 +1655,14 @@ class IconDaemon:
                         self.stamina_reader.reset()  # Reset after triggering
 
                     # STEP 3: Use Button - only AFTER rallies have burned stamina down to < 20
-                    # Conditions: idle entire block, rally count < target, stamina < 20, Use clicks < 4, cooldown
+                    # Conditions: idle 5+ min, rally count < target, stamina < 20, Use clicks < 4, cooldown
                     # For 3rd+ uses, require being in the last N minutes of the block
+                    # NOTE: Strategic use decisions handled by Claude CLI in hour_mark/last_6 phases
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
                                            arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
                     if (self.BEAST_TRAINING_USE_ENABLED and
-                        idle_since_block_start and
+                        effective_idle_secs >= self.IDLE_THRESHOLD and  # Standard idle check (5 min)
                         stamina_confirmed and
                         confirmed_stamina < self.BEAST_TRAINING_USE_STAMINA_THRESHOLD and
                         self.beast_training_rally_count < rally_target and  # Use target instead of MAX_RALLIES

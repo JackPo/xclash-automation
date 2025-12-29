@@ -299,12 +299,30 @@ RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
 # This joins rallies even without rewards (to help alliance members).
 RALLY_IGNORE_DAILY_LIMIT = False  # Global flag (always ignore)
 
-# Festival/event date ranges where daily limit is ignored (server time = UTC)
-# Server resets at 02:00 UTC daily - use that as your end boundary
-# Format: list of dicts with name, start, end (dates as "YYYY-MM-DD")
+# =============================================================================
+# SPECIAL EVENTS REGISTRY
+# =============================================================================
+# Central registry of special events for automation triggers.
+# Each event can have properties like: ignore_rally_limit, special_flows, etc.
+# Server resets at 02:00 UTC daily - end date means active until next day 02:00 UTC.
+SPECIAL_EVENTS = [
+    {
+        "name": "Winter Fest",
+        "start": "2025-12-22",
+        "end": "2025-12-28",
+        "ignore_rally_limit": True,  # Click Confirm on daily limit dialog
+    },
+    {
+        "name": "New Year's Feast",
+        "start": "2025-12-28",
+        "end": "2026-01-04",
+        "ignore_rally_limit": False,  # Respect daily limits
+    },
+]
+
+# Derived: events where rally limit is ignored (for backwards compatibility)
 RALLY_IGNORE_DAILY_LIMIT_EVENTS = [
-    {"name": "Winter Fest", "start": "2025-12-22", "end": "2025-12-28"},
-    # {"name": "New Year's Event", "start": "2025-12-31", "end": "2026-01-02"},
+    e for e in SPECIAL_EVENTS if e.get("ignore_rally_limit", False)
 ]
 
 # Union Boss mode - faster rally joining when Union Boss detected
