@@ -7,16 +7,17 @@ Trigger Conditions:
 
 Sequence:
 1. Go to World Map (if not already there)
-2. Click Magnifying Glass (search button)
-3. Click Elite Zombie tab
+2. Click Magnifying Glass (search button) - VERIFY search panel opened
+3. Click Elite Zombie tab - VERIFY tab selected
 4. Click Plus button N times (increase level, configurable via ELITE_ZOMBIE_PLUS_CLICKS)
-5. Click Search button
-6. Click Rally button
+5. Click Search button - VERIFY search button visible first
+6. Click Rally button - VERIFY rally button visible after search
 7. Select rightmost hero with Zz (idle) using hero_selector
-8. Click Team Up button
+8. Click Team Up button - VERIFY team up button visible
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 Templates are captured with Windows screenshots - ADB has different pixel values.
+Each step verifies the expected UI element is present before clicking.
 """
 import sys
 import time
@@ -34,6 +35,7 @@ import cv2
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, go_to_world, ViewState
 from utils.hero_selector import HeroSelector
+from utils.return_to_base_view import return_to_base_view
 from config import ELITE_ZOMBIE_PLUS_CLICKS
 
 # Setup logger
@@ -42,6 +44,12 @@ logger = logging.getLogger("elite_zombie_flow")
 # Debug output directory
 DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "elite_zombie_flow"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Template directory
+TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
+
+# Templates for verification (loaded lazily)
+_templates = {}
 
 # Fixed click coordinates (4K resolution) - all from plan
 MAGNIFYING_GLASS_CLICK = (88, 1486)
@@ -58,6 +66,16 @@ SCREEN_TRANSITION_DELAY = 1.0  # Delay for screen transitions
 SEARCH_RESULT_DELAY = 2.0  # Delay for search results to appear
 RALLY_SCREEN_DELAY = 1.5  # Delay for rally screen to appear
 
+# Verification thresholds (TM_SQDIFF_NORMED - lower = better)
+VERIFY_THRESHOLD = 0.1  # Generic verification threshold
+SEARCH_BUTTON_THRESHOLD = 0.05
+RALLY_BUTTON_THRESHOLD = 0.08
+TEAM_UP_THRESHOLD = 0.05
+
+# Poll settings for verification
+MAX_POLL_ATTEMPTS = 10
+POLL_INTERVAL = 0.3  # seconds between poll attempts
+
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
@@ -73,9 +91,87 @@ def _log(msg: str):
     print(f"    [ELITE_ZOMBIE] {msg}")
 
 
+def _get_template(name: str):
+    """Load template lazily and cache it."""
+    if name not in _templates:
+        path = TEMPLATE_DIR / name
+        template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        if template is None:
+            _log(f"WARNING: Could not load template {name}")
+        _templates[name] = template
+    return _templates[name]
+
+
+def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESHOLD,
+                     search_region: tuple = None) -> tuple:
+    """
+    Verify a template is visible in the frame.
+
+    Args:
+        frame: BGR screenshot
+        template_name: Name of template file
+        threshold: Max score to consider a match (TM_SQDIFF_NORMED)
+        search_region: Optional (x, y, w, h) to limit search area
+
+    Returns:
+        (found: bool, score: float, location: tuple or None)
+    """
+    template = _get_template(template_name)
+    if template is None:
+        return False, 1.0, None
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    if search_region:
+        x, y, w, h = search_region
+        search_area = gray[y:y+h, x:x+w]
+        offset = (x, y)
+    else:
+        search_area = gray
+        offset = (0, 0)
+
+    result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+
+    th, tw = template.shape
+    location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
+
+    found = min_val < threshold
+    return found, min_val, location
+
+
+def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESHOLD,
+                       search_region: tuple = None, max_attempts: int = MAX_POLL_ATTEMPTS,
+                       interval: float = POLL_INTERVAL) -> tuple:
+    """
+    Poll for a template to appear with timeout.
+
+    Args:
+        win: WindowsScreenshotHelper
+        template_name: Name of template file
+        threshold: Max score for match
+        search_region: Optional region to limit search
+        max_attempts: Max polling attempts
+        interval: Seconds between attempts
+
+    Returns:
+        (found: bool, score: float, location: tuple or None, frame: np.array)
+    """
+    for attempt in range(max_attempts):
+        frame = win.get_screenshot_cv2()
+        found, score, location = _verify_template(frame, template_name, threshold, search_region)
+        if found:
+            _log(f"  Found {template_name} (score={score:.4f}) after {attempt + 1} attempts")
+            return True, score, location, frame
+        time.sleep(interval)
+
+    _log(f"  Template {template_name} NOT found after {max_attempts} attempts (best={score:.4f})")
+    return False, score, None, frame
+
+
 def elite_zombie_flow(adb) -> bool:
     """
-    Execute the elite zombie rally flow.
+    Execute the elite zombie rally flow with template verification at each step.
 
     Args:
         adb: ADBHelper instance
@@ -88,111 +184,183 @@ def elite_zombie_flow(adb) -> bool:
 
     win = WindowsScreenshotHelper()
 
-    # Step 0: Ensure we're in WORLD view
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "00_initial_state")
-        state, score = detect_view(frame)
-        _log(f"Current view: {state.name} (score={score:.4f})")
+    try:
+        # Step 0: Ensure we're in WORLD view
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            _save_debug_screenshot(frame, "00_initial_state")
+            state, score = detect_view(frame)
+            _log(f"Current view: {state.name} (score={score:.4f})")
 
-        if state != ViewState.WORLD:
-            _log("Not in WORLD view, navigating...")
-            if not go_to_world(adb, debug=False):
-                _log("FAILED: Could not navigate to WORLD view")
-                return False
-            time.sleep(SCREEN_TRANSITION_DELAY)
+            if state != ViewState.WORLD:
+                _log("Not in WORLD view, navigating...")
+                if not go_to_world(adb, debug=False):
+                    _log("FAILED: Could not navigate to WORLD view")
+                    return False
+                time.sleep(SCREEN_TRANSITION_DELAY)
 
-    # Step 1: Click magnifying glass
-    _log(f"Step 1: Clicking magnifying glass at {MAGNIFYING_GLASS_CLICK}")
-    adb.tap(*MAGNIFYING_GLASS_CLICK)
-    time.sleep(SCREEN_TRANSITION_DELAY)
+        # Step 1: Click magnifying glass and VERIFY search panel opened
+        _log(f"Step 1: Clicking magnifying glass at {MAGNIFYING_GLASS_CLICK}")
+        adb.tap(*MAGNIFYING_GLASS_CLICK)
 
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "01_after_magnifying_glass")
+        # Poll for search button to appear (proves search panel is open)
+        # Search button is in lower half of screen
+        found, score, loc, frame = _poll_for_template(
+            win, "search_button_4k.png",
+            threshold=SEARCH_BUTTON_THRESHOLD,
+            search_region=(1600, 1800, 700, 400)
+        )
+        if frame is not None:
+            _save_debug_screenshot(frame, "01_after_magnifying_glass")
+        if not found:
+            _log("FAILED: Search panel did not open (search button not found)")
+            return_to_base_view(adb, win, debug=False)
+            return False
+        _log(f"  Search panel verified (search button at {loc})")
 
-    # Step 2: Click Elite Zombie tab
-    _log(f"Step 2: Clicking Elite Zombie tab at {ELITE_ZOMBIE_TAB_CLICK}")
-    adb.tap(*ELITE_ZOMBIE_TAB_CLICK)
-    time.sleep(CLICK_DELAY)
+        # Step 2: Click Elite Zombie tab and VERIFY tab selected
+        _log(f"Step 2: Clicking Elite Zombie tab at {ELITE_ZOMBIE_TAB_CLICK}")
+        adb.tap(*ELITE_ZOMBIE_TAB_CLICK)
+        time.sleep(CLICK_DELAY)
 
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "02_after_elite_zombie_tab")
-
-    # Step 3: Click plus button to increase zombie level
-    _log(f"Step 3: Clicking plus button {ELITE_ZOMBIE_PLUS_CLICKS} times at {PLUS_BUTTON_CLICK}")
-    for i in range(ELITE_ZOMBIE_PLUS_CLICKS):
-        adb.tap(*PLUS_BUTTON_CLICK)
-        time.sleep(PLUS_CLICK_DELAY)
-
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "03_after_plus_clicks")
-
-    # Step 4: Click search button
-    _log(f"Step 4: Clicking search button at {SEARCH_BUTTON_CLICK}")
-    adb.tap(*SEARCH_BUTTON_CLICK)
-    time.sleep(SEARCH_RESULT_DELAY)
-
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "04_after_search")
-
-    # Step 5: Click rally button
-    _log(f"Step 5: Clicking rally button at {RALLY_BUTTON_CLICK}")
-    adb.tap(*RALLY_BUTTON_CLICK)
-    time.sleep(RALLY_SCREEN_DELAY)
-
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "05_after_rally_click")
-
-    # Step 6: Select LEFTMOST idle hero using hero_selector (elite zombie uses leftmost)
-    _log("Step 6: Finding leftmost idle hero (Zz icon)...")
-
-    hero_selector = HeroSelector()
-    frame = win.get_screenshot_cv2()
-
-    if frame is not None:
-        _save_debug_screenshot(frame, "06_hero_selection_screen")
-
-        # Get all slot status for debugging
-        all_status = hero_selector.get_all_slot_status(frame)
-        for status in all_status:
-            idle_str = "Zz PRESENT (idle)" if status['is_idle'] else "NO Zz (busy)"
-            _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
-
-        # Find LEFTMOST hero (IGNORE Zz status - force select leftmost regardless)
-        # Elite zombie = YOU start the rally as leader, troops commit when timer ends
-        # Safe to use busy hero since you're initiating, not joining
-        idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='ignore')
-
-        if idle_slot:
-            click_pos = idle_slot['click']
-            _log(f"  Clicking leftmost slot {idle_slot['id']} at {click_pos}")
-            adb.tap(*click_pos)
-            time.sleep(CLICK_DELAY)
+        # Verify Elite Zombie tab is selected (template should match)
+        frame = win.get_screenshot_cv2()
+        found, score, loc = _verify_template(
+            frame, "elite_zombie_tab_4k.png",
+            threshold=VERIFY_THRESHOLD,
+            search_region=(1800, 950, 500, 300)
+        )
+        if frame is not None:
+            _save_debug_screenshot(frame, "02_after_elite_zombie_tab")
+        if not found:
+            _log(f"  WARNING: Elite Zombie tab not confirmed (score={score:.4f}), continuing anyway")
         else:
-            # Should never happen with zz_mode='ignore'
-            _log("  ERROR: No hero slot found! (should not happen)")
+            _log(f"  Elite Zombie tab verified (score={score:.4f})")
 
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "07_after_hero_selection")
+        # Step 3: Click plus button to increase zombie level
+        _log(f"Step 3: Clicking plus button {ELITE_ZOMBIE_PLUS_CLICKS} times at {PLUS_BUTTON_CLICK}")
+        for i in range(ELITE_ZOMBIE_PLUS_CLICKS):
+            adb.tap(*PLUS_BUTTON_CLICK)
+            time.sleep(PLUS_CLICK_DELAY)
 
-    # Step 7: Click Team Up button
-    _log(f"Step 7: Clicking Team Up button at {TEAM_UP_BUTTON_CLICK}")
-    adb.tap(*TEAM_UP_BUTTON_CLICK)
-    time.sleep(CLICK_DELAY)
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            _save_debug_screenshot(frame, "03_after_plus_clicks")
 
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "08_after_team_up")
+        # Step 4: VERIFY search button still visible, then click it
+        _log(f"Step 4: Verifying and clicking search button...")
+        frame = win.get_screenshot_cv2()
+        found, score, loc = _verify_template(
+            frame, "search_button_4k.png",
+            threshold=SEARCH_BUTTON_THRESHOLD,
+            search_region=(1600, 1800, 700, 400)
+        )
+        if not found:
+            _log(f"FAILED: Search button not visible (score={score:.4f})")
+            _save_debug_screenshot(frame, "04_search_button_not_found")
+            return_to_base_view(adb, win, debug=False)
+            return False
 
-    elapsed = time.time() - flow_start
-    _log(f"=== ELITE ZOMBIE FLOW SUCCESS === (took {elapsed:.1f}s)")
-    return True
+        _log(f"  Search button at {loc} (score={score:.4f}), clicking...")
+        adb.tap(*loc)  # Click the actual button location, not fixed coords
+
+        # Poll for rally button to appear (proves search completed and zombie found)
+        _log("  Waiting for search results...")
+        found, score, loc, frame = _poll_for_template(
+            win, "rally_button_4k.png",
+            threshold=RALLY_BUTTON_THRESHOLD,
+            search_region=(1700, 1500, 500, 400),
+            max_attempts=15  # Give extra time for search
+        )
+        if frame is not None:
+            _save_debug_screenshot(frame, "04_after_search")
+        if not found:
+            _log("FAILED: Rally button not found after search (no zombie found?)")
+            return_to_base_view(adb, win, debug=False)
+            return False
+
+        # Step 5: Click rally button (use detected location)
+        _log(f"Step 5: Rally button at {loc} (score={score:.4f}), clicking...")
+        adb.tap(*loc)
+
+        # Poll for Team Up button to appear (proves rally screen loaded)
+        _log("  Waiting for rally screen to load...")
+        found, score, loc, frame = _poll_for_template(
+            win, "team_up_button_4k.png",
+            threshold=TEAM_UP_THRESHOLD,
+            search_region=(1500, 1400, 900, 500)
+        )
+        if frame is not None:
+            _save_debug_screenshot(frame, "05_after_rally_click")
+        if not found:
+            _log("FAILED: Team Up button not found (rally screen did not load)")
+            return_to_base_view(adb, win, debug=False)
+            return False
+        _log(f"  Rally screen verified (Team Up at {loc})")
+
+        # Step 6: Select LEFTMOST idle hero using hero_selector
+        _log("Step 6: Finding leftmost idle hero (Zz icon)...")
+
+        hero_selector = HeroSelector()
+        frame = win.get_screenshot_cv2()
+
+        if frame is not None:
+            _save_debug_screenshot(frame, "06_hero_selection_screen")
+
+            # Get all slot status for debugging
+            all_status = hero_selector.get_all_slot_status(frame)
+            for status in all_status:
+                idle_str = "Zz PRESENT (idle)" if status['is_idle'] else "NO Zz (busy)"
+                _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
+
+            # Find LEFTMOST hero (IGNORE Zz status - force select leftmost regardless)
+            # Elite zombie = YOU start the rally as leader, troops commit when timer ends
+            # Safe to use busy hero since you're initiating, not joining
+            idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='ignore')
+
+            if idle_slot:
+                click_pos = idle_slot['click']
+                _log(f"  Clicking leftmost slot {idle_slot['id']} at {click_pos}")
+                adb.tap(*click_pos)
+                time.sleep(CLICK_DELAY)
+            else:
+                # Should never happen with zz_mode='ignore'
+                _log("  ERROR: No hero slot found! (should not happen)")
+
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            _save_debug_screenshot(frame, "07_after_hero_selection")
+
+        # Step 7: VERIFY and click Team Up button
+        _log(f"Step 7: Verifying and clicking Team Up button...")
+        frame = win.get_screenshot_cv2()
+        found, score, loc = _verify_template(
+            frame, "team_up_button_4k.png",
+            threshold=TEAM_UP_THRESHOLD,
+            search_region=(1500, 1400, 900, 500)
+        )
+        if not found:
+            _log(f"  WARNING: Team Up button not confirmed (score={score:.4f})")
+            # Use fixed coords as fallback
+            loc = TEAM_UP_BUTTON_CLICK
+        else:
+            _log(f"  Team Up button at {loc} (score={score:.4f})")
+
+        adb.tap(*loc)
+        time.sleep(CLICK_DELAY)
+
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            _save_debug_screenshot(frame, "08_after_team_up")
+
+        elapsed = time.time() - flow_start
+        _log(f"=== ELITE ZOMBIE FLOW SUCCESS === (took {elapsed:.1f}s)")
+        return True
+
+    except Exception as e:
+        _log(f"FAILED with exception: {e}")
+        return_to_base_view(adb, win, debug=False)
+        return False
 
 
 if __name__ == "__main__":

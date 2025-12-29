@@ -593,13 +593,26 @@ Harvest actions (corn, gold, iron, gem, cabbage, equipment) require ALL of:
 
 When stamina >= 118 AND user idle for 5+ minutes:
 1. Navigate to WORLD view
-2. Click magnifying glass (search)
-3. Click Elite Zombie tab
-4. Click plus button 5 times (increase level)
-5. Click Search button
-6. Click Rally button
-7. Select LEFTMOST idle hero (with Zz icon)
-8. Click Team Up button
+2. Click magnifying glass → **POLL** for `search_button_4k.png` (verify panel opened)
+3. Click Elite Zombie tab → **VERIFY** `elite_zombie_tab_4k.png`
+4. Click plus button N times (increase level, configurable via ELITE_ZOMBIE_PLUS_CLICKS)
+5. **VERIFY** `search_button_4k.png` visible, then click (use detected location)
+6. **POLL** for `rally_button_4k.png` → click detected location
+7. **POLL** for `team_up_button_4k.png` (verify rally screen loaded)
+8. Select LEFTMOST idle hero (with Zz icon)
+9. **VERIFY** and click `team_up_button_4k.png`
+
+**Template Verification**:
+- Each step verifies expected UI element before clicking
+- Uses `_poll_for_template()` with timeout for screen transitions
+- Clicks detected template location (not fixed coords) when possible
+- Calls `return_to_base_view()` on any failure
+
+**Templates Used**:
+- `search_button_4k.png` (380x136, threshold 0.05)
+- `elite_zombie_tab_4k.png` (284x97, threshold 0.1)
+- `rally_button_4k.png` (153x177, threshold 0.08)
+- `team_up_button_4k.png` (368x134, threshold 0.05)
 
 **Hero Selection:**
 - Elite Zombie: Uses **leftmost** idle hero (`hero_selector.find_leftmost_idle()`)
@@ -834,6 +847,43 @@ RALLY_MONSTERS = [
 **Matchers**:
 - `snowman_chat_matcher.py` - Search region X=1100-2800, full Y
 - `snowman_matcher.py` - Search region center screen
+
+### Hospital Healing Flow
+
+**Trigger**: Hospital bubble detected (HELP_READY, HEALING, or SOLDIERS_WOUNDED state)
+
+**Key Concept**: Hospital panel shows multiple rows of different soldier types. Each row has a slider that adds to total healing time. To heal in 1-hour batches, we must:
+1. Reset ALL sliders to minimum first
+2. Fill ONLY the bottom row (highest level soldiers) up to 1 hour
+3. Leave other rows at minimum
+
+**Flow sequence** (`scripts/flows/hospital_healing_flow.py`):
+1. Verify hospital panel is open (header template match)
+2. Scroll through entire panel, reset ALL sliders to minimum
+3. Check initial healing time (should be ~0 after reset)
+4. Select bottom row only (`buttons[-1]` = highest level soldiers)
+5. Drag slider to max, check time
+6. If over 1 hour: binary search (8 iterations) to find ~1 hour position
+7. Click Healing button
+8. Return to base view
+
+**Panel Helper** (`utils/hospital_panel_helper.py`):
+- `find_plus_buttons()` - Detects all plus buttons in panel (Y=550-1200, X=2150-2350)
+- `drag_slider_to_min/max()` - Drags slider to position
+- `reset_all_sliders()` - Resets all visible sliders
+- `scroll_panel_down()` - Scrolls to reveal more rows
+
+**Templates**:
+- `hospital_header_4k.png` - Panel header verification
+- `hospital_plus_button_4k.png` - Plus button (79x77)
+- `hospital_minus_button_4k.png` - Minus button (79x80)
+- `hospital_slider_circle_4k.png` - Slider handle
+
+**Config**:
+- `HOSPITAL_ICON_POSITION = (3312, 344)` - Bubble detection location
+- `HOSPITAL_CLICK_POSITION = (3342, 377)` - Click to open panel
+- `HEALING_BUTTON_CLICK = (2148, 1477)` - Healing button position
+- `MAX_SAFE_HEAL_SECONDS = 5400` - 90 minute safety limit
 
 ### Tavern Quest Flow (Not Yet Integrated)
 
