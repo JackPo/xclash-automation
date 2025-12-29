@@ -76,6 +76,14 @@ TEAM_UP_THRESHOLD = 0.05
 MAX_POLL_ATTEMPTS = 10
 POLL_INTERVAL = 0.3  # seconds between poll attempts
 
+# Klass Rally detection - FIXED position
+KLASS_EVENT_BOX_POSITION = (1754, 1170)
+KLASS_EVENT_BOX_SIZE = (327, 337)
+KLASS_THRESHOLD = 0.1
+
+# Directory for unknown panel screenshots
+UNKNOWN_EVENTS_DIR = Path(__file__).parent.parent.parent / "templates" / "unknown_events"
+
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
@@ -169,6 +177,36 @@ def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESH
     return False, score, None, frame
 
 
+def _is_klass_event(frame) -> bool:
+    """Check if Klass Rally Assault is active."""
+    found, score, _ = _verify_template(
+        frame, "klass_events_box_4k.png",
+        threshold=KLASS_THRESHOLD,
+        search_region=(1700, 1100, 400, 400)
+    )
+    if found:
+        _log(f"  Klass Rally detected (score={score:.4f}) -> skipping plus clicks")
+        return True
+
+    # Not Klass - save screenshot of this panel type for future reference
+    _save_unknown_panel(frame)
+    return False
+
+
+def _save_unknown_panel(frame):
+    """Save panel screenshot from FIXED location."""
+    UNKNOWN_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    x, y = KLASS_EVENT_BOX_POSITION
+    w, h = KLASS_EVENT_BOX_SIZE
+    crop = frame[y:y+h, x:x+w]
+
+    path = UNKNOWN_EVENTS_DIR / f"panel_{timestamp}.png"
+    cv2.imwrite(str(path), crop)
+    _log(f"  Saved unknown panel to {path}")
+
+
 def elite_zombie_flow(adb) -> bool:
     """
     Execute the elite zombie rally flow with template verification at each step.
@@ -237,11 +275,17 @@ def elite_zombie_flow(adb) -> bool:
         else:
             _log(f"  Elite Zombie tab verified (score={score:.4f})")
 
-        # Step 3: Click plus button to increase zombie level
-        _log(f"Step 3: Clicking plus button {ELITE_ZOMBIE_PLUS_CLICKS} times at {PLUS_BUTTON_CLICK}")
-        for i in range(ELITE_ZOMBIE_PLUS_CLICKS):
-            adb.tap(*PLUS_BUTTON_CLICK)
-            time.sleep(PLUS_CLICK_DELAY)
+        # Step 2.5: Check if Klass Rally is active
+        is_klass = _is_klass_event(frame)
+
+        # Step 3: Click plus button (skip if Klass Rally)
+        if is_klass:
+            _log("Step 3: Skipping plus clicks (Klass Rally)")
+        else:
+            _log(f"Step 3: Clicking plus button {ELITE_ZOMBIE_PLUS_CLICKS} times at {PLUS_BUTTON_CLICK}")
+            for i in range(ELITE_ZOMBIE_PLUS_CLICKS):
+                adb.tap(*PLUS_BUTTON_CLICK)
+                time.sleep(PLUS_CLICK_DELAY)
 
         frame = win.get_screenshot_cv2()
         if frame is not None:
