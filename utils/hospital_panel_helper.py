@@ -30,10 +30,11 @@ SLIDER_MIN_PADDING = 60    # From minus center to slider bar start
 SLIDER_MAX_PADDING = 60    # From plus center to slider bar end
 
 # Panel search region (Y range for finding plus buttons - excludes Healing button)
+# Plus buttons are in a narrow X column, scan full Y range to find all rows
 PANEL_Y_START = 550
-PANEL_Y_END = 800
-PANEL_X_START = 1500
-PANEL_X_END = 2400
+PANEL_Y_END = 1200  # Extended to cover all 3 rows (was 800, missed rows at Y=912, Y=1130)
+PANEL_X_START = 2150  # Narrow to plus button column only
+PANEL_X_END = 2350
 
 # Healing button
 HEALING_BUTTON_CLICK = (2148, 1477)
