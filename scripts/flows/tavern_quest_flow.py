@@ -829,15 +829,43 @@ def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None,
         adb.tap(*MY_QUESTS_CLICK)
         time.sleep(0.5)
 
-    # Step 4: Check for timer < 30s
+    # Step 4: Check for Claim buttons FIRST (quest may have already completed during tavern open)
     frame = win.get_screenshot_cv2()
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    timers = find_quest_timers(frame, frame_gray, ocr=ocr)
 
+    claim_template = cv2.imread(str(CLAIM_BUTTON_TEMPLATE), cv2.IMREAD_GRAYSCALE)
+    if claim_template is None:
+        logger.error(f"Failed to load claim template: {CLAIM_BUTTON_TEMPLATE}")
+        return_to_base_view(adb, win, debug=debug)
+        return {"claims": 0, "success": False}
+
+    claim_buttons = find_claim_buttons(frame_gray, claim_template)
+    claims = 0
+
+    if claim_buttons:
+        logger.info(f"Found {len(claim_buttons)} Claim button(s) already visible! Quest completed during tavern open.")
+        # Click the first claim button
+        x, y = claim_buttons[0]
+        logger.info(f"Clicking Claim at ({x}, {y})")
+        adb.tap(x, y)
+        claims += 1
+        time.sleep(1.0)
+        # Dismiss popup
+        adb.tap(1920, 1080)
+        time.sleep(0.5)
+        # Update schedule and exit
+        frame = win.get_screenshot_cv2()
+        scan_and_schedule_quest_completions(frame, ocr)
+        return_to_base_view(adb, win, debug=debug)
+        logger.info(f"=== TAVERN QUEST CLAIM FLOW END === Claims: {claims}")
+        return {"claims": claims, "success": True}
+
+    # Step 5: No Claim visible yet - check for timer < 30s to decide if we should wait
+    timers = find_quest_timers(frame, frame_gray, ocr=ocr)
     has_short_timer = any(t['seconds'] is not None and t['seconds'] < SHORT_TIMER_THRESHOLD for t in timers)
 
     if not has_short_timer:
-        logger.info(f"No timers < {SHORT_TIMER_THRESHOLD}s found, exiting immediately")
+        logger.info(f"No Claim buttons and no timers < {SHORT_TIMER_THRESHOLD}s found, exiting")
         # Still update schedule with current timers
         scan_and_schedule_quest_completions(frame, ocr)
         return_to_base_view(adb, win, debug=debug)
@@ -845,14 +873,14 @@ def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None,
 
     logger.info(f"Found timer(s) < {SHORT_TIMER_THRESHOLD}s, starting poll loop")
 
-    # Step 4: Poll for Claim button
+    # Step 6: Poll for Claim button
     claims = poll_for_claim_button(adb, win, ocr, debug=debug)
 
-    # Step 5: Update schedule with remaining timers
+    # Step 7: Update schedule with remaining timers
     frame = win.get_screenshot_cv2()
     scan_and_schedule_quest_completions(frame, ocr)
 
-    # Step 6: Return to base view
+    # Step 8: Return to base view
     logger.info("Returning to base view")
     return_to_base_view(adb, win, debug=debug)
 
@@ -862,15 +890,21 @@ def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None,
 
 def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=None, debug: bool = False) -> dict:
     """
-    Periodic tavern scan flow - runs every 30 minutes.
+    DEPRECATED: Use run_tavern_quest_flow instead, which now includes timer scanning.
 
+    This function is kept for backward compatibility but will be removed in a future version.
+    run_tavern_quest_flow now does everything this function does PLUS:
+    - Gold Scroll Go button clicking
+    - Question Mark Go button clicking
+    - Bounty Quest dialog handling
+    - Double-pass strategy
+
+    Original behavior:
     1. Navigate to TOWN
     2. Open tavern
     3. Claim any completed quests (Claim buttons)
     4. OCR all quest timers and update schedule
     5. Return to base view
-
-    This keeps the schedule file fresh for the 15-second pre-arrival trigger.
 
     Args:
         adb: ADBHelper instance
@@ -881,6 +915,7 @@ def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=No
     Returns:
         dict with 'claims' count and 'success' bool
     """
+    logger.warning("tavern_scan_flow is DEPRECATED - use run_tavern_quest_flow instead")
     if win is None:
         win = WindowsScreenshotHelper()
     if ocr is None:
@@ -984,7 +1019,7 @@ def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=No
     return {"claims": total_claims, "scheduled": len(unique_completions), "success": True}
 
 
-def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict:
+def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr=None, debug: bool = False) -> dict:
     """
     Claim ONE completed quest OR click Go for gold scroll quests.
 
@@ -992,11 +1027,19 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
     so the caller can restart the flow fresh. This avoids UI display glitches
     that can cause missed claims.
 
+    Also scans quest timers and returns completion times for scheduler update.
+
     Returns dict with:
         - claims: number of claims made (0 or 1)
         - go_clicks: number of Go clicks made
         - claimed: True if a claim was made (caller should restart flow)
+        - completions: list of datetime objects for quest completion times
     """
+    # Initialize OCR for timer scanning
+    if ocr is None:
+        from utils.ocr_client import OCRClient
+        ocr = OCRClient()
+
     logger.info("Starting My Quests flow")
 
     # Load templates
@@ -1007,6 +1050,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
     total_go_clicks = 0
     no_action_count = 0
     max_no_action = 2  # Stop after 2 consecutive scrolls with no actions
+    all_completions = []  # Accumulate timer completions for scheduler
 
     while no_action_count < max_no_action:
         # Take screenshot
@@ -1017,7 +1061,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         in_tavern, active_tab = is_in_tavern(frame_gray)
         if not in_tavern:
             logger.warning("Not in Tavern! Aborting My Quests flow.")
-            return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": total_claims > 0}
+            return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": total_claims > 0, "completions": all_completions}
 
         # Check if My Quests tab is active
         if active_tab != "my_quests":
@@ -1056,7 +1100,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
             if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
                 # Exited Tavern or couldn't dismiss - abort
                 logger.warning("Could not return to Tavern after claim, aborting")
-                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True}
+                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True, "completions": all_completions}
 
             # Continue loop to re-scan for more claims
             continue
@@ -1079,7 +1123,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
             else:
                 # Dialog not detected - might have navigated elsewhere
                 logger.warning("Bounty Quest dialog not detected after clicking Go")
-                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
+                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
         elif gold_scroll_go_buttons:
             # Gold scroll quests found but before start time
             logger.debug("Gold scroll Go buttons found but before quest start time - skipping")
@@ -1102,10 +1146,16 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
             else:
                 # Dialog not detected - might have navigated elsewhere
                 logger.warning("Bounty Quest dialog not detected after clicking Go")
-                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
+                return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
         elif question_mark_go_buttons:
             # Question mark quests found but before start time
             logger.debug("Question mark Go buttons found but before quest start time - skipping")
+
+        # Scan timers on current screen BEFORE scrolling
+        completions = scan_quest_timers(frame, ocr)
+        if completions:
+            all_completions.extend(completions)
+            logger.debug(f"Found {len(completions)} timer(s) on current screen")
 
         # No actions found - scroll
         logger.info("No actionable buttons found (Claim/Go), scrolling...")
@@ -1115,8 +1165,8 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
         time.sleep(0.5)
 
-    logger.info(f"My Quests flow complete. Claims: {total_claims}, Go clicks: {total_go_clicks}")
-    return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False}
+    logger.info(f"My Quests flow complete. Claims: {total_claims}, Go clicks: {total_go_clicks}, Timers: {len(all_completions)}")
+    return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
 
 
 def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = None, debug: bool = False) -> dict:
@@ -1128,6 +1178,7 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
     that can cause missed claims.
 
     Does TWO passes back-to-back to ensure nothing is missed.
+    Also scans quest timers and saves to scheduler for rush-claim triggering.
 
     Returns dict with claim counts and go clicks.
     """
@@ -1136,6 +1187,10 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
     if win is None:
         win = WindowsScreenshotHelper()
 
+    # Initialize OCR for timer scanning
+    from utils.ocr_client import OCRClient
+    ocr = OCRClient()
+
     from utils.view_state_detector import go_to_town
 
     results = {
@@ -1143,6 +1198,9 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
         "my_quests_go_clicks": 0,
         "ally_quests_claims": 0,
     }
+
+    # Accumulate timer completions across all passes
+    all_completions = []
 
     TAVERN_BUTTON_CLICK = (80, 1220)
     MAX_PASSES = 2  # Run flow twice back-to-back
@@ -1177,10 +1235,14 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
             adb.tap(*MY_QUESTS_CLICK)
             time.sleep(0.5)
 
-        # Step 4: Run My Quests flow
-        my_quests_result = run_my_quests_flow(adb, win, debug)
+        # Step 4: Run My Quests flow (with timer scanning)
+        my_quests_result = run_my_quests_flow(adb, win, ocr=ocr, debug=debug)
         results["my_quests_claims"] += my_quests_result["claims"]
         results["my_quests_go_clicks"] += my_quests_result["go_clicks"]
+
+        # Collect timer completions from this pass
+        pass_completions = my_quests_result.get("completions", [])
+        all_completions.extend(pass_completions)
 
         # Step 5: Exit tavern completely after this pass
         logger.info(f"Pass {pass_num} complete - returning to base view")
@@ -1194,7 +1256,15 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
     # More complex logic, not just clicking all Assist buttons
     logger.info("Ally Quests flow not implemented yet (TBD)")
 
-    logger.info(f"=== TAVERN QUEST FLOW COMPLETE === Total claims: {results['my_quests_claims']}")
+    # Save all collected timer completions to scheduler
+    # This enables is_tavern_completion_imminent() to trigger rush claims
+    if all_completions:
+        save_quest_schedule(all_completions)
+        logger.info(f"Saved {len(all_completions)} timer completion(s) to scheduler")
+    else:
+        logger.info("No active quest timers found")
+
+    logger.info(f"=== TAVERN QUEST FLOW COMPLETE === Total claims: {results['my_quests_claims']}, Scheduled: {len(all_completions)}")
     return results
 
 

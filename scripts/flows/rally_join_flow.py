@@ -497,7 +497,24 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
     """
     from utils.safe_grass_matcher import find_safe_grass
 
-    # First, try clicking on grass to dismiss floating panels (WORLD view)
+    # FIRST: Check for daily limit dialog that may have appeared late
+    # This dialog can appear with server delay AFTER the main check in Step 6b
+    daily_limit_template = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
+    if daily_limit_template is not None:
+        frame = win.get_screenshot_cv2()
+        result = cv2.matchTemplate(frame, daily_limit_template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, _, _ = cv2.minMaxLoc(result)
+        if min_val < 0.05:
+            print(f"[RALLY-JOIN]   Late daily limit dialog detected in cleanup (score={min_val:.4f})")
+            if _should_ignore_daily_limit():
+                print("[RALLY-JOIN]   Clicking Confirm (ignoring daily limit)")
+                adb.tap(*CONFIRM_CLICK)
+            else:
+                print("[RALLY-JOIN]   Clicking Cancel to dismiss")
+                adb.tap(*CANCEL_CLICK)
+            time.sleep(0.5)
+
+    # Try clicking on grass to dismiss floating panels (WORLD view)
     frame = win.get_screenshot_cv2()
     grass_pos = find_safe_grass(frame, debug=False)
     if grass_pos:

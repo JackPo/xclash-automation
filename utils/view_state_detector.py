@@ -168,10 +168,34 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
             time.sleep(1.0)
             continue
 
-        # UNKNOWN state - try clicking back button
+        # UNKNOWN state - likely a floating popup blocking the view
+        # Try grass/ground click FIRST to dismiss popups (castle info, etc.)
+        # Only fall back to back button if no grass/ground found
         if current == ViewState.UNKNOWN:
+            from utils.safe_grass_matcher import find_safe_grass
+            from utils.safe_ground_matcher import find_safe_ground
+
+            # Check for grass (WORLD view indicator)
+            grass_pos = find_safe_grass(frame, debug=False)
+            if grass_pos:
+                if debug:
+                    print(f"UNKNOWN state, grass detected (WORLD) - clicking at {grass_pos} to dismiss popup")
+                adb.tap(*grass_pos)
+                time.sleep(0.5)
+                continue
+
+            # Check for ground (TOWN view indicator)
+            ground_pos = find_safe_ground(frame, debug=False)
+            if ground_pos:
+                if debug:
+                    print(f"UNKNOWN state, ground detected (TOWN) - clicking at {ground_pos} to dismiss popup")
+                adb.tap(*ground_pos)
+                time.sleep(0.5)
+                continue
+
+            # No grass/ground found - fall back to back button (might be menu/dialog)
             if debug:
-                print(f"UNKNOWN state, trying back button")
+                print(f"UNKNOWN state, no grass/ground - trying back button at {BACK_BUTTON_CLICK}")
             adb.tap(*BACK_BUTTON_CLICK)
             time.sleep(0.5)
             continue

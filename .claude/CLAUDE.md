@@ -283,6 +283,10 @@ go_to_world(adb, debug=True)  # Navigate to WORLD from anywhere
 - TOWN → WORLD: click toggle button (3720, 2040)
 - WORLD → TOWN: click toggle button (3720, 2040)
 - CHAT → exit: click back button (1407, 2055), then re-detect
+- UNKNOWN → dismiss floating panels:
+  1. Check for grass (WORLD indicator) → click grass to dismiss popup
+  2. Check for ground (TOWN indicator) → click ground to dismiss popup
+  3. If neither found → click back button (actual menu/dialog)
 
 ## Robust Flow Recovery
 
