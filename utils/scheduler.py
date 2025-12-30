@@ -34,6 +34,9 @@ FLOW_CONFIGS = {
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "tavern_scan": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 20},  # 4hr cooldown, 20s idle
+    # Beast Training phases - no cooldown (block-based tracking in arms_race_state)
+    "beast_training_hour_mark": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},  # 5 min idle
+    "beast_training_last_6": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},      # 5 min idle
 }
 
 
@@ -445,6 +448,40 @@ class DaemonScheduler:
         }
         self.save()
         logger.info(f"Reset Arms Race state for block starting {block_start}")
+
+    def record_arms_race_progress(self, event: str, points: int, chest3_target: int | None, block_start: str) -> None:
+        """
+        Record Arms Race progress for data collection.
+
+        Stores progress in a history array for all events, useful for:
+        - Tracking which events we hit chest3 on
+        - Learning chest3 thresholds for events we haven't documented
+        - Debugging automation issues
+
+        Args:
+            event: Event name (e.g., "Mystic Beast Training", "City Construction")
+            points: Current points OCR'd from panel
+            chest3_target: Chest3 threshold (None if unknown)
+            block_start: Block start time as ISO string
+        """
+        if "arms_race_progress" not in self.schedule:
+            self.schedule["arms_race_progress"] = []
+
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            "points": points,
+            "chest3_target": chest3_target,
+            "block_start": block_start,
+        }
+
+        # Add to history (keep last 100 entries)
+        self.schedule["arms_race_progress"].append(entry)
+        if len(self.schedule["arms_race_progress"]) > 100:
+            self.schedule["arms_race_progress"] = self.schedule["arms_race_progress"][-100:]
+
+        self.save()
+        logger.info(f"[SCHEDULER] Recorded {event} progress: {points} pts (chest3={chest3_target})")
 
     # =========================================================================
     # Daemon Runtime State

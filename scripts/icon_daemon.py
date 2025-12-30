@@ -296,6 +296,10 @@ class IconDaemon:
         self.ENHANCE_HERO_LAST_MINUTES = ARMS_RACE_ENHANCE_HERO_LAST_MINUTES
         self.enhance_hero_last_block_start = None  # Track which block we triggered for
 
+        # Generic Arms Race progress check: log points for ALL events in last 10 min
+        self.ARMS_RACE_PROGRESS_CHECK_MINUTES = 10  # Check in last N minutes
+        self.arms_race_progress_check_block = None  # Track which block we checked
+
         # Soldier Training: when idle 5+ min, any barrack PENDING during Soldier Training event
         # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
         self.ARMS_RACE_SOLDIER_TRAINING_ENABLED = ARMS_RACE_SOLDIER_TRAINING_ENABLED
@@ -1724,6 +1728,49 @@ class IconDaemon:
                         self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins:.0f}min of Enhance Hero, checking progress and upgrading if needed...")
                         self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
                         self.enhance_hero_last_block_start = block_start
+
+                # =================================================================
+                # GENERIC ARMS RACE PROGRESS CHECK - ALL EVENTS, last 10 minutes
+                # Log current points for data collection, even if we don't have actions
+                # =================================================================
+                if (arms_race_remaining_mins <= self.ARMS_RACE_PROGRESS_CHECK_MINUTES and
+                    effective_idle_secs >= 120):  # 2 min idle
+                    block_start = arms_race['block_start']
+                    if self.arms_race_progress_check_block != block_start:
+                        self.logger.info(f"[{iteration}] ARMS RACE PROGRESS: Last {arms_race_remaining_mins:.0f}min of {arms_race_event}, checking points...")
+                        try:
+                            result = check_arms_race_progress(self.adb, self.windows_helper, debug=self.debug)
+                            if result["success"]:
+                                pts = result["current_points"]
+                                chest3 = result["chest3_target"]
+                                remaining = result["points_to_chest3"]
+
+                                if chest3:
+                                    self.logger.info(
+                                        f"[{iteration}] ARMS RACE PROGRESS: {arms_race_event} - "
+                                        f"{pts}/{chest3} pts ({remaining} to chest3)"
+                                    )
+                                else:
+                                    # chest3 threshold not known yet - log anyway
+                                    self.logger.info(
+                                        f"[{iteration}] ARMS RACE PROGRESS: {arms_race_event} - "
+                                        f"{pts} pts (chest3 threshold unknown)"
+                                    )
+
+                                # Store in scheduler for history
+                                self.scheduler.record_arms_race_progress(
+                                    event=arms_race_event,
+                                    points=pts,
+                                    chest3_target=chest3,
+                                    block_start=str(block_start)
+                                )
+                            else:
+                                self.logger.warning(f"[{iteration}] ARMS RACE PROGRESS: Failed to check progress")
+                        except Exception as e:
+                            self.logger.error(f"[{iteration}] ARMS RACE PROGRESS: Error - {e}")
+
+                        # Mark block as checked (even on failure, to avoid spam)
+                        self.arms_race_progress_check_block = block_start
 
                 # Soldier Training: during Soldier Training event OR VS promotion day, idle 5+ min
                 # Requires TOWN view and dog house aligned (same as harvest conditions)
