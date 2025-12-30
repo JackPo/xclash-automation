@@ -135,6 +135,18 @@ This means the counter is ALWAYS recalculated from actual points:
 - Daemon does 2 rallies, incrementing `rally_count` to 2
 - When `rally_count >= target` (2 >= 2), stop
 
+## Generic Arms Race Progress Check
+
+In the last 10 minutes of **every** Arms Race event (not just Beast Training), the daemon:
+1. Opens the Events panel
+2. OCRs current points
+3. Logs them to `data/daemon_schedule.json` under `arms_race_progress`
+
+This provides:
+- Data collection for events we don't have automation for (City Construction, Technology Research)
+- Historical record to debug issues ("what were my points at the end?")
+- Chest3 threshold discovery for undocumented events
+
 ## Config Parameters
 
 In `config.py`:
