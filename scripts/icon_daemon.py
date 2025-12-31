@@ -1034,8 +1034,13 @@ class IconDaemon:
                     self._run_flow("handshake", handshake_flow)
 
                 if treasure_present:
-                    self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f})")
-                    self._run_flow("treasure_map", treasure_map_flow, critical=True)
+                    # Validate: treasure map can only appear when world/town button visible
+                    view_state, view_score = detect_view(frame)
+                    if view_state in (ViewState.TOWN, ViewState.WORLD):
+                        self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f}, view={view_state.value})")
+                        self._run_flow("treasure_map", treasure_map_flow, critical=True)
+                    else:
+                        self.logger.warning(f"[{iteration}] TREASURE rejected - no world/town icon (view={view_state.value}, score={treasure_score:.4f})")
 
                 if harvest_present:
                     self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
