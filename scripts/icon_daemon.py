@@ -47,7 +47,7 @@ import pytz
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.adb_helper import ADBHelper
-from utils.ocr_client import OCRClient, ensure_ocr_server, start_ocr_server, SERVER_HOST, SERVER_PORT
+from utils.ocr_client import OCRClient, ensure_ocr_server, start_ocr_server, kill_ocr_servers, SERVER_HOST, SERVER_PORT
 from utils.handshake_icon_matcher import HandshakeIconMatcher
 from utils.treasure_map_matcher import TreasureMapMatcher
 from utils.corn_harvest_matcher import CornHarvestMatcher
@@ -581,7 +581,12 @@ class IconDaemon:
         Returns True if server is healthy (or was restarted), False otherwise.
         """
         if not OCRClient.check_server():
-            self.logger.warning("OCR server health check FAILED - attempting restart...")
+            self.logger.warning("OCR server health check FAILED - killing existing servers and restarting...")
+            # Kill existing servers first to prevent accumulation
+            # (also done inside start_ocr_server, but log explicitly here)
+            killed = kill_ocr_servers()
+            if killed > 0:
+                self.logger.info(f"Killed {killed} stale OCR server process(es)")
             if start_ocr_server():
                 self.logger.info("OCR server restarted successfully")
                 self.ocr_client = OCRClient()  # Recreate client

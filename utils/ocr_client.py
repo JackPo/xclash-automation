@@ -50,9 +50,53 @@ _server_process = None
 _server_log_file = None  # Keep file handle open to prevent closure
 
 
+def kill_ocr_servers() -> int:
+    """
+    Kill all existing OCR server processes.
+
+    Returns:
+        int: Number of processes killed
+    """
+    import subprocess
+
+    killed = 0
+
+    # Find all python processes running ocr_server.py
+    try:
+        # Use wmic to find python processes with ocr_server.py in command line
+        result = subprocess.run(
+            ['wmic', 'process', 'where',
+             "commandline like '%ocr_server.py%' and name like '%python%'",
+             'get', 'processid'],
+            capture_output=True, text=True, timeout=10
+        )
+
+        # Parse PIDs from output (format: "ProcessId\n1234\n5678\n")
+        lines = result.stdout.strip().split('\n')
+        for line in lines[1:]:  # Skip header
+            line = line.strip()
+            if line and line.isdigit():
+                pid = int(line)
+                print(f"  Killing OCR server process (PID {pid})...")
+                subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                             capture_output=True, timeout=5)
+                killed += 1
+
+    except Exception as e:
+        print(f"  Warning: Error finding OCR processes: {e}")
+
+    if killed > 0:
+        print(f"  Killed {killed} OCR server process(es)")
+        time.sleep(1)  # Wait for processes to die
+
+    return killed
+
+
 def start_ocr_server() -> bool:
     """
     Start the OCR server in a background process.
+
+    Kills any existing OCR server processes first to prevent accumulation.
 
     Returns:
         bool: True if server started successfully, False otherwise
@@ -62,6 +106,9 @@ def start_ocr_server() -> bool:
     if not _OCR_SERVER_SCRIPT.exists():
         print(f"ERROR: OCR server script not found: {_OCR_SERVER_SCRIPT}")
         return False
+
+    # Kill existing OCR servers first to prevent accumulation
+    kill_ocr_servers()
 
     print(f"Starting OCR server ({_OCR_SERVER_SCRIPT})...")
     print("  This may take 30-60 seconds to load the model...")
