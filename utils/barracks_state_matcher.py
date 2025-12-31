@@ -62,97 +62,112 @@ class BarracksStateMatcher:
         mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
         return np.count_nonzero(mask)
 
-    def get_barrack_scores(self, frame, barrack_index):
+    def get_barrack_matches(self, frame, barrack_index):
         """
-        Get all template scores for a single barrack.
+        Get template match results for a single barrack.
 
         Returns:
-            dict with 'stopwatch', 'yellow', 'white' scores (1.0 if no match)
+            dict with 'stopwatch', 'yellow', 'white' each containing (found, score)
+            - found: True if template matches (threshold-aware, handles both SQDIFF and CCORR)
+            - score: Raw score for debugging
         """
-        scores = {'stopwatch': 1.0, 'yellow': 1.0, 'white': 1.0}
+        default = {'stopwatch': (False, 1.0), 'yellow': (False, 1.0), 'white': (False, 1.0)}
 
         if barrack_index < 0 or barrack_index >= len(BARRACKS_POSITIONS):
-            return scores
+            return default
 
         x, y = BARRACKS_POSITIONS[barrack_index]
         tw, th = TEMPLATE_SIZE
 
-        # Match each template at this position
-        _, stopwatch_score, _ = match_template_fixed(
+        # Match each template at this position - USE the found result from template_matcher
+        # template_matcher handles SQDIFF vs CCORR correctly based on mask presence
+        stopwatch_found, stopwatch_score, _ = match_template_fixed(
             frame,
             self.STOPWATCH_TEMPLATE,
             position=(x, y),
             size=(tw, th),
             threshold=MATCH_THRESHOLD
         )
-        scores['stopwatch'] = stopwatch_score
 
-        _, yellow_score, _ = match_template_fixed(
+        yellow_found, yellow_score, _ = match_template_fixed(
             frame,
             self.YELLOW_TEMPLATE,
             position=(x, y),
             size=(tw, th),
             threshold=MATCH_THRESHOLD
         )
-        scores['yellow'] = yellow_score
 
-        _, white_score, _ = match_template_fixed(
+        white_found, white_score, _ = match_template_fixed(
             frame,
             self.WHITE_TEMPLATE,
             position=(x, y),
             size=(tw, th),
             threshold=MATCH_THRESHOLD
         )
-        scores['white'] = white_score
 
-        return scores
+        return {
+            'stopwatch': (stopwatch_found, stopwatch_score),
+            'yellow': (yellow_found, yellow_score),
+            'white': (white_found, white_score)
+        }
+
+    def get_barrack_scores(self, frame, barrack_index):
+        """
+        Get all template scores for a single barrack (for debugging/display).
+
+        Returns:
+            dict with 'stopwatch', 'yellow', 'white' scores
+        """
+        matches = self.get_barrack_matches(frame, barrack_index)
+        return {
+            'stopwatch': matches['stopwatch'][1],
+            'yellow': matches['yellow'][1],
+            'white': matches['white'][1]
+        }
 
     def get_barrack_state(self, frame, barrack_index, frame_gray=None):
         """
         Get the state of a single barrack.
 
         Detection logic:
-        1. If stopwatch passes threshold AND is best match → TRAINING
-        2. If yellow OR white passes threshold:
+        1. If stopwatch matches → TRAINING
+        2. If yellow OR white matches:
            - Count yellow pixels in ROI
            - If yellow_pixels >= threshold → READY
            - Else → PENDING
-        3. No template passes → UNKNOWN
+        3. No template matches → UNKNOWN
+
+        Note: Uses `found` from template_matcher which correctly handles
+        both SQDIFF (no mask) and CCORR (with mask) matching methods.
         """
         if barrack_index < 0 or barrack_index >= len(BARRACKS_POSITIONS):
             return BarrackState.UNKNOWN, 1.0
 
-        scores = self.get_barrack_scores(frame, barrack_index)
+        matches = self.get_barrack_matches(frame, barrack_index)
 
-        # Check which templates pass threshold
-        stopwatch_pass = scores['stopwatch'] <= MATCH_THRESHOLD
-        yellow_pass = scores['yellow'] <= MATCH_THRESHOLD
-        white_pass = scores['white'] <= MATCH_THRESHOLD
+        # Extract found flags and scores
+        stopwatch_found, stopwatch_score = matches['stopwatch']
+        yellow_found, yellow_score = matches['yellow']
+        white_found, white_score = matches['white']
 
-        # If stopwatch passes and is the best match, it's TRAINING
-        if stopwatch_pass:
-            if scores['stopwatch'] <= scores['yellow'] and scores['stopwatch'] <= scores['white']:
-                return BarrackState.TRAINING, scores['stopwatch']
+        # If stopwatch matches, it's TRAINING
+        if stopwatch_found:
+            return BarrackState.TRAINING, stopwatch_score
 
-        # If yellow or white passes, use yellow pixel counting to distinguish
-        if yellow_pass or white_pass:
+        # If yellow or white matches, use yellow pixel counting to distinguish
+        if yellow_found or white_found:
             x, y = BARRACKS_POSITIONS[barrack_index]
             tw, th = TEMPLATE_SIZE
             roi_bgr = frame[y:y+th, x:x+tw]
             yellow_pixels = self._count_yellow_pixels(roi_bgr)
 
             if yellow_pixels >= BARRACKS_YELLOW_PIXEL_THRESHOLD:
-                return BarrackState.READY, scores['yellow']
+                return BarrackState.READY, yellow_score
             else:
-                return BarrackState.PENDING, scores['white']
+                return BarrackState.PENDING, white_score
 
-        # Stopwatch passed but wasn't best - still TRAINING
-        if stopwatch_pass:
-            return BarrackState.TRAINING, scores['stopwatch']
-
-        # No match - return UNKNOWN with best score for debugging
-        best_score = min(scores['stopwatch'], scores['yellow'], scores['white'])
-        return BarrackState.UNKNOWN, best_score
+        # No match - return UNKNOWN with a score for debugging
+        return BarrackState.UNKNOWN, stopwatch_score
 
     def get_all_states(self, frame):
         """Get the state of all 4 barracks."""
