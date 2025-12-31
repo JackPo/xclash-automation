@@ -36,6 +36,7 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, go_to_world, ViewState
 from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
+from utils.template_matcher import match_template, has_mask
 from config import ELITE_ZOMBIE_PLUS_CLICKS
 
 # Setup logger
@@ -45,12 +46,8 @@ logger = logging.getLogger("elite_zombie_flow")
 DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "elite_zombie_flow"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
-# Template directory
+# Template directory (for debug saves only)
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
-
-# Templates for verification (loaded lazily)
-_templates = {}
-_masks = {}
 
 # Fixed click coordinates (4K resolution) - all from plan
 MAGNIFYING_GLASS_CLICK = (88, 1486)
@@ -100,80 +97,23 @@ def _log(msg: str):
     print(f"    [ELITE_ZOMBIE] {msg}")
 
 
-def _get_template(name: str):
-    """Load template lazily and cache it."""
-    if name not in _templates:
-        path = TEMPLATE_DIR / name
-        template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-        if template is None:
-            _log(f"WARNING: Could not load template {name}")
-        _templates[name] = template
-    return _templates[name]
-
-
-def _get_mask(name: str):
-    """Load mask for template if it exists."""
-    if name not in _masks:
-        # Convert template name to mask name (e.g., search_button_4k.png -> search_button_mask_4k.png)
-        mask_name = name.replace("_4k.png", "_mask_4k.png")
-        path = TEMPLATE_DIR / mask_name
-        if path.exists():
-            mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-            _masks[name] = mask
-        else:
-            _masks[name] = None
-    return _masks[name]
-
-
 def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESHOLD,
                      search_region: tuple = None) -> tuple:
     """
     Verify a template is visible in the frame.
 
-    Uses masked matching (TM_CCORR_NORMED) if mask exists for the template,
-    otherwise uses standard matching (TM_SQDIFF_NORMED).
+    Uses centralized template_matcher which auto-detects masks.
 
     Args:
         frame: BGR screenshot
         template_name: Name of template file
-        threshold: Max score for TM_SQDIFF_NORMED, or min score for masked matching
+        threshold: Score threshold (interpretation depends on whether mask exists)
         search_region: Optional (x, y, w, h) to limit search area
 
     Returns:
         (found: bool, score: float, location: tuple or None)
     """
-    template = _get_template(template_name)
-    if template is None:
-        return False, 1.0, None
-
-    mask = _get_mask(template_name)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    if search_region:
-        x, y, w, h = search_region
-        search_area = gray[y:y+h, x:x+w]
-        offset = (x, y)
-    else:
-        search_area = gray
-        offset = (0, 0)
-
-    th, tw = template.shape
-
-    if mask is not None:
-        # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
-        result = cv2.matchTemplate(search_area, template, cv2.TM_CCORR_NORMED, mask=mask)
-        _, max_val, _, max_loc = cv2.minMaxLoc(result)
-        location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
-        # For masked matching, threshold is minimum required score (e.g., 0.95)
-        found = max_val >= 0.95  # High bar for masked matching
-        return found, max_val, location
-    else:
-        # Standard matching - TM_SQDIFF_NORMED (lower = better)
-        result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-        location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
-        found = min_val < threshold
-        return found, min_val, location
+    return match_template(frame, template_name, search_region=search_region, threshold=threshold)
 
 
 def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESHOLD,
