@@ -1,0 +1,218 @@
+"""
+Soldier Speedup Flow - Speed up soldier training using Quick Speedup.
+
+Pre-condition: Barrack is in TRAINING state (stopwatch visible)
+
+Flow:
+1. Click barrack bubble
+2. Verify Soldier Training panel opened (header + Speed Up button)
+3. Click Speed Up button
+4. Verify Speed Up panel opened (dark header + Quick Speedup button)
+5. Click Quick Speedup button
+6. Click Confirm button
+7. Return to base view
+
+Templates:
+- soldier_training_header_4k.png - (1678, 315) 480x54
+- speed_up_button_4k.png - (1728, 1393) 372x144, click (1914, 1465)
+- quick_speedup_button_4k.png - X=1728, Y=variable, 372x136
+- confirm_button_4k.png - click (1912, 1289)
+"""
+
+import time
+import cv2
+from pathlib import Path
+
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.return_to_base_view import return_to_base_view
+
+# Template paths
+TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
+
+# Fixed positions (4K)
+SOLDIER_TRAINING_HEADER_POS = (1678, 315)
+SOLDIER_TRAINING_HEADER_SIZE = (480, 54)
+
+SPEED_UP_BUTTON_POS = (1728, 1393)
+SPEED_UP_BUTTON_SIZE = (372, 144)
+SPEED_UP_BUTTON_CLICK = (1914, 1465)
+
+SPEED_UP_HEADER_X = 1758
+SPEED_UP_HEADER_SIZE = (334, 71)
+
+QUICK_SPEEDUP_X = 1728
+QUICK_SPEEDUP_SIZE = (372, 136)
+
+CONFIRM_BUTTON_CLICK = (1912, 1289)
+
+# Thresholds
+THRESHOLD = 0.05
+
+
+def _match_template_fixed(frame, template_path, pos, size):
+    """Match template at fixed position."""
+    template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        return False, 1.0
+
+    x, y = pos
+    w, h = size
+    roi = frame[y:y+h, x:x+w]
+    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if len(roi.shape) == 3 else roi
+
+    result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
+    score = cv2.minMaxLoc(result)[0]
+    return score <= THRESHOLD, score
+
+
+def _search_template_y(frame, template_path, fixed_x, size, y_range=(0, 2160)):
+    """Search for template along Y-axis at fixed X."""
+    template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        return False, 1.0, None
+
+    w, h = size
+    y_start, y_end = y_range
+
+    # Extract vertical strip at fixed X
+    strip = frame[y_start:y_end, fixed_x:fixed_x+w]
+    strip_gray = cv2.cvtColor(strip, cv2.COLOR_BGR2GRAY) if len(strip.shape) == 3 else strip
+
+    result = cv2.matchTemplate(strip_gray, template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+
+    if min_val <= THRESHOLD:
+        found_y = y_start + min_loc[1]
+        return True, min_val, found_y
+    return False, min_val, None
+
+
+def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=False):
+    """
+    Speed up soldier training at a barrack.
+
+    Args:
+        adb: ADBHelper instance
+        barrack_click_pos: (x, y) position to click barrack bubble
+        screenshot_helper: WindowsScreenshotHelper instance
+        debug: Enable debug logging
+
+    Returns:
+        True if successful, False otherwise
+    """
+    win = screenshot_helper or WindowsScreenshotHelper()
+
+    try:
+        # Step 1: Click barrack bubble
+        if debug:
+            print(f"  Step 1: Clicking barrack at {barrack_click_pos}")
+        adb.tap(*barrack_click_pos)
+        time.sleep(1.0)
+
+        # Step 2: Verify Soldier Training panel
+        if debug:
+            print("  Step 2: Verifying Soldier Training panel...")
+        frame = win.get_screenshot_cv2()
+
+        header_ok, header_score = _match_template_fixed(
+            frame,
+            TEMPLATE_DIR / "soldier_training_header_4k.png",
+            SOLDIER_TRAINING_HEADER_POS,
+            SOLDIER_TRAINING_HEADER_SIZE
+        )
+        speedup_ok, speedup_score = _match_template_fixed(
+            frame,
+            TEMPLATE_DIR / "speed_up_button_4k.png",
+            SPEED_UP_BUTTON_POS,
+            SPEED_UP_BUTTON_SIZE
+        )
+
+        if debug:
+            print(f"    Header: {header_ok} ({header_score:.4f})")
+            print(f"    Speed Up button: {speedup_ok} ({speedup_score:.4f})")
+
+        if not (header_ok and speedup_ok):
+            print("  ERROR: Soldier Training panel not detected")
+            return False
+
+        # Step 3: Click Speed Up button
+        if debug:
+            print(f"  Step 3: Clicking Speed Up button at {SPEED_UP_BUTTON_CLICK}")
+        adb.tap(*SPEED_UP_BUTTON_CLICK)
+        time.sleep(0.8)
+
+        # Step 4: Verify Speed Up panel (search Y for Quick Speedup)
+        if debug:
+            print("  Step 4: Verifying Speed Up panel...")
+        frame = win.get_screenshot_cv2()
+
+        quick_ok, quick_score, quick_y = _search_template_y(
+            frame,
+            TEMPLATE_DIR / "quick_speedup_button_4k.png",
+            QUICK_SPEEDUP_X,
+            QUICK_SPEEDUP_SIZE,
+            y_range=(1500, 2100)  # Bottom half of screen
+        )
+
+        if debug:
+            print(f"    Quick Speedup: {quick_ok} ({quick_score:.4f}, y={quick_y})")
+
+        if not quick_ok:
+            print("  ERROR: Quick Speedup button not found")
+            return False
+
+        # Step 5: Click Quick Speedup button
+        quick_click_x = QUICK_SPEEDUP_X + QUICK_SPEEDUP_SIZE[0] // 2
+        quick_click_y = quick_y + QUICK_SPEEDUP_SIZE[1] // 2
+        if debug:
+            print(f"  Step 5: Clicking Quick Speedup at ({quick_click_x}, {quick_click_y})")
+        adb.tap(quick_click_x, quick_click_y)
+        time.sleep(0.5)
+
+        # Step 6: Click Confirm button
+        if debug:
+            print(f"  Step 6: Clicking Confirm at {CONFIRM_BUTTON_CLICK}")
+        adb.tap(*CONFIRM_BUTTON_CLICK)
+        time.sleep(0.5)
+
+        if debug:
+            print("  Speedup complete!")
+        return True
+
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        return False
+
+    finally:
+        return_to_base_view(adb, win, debug=debug)
+
+
+if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+    from utils.adb_helper import ADBHelper
+    from config import BARRACKS_POSITIONS
+
+    print("=== Soldier Speedup Flow Test ===")
+    print("This flow requires a TRAINING barrack (stopwatch visible)")
+    print()
+
+    adb = ADBHelper()
+    win = WindowsScreenshotHelper()
+
+    # Default to barrack 0
+    barrack_idx = 0
+    if len(sys.argv) > 1:
+        barrack_idx = int(sys.argv[1])
+
+    # Calculate click position
+    bx, by = BARRACKS_POSITIONS[barrack_idx]
+    click_pos = (bx + 40, by + 43)
+
+    print(f"Using barrack {barrack_idx} at {BARRACKS_POSITIONS[barrack_idx]}")
+    print(f"Click position: {click_pos}")
+    print()
+
+    result = soldier_speedup_flow(adb, click_pos, win, debug=True)
+    print(f"\nResult: {'SUCCESS' if result else 'FAILED'}")
