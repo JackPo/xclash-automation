@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "description": "Royal City Kingdom Titles - buffs and click positions (4K resolution)",
+  "last_updated": "2025-12-31",
+  "notes": "Additional event titles may be available during special events",
+
+  "titles": {
+    "prime_minister": {
+      "display_name": "Prime Minister",
+      "click_position": [1537, 950],
+      "row": 1,
+      "column": 1,
+      "template": "mark_title_prime_minister_4k.png",
+      "buffs": [
+        {"name": "Building Speed Up", "value": "+20%"},
+        {"name": "Technology Research Speed Up", "value": "+20%"},
+        {"name": "Soldier Training Speed Increase", "value": "+10%"}
+      ],
+      "best_for": ["building", "research", "training"]
+    },
+    "marshall": {
+      "display_name": "Marshall",
+      "click_position": [1916, 938],
+      "row": 1,
+      "column": 2,
+      "template": "mark_title_marshall_4k.png",
+      "buffs": [
+        {"name": "Barrack Training Capacity Increase", "value": "+20%"},
+        {"name": "Soldier Training Speed Increase", "value": "+20%"}
+      ],
+      "best_for": ["training", "soldier_capacity"]
+    },
+    "minister_of_health": {
+      "display_name": "Minister of Health",
+      "click_position": [2294, 945],
+      "row": 1,
+      "column": 3,
+      "template": "mark_title_minister_of_health_4k.png",
+      "buffs": [
+        {"name": "Hospital Capacity Expansion", "value": "+20%"},
+        {"name": "Wounded Healing Speed Increase", "value": "+20%"}
+      ],
+      "best_for": ["healing", "hospital"]
+    },
+    "ministry_of_construction": {
+      "display_name": "Minister of Construction",
+      "click_position": [1537, 1515],
+      "row": 2,
+      "column": 1,
+      "template": "mark_title_ministry_of_construction_4k.png",
+      "buffs": [
+        {"name": "Building Speed Up", "value": "+50%"},
+        {"name": "Technology Research Speed Up", "value": "+25%"}
+      ],
+      "best_for": ["building"]
+    },
+    "minister_of_science": {
+      "display_name": "Minister of Science",
+      "click_position": [1917, 1515],
+      "row": 2,
+      "column": 2,
+      "template": "mark_title_minister_of_science_4k.png",
+      "buffs": [
+        {"name": "Technology Research Speed Up", "value": "+50%"},
+        {"name": "Building Speed Up", "value": "+25%"}
+      ],
+      "best_for": ["research"]
+    },
+    "minister_of_domestic_affairs": {
+      "display_name": "Minister of Domestic Affairs",
+      "click_position": [2292, 1508],
+      "row": 2,
+      "column": 3,
+      "template": "mark_title_minister_of_domestic_affairs_4k.png",
+      "buffs": [
+        {"name": "Food Output Speed Increase", "value": "+100%"},
+        {"name": "Iron Mine Output Speed Increase", "value": "+100%"},
+        {"name": "Gold Mine Output Speed Increase", "value": "+100%"}
+      ],
+      "best_for": ["resources", "gathering"]
+    }
+  },
+
+  "event_titles": {
+    "_comment": "Event-specific titles that appear during special events - add as discovered",
+    "examples": []
+  },
+
+  "ui_positions": {
+    "kingdom_title_header": {
+      "position": [1332, 0],
+      "size": [1167, 110],
+      "template": "mark_kingdom_title_header_4k.png"
+    },
+    "apply_button": {
+      "click_position": [1914, 1844],
+      "template": "mark_apply_button_4k.png"
+    },
+    "title_detail_header": {
+      "position": [1378, 200],
+      "size": [1079, 113],
+      "description": "Header showing selected title name in detail view"
+    }
+  },
+
+  "navigation": {
+    "from_marked_location": [
+      {"step": 1, "action": "click_star_icon", "position": [1919, 1285], "poll_template": "mark_royal_city_header_4k.png"},
+      {"step": 2, "action": "click_manage", "position": [2230, 881], "poll_template": "mark_royal_city_mgmt_header_4k.png"},
+      {"step": 3, "action": "click_title_assignment", "position": [1650, 976], "poll_template": "mark_kingdom_title_header_4k.png"},
+      {"step": 4, "action": "click_title_row", "position": "from titles dict", "poll_template": "title-specific header"},
+      {"step": 5, "action": "click_apply", "position": [1914, 1844]}
+    ]
+  }
+}
