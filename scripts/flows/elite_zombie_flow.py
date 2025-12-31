@@ -50,6 +50,7 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth
 
 # Templates for verification (loaded lazily)
 _templates = {}
+_masks = {}
 
 # Fixed click coordinates (4K resolution) - all from plan
 MAGNIFYING_GLASS_CLICK = (88, 1486)
@@ -110,15 +111,32 @@ def _get_template(name: str):
     return _templates[name]
 
 
+def _get_mask(name: str):
+    """Load mask for template if it exists."""
+    if name not in _masks:
+        # Convert template name to mask name (e.g., search_button_4k.png -> search_button_mask_4k.png)
+        mask_name = name.replace("_4k.png", "_mask_4k.png")
+        path = TEMPLATE_DIR / mask_name
+        if path.exists():
+            mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            _masks[name] = mask
+        else:
+            _masks[name] = None
+    return _masks[name]
+
+
 def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESHOLD,
                      search_region: tuple = None) -> tuple:
     """
     Verify a template is visible in the frame.
 
+    Uses masked matching (TM_CCORR_NORMED) if mask exists for the template,
+    otherwise uses standard matching (TM_SQDIFF_NORMED).
+
     Args:
         frame: BGR screenshot
         template_name: Name of template file
-        threshold: Max score to consider a match (TM_SQDIFF_NORMED)
+        threshold: Max score for TM_SQDIFF_NORMED, or min score for masked matching
         search_region: Optional (x, y, w, h) to limit search area
 
     Returns:
@@ -128,6 +146,7 @@ def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESH
     if template is None:
         return False, 1.0, None
 
+    mask = _get_mask(template_name)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     if search_region:
@@ -138,14 +157,23 @@ def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESH
         search_area = gray
         offset = (0, 0)
 
-    result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-
     th, tw = template.shape
-    location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
 
-    found = min_val < threshold
-    return found, min_val, location
+    if mask is not None:
+        # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
+        result = cv2.matchTemplate(search_area, template, cv2.TM_CCORR_NORMED, mask=mask)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+        location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
+        # For masked matching, threshold is minimum required score (e.g., 0.95)
+        found = max_val >= 0.95  # High bar for masked matching
+        return found, max_val, location
+    else:
+        # Standard matching - TM_SQDIFF_NORMED (lower = better)
+        result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
+        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+        location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
+        found = min_val < threshold
+        return found, min_val, location
 
 
 def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESHOLD,
