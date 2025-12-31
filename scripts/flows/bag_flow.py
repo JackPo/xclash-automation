@@ -25,6 +25,7 @@ if str(_script_dir) not in sys.path:
 import cv2
 import numpy as np
 
+from utils.template_matcher import match_template_fixed, match_template
 from scripts.flows.bag_special_flow import bag_special_flow
 from scripts.flows.bag_hero_flow import bag_hero_flow
 from scripts.flows.bag_resources_flow import bag_resources_flow
@@ -57,26 +58,7 @@ TAB_CLICK_POSITIONS = {
 }
 
 
-def _load_template(name: str) -> np.ndarray:
-    """Load a template image in grayscale."""
-    path = TEMPLATES_DIR / name
-    template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        raise FileNotFoundError(f"Template not found: {path}")
-    return template
-
-
-def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
-                            region: tuple, threshold: float = VERIFICATION_THRESHOLD) -> tuple[bool, float]:
-    """Verify template is present at fixed region."""
-    x, y, w, h = region
-    roi = frame_gray[y:y+h, x:x+w]
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-    return min_val <= threshold, min_val
-
-
-def detect_active_tab(frame_gray: np.ndarray, debug: bool = False) -> str | None:
+def detect_active_tab(frame: np.ndarray, debug: bool = False) -> str | None:
     """
     Detect which bag tab is currently active by matching all active templates.
 
@@ -86,14 +68,12 @@ def detect_active_tab(frame_gray: np.ndarray, debug: bool = False) -> str | None
     best_score = 1.0
 
     for tab_name, template_name in ACTIVE_TAB_TEMPLATES.items():
-        template = _load_template(template_name)
-        result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, _, _ = cv2.minMaxLoc(result)
+        found, min_val, _ = match_template(frame, template_name, threshold=VERIFICATION_THRESHOLD)
 
         if debug:
             print(f"    {tab_name}: {min_val:.4f}")
 
-        if min_val < best_score and min_val <= VERIFICATION_THRESHOLD:
+        if min_val < best_score and found:
             best_score = min_val
             best_tab = tab_name
 
@@ -107,9 +87,7 @@ def switch_to_tab(adb, win, target_tab: str, debug: bool = False) -> bool:
     Returns True if successfully on target tab.
     """
     frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    current_tab = detect_active_tab(frame_gray, debug=debug)
+    current_tab = detect_active_tab(frame, debug=debug)
 
     if current_tab == target_tab:
         if debug:
@@ -129,8 +107,7 @@ def switch_to_tab(adb, win, target_tab: str, debug: bool = False) -> bool:
 
     # Verify switch
     frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    new_tab = detect_active_tab(frame_gray, debug=debug)
+    new_tab = detect_active_tab(frame, debug=debug)
 
     if new_tab == target_tab:
         if debug:
@@ -160,10 +137,6 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     results = {"special": 0, "hero": 0, "resources": 0}
 
-    # Load templates
-    bag_template = _load_template("bag_button_4k.png")
-    bag_tab_template = _load_template("bag_tab_4k.png")
-
     # Step 0: Navigate to TOWN (bag button only visible in TOWN view)
     logger.info("[BAG] Step 0: Navigating to TOWN...")
     go_to_town(adb, debug=debug)
@@ -171,9 +144,12 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     # Step 1: Verify bag button visible (confirms we're in TOWN)
     frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    is_present, score = _verify_at_fixed_region(frame_gray, bag_template, BAG_BUTTON_REGION)
+    is_present, score, _ = match_template_fixed(
+        frame, "bag_button_4k.png",
+        (BAG_BUTTON_REGION[0], BAG_BUTTON_REGION[1]),
+        (BAG_BUTTON_REGION[2], BAG_BUTTON_REGION[3]),
+        threshold=VERIFICATION_THRESHOLD
+    )
     if not is_present:
         logger.warning(f"[BAG] Bag button not found (score={score:.4f}), aborting")
         return results
@@ -187,9 +163,12 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     # Verify bag opened
     frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    is_present, score = _verify_at_fixed_region(frame_gray, bag_tab_template, BAG_TAB_REGION)
+    is_present, score, _ = match_template_fixed(
+        frame, "bag_tab_4k.png",
+        (BAG_TAB_REGION[0], BAG_TAB_REGION[1]),
+        (BAG_TAB_REGION[2], BAG_TAB_REGION[3]),
+        threshold=VERIFICATION_THRESHOLD
+    )
     if not is_present:
         logger.warning(f"[BAG] Bag didn't open (tab score={score:.4f}), running recovery")
         return_to_base_view(adb, win, debug=debug)

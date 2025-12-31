@@ -21,14 +21,11 @@ Timer OCR:
 
 from pathlib import Path
 import time
-import cv2
 import re
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.template_matcher import match_template
 from .back_from_chat_flow import back_from_chat_flow
-
-# Template for Claim button detection
-CLAIM_BUTTON_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "claim_button_4k.png"
 
 # Fixed click position (center of Claim button)
 CLAIM_BUTTON_X = 2284
@@ -131,28 +128,16 @@ def stamina_claim_flow(adb, screenshot_helper=None):
         back_from_chat_flow(adb, win)
         return result
 
-    # Load template
-    template = cv2.imread(str(CLAIM_BUTTON_TEMPLATE))
-    if template is None:
-        print(f"    [STAMINA-CLAIM] Template not found: {CLAIM_BUTTON_TEMPLATE}")
-        back_from_chat_flow(adb, win)
-        return result
-
-    # Extract search region
-    rx, ry, rw, rh = SEARCH_REGION
-    roi = frame[ry:ry+rh, rx:rx+rw]
-
-    # Convert to grayscale
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-    # Template match using TM_SQDIFF_NORMED (lower = better match)
-    match_result = cv2.matchTemplate(roi_gray, template_gray, cv2.TM_SQDIFF_NORMED)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(match_result)
+    # Search for Claim button in search region
+    found, min_val, click_pos = match_template(
+        frame, "claim_button_4k.png",
+        search_region=SEARCH_REGION,
+        threshold=MATCH_THRESHOLD
+    )
 
     print(f"    [STAMINA-CLAIM] Match score: {min_val:.4f} (threshold: {MATCH_THRESHOLD})")
 
-    if min_val > MATCH_THRESHOLD:
+    if not found:
         # Claim not available - OCR the timer
         print("    [STAMINA-CLAIM] Claim button not found, OCRing timer...")
         timer_seconds = _ocr_timer(frame)
@@ -197,23 +182,12 @@ def check_claim_button(frame):
     Returns:
         (is_present, score) tuple
     """
-    template = cv2.imread(str(CLAIM_BUTTON_TEMPLATE))
-    if template is None:
-        return False, 1.0
-
-    # Extract search region
-    rx, ry, rw, rh = SEARCH_REGION
-    roi = frame[ry:ry+rh, rx:rx+rw]
-
-    # Convert to grayscale
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-    # Template match
-    result = cv2.matchTemplate(roi_gray, template_gray, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-
-    return min_val <= MATCH_THRESHOLD, min_val
+    found, score, _ = match_template(
+        frame, "claim_button_4k.png",
+        search_region=SEARCH_REGION,
+        threshold=MATCH_THRESHOLD
+    )
+    return found, score
 
 
 def check_claim_status(adb, screenshot_helper=None) -> dict:

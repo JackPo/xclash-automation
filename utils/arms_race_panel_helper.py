@@ -31,6 +31,7 @@ from utils.arms_race_ocr import (
 from utils.view_state_detector import detect_view, go_to_town, ViewState
 from utils.return_to_base_view import return_to_base_view
 from utils.arms_race import get_event_metadata
+from utils.events_icon_matcher import EventsIconMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -194,11 +195,10 @@ def open_arms_race_panel(adb, win, debug: bool = False, max_scrolls: int = 5) ->
     """
     Navigate to Arms Race panel with scroll handling.
 
-    1. Ensure in TOWN view
-    2. Click Events icon
-    3. Check ACTIVE first (panel already open)
-    4. Check INACTIVE (scroll if needed, then click)
-    5. Verify panel opened
+    1. Find and click Events icon (scans right sidebar)
+    2. Check ACTIVE first (panel already open)
+    3. Check INACTIVE (scroll if needed, then click)
+    4. Verify panel opened
 
     Args:
         adb: ADBHelper instance
@@ -209,9 +209,17 @@ def open_arms_race_panel(adb, win, debug: bool = False, max_scrolls: int = 5) ->
     Returns:
         True if successfully opened Arms Race panel
     """
-    # Step 1: Click Events icon (works from TOWN or WORLD)
-    logger.info(f"Clicking Events icon at {EVENTS_ICON_CLICK}")
-    adb.tap(*EVENTS_ICON_CLICK)
+    # Step 1: Find and click Events icon (scans vertically on right side)
+    events_matcher = EventsIconMatcher()
+    frame = win.get_screenshot_cv2()
+    found, score, click_pos = events_matcher.find(frame)
+
+    if not found:
+        logger.error(f"Events icon NOT FOUND (score={score:.4f}), cannot open Arms Race panel")
+        return False
+
+    logger.info(f"Events icon found at {click_pos} (score={score:.4f}), clicking...")
+    adb.tap(*click_pos)
     time.sleep(1.5)
 
     # Step 3: Check ACTIVE first - panel might already be open

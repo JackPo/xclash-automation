@@ -1,19 +1,15 @@
 """
 Corn harvest bubble matcher for farm harvest detection.
 
-Uses cv2.TM_SQDIFF_NORMED at fixed location.
-
+Uses template_matcher for fixed-position detection.
 Coordinates loaded from config.CORN_BUBBLE - override in config_local.py for your town layout.
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional
-
-import cv2
 import numpy as np
 
 from config import CORN_BUBBLE, THRESHOLDS
+from utils.template_matcher import match_template_fixed
 
 
 class CornHarvestMatcher:
@@ -28,48 +24,27 @@ class CornHarvestMatcher:
     ICON_HEIGHT = CORN_BUBBLE['region'][3]
     CLICK_X = CORN_BUBBLE['click'][0]
     CLICK_Y = CORN_BUBBLE['click'][1]
+
+    TEMPLATE_NAME = "corn_harvest_bubble_4k.png"
     DEFAULT_THRESHOLD = THRESHOLDS.get('corn', 0.06)
 
-    def __init__(
-        self,
-        template_path: Optional[Path] = None,
-        debug_dir: Optional[Path] = None,
-        threshold: float = None,
-    ) -> None:
+    def __init__(self, threshold: float = None, debug_dir=None) -> None:
         """
         Initialize corn harvest bubble detector.
 
         Args:
-            template_path: Path to template (default: templates/ground_truth/corn_harvest_bubble_4k.png)
-            debug_dir: Directory for debug output
             threshold: Maximum difference score (default from config.THRESHOLDS)
+            debug_dir: Ignored (kept for backward compatibility)
         """
-        base_dir = Path(__file__).resolve().parent.parent
-
-        if template_path is None:
-            template_path = base_dir / "templates" / "ground_truth" / "corn_harvest_bubble_4k.png"
-
-        self.template_path = Path(template_path)
-        self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-        self.debug_dir.mkdir(parents=True, exist_ok=True)
-
-        self.template = cv2.imread(str(self.template_path), cv2.IMREAD_GRAYSCALE)
-        if self.template is None:
-            raise FileNotFoundError(f"Template not found: {self.template_path}")
-
-    def is_present(
-        self,
-        frame: np.ndarray,
-        save_debug: bool = False,
-    ) -> tuple[bool, float]:
+    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
         """
         Check if corn harvest bubble is present at FIXED location.
 
         Args:
             frame: BGR image frame from screenshot
-            save_debug: If True, save debug crops
+            save_debug: Ignored (kept for backward compatibility)
 
         Returns:
             Tuple of (is_present, score)
@@ -77,37 +52,16 @@ class CornHarvestMatcher:
         if frame is None or frame.size == 0:
             return False, 1.0
 
-        roi = frame[
-            self.ICON_Y:self.ICON_Y + self.ICON_HEIGHT,
-            self.ICON_X:self.ICON_X + self.ICON_WIDTH
-        ]
-
-        if len(roi.shape) == 3:
-            roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        else:
-            roi_gray = roi
-
-        result = cv2.matchTemplate(roi_gray, self.template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, _, _ = cv2.minMaxLoc(result)
-
-        score = float(min_val)
-        is_present = score <= self.threshold
-
-        if save_debug and is_present:
-            self._save_debug_crop(roi, score)
+        is_present, score, _ = match_template_fixed(
+            frame,
+            self.TEMPLATE_NAME,
+            position=(self.ICON_X, self.ICON_Y),
+            size=(self.ICON_WIDTH, self.ICON_HEIGHT),
+            threshold=self.threshold
+        )
 
         return is_present, score
 
     def click(self, adb_helper) -> None:
         """Click at the FIXED corn bubble center position."""
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
-
-    def _save_debug_crop(self, roi: np.ndarray, score: float) -> None:
-        """Save ROI region for debugging."""
-        try:
-            if roi.size == 0:
-                return
-            debug_path = self.debug_dir / f"corn_present_{score:.3f}.png"
-            cv2.imwrite(str(debug_path), roi)
-        except Exception:
-            pass

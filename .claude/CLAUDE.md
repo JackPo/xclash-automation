@@ -21,6 +21,44 @@ python calibration/detect_object.py check.png "the back button with arrow icon"
 3. Extract template using the returned bounding box
 4. Save to `templates/ground_truth/`
 
+**Masked Template Extraction** (for icons with transparent backgrounds):
+
+When an icon has transparency (background shows through), standard template matching fails because the background changes. Use masked matching instead:
+
+1. **Capture two screenshots** with different backgrounds behind the icon:
+   - Take screenshot in WORLD view
+   - Pan viewport or switch to TOWN view
+   - Take second screenshot
+
+2. **Extract icon region** from both screenshots at the same coordinates
+
+3. **Create mask** by comparing pixels:
+   ```python
+   import cv2
+   import numpy as np
+
+   diff = cv2.absdiff(icon1, icon2)
+   diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+   mask = (diff_gray < 10).astype(np.uint8) * 255  # threshold=10
+   ```
+   - **White pixels (255)**: Identical = opaque icon pixels (MATCH these)
+   - **Black pixels (0)**: Different = transparent background (IGNORE these)
+
+4. **Save both files**:
+   - `templates/ground_truth/<name>_4k.png` - the template image
+   - `templates/ground_truth/<name>_mask_4k.png` - the mask
+
+5. **Use masked matching** with `TM_CCORR_NORMED`:
+   ```python
+   result = cv2.matchTemplate(roi, template, cv2.TM_CCORR_NORMED, mask=mask)
+   score = cv2.minMaxLoc(result)[1]  # max_val for CCORR
+   # score ~1.0 = match, threshold typically > 0.99
+   ```
+
+**Templates with masks**:
+- `search_button_4k.png` + `search_button_mask_4k.png` - Magnifying glass (19, 1432) 119x118
+- `title_active_icon_4k.png` + `title_active_icon_mask_4k.png` - Title scroll icon (203, 216) 69x62
+
 ## ⚠️ CRITICAL: Screenshot Rules
 
 **ALL screenshot operations MUST use `WindowsScreenshotHelper`** - NOT ADB screenshots.
@@ -128,6 +166,25 @@ Direct setting to 4K does NOT work reliably - the resolution will not stick prop
 
 All templates and coordinates are calibrated for 3840x2160 resolution.
 
+### ⚠️ CRITICAL: BlueStacks Right Sidebar Must Be ON
+
+**The BlueStacks right sidebar (with media controls, shake, etc.) MUST be enabled.**
+
+`WindowsScreenshotHelper` crops 30 pixels from the right edge (`RIGHT_BORDER=30`) to remove the sidebar. If the sidebar is OFF, this cropping shifts ALL coordinates by ~64 scaled pixels, causing:
+- Template matching to fail (scores 0.13+ instead of ~0.00)
+- All click coordinates to be wrong
+- View detection returning UNKNOWN
+
+**To verify sidebar is ON:**
+1. Open BlueStacks Settings → Display
+2. Ensure "Show sidebar" or equivalent is enabled
+3. The sidebar should be visible on the right edge of the BlueStacks window
+
+**Symptoms of sidebar being OFF:**
+- Templates that were working suddenly fail
+- Everything seems shifted ~50-60 pixels horizontally
+- `detect_view()` returns UNKNOWN when World/Town button is visible
+
 ### Taking Screenshots
 
 **For template matching and detection - use Windows screenshot:**
@@ -167,6 +224,14 @@ Located in `templates/ground_truth/`:
 - `world_button_4k.png` - World button (map icon) → means currently in TOWN view
 - `town_button_4k.png` - Town button (castle icon) → means currently in WORLD view
 - `town_button_zoomed_out_4k.png` - Town button zoomed out → means currently in WORLD view
+
+**Shaded Button Templates (popup dismissal, same position 3600,1920 size 240x240):**
+- `world_button_shaded_4k.png` - Light shading when popups are blocking
+- `world_button_shaded_dark_4k.png` - Dark shading when modal dialogs (Union Duel) are blocking
+
+Used by `utils/shaded_button_helper.py` to detect and dismiss startup popups. When the game loads,
+popups often block the screen. The World/Town button appears shaded/dimmed. Clicking it repeatedly
+dismisses popups until the button returns to normal (detected by `view_state_detector`).
 
 **Icon Detection Templates (fixed positions):**
 - `handshake_iter2.png` - Alliance/handshake icon (position: 3088,1780, size: 155x127, threshold: 0.04)
@@ -250,6 +315,50 @@ hospital_state_matcher use the same yellow soldier templates.
 3. Save to `templates/ground_truth/`
 4. Use descriptive name with `_4k` suffix
 5. Document coordinates and size in this file
+
+## Centralized Template Matching
+
+**ALL template matching MUST use `utils/template_matcher.py`** - NOT direct cv2.matchTemplate calls.
+
+```python
+from utils.template_matcher import match_template_fixed, match_template
+
+# Fixed position matching (icon at known location)
+found, score, center = match_template_fixed(
+    frame,
+    "handshake_iter2.png",          # Template name (looks in templates/ground_truth/)
+    position=(3088, 1780),           # Top-left position
+    size=(155, 127),                 # Width x Height
+    threshold=0.04                   # TM_SQDIFF_NORMED threshold
+)
+# Returns: (bool, float, tuple) - (is_match, score, center_coords)
+
+# Search-based matching (find template anywhere in region/frame)
+found, score, location = match_template(
+    frame,
+    "claim_button_4k.png",
+    search_region=(2100, 0, 400, 2160),  # Optional: x, y, w, h
+    threshold=0.02
+)
+# Returns: (bool, float, tuple) - (is_match, score, top_left_coords)
+```
+
+**Benefits:**
+- **Auto mask detection**: If `<template>_mask_4k.png` exists, uses masked matching automatically
+- **Cached templates**: Templates loaded once and cached (no repeated cv2.imread)
+- **Consistent API**: Same interface everywhere, returns center coordinates
+- **Less code**: ~500 lines removed from individual matchers
+
+**Matching methods:**
+- `TM_SQDIFF_NORMED`: Default for unmasked templates. Score 0.0 = perfect match. Threshold is MAX allowed score.
+- `TM_CCORR_NORMED`: Used for masked templates. Score 1.0 = perfect match. Threshold is MIN allowed score.
+
+**Creating masked templates:**
+When an icon has transparency (background shows through), create a mask:
+1. Capture icon with TWO different backgrounds
+2. Compare pixels: identical = opaque (white in mask), different = transparent (black in mask)
+3. Save as `<name>_4k.png` and `<name>_mask_4k.png`
+4. `template_matcher.py` auto-detects and uses the mask
 
 ## View State Detection & Navigation
 
@@ -764,6 +873,48 @@ else:
 **Config**:
 - No cooldown - triggers immediately when READY barracks detected and conditions met
 - Requires: 5+ min idle, TOWN view, dog house aligned
+
+### Beast Training Arms Race Flow (Mystic Beast)
+
+**Trigger**: During "Mystic Beast Training" Arms Race event, in the last 60 minutes, idle 2+ min
+
+**Pattern**: "Dynamic target based on actual progress check"
+
+**See full documentation**: `docs/BEAST_TRAINING_LOGIC.md`
+
+**Key Numbers**:
+- Chest 3 target: 30,000 points
+- Points per rally: 2,000 (20 stamina × 100 pts/stamina)
+- Max rallies: 15 (to reach Chest 3 from 0)
+
+**Two-Phase Flow**:
+
+1. **Hour Mark Check** (1 hour into event):
+   - Open Events → Arms Race panel
+   - OCR current points
+   - Calculate `rallies_needed = ceil((30000 - current_points) / 2000)`
+   - Set `beast_training_target_rallies`
+
+2. **Rally Execution** (continuous):
+   - While `rally_count < target`:
+     - If stamina ≥ 20: do Elite Zombie rally
+     - If stamina < 20 and use_count < 4: click Use button for free 50 stamina
+
+**State Tracking** (`data/daemon_schedule.json`):
+```json
+{
+  "arms_race": {
+    "beast_training_rally_count": 4,      // Done this block
+    "beast_training_target_rallies": 6    // Target for this block
+  }
+}
+```
+
+**Config**:
+- `ARMS_RACE_BEAST_TRAINING_ENABLED = True`
+- `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60` - Only act in last 60 min
+- `ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20` - Min stamina to rally
+- `ARMS_RACE_BEAST_TRAINING_USE_MAX = 4` - Max Use button clicks per block
 
 ### Rally Join Flow (Union War)
 

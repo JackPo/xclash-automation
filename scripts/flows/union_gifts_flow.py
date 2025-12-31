@@ -33,6 +33,7 @@ import numpy as np
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
+from utils.template_matcher import match_template_fixed
 
 # Setup logger
 logger = logging.getLogger("union_gifts_flow")
@@ -51,44 +52,21 @@ RARE_GIFTS_CLAIM_ALL_CLICK = (2217, 2049)  # Claim All button for Rare Gifts
 BACK_BUTTON_CLICK = (1407, 2055)  # Back button (same as chat back)
 
 # Back button detection (fixed position)
-# Template cropped: +5 left, +5 top from original, so adjust position
-BACK_BUTTON_X = 1345  # 1340 + 5 (offset for left crop)
-BACK_BUTTON_Y = 2002  # 1997 + 5 (offset for top crop)
+BACK_BUTTON_X = 1345
+BACK_BUTTON_Y = 2002
 BACK_BUTTON_WIDTH = 107
 BACK_BUTTON_HEIGHT = 111
-BACK_BUTTON_THRESHOLD = 0.06  # TM_SQDIFF_NORMED (lower = better)
-BACK_BUTTON_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "back_button_union_4k.png"
+BACK_BUTTON_THRESHOLD = 0.06
 
-# Load template once
-_back_button_template = None
-
-def _get_back_button_template():
-    global _back_button_template
-    if _back_button_template is None:
-        _back_button_template = cv2.imread(str(BACK_BUTTON_TEMPLATE), cv2.IMREAD_GRAYSCALE)
-    return _back_button_template
 
 def _is_back_button_present(frame: np.ndarray) -> tuple[bool, float]:
-    """Check if back button is present at fixed location using TM_SQDIFF_NORMED."""
-    template = _get_back_button_template()
-    if template is None:
-        return False, 1.0
-
-    # Extract ROI at fixed position
-    roi = frame[BACK_BUTTON_Y:BACK_BUTTON_Y + BACK_BUTTON_HEIGHT,
-                BACK_BUTTON_X:BACK_BUTTON_X + BACK_BUTTON_WIDTH]
-
-    if len(roi.shape) == 3:
-        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    else:
-        roi_gray = roi
-
-    # Template match with TM_SQDIFF_NORMED (lower = better)
-    result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-    score = float(min_val)
-
-    is_present = score <= BACK_BUTTON_THRESHOLD
+    """Check if back button is present at fixed location using template_matcher."""
+    is_present, score, _ = match_template_fixed(
+        frame, "back_button_union_4k.png",
+        (BACK_BUTTON_X, BACK_BUTTON_Y),
+        (BACK_BUTTON_WIDTH, BACK_BUTTON_HEIGHT),
+        threshold=BACK_BUTTON_THRESHOLD
+    )
     return is_present, score
 
 # Timing constants

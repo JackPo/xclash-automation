@@ -1,41 +1,26 @@
 """
 Treasure map icon template matcher for bouncing scroll detection.
 
-Uses cv2.TM_SQDIFF_NORMED for pixel-difference based matching at fixed location.
-Template extracted from 4K screenshot at coordinates (2096, 1540) with size 158x162.
-
-TM_SQDIFF_NORMED provides strong binary separation:
-- Treasure map present: score ~0.01 (LOW difference = good match)
-- Treasure map absent: score ~0.5+ (HIGH difference = no match)
+Uses template_matcher for fixed-position detection at (2096, 1540).
 
 Usage:
     from treasure_map_matcher import TreasureMapMatcher
-    from adb_helper import ADBHelper
 
     matcher = TreasureMapMatcher()
-    adb = ADBHelper()
-
-    # Check if present and click
-    frame = get_screenshot()
     is_present, score = matcher.is_present(frame)
     if is_present:
         matcher.click(adb)
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional
-
-import cv2
 import numpy as np
+
+from utils.template_matcher import match_template_fixed
 
 
 class TreasureMapMatcher:
     """
     Presence detector for treasure map icon at FIXED location.
-
-    This is NOT a search tool - it checks if the treasure map icon exists at the
-    exact coordinates where it was originally extracted.
 
     FIXED specs (4K resolution):
     - Extraction position: (2096, 1540)
@@ -51,104 +36,43 @@ class TreasureMapMatcher:
     CLICK_X = 2175
     CLICK_Y = 1621
 
-    def __init__(
-        self,
-        template_path: Optional[Path] = None,
-        debug_dir: Optional[Path] = None,
-        threshold: float = 0.05,
-    ) -> None:
+    TEMPLATE_NAME = "treasure_map_4k.png"
+    DEFAULT_THRESHOLD = 0.05
+
+    def __init__(self, threshold: float = None, debug_dir=None) -> None:
         """
         Initialize treasure map icon presence detector.
 
         Args:
-            template_path: Path to treasure map template (default: templates/ground_truth/treasure_map_4k.png)
-            debug_dir: Directory for debug output (default: templates/debug/)
-            threshold: Maximum difference score (default 0.05 for strict matching with TM_SQDIFF_NORMED)
-                      Lower values = stricter matching. Score < threshold means match found.
+            threshold: Maximum difference score (default 0.05)
+            debug_dir: Ignored (kept for backward compatibility)
         """
-        # Get project root (parent of utils/)
-        base_dir = Path(__file__).resolve().parent.parent
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-        if template_path is None:
-            template_path = base_dir / "templates" / "ground_truth" / "treasure_map_4k.png"
-
-        self.template_path = Path(template_path)
-        self.debug_dir = debug_dir or (base_dir / "templates" / "debug")
-        self.threshold = threshold
-
-        # Create debug directory
-        self.debug_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load template
-        self.template = cv2.imread(str(self.template_path), cv2.IMREAD_GRAYSCALE)
-        if self.template is None:
-            raise FileNotFoundError(f"Template not found: {self.template_path}")
-
-    def is_present(
-        self,
-        frame: np.ndarray,
-        save_debug: bool = True,
-    ) -> tuple[bool, float]:
+    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
         """
         Check if treasure map icon is present at FIXED location.
 
-        This extracts the exact region where the template was found originally
-        and checks if it still matches. Does NOT search.
-
         Args:
             frame: BGR image frame from screenshot
-            save_debug: If True, save debug crops to debug_dir
+            save_debug: Ignored (kept for backward compatibility)
 
         Returns:
             Tuple of (is_present, score)
         """
         if frame is None or frame.size == 0:
-            return False, 0.0
+            return False, 1.0
 
-        # Extract EXACT region where icon should be
-        roi = frame[
-            self.ICON_Y:self.ICON_Y + self.ICON_HEIGHT,
-            self.ICON_X:self.ICON_X + self.ICON_WIDTH
-        ]
-
-        # Convert to grayscale
-        if len(roi.shape) == 3:
-            roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        else:
-            roi_gray = roi
-
-        # Match template against this EXACT region using squared difference
-        # TM_SQDIFF_NORMED: Lower score = better match (opposite of correlation methods)
-        result = cv2.matchTemplate(roi_gray, self.template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, _, _ = cv2.minMaxLoc(result)
-
-        score = float(min_val)
-        is_present = score <= self.threshold  # Inverted: lower score = better match
-
-        if save_debug and is_present:
-            self._save_debug_crop(roi, score)
+        is_present, score, _ = match_template_fixed(
+            frame,
+            self.TEMPLATE_NAME,
+            position=(self.ICON_X, self.ICON_Y),
+            size=(self.ICON_WIDTH, self.ICON_HEIGHT),
+            threshold=self.threshold
+        )
 
         return is_present, score
 
     def click(self, adb_helper) -> None:
-        """
-        Click at the FIXED treasure map icon center position.
-
-        ALWAYS clicks at (2175, 1621) regardless of detection.
-        Call is_present() first to check if icon is actually there.
-
-        Args:
-            adb_helper: ADBHelper instance
-        """
+        """Click at the FIXED treasure map icon center position."""
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
-
-    def _save_debug_crop(self, roi: np.ndarray, score: float) -> None:
-        """Save ROI region for debugging."""
-        try:
-            if roi.size == 0:
-                return
-
-            debug_path = self.debug_dir / f"treasure_map_present_{score:.3f}.png"
-            cv2.imwrite(str(debug_path), roi)
-        except Exception:
-            pass

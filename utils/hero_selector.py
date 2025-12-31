@@ -1,6 +1,8 @@
 """
 Hero Selector - Shared hero selection logic for rally/team-up flows.
 
+Uses template_matcher for fixed-position detection.
+
 Detects Zz sleep icons at fixed slot positions and selects the rightmost idle hero.
 Used by both elite_zombie_flow and treasure_map_flow.
 
@@ -12,18 +14,15 @@ Zz Icon Slot Positions (4K resolution):
 Detection uses TM_SQDIFF_NORMED with threshold 0.1.
 """
 
-import cv2
 import numpy as np
-from pathlib import Path
+
+from utils.template_matcher import match_template_fixed
 
 
 class HeroSelector:
     """Select rightmost idle hero based on Zz icon detection."""
 
-    # Zz icon template
-    TEMPLATE_PATH = Path('templates/ground_truth/zz_icon_template_4k.png')
-
-    # Detection threshold (TM_SQDIFF_NORMED - lower = better match)
+    TEMPLATE_NAME = "zz_icon_template_4k.png"
     THRESHOLD = 0.1
 
     # Fixed slot positions (x, y, w, h) and click centers
@@ -36,9 +35,7 @@ class HeroSelector:
 
     def __init__(self):
         """Initialize the hero selector."""
-        self.template = cv2.imread(str(self.TEMPLATE_PATH), cv2.IMREAD_COLOR)
-        if self.template is None:
-            raise FileNotFoundError(f"Template not found: {self.TEMPLATE_PATH}")
+        pass  # Templates loaded by template_matcher
 
     def check_slot_has_zz(self, frame: np.ndarray, slot: dict) -> tuple[bool, float]:
         """
@@ -54,14 +51,15 @@ class HeroSelector:
         x, y = slot['pos']
         w, h = slot['size']
 
-        roi = frame[y:y+h, x:x+w]
+        found, score, _ = match_template_fixed(
+            frame,
+            self.TEMPLATE_NAME,
+            position=(x, y),
+            size=(w, h),
+            threshold=self.THRESHOLD
+        )
 
-        result = cv2.matchTemplate(roi, self.template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, _, _ = cv2.minMaxLoc(result)
-        score = float(min_val)
-
-        is_idle = score < self.THRESHOLD
-        return is_idle, score
+        return found, score
 
     def find_rightmost_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
         """
@@ -79,22 +77,17 @@ class HeroSelector:
             Slot dict if found, None if no heroes available (only possible in 'require' mode)
         """
         if zz_mode == 'ignore':
-            # Just return rightmost slot immediately
             return self.SLOTS[0]  # First element is rightmost
 
-        # For 'require' and 'prefer': search for Zz heroes first
         for slot in self.SLOTS:  # Already ordered rightmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
             if is_idle:
                 return slot
 
-        # No Zz found
         if zz_mode == 'require':
-            return None  # Must have Zz, return None
+            return None
         else:  # zz_mode == 'prefer'
-            return self.SLOTS[0]  # Fallback to rightmost slot
-
-        return None
+            return self.SLOTS[0]
 
     def find_leftmost_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
         """
@@ -112,43 +105,32 @@ class HeroSelector:
             Slot dict if found, None if no heroes available (only possible in 'require' mode)
         """
         if zz_mode == 'ignore':
-            # Just return leftmost slot immediately
             return self.SLOTS[-1]  # Last element is leftmost
 
-        # For 'require' and 'prefer': search for Zz heroes first
         for slot in reversed(self.SLOTS):  # Reversed = leftmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
             if is_idle:
                 return slot
 
-        # No Zz found
         if zz_mode == 'require':
-            return None  # Must have Zz, return None
+            return None
         else:  # zz_mode == 'prefer'
-            return self.SLOTS[-1]  # Fallback to leftmost slot
-
-        return None
+            return self.SLOTS[-1]
 
     def find_any_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
         """
         Find ANY idle hero (first one with Zz icon found, no position preference).
         Used by: rally_join_flow during Union Boss mode
 
-        Unlike find_leftmost_idle/find_rightmost_idle, this doesn't prefer any position.
-        It just returns the first idle hero found (slot 3, 2, or 1).
-
         Args:
             frame: BGR numpy array (4K screenshot)
-            zz_mode: Hero selection strategy:
-                - 'require': ONLY return heroes WITH Zz. Return None if no Zz found.
-                - 'prefer': PREFER heroes with Zz, but fallback to any hero if no Zz exists.
-                - 'ignore': ALWAYS return first hero regardless of Zz status.
+            zz_mode: Hero selection strategy
 
         Returns:
             Slot dict if found, None if no heroes available (only possible in 'require' mode)
         """
         if zz_mode == 'ignore':
-            return self.SLOTS[0]  # Return first slot (rightmost)
+            return self.SLOTS[0]
 
         for slot in self.SLOTS:  # Checks 3, 2, 1
             is_idle, score = self.check_slot_has_zz(frame, slot)
@@ -163,12 +145,6 @@ class HeroSelector:
     def get_all_slot_status(self, frame: np.ndarray) -> list[dict]:
         """
         Get status of all slots (for debugging).
-
-        Args:
-            frame: BGR numpy array (4K screenshot)
-
-        Returns:
-            List of dicts with slot info and status
         """
         results = []
         for slot in self.SLOTS:
@@ -186,9 +162,6 @@ class HeroSelector:
 def find_rightmost_zz(frame: np.ndarray) -> int | None:
     """
     Convenience function to find rightmost idle hero slot.
-
-    Args:
-        frame: BGR numpy array (4K screenshot)
 
     Returns:
         Slot ID (1, 2, or 3) if found, None if all busy
@@ -215,8 +188,7 @@ def get_slot_click_position(slot_id: int) -> tuple[int, int]:
 
 
 if __name__ == "__main__":
-    # Test the hero selector
-    from windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     win = WindowsScreenshotHelper()
     frame = win.get_screenshot_cv2()

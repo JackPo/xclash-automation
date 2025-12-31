@@ -8,7 +8,7 @@ The hospital has a floating bubble icon above it indicating its state:
 - Yellow soldier face = SOLDIERS_WOUNDED (soldiers wounded, need healing)
 - Neither = IDLE (nothing to do)
 
-Detection logic (follows barracks pattern):
+Detection logic:
 1. Extract ROI at fixed position (3312, 344) size 61x67
 2. Match all templates using TM_SQDIFF_NORMED
 3. If lowest score <= threshold:
@@ -20,18 +20,8 @@ Detection logic (follows barracks pattern):
 
 NOTE: Yellow soldier faces vary based on which soldier type was trained!
 Multiple yellow soldier templates are loaded to match all variants.
-Templates are shared with barracks_state_matcher.
-
-Templates:
-- handshake_hospital_4k.png - Handshake icon for HELP_READY state (always click)
-- stopwatch_barrack_4k.png - Stopwatch icon for TRAINING state (shared with barracks)
-- healing_bubble_tight_4k.png - Briefcase icon for HEALING state
-- yellow_soldier_barrack_4k.png - Yellow soldier variant 1 (shared with barracks)
-- yellow_soldier_barrack_v2_4k.png - Yellow soldier variant 2 (shared with barracks)
 """
 
-from pathlib import Path
-import cv2
 import numpy as np
 from enum import Enum
 
@@ -41,22 +31,7 @@ from config import (
     HOSPITAL_CLICK_POSITION,
     HOSPITAL_MATCH_THRESHOLD,
 )
-
-# Template paths
-TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
-HANDSHAKE_TEMPLATE = TEMPLATE_DIR / "handshake_hospital_4k.png"  # Help ready - always click
-STOPWATCH_TEMPLATE = TEMPLATE_DIR / "stopwatch_barrack_4k.png"  # Shared with barracks
-HEALING_TEMPLATE = TEMPLATE_DIR / "healing_bubble_tight_4k.png"
-# Multiple yellow soldier variants (different soldier types have different faces)
-# Shared with barracks_state_matcher
-YELLOW_SOLDIER_TEMPLATES = [
-    TEMPLATE_DIR / "yellow_soldier_barrack_4k.png",      # Purple hat soldier
-    TEMPLATE_DIR / "yellow_soldier_barrack_v2_4k.png",   # Purple hat soldier (different frame)
-    TEMPLATE_DIR / "yellow_soldier_barrack_v3_4k.png",   # Red hat soldier
-    TEMPLATE_DIR / "yellow_soldier_barrack_v4_4k.png",   # Orange hat soldier
-    TEMPLATE_DIR / "yellow_soldier_barrack_v5_4k.png",   # Yellow/orange hat soldier
-    TEMPLATE_DIR / "yellow_soldier_barrack_v6_4k.png",   # Purple hat soldier (golden background)
-]
+from utils.template_matcher import match_template_fixed
 
 
 class HospitalState(Enum):
@@ -71,31 +46,19 @@ class HospitalState(Enum):
 class HospitalStateMatcher:
     """Detects the state of the hospital building."""
 
+    HANDSHAKE_TEMPLATE = "handshake_hospital_4k.png"
+    STOPWATCH_TEMPLATE = "stopwatch_barrack_4k.png"
+    HEALING_TEMPLATE = "healing_bubble_tight_4k.png"
+    YELLOW_SOLDIER_TEMPLATES = [
+        "yellow_soldier_barrack_4k.png",
+        "yellow_soldier_barrack_v2_4k.png",
+        "yellow_soldier_barrack_v3_4k.png",
+        "yellow_soldier_barrack_v4_4k.png",
+        "yellow_soldier_barrack_v5_4k.png",
+        "yellow_soldier_barrack_v6_4k.png",
+    ]
+
     def __init__(self):
-        # Load templates
-        self.handshake_template = cv2.imread(str(HANDSHAKE_TEMPLATE))
-        self.stopwatch_template = cv2.imread(str(STOPWATCH_TEMPLATE))
-        self.healing_template = cv2.imread(str(HEALING_TEMPLATE))
-
-        # Load multiple yellow soldier templates (different soldier faces)
-        self.yellow_soldier_templates = []
-        for path in YELLOW_SOLDIER_TEMPLATES:
-            template = cv2.imread(str(path))
-            if template is not None:
-                self.yellow_soldier_templates.append(template)
-            else:
-                print(f"Warning: Could not load {path}")
-
-        if self.handshake_template is None:
-            print(f"Warning: Could not load {HANDSHAKE_TEMPLATE}")
-        if self.stopwatch_template is None:
-            print(f"Warning: Could not load {STOPWATCH_TEMPLATE}")
-        if self.healing_template is None:
-            print(f"Warning: Could not load {HEALING_TEMPLATE}")
-        if not self.yellow_soldier_templates:
-            print("Warning: No yellow soldier templates loaded!")
-
-        # Position and size from config
         self.icon_x, self.icon_y = HOSPITAL_ICON_POSITION
         self.icon_w, self.icon_h = HOSPITAL_ICON_SIZE
         self.click_x, self.click_y = HOSPITAL_CLICK_POSITION
@@ -105,40 +68,52 @@ class HospitalStateMatcher:
         """
         Get all template scores for the hospital position.
 
-        Args:
-            frame: BGR numpy array screenshot (4K resolution)
-
         Returns:
-            dict with 'handshake', 'stopwatch', 'healing', 'yellow_soldier' scores (1.0 if template not loaded)
+            dict with 'handshake', 'stopwatch', 'healing', 'yellow_soldier' scores
         """
         scores = {'handshake': 1.0, 'stopwatch': 1.0, 'healing': 1.0, 'yellow_soldier': 1.0}
 
-        # Extract ROI at fixed position
-        roi = frame[self.icon_y:self.icon_y + self.icon_h,
-                    self.icon_x:self.icon_x + self.icon_w]
+        # Match each template at the hospital position
+        _, handshake_score, _ = match_template_fixed(
+            frame,
+            self.HANDSHAKE_TEMPLATE,
+            position=(self.icon_x, self.icon_y),
+            size=(self.icon_w, self.icon_h),
+            threshold=self.threshold
+        )
+        scores['handshake'] = handshake_score
 
-        if roi.shape[:2] != (self.icon_h, self.icon_w):
-            return scores
+        _, stopwatch_score, _ = match_template_fixed(
+            frame,
+            self.STOPWATCH_TEMPLATE,
+            position=(self.icon_x, self.icon_y),
+            size=(self.icon_w, self.icon_h),
+            threshold=self.threshold
+        )
+        scores['stopwatch'] = stopwatch_score
 
-        # Match templates
-        if self.handshake_template is not None:
-            result = cv2.matchTemplate(roi, self.handshake_template, cv2.TM_SQDIFF_NORMED)
-            scores['handshake'] = result[0, 0]
-
-        if self.stopwatch_template is not None:
-            result = cv2.matchTemplate(roi, self.stopwatch_template, cv2.TM_SQDIFF_NORMED)
-            scores['stopwatch'] = result[0, 0]
-
-        if self.healing_template is not None:
-            result = cv2.matchTemplate(roi, self.healing_template, cv2.TM_SQDIFF_NORMED)
-            scores['healing'] = result[0, 0]
+        _, healing_score, _ = match_template_fixed(
+            frame,
+            self.HEALING_TEMPLATE,
+            position=(self.icon_x, self.icon_y),
+            size=(self.icon_w, self.icon_h),
+            threshold=self.threshold
+        )
+        scores['healing'] = healing_score
 
         # Match against all yellow soldier variants, use best (lowest) score
-        if self.yellow_soldier_templates:
-            yellow_scores = [
-                cv2.matchTemplate(roi, t, cv2.TM_SQDIFF_NORMED)[0, 0]
-                for t in self.yellow_soldier_templates
-            ]
+        yellow_scores = []
+        for template_name in self.YELLOW_SOLDIER_TEMPLATES:
+            _, score, _ = match_template_fixed(
+                frame,
+                template_name,
+                position=(self.icon_x, self.icon_y),
+                size=(self.icon_w, self.icon_h),
+                threshold=self.threshold
+            )
+            yellow_scores.append(score)
+
+        if yellow_scores:
             scores['yellow_soldier'] = min(yellow_scores)
 
         return scores
@@ -146,10 +121,6 @@ class HospitalStateMatcher:
     def get_state(self, frame: np.ndarray, debug: bool = False) -> tuple[HospitalState, float]:
         """
         Get the current state of the hospital.
-
-        Args:
-            frame: BGR numpy array screenshot (4K resolution)
-            debug: Enable debug output
 
         Returns:
             (HospitalState, best_score) tuple
@@ -161,7 +132,6 @@ class HospitalStateMatcher:
         healing_score = scores['healing']
         yellow_score = scores['yellow_soldier']
 
-        # Find best match
         best_score = min(handshake_score, stopwatch_score, healing_score, yellow_score)
 
         if debug:
@@ -197,15 +167,7 @@ class HospitalStateMatcher:
         return (self.click_x, self.click_y)
 
     def format_state(self, frame: np.ndarray) -> str:
-        """
-        Format hospital state as a short string for logging.
-
-        Args:
-            frame: BGR numpy array screenshot
-
-        Returns:
-            String like "H:TRAIN" or "H:HEAL" or "H:WOUND" or "H:IDLE" or "H:?"
-        """
+        """Format hospital state as a short string for logging."""
         state, score = self.get_state(frame)
         state_char = {
             HospitalState.HELP_READY: "HELP",
@@ -218,15 +180,7 @@ class HospitalStateMatcher:
         return f"H:{state_char}"
 
     def format_state_detailed(self, frame: np.ndarray) -> str:
-        """
-        Format hospital state with all scores for debugging.
-
-        Args:
-            frame: BGR numpy array screenshot
-
-        Returns:
-            String like "H:HELP(hs=0.010,s=0.150,h=0.200,y=0.300)"
-        """
+        """Format hospital state with all scores for debugging."""
         scores = self.get_scores(frame)
         state, _ = self.get_state(frame)
         state_char = {
@@ -253,39 +207,15 @@ def get_matcher() -> HospitalStateMatcher:
 
 
 def check_hospital_state(frame: np.ndarray, debug: bool = False) -> tuple[HospitalState, float]:
-    """
-    Convenience function to check hospital state.
-
-    Args:
-        frame: BGR numpy array screenshot
-
-    Returns:
-        (HospitalState, score) tuple
-    """
+    """Convenience function to check hospital state."""
     return get_matcher().get_state(frame, debug=debug)
 
 
 def format_hospital_state(frame: np.ndarray) -> str:
-    """
-    Convenience function to get formatted hospital state string.
-
-    Args:
-        frame: BGR numpy array screenshot
-
-    Returns:
-        String like "H:HEAL" or "H:WOUND" or "H:IDLE"
-    """
+    """Convenience function to get formatted hospital state string."""
     return get_matcher().format_state(frame)
 
 
 def format_hospital_state_detailed(frame: np.ndarray) -> str:
-    """
-    Convenience function to get detailed hospital state with scores.
-
-    Args:
-        frame: BGR numpy array screenshot
-
-    Returns:
-        String like "H:HEAL(h=0.010,y=0.150)"
-    """
+    """Convenience function to get detailed hospital state with scores."""
     return get_matcher().format_state_detailed(frame)

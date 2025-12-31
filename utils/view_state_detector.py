@@ -12,11 +12,11 @@ Navigation paths:
 - WORLD -> TOWN: click (3720, 2040) - center of Town button
 - CHAT -> exit: click back button at (1407, 2055), then re-detect
 """
-from pathlib import Path
 from enum import Enum
-import cv2
 import numpy as np
 import time
+
+from utils.template_matcher import match_template_fixed, match_template
 
 
 class ViewState(Enum):
@@ -42,9 +42,7 @@ TOGGLE_BUTTON_CLICK = (3720, 2040)  # Center of World/Town button
 BACK_BUTTON_CLICK = (1407, 2055)    # Center of back button
 
 THRESHOLD = 0.05  # For TM_SQDIFF_NORMED (lower = better match)
-BACK_THRESHOLD = 0.7  # For TM_CCOEFF_NORMED (higher = better match)
-
-BASE_DIR = Path(__file__).resolve().parent.parent / "templates" / "ground_truth"
+BACK_THRESHOLD = 0.3  # For TM_SQDIFF_NORMED (lower = better - converted from TM_CCOEFF_NORMED)
 
 
 def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, float]:
@@ -56,59 +54,44 @@ def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, floa
     if frame is None:
         return ViewState.UNKNOWN, 1.0
 
-    # Extract button ROI
-    roi = frame[BUTTON_Y:BUTTON_Y+BUTTON_H, BUTTON_X:BUTTON_X+BUTTON_W]
-    if len(roi.shape) == 3:
-        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    else:
-        roi_gray = roi
+    # Templates to check for main view
+    templates = [
+        ("world_button_4k.png", ViewState.TOWN),
+        ("town_button_4k.png", ViewState.WORLD),
+        ("town_button_zoomed_out_4k.png", ViewState.WORLD),
+    ]
 
-    # Load and compare templates
-    templates = {
-        "world_button_4k.png": ViewState.TOWN,
-        "town_button_4k.png": ViewState.WORLD,
-        "town_button_zoomed_out_4k.png": ViewState.WORLD,
-    }
-
-    for template_name, state in templates.items():
-        template_path = BASE_DIR / template_name
-        if not template_path.exists():
-            continue
-        template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-        if template is None:
-            continue
-
-        result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
-        score, _, _, _ = cv2.minMaxLoc(result)
+    for template_name, state in templates:
+        found, score, _ = match_template_fixed(
+            frame,
+            template_name,
+            position=(BUTTON_X, BUTTON_Y),
+            size=(BUTTON_W, BUTTON_H),
+            threshold=THRESHOLD
+        )
 
         if debug:
             print(f"{template_name}: {score:.4f}")
 
-        if score <= THRESHOLD:
+        if found:
             return state, score
 
-    # Check back button area
-    back_roi = frame[BACK_Y:BACK_Y+BACK_H, BACK_X:BACK_X+BACK_W]
-    if len(back_roi.shape) == 3:
-        back_gray = cv2.cvtColor(back_roi, cv2.COLOR_BGR2GRAY)
-    else:
-        back_gray = back_roi
+    # Check back button area for CHAT state
+    back_templates = ["back_button_4k.png", "back_button_light_4k.png"]
 
-    for back_name in ["back_button_4k.png", "back_button_light_4k.png"]:
-        template_path = BASE_DIR / back_name
-        if not template_path.exists():
-            continue
-        template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-        if template is None:
-            continue
-
-        result = cv2.matchTemplate(back_gray, template, cv2.TM_CCOEFF_NORMED)
-        _, score, _, _ = cv2.minMaxLoc(result)
+    for back_name in back_templates:
+        found, score, _ = match_template_fixed(
+            frame,
+            back_name,
+            position=(BACK_X, BACK_Y),
+            size=(BACK_W, BACK_H),
+            threshold=BACK_THRESHOLD
+        )
 
         if debug:
             print(f"{back_name}: {score:.4f}")
 
-        if score >= BACK_THRESHOLD:
+        if found:
             return ViewState.CHAT, score
 
     return ViewState.UNKNOWN, 1.0
@@ -169,8 +152,6 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
             continue
 
         # UNKNOWN state - likely a floating popup blocking the view
-        # Try grass/ground click FIRST to dismiss popups (castle info, etc.)
-        # Only fall back to back button if no grass/ground found
         if current == ViewState.UNKNOWN:
             from utils.safe_grass_matcher import find_safe_grass
             from utils.safe_ground_matcher import find_safe_ground
@@ -240,6 +221,9 @@ def exit_chat(adb, debug: bool = False) -> ViewState:
 
 if __name__ == "__main__":
     import sys
+    from pathlib import Path
+    import cv2
+
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from utils.adb_helper import ADBHelper
 

@@ -1,16 +1,14 @@
 """
 Promote Button Matcher - Detects "Promote" button in upgrade panel.
 
-Uses fixed-location template matching on the "Promote" text.
+Uses template_matcher for fixed-location detection.
 Position: (2065, 1648), Size: 181x54
 Click position: (2157, 1697) - center of full button
 """
 
-import cv2
 import numpy as np
-from pathlib import Path
 
-TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "ground_truth" / "promote_text_4k.png"
+from utils.template_matcher import match_template_fixed
 
 # Fixed location for promote text
 PROMOTE_REGION = (2065, 1648, 181, 54)  # x, y, width, height
@@ -25,47 +23,41 @@ THRESHOLD = 0.1
 class PromoteButtonMatcher:
     """Detects Promote button using fixed-location template matching."""
 
-    def __init__(self):
-        self.template = cv2.imread(str(TEMPLATE_PATH))
-        if self.template is None:
-            raise FileNotFoundError(f"Template not found: {TEMPLATE_PATH}")
+    TEMPLATE_NAME = "promote_text_4k.png"
 
-    def is_present(self, frame, debug=False):
+    def __init__(self, threshold: float = None):
+        self.threshold = threshold if threshold is not None else THRESHOLD
+
+    def is_present(self, frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
         """
         Check if Promote button is visible at fixed location.
 
         Args:
             frame: BGR numpy array (screenshot)
-            debug: Save debug image if True
+            debug: Print debug info if True
 
         Returns:
             tuple: (is_present: bool, score: float)
         """
+        if frame is None or frame.size == 0:
+            return False, 1.0
+
         x, y, w, h = PROMOTE_REGION
-
-        # Extract ROI at fixed location
-        roi = frame[y:y+h, x:x+w]
-
-        # Resize template to match ROI if needed
-        template = self.template
-        if roi.shape[:2] != template.shape[:2]:
-            template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
-
-        # Template match
-        result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-        score = result[0, 0]
-
-        is_match = score < THRESHOLD
+        is_match, score, _ = match_template_fixed(
+            frame,
+            self.TEMPLATE_NAME,
+            position=(x, y),
+            size=(w, h),
+            threshold=self.threshold
+        )
 
         if debug:
             status = "present" if is_match else "absent"
-            debug_path = Path(__file__).parent.parent / "templates" / "debug" / f"promote_{status}_{score:.3f}.png"
-            cv2.imwrite(str(debug_path), roi)
-            print(f"Promote button: {status} (score={score:.4f}, threshold={THRESHOLD})")
+            print(f"Promote button: {status} (score={score:.4f}, threshold={self.threshold})")
 
         return is_match, score
 
-    def get_click_position(self):
+    def get_click_position(self) -> tuple[int, int]:
         """Return the click position for the Promote button."""
         return PROMOTE_CLICK
 
@@ -73,7 +65,8 @@ class PromoteButtonMatcher:
 # Module-level singleton
 _matcher = None
 
-def get_matcher():
+
+def get_matcher() -> PromoteButtonMatcher:
     """Get or create singleton matcher instance."""
     global _matcher
     if _matcher is None:
@@ -81,12 +74,12 @@ def get_matcher():
     return _matcher
 
 
-def is_promote_visible(frame, debug=False):
+def is_promote_visible(frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
     """Check if Promote button is visible."""
     return get_matcher().is_present(frame, debug=debug)
 
 
-def get_promote_click():
+def get_promote_click() -> tuple[int, int]:
     """Get click position for Promote button."""
     return get_matcher().get_click_position()
 

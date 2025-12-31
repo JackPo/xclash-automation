@@ -12,17 +12,13 @@ Usage:
         adb.tap(*pos)  # Clicks on grass, dismissing floating panel
 """
 
-from pathlib import Path
-import cv2
 import numpy as np
+from typing import Optional, Tuple
 
-# Template path
-TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
-GRASS_TEMPLATE_PATH = TEMPLATE_DIR / "safe_grass_tile_4k.png"
+from utils.template_matcher import match_template
 
 # Search regions - areas where panels never appear
 # Panels are typically centered, so search in corners/edges
-# Top-left area (avoid UI bar at very top)
 SEARCH_REGIONS = [
     (200, 300, 600, 500),    # Top-left area
     (3000, 300, 600, 500),   # Top-right area (avoid right sidebar)
@@ -30,19 +26,18 @@ SEARCH_REGIONS = [
 ]
 
 # Match threshold (TM_SQDIFF_NORMED - lower is better)
-MATCH_THRESHOLD = 0.02  # Tight threshold
+MATCH_THRESHOLD = 0.02
 
 
 class SafeGrassMatcher:
     """Finds safe grass tiles to click for dismissing floating panels in WORLD view."""
 
-    def __init__(self):
-        self.template = cv2.imread(str(GRASS_TEMPLATE_PATH))
-        if self.template is None:
-            print(f"Warning: Could not load {GRASS_TEMPLATE_PATH}")
-        self.threshold = MATCH_THRESHOLD
+    TEMPLATE_NAME = "safe_grass_tile_4k.png"
 
-    def find_grass(self, frame: np.ndarray, debug: bool = False) -> tuple[int, int] | None:
+    def __init__(self, threshold: float = None):
+        self.threshold = threshold if threshold is not None else MATCH_THRESHOLD
+
+    def find_grass(self, frame: np.ndarray, debug: bool = False) -> Optional[Tuple[int, int]]:
         """
         Find a safe grass tile in the frame.
 
@@ -53,7 +48,7 @@ class SafeGrassMatcher:
         Returns:
             (x, y) click position if found, None otherwise
         """
-        if self.template is None:
+        if frame is None or frame.size == 0:
             return None
 
         best_score = float('inf')
@@ -65,31 +60,24 @@ class SafeGrassMatcher:
             if ry + rh > frame.shape[0] or rx + rw > frame.shape[1]:
                 continue
 
-            roi = frame[ry:ry+rh, rx:rx+rw]
-
-            # Skip if ROI is smaller than template
-            if roi.shape[0] < self.template.shape[0] or roi.shape[1] < self.template.shape[1]:
-                continue
-
-            # Template match
-            result = cv2.matchTemplate(roi, self.template, cv2.TM_SQDIFF_NORMED)
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            found, score, location = match_template(
+                frame,
+                self.TEMPLATE_NAME,
+                search_region=(rx, ry, rw, rh),
+                threshold=self.threshold
+            )
 
             if debug:
-                print(f"  SafeGrass: region ({rx},{ry}) score={min_val:.4f}")
+                print(f"  SafeGrass: region ({rx},{ry}) score={score:.4f}")
 
-            if min_val < best_score:
-                best_score = min_val
-                roi_x, roi_y = min_loc
-                best_pos = (
-                    rx + roi_x + self.template.shape[1] // 2,
-                    ry + roi_y + self.template.shape[0] // 2
-                )
+            if found and score < best_score:
+                best_score = score
+                best_pos = location  # match_template returns center position
 
         if debug:
             print(f"  SafeGrass: best_score={best_score:.4f}, threshold={self.threshold}")
 
-        if best_score <= self.threshold and best_pos:
+        if best_pos:
             if debug:
                 print(f"  SafeGrass: Found at {best_pos}")
             return best_pos
@@ -111,7 +99,7 @@ def get_matcher() -> SafeGrassMatcher:
     return _matcher
 
 
-def find_safe_grass(frame: np.ndarray, debug: bool = False) -> tuple[int, int] | None:
+def find_safe_grass(frame: np.ndarray, debug: bool = False) -> Optional[Tuple[int, int]]:
     """
     Convenience function to find safe grass tile.
 

@@ -20,11 +20,11 @@ Templates:
 """
 
 import time
-import cv2
 from pathlib import Path
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
+from utils.template_matcher import match_template_fixed, match_template
 
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -47,44 +47,6 @@ CONFIRM_BUTTON_CLICK = (1912, 1289)
 
 # Thresholds
 THRESHOLD = 0.05
-
-
-def _match_template_fixed(frame, template_path, pos, size):
-    """Match template at fixed position."""
-    template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        return False, 1.0
-
-    x, y = pos
-    w, h = size
-    roi = frame[y:y+h, x:x+w]
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if len(roi.shape) == 3 else roi
-
-    result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
-    score = cv2.minMaxLoc(result)[0]
-    return score <= THRESHOLD, score
-
-
-def _search_template_y(frame, template_path, fixed_x, size, y_range=(0, 2160)):
-    """Search for template along Y-axis at fixed X."""
-    template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        return False, 1.0, None
-
-    w, h = size
-    y_start, y_end = y_range
-
-    # Extract vertical strip at fixed X
-    strip = frame[y_start:y_end, fixed_x:fixed_x+w]
-    strip_gray = cv2.cvtColor(strip, cv2.COLOR_BGR2GRAY) if len(strip.shape) == 3 else strip
-
-    result = cv2.matchTemplate(strip_gray, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-
-    if min_val <= THRESHOLD:
-        found_y = y_start + min_loc[1]
-        return True, min_val, found_y
-    return False, min_val, None
 
 
 def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=False):
@@ -114,17 +76,19 @@ def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=F
             print("  Step 2: Verifying Soldier Training panel...")
         frame = win.get_screenshot_cv2()
 
-        header_ok, header_score = _match_template_fixed(
+        header_ok, header_score, _ = match_template_fixed(
             frame,
-            TEMPLATE_DIR / "soldier_training_header_4k.png",
+            "soldier_training_header_4k.png",
             SOLDIER_TRAINING_HEADER_POS,
-            SOLDIER_TRAINING_HEADER_SIZE
+            SOLDIER_TRAINING_HEADER_SIZE,
+            threshold=THRESHOLD
         )
-        speedup_ok, speedup_score = _match_template_fixed(
+        speedup_ok, speedup_score, _ = match_template_fixed(
             frame,
-            TEMPLATE_DIR / "speed_up_button_4k.png",
+            "speed_up_button_4k.png",
             SPEED_UP_BUTTON_POS,
-            SPEED_UP_BUTTON_SIZE
+            SPEED_UP_BUTTON_SIZE,
+            threshold=THRESHOLD
         )
 
         if debug:
@@ -146,13 +110,15 @@ def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=F
             print("  Step 4: Verifying Speed Up panel...")
         frame = win.get_screenshot_cv2()
 
-        quick_ok, quick_score, quick_y = _search_template_y(
+        # Search in vertical strip at fixed X
+        search_region = (QUICK_SPEEDUP_X, 1500, QUICK_SPEEDUP_SIZE[0], 600)
+        quick_ok, quick_score, quick_loc = match_template(
             frame,
-            TEMPLATE_DIR / "quick_speedup_button_4k.png",
-            QUICK_SPEEDUP_X,
-            QUICK_SPEEDUP_SIZE,
-            y_range=(1500, 2100)  # Bottom half of screen
+            "quick_speedup_button_4k.png",
+            search_region=search_region,
+            threshold=THRESHOLD
         )
+        quick_y = quick_loc[1] - QUICK_SPEEDUP_SIZE[1] // 2 if quick_loc else None
 
         if debug:
             print(f"    Quick Speedup: {quick_ok} ({quick_score:.4f}, y={quick_y})")
@@ -161,9 +127,8 @@ def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=F
             print("  ERROR: Quick Speedup button not found")
             return False
 
-        # Step 5: Click Quick Speedup button
-        quick_click_x = QUICK_SPEEDUP_X + QUICK_SPEEDUP_SIZE[0] // 2
-        quick_click_y = quick_y + QUICK_SPEEDUP_SIZE[1] // 2
+        # Step 5: Click Quick Speedup button (quick_loc is already center)
+        quick_click_x, quick_click_y = quick_loc
         if debug:
             print(f"  Step 5: Clicking Quick Speedup at ({quick_click_x}, {quick_click_y})")
         adb.tap(quick_click_x, quick_click_y)

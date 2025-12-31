@@ -98,22 +98,32 @@ def _validate_decision(data: dict) -> bool:
     return True  # Be lenient - fill in defaults in fallback
 
 
-def calculate_optimal_stamina(deficit: int, owned_10: int, owned_50: int, free_ready: bool) -> tuple:
+def calculate_optimal_stamina(
+    deficit: int,
+    owned_10: int,
+    owned_50: int,
+    free_ready: bool,
+    free_cooldown_secs: int = 9999,
+    time_remaining_mins: int = 60
+) -> tuple:
     """
     Deterministic rule engine for optimal stamina item usage.
 
     Rules:
     1. Round up to next multiple of 20 (each rally = 20 stamina)
     2. Claim free 50 first if available
-    3. Use 50s for bulk, 10s for remainder
-    4. If we'd need 5+ 10s AND have spare 50s, use a 50 instead (5x10 = 1x50)
-    5. If we don't have enough 10s for remainder, use an extra 50
+    3. If free 50 coming soon (cooldown < time remaining), factor it in
+    4. Use 50s for bulk, 10s for remainder
+    5. If we'd need 5+ 10s AND have spare 50s, use a 50 instead (5x10 = 1x50)
+    6. If we don't have enough 10s for remainder, use an extra 50
 
     Args:
         deficit: Raw stamina deficit (stamina_needed - current_stamina)
         owned_10: Number of 10-stamina items owned
         owned_50: Number of 50-stamina items owned
         free_ready: Whether free 50 stamina is available (cooldown <= 0)
+        free_cooldown_secs: Seconds until free 50 is available
+        time_remaining_mins: Minutes remaining in current event phase
 
     Returns:
         (claim_free, use_10s, use_50s, reasoning)
@@ -124,7 +134,7 @@ def calculate_optimal_stamina(deficit: int, owned_10: int, owned_50: int, free_r
     # Round up to next multiple of 20 (stamina spent per rally)
     target = ((deficit + 19) // 20) * 20
 
-    # Step 1: Claim free 50 if available
+    # Step 1: Claim free 50 if available NOW
     claim_free = free_ready
     remaining = target
     if claim_free:
@@ -132,6 +142,19 @@ def calculate_optimal_stamina(deficit: int, owned_10: int, owned_50: int, free_r
 
     if remaining == 0:
         return claim_free, 0, 0, f"Free 50 covers {target} deficit"
+
+    # Step 1b: Check if free 50 will be ready with at least 5 min buffer before event ends
+    # This ensures we have time to claim it during last_6_minutes phase
+    # If so, reduce the items we need to use now (save owned items)
+    CLAIM_BUFFER_MINS = 5
+    free_coming_soon = False
+    free_cooldown_mins = free_cooldown_secs / 60
+    if not free_ready and free_cooldown_mins <= (time_remaining_mins - CLAIM_BUFFER_MINS):
+        # Free 50 will be ready with buffer to spare - factor it in
+        free_coming_soon = True
+        remaining = max(0, remaining - 50)
+        if remaining == 0:
+            return False, 0, 0, f"Free 50 coming in {int(free_cooldown_mins)}min covers {target} deficit"
 
     # Step 2: Calculate ideal 50s and remainder
     ideal_50s = remaining // 50
@@ -170,25 +193,30 @@ def calculate_optimal_stamina(deficit: int, owned_10: int, owned_50: int, free_r
             use_50s += min(extra_50s_needed, spare_50s)
 
     # Final check: if still short, use ALL remaining items
-    total_claimed = (50 if claim_free else 0) + use_50s * 50 + use_10s * 10
+    # Include free_coming_soon in the calculation (we're counting on it arriving)
+    free_50_total = (50 if claim_free else 0) + (50 if free_coming_soon else 0)
+    total_claimed = free_50_total + use_50s * 50 + use_10s * 10
     if total_claimed < target:
         # Use all remaining items
         remaining_50s = owned_50 - use_50s
         remaining_10s = owned_10 - use_10s
         use_50s += remaining_50s
         use_10s += remaining_10s
-        total_claimed = (50 if claim_free else 0) + use_50s * 50 + use_10s * 10
+        total_claimed = free_50_total + use_50s * 50 + use_10s * 10
 
     # Build reasoning
     parts = []
     if claim_free:
         parts.append("free50")
+    if free_coming_soon:
+        parts.append(f"free50@{int(free_cooldown_mins)}m")
     if use_50s > 0:
         parts.append(f"{use_50s}x50")
     if use_10s > 0:
         parts.append(f"{use_10s}x10")
 
-    total = (50 if claim_free else 0) + use_50s * 50 + use_10s * 10
+    # Total includes upcoming free 50 if factored in
+    total = (50 if claim_free else 0) + (50 if free_coming_soon else 0) + use_50s * 50 + use_10s * 10
     reasoning = f"{'+'.join(parts) if parts else '0'}={total} for {target} target"
     if total < target:
         reasoning += f" (SHORT by {target - total})"
@@ -209,12 +237,15 @@ def _fallback_decision(state: dict) -> dict:
     free_50_cooldown = state.get("free_50_cooldown_secs", 9999)
     owned_10 = state.get("owned_10", 0)
     owned_50 = state.get("owned_50", 0)
+    time_remaining_mins = state.get("time_remaining_mins", 60)  # Default to hour_mark (60 min)
 
     deficit = stamina_needed - current_stamina
     free_ready = free_50_cooldown <= 0
 
     claim_free, use_10, use_50, reasoning = calculate_optimal_stamina(
-        deficit, owned_10, owned_50, free_ready
+        deficit, owned_10, owned_50, free_ready,
+        free_cooldown_secs=free_50_cooldown,
+        time_remaining_mins=time_remaining_mins
     )
 
     return {

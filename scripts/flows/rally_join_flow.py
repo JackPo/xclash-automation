@@ -322,59 +322,50 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     for i, (x, y, score) in enumerate(plus_buttons):
         print(f"[RALLY-JOIN]   Rally {i}: plus at ({x}, {y}), score={score:.4f}")
 
-    # Step 3: Validate monsters and find first match
-    print("[RALLY-JOIN] Step 3: Validating monsters")
-    matched_rally = None
+    # Step 3: Click-first approach - click each rally, validate AFTER panel opens
+    # This is MUCH faster than OCR-ing all rallies upfront (which takes 1-2s each)
+    print("[RALLY-JOIN] Step 3: Click-first validation")
+
+    # Save original frame for OCR (monster positions are relative to plus buttons)
+    original_frame = frame
 
     for i, (plus_x, plus_y, plus_score) in enumerate(plus_buttons):
-        print(f"[RALLY-JOIN]   Checking rally {i} at ({plus_x}, {plus_y})")
+        print(f"[RALLY-JOIN]   Trying rally {i} at ({plus_x}, {plus_y})")
 
-        # Validate monster
+        # Click immediately - no OCR delay
+        click_x, click_y = plus_matcher.get_click_position(plus_x, plus_y)
+        adb.tap(click_x, click_y)
+
+        # Wait for Team Up panel (poll, not fixed sleep)
+        panel_frame = _wait_for_team_up_panel(win, timeout=3.0)
+        if panel_frame is None:
+            print(f"[RALLY-JOIN]   Rally {i}: Panel didn't open, trying next")
+            continue
+
+        # Validate monster from ORIGINAL frame (monster positions are fixed relative to plus buttons)
         should_join, monster_name, level, raw_text = monster_validator.validate_monster(
-            frame, plus_x, plus_y, rally_index=i
+            original_frame, plus_x, plus_y, rally_index=i
         )
 
-        print(f"[RALLY-JOIN]     OCR text: {raw_text!r}")
-        if monster_name and level is not None:
-            print(f"[RALLY-JOIN]     Parsed: {monster_name} Lv.{level}")
-            print(f"[RALLY-JOIN]     Should join: {should_join}")
+        print(f"[RALLY-JOIN]     OCR: {monster_name} Lv.{level} -> should_join={should_join}")
 
         if should_join:
-            matched_rally = (plus_x, plus_y, monster_name, level)
-            print(f"[RALLY-JOIN]   MATCH FOUND: {monster_name} Lv.{level} at rally {i}")
+            print(f"[RALLY-JOIN]   MATCH: {monster_name} Lv.{level}")
+            # Continue with hero selection (panel is already open)
+            frame = panel_frame
             break
-
-    if not matched_rally:
+        else:
+            # Wrong monster - click back and try next rally
+            print(f"[RALLY-JOIN]   Skipping {monster_name} Lv.{level}, clicking back")
+            back_button_matcher.click(adb)
+            time.sleep(0.5)
+    else:
+        # No matching rallies found after trying all
         print("[RALLY-JOIN] No matching rallies found. Exiting.")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
 
-    plus_x, plus_y, monster_name, level = matched_rally
-
-    # Step 4: Click the plus button (VERIFY it's still there)
-    print(f"[RALLY-JOIN] Step 4: Clicking plus button for {monster_name} Lv.{level}")
-
-    # Re-detect plus button to verify it's still there
-    frame = win.get_screenshot_cv2()
-    plus_buttons = plus_matcher.find_all_plus_buttons(frame)
-    target_found = any(abs(px - plus_x) < 50 and abs(py - plus_y) < 50
-                       for px, py, _ in plus_buttons)
-
-    if not target_found:
-        print("[RALLY-JOIN] Plus button no longer at expected position, aborting")
-        _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': monster_name}
-
-    click_x, click_y = plus_matcher.get_click_position(plus_x, plus_y)
-    adb.tap(click_x, click_y)
-
-    # Wait for Team Up panel to fully load (polling instead of fixed sleep)
-    frame = _wait_for_team_up_panel(win, timeout=5.0)
-    if frame is None:
-        print("[RALLY-JOIN] Failed to load Team Up panel. Exiting.")
-        _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': monster_name}
-
+    # Panel is already open from the loop above
     _save_debug_screenshot(frame, "02_after_plus_click")
 
     # DEBUG: Save the EXACT frame we're passing to hero selector

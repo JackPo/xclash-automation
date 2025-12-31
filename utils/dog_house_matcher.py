@@ -2,48 +2,34 @@
 Dog House Matcher - Configurable town view anchor detection.
 
 Used to verify the town view is in the correct position before harvesting resources.
-If the dog house is not at the expected location, the view may be panned and
-clicking on resource bubbles would hit the wrong coordinates.
-
 Coordinates loaded from config - override in config_local.py for your town layout.
 """
 
-import cv2
 import numpy as np
-from pathlib import Path
 
 from config import DOG_HOUSE_POSITION, DOG_HOUSE_SIZE, THRESHOLDS
+from utils.template_matcher import match_template_fixed
 
 
 class DogHouseMatcher:
     """Detect dog house at configurable position to verify town view alignment."""
 
-    # Template path
-    TEMPLATE_PATH = Path('templates/ground_truth/dog_house_4k.png')
-
     # Load from config (can be overridden in config_local.py)
     POSITION = DOG_HOUSE_POSITION  # (x, y)
     SIZE = DOG_HOUSE_SIZE  # (width, height)
 
-    # Detection threshold from config
-    THRESHOLD = THRESHOLDS.get('dog_house', 0.1)
+    TEMPLATE_NAME = "dog_house_4k.png"
+    DEFAULT_THRESHOLD = THRESHOLDS.get('dog_house', 0.1)
 
-    def __init__(self, threshold: float = None, debug_dir: Path = None):
+    def __init__(self, threshold: float = None, debug_dir=None):
         """
         Initialize the dog house matcher.
 
         Args:
             threshold: Override default threshold
-            debug_dir: Directory to save debug images
+            debug_dir: Ignored (kept for backward compatibility)
         """
-        self.template_path = self.TEMPLATE_PATH
-        self.threshold = threshold if threshold is not None else self.THRESHOLD
-        self.debug_dir = debug_dir
-
-        # Load template
-        self.template = cv2.imread(str(self.template_path), cv2.IMREAD_COLOR)
-        if self.template is None:
-            raise FileNotFoundError(f"Template not found: {self.template_path}")
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
     def is_aligned(self, frame: np.ndarray) -> tuple[bool, float]:
         """
@@ -55,24 +41,13 @@ class DogHouseMatcher:
         Returns:
             (is_aligned, score) - is_aligned=True if dog house is at expected position
         """
-        x, y = self.POSITION
-        w, h = self.SIZE
-
-        # Extract ROI at fixed position
-        roi = frame[y:y+h, x:x+w]
-
-        # Template match
-        result = cv2.matchTemplate(roi, self.template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, _, _ = cv2.minMaxLoc(result)
-        score = float(min_val)
-
-        is_aligned = score < self.threshold
-
-        # Save debug image if enabled
-        if self.debug_dir:
-            status = "aligned" if is_aligned else "misaligned"
-            debug_path = self.debug_dir / f"dog_house_{status}_{score:.3f}.png"
-            cv2.imwrite(str(debug_path), roi)
+        is_aligned, score, _ = match_template_fixed(
+            frame,
+            self.TEMPLATE_NAME,
+            position=self.POSITION,
+            size=self.SIZE,
+            threshold=self.threshold
+        )
 
         return is_aligned, score
 
@@ -93,7 +68,7 @@ def is_town_aligned(frame: np.ndarray) -> bool:
 
 
 if __name__ == "__main__":
-    from windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     win = WindowsScreenshotHelper()
     frame = win.get_screenshot_cv2()

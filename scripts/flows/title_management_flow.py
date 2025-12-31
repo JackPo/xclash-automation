@@ -19,7 +19,6 @@ Flow:
 import argparse
 import json
 import time
-import cv2
 from pathlib import Path
 
 import sys
@@ -28,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
 from utils.return_to_base_view import return_to_base_view
+from utils.template_matcher import match_template_fixed
 
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -74,34 +74,16 @@ POLL_TIMEOUT = 5.0
 POLL_INTERVAL = 0.3
 
 
-def _match_template_fixed(frame, template_path, pos, size):
-    """Match template at fixed position."""
-    template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        print(f"    ERROR: Template not found: {template_path}")
-        return False, 1.0
-
-    x, y = pos
-    w, h = size
-    roi = frame[y:y+h, x:x+w]
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if len(roi.shape) == 3 else roi
-
-    # Handle size mismatch
-    if roi_gray.shape[0] < template.shape[0] or roi_gray.shape[1] < template.shape[1]:
-        return False, 1.0
-
-    result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
-    score = cv2.minMaxLoc(result)[0]
-    return score <= THRESHOLD, score
-
-
 def _poll_for_template(win, template_path, pos, size, timeout=POLL_TIMEOUT, debug=False):
     """Poll until template matches or timeout."""
+    # Extract template name from path
+    template_name = Path(template_path).name
+
     start = time.time()
     last_score = 1.0
     while time.time() - start < timeout:
         frame = win.get_screenshot_cv2()
-        matched, score = _match_template_fixed(frame, template_path, pos, size)
+        matched, score, _ = match_template_fixed(frame, template_name, pos, size, threshold=THRESHOLD)
         last_score = score
         if matched:
             if debug:
@@ -128,21 +110,21 @@ def check_holding_status(frame, debug=False):
     from utils.ocr_client import OCRClient
 
     # Check for "You're currently holding this title" text
-    holding_this_matched, holding_this_score = _match_template_fixed(
-        frame, TEMPLATE_DIR / "mark_currently_holding_title_4k.png",
-        HOLDING_TITLE_POS, HOLDING_TITLE_SIZE
+    holding_this_matched, holding_this_score, _ = match_template_fixed(
+        frame, "mark_currently_holding_title_4k.png",
+        HOLDING_TITLE_POS, HOLDING_TITLE_SIZE, threshold=THRESHOLD
     )
 
     # Check for "You're currently serving as" text (holding different title)
-    serving_as_matched, serving_as_score = _match_template_fixed(
-        frame, TEMPLATE_DIR / "mark_currently_serving_as_4k.png",
-        SERVING_AS_POS, SERVING_AS_SIZE
+    serving_as_matched, serving_as_score, _ = match_template_fixed(
+        frame, "mark_currently_serving_as_4k.png",
+        SERVING_AS_POS, SERVING_AS_SIZE, threshold=THRESHOLD
     )
 
     # Check if Apply button is visible
-    apply_matched, apply_score = _match_template_fixed(
-        frame, TEMPLATE_DIR / "mark_apply_button_4k.png",
-        APPLY_BUTTON_POS, APPLY_BUTTON_SIZE
+    apply_matched, apply_score, _ = match_template_fixed(
+        frame, "mark_apply_button_4k.png",
+        APPLY_BUTTON_POS, APPLY_BUTTON_SIZE, threshold=THRESHOLD
     )
 
     if debug:

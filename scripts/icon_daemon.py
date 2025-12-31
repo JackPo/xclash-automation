@@ -432,43 +432,43 @@ class IconDaemon:
 
         # Matchers use their own default thresholds - edit thresholds in the matcher files
         self.handshake_matcher = HandshakeIconMatcher(debug_dir=debug_dir)
-        print(f"  Handshake matcher: {self.handshake_matcher.template_path.name} (threshold={self.handshake_matcher.threshold})")
+        print(f"  Handshake matcher: {self.handshake_matcher.TEMPLATE_NAME} (threshold={self.handshake_matcher.threshold})")
 
         self.treasure_matcher = TreasureMapMatcher(debug_dir=debug_dir)
-        print(f"  Treasure map matcher: {self.treasure_matcher.template_path.name} (threshold={self.treasure_matcher.threshold})")
+        print(f"  Treasure map matcher: {self.treasure_matcher.TEMPLATE_NAME} (threshold={self.treasure_matcher.threshold})")
 
         self.corn_matcher = CornHarvestMatcher(debug_dir=debug_dir)
-        print(f"  Corn harvest matcher: {self.corn_matcher.template_path.name} (threshold={self.corn_matcher.threshold})")
+        print(f"  Corn harvest matcher: {self.corn_matcher.TEMPLATE_NAME} (threshold={self.corn_matcher.threshold})")
 
         self.gold_matcher = GoldCoinMatcher(debug_dir=debug_dir)
-        print(f"  Gold coin matcher: {self.gold_matcher.template_path.name} (threshold={self.gold_matcher.threshold})")
+        print(f"  Gold coin matcher: {self.gold_matcher.TEMPLATE_NAME} (threshold={self.gold_matcher.threshold})")
 
         self.harvest_box_matcher = HarvestBoxMatcher(debug_dir=debug_dir)
-        print(f"  Harvest box matcher: {self.harvest_box_matcher.template_path.name} (threshold={self.harvest_box_matcher.threshold})")
+        print(f"  Harvest box matcher: {self.harvest_box_matcher.TEMPLATE_NAME} (threshold={self.harvest_box_matcher.threshold})")
 
         self.iron_matcher = IronBarMatcher(debug_dir=debug_dir)
-        print(f"  Iron bar matcher: {self.iron_matcher.template_path.name} (threshold={self.iron_matcher.threshold})")
+        print(f"  Iron bar matcher: {self.iron_matcher.TEMPLATE_NAME} (threshold={self.iron_matcher.threshold})")
 
         self.gem_matcher = GemMatcher(debug_dir=debug_dir)
-        print(f"  Gem matcher: {self.gem_matcher.template_path.name} (threshold={self.gem_matcher.threshold})")
+        print(f"  Gem matcher: {self.gem_matcher.TEMPLATE_NAME} (threshold={self.gem_matcher.threshold})")
 
         self.cabbage_matcher = CabbageMatcher(debug_dir=debug_dir)
-        print(f"  Cabbage matcher: {self.cabbage_matcher.template_path.name} (threshold={self.cabbage_matcher.threshold})")
+        print(f"  Cabbage matcher: {self.cabbage_matcher.TEMPLATE_NAME} (threshold={self.cabbage_matcher.threshold})")
 
         self.equipment_enhancement_matcher = EquipmentEnhancementMatcher(debug_dir=debug_dir)
-        print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.template_path.name} (threshold={self.equipment_enhancement_matcher.threshold})")
+        print(f"  Equipment enhancement matcher: {self.equipment_enhancement_matcher.TEMPLATE_NAME} (threshold={self.equipment_enhancement_matcher.threshold})")
 
         self.hospital_matcher = HospitalStateMatcher()
         print(f"  Hospital state matcher: threshold={self.hospital_matcher.threshold}, consecutive={self.HOSPITAL_CONSECUTIVE_REQUIRED}")
 
         self.back_button_matcher = BackButtonMatcher(debug_dir=debug_dir)
-        print(f"  Back button matcher: {self.back_button_matcher.template_path.name} (threshold={BackButtonMatcher.THRESHOLD})")
+        print(f"  Back button matcher: {self.back_button_matcher.TEMPLATE_NAME} (threshold={self.back_button_matcher.threshold})")
 
         self.dog_house_matcher = DogHouseMatcher(debug_dir=debug_dir)
-        print(f"  Dog house matcher: {self.dog_house_matcher.template_path.name} (threshold={self.dog_house_matcher.threshold})")
+        print(f"  Dog house matcher: {self.dog_house_matcher.TEMPLATE_NAME} (threshold={self.dog_house_matcher.threshold})")
 
         self.afk_rewards_matcher = AfkRewardsMatcher(debug_dir=debug_dir)
-        print(f"  AFK rewards matcher: {self.afk_rewards_matcher.template_path.name} (threshold={self.afk_rewards_matcher.threshold})")
+        print(f"  AFK rewards matcher: {self.afk_rewards_matcher.TEMPLATE_NAME} (threshold={self.afk_rewards_matcher.threshold})")
 
         self.barracks_matcher = BarracksStateMatcher()
         print(f"  Barracks state matcher: 4 positions, threshold={self.barracks_matcher.MATCH_THRESHOLD if hasattr(self.barracks_matcher, 'MATCH_THRESHOLD') else 0.06}")
@@ -1238,6 +1238,17 @@ class IconDaemon:
                 # Must run before Elite Zombie/Bag/Tavern which leave TOWN view.
                 # =================================================================
 
+                # PRIORITY CHECK: Skip harvest flows if Beast Training rally is imminent
+                # Beast Training rallies are time-critical and should not be blocked by harvest flows
+                beast_training_priority = False
+                if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
+                    arms_race_event == "Mystic Beast Training" and
+                    arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES and
+                    stamina_confirmed and
+                    confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD):
+                    beast_training_priority = True
+                    self.logger.debug(f"[{iteration}] BEAST TRAINING PRIORITY: Skipping harvest flows (stamina={confirmed_stamina}, event_remaining={arms_race_remaining_mins}min)")
+
                 # Harvest/Hospital/Barracks conditions
                 harvest_idle_ok = effective_idle_secs >= self.IDLE_THRESHOLD
                 if not harvest_idle_ok:
@@ -1250,27 +1261,28 @@ class IconDaemon:
                         self.logger.debug(f"[{iteration}] HARVEST: Blocked - misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
 
                 # Corn, Gold, Iron, Gem, Cabbage, Equip - quick bubble clicks in TOWN
-                if corn_present and world_present and harvest_idle_ok and harvest_aligned:
+                # Skip if Beast Training rally has priority (time-critical)
+                if corn_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
                     self.logger.info(f"[{iteration}] CORN: Triggering harvest flow (score={corn_score:.4f})")
                     self._run_flow("corn_harvest", corn_harvest_flow)
 
-                if gold_present and world_present and harvest_idle_ok and harvest_aligned:
+                if gold_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
                     self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
                     self._run_flow("gold_coin", gold_coin_flow)
 
-                if iron_present and world_present and harvest_idle_ok and harvest_aligned:
+                if iron_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
                     self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
                     self._run_flow("iron_bar", iron_bar_flow)
 
-                if gem_present and world_present and harvest_idle_ok and harvest_aligned:
+                if gem_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
                     self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
                     self._run_flow("gem", gem_flow)
 
-                if cabbage_present and world_present and harvest_idle_ok and harvest_aligned:
+                if cabbage_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
                     self.logger.info(f"[{iteration}] CABBAGE detected (diff={cabbage_score:.4f})")
                     self._run_flow("cabbage", cabbage_flow)
 
-                if equip_present and world_present and harvest_idle_ok and harvest_aligned:
+                if equip_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
                     self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
                     self._run_flow("equipment_enhancement", equipment_enhancement_flow)
 

@@ -20,18 +20,12 @@ Templates:
 - white_soldier_barrack_4k.png - White soldier for PENDING state
 """
 
-from pathlib import Path
 import cv2
 import numpy as np
 from enum import Enum
 
 from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_THRESHOLD, BARRACKS_YELLOW_PIXEL_THRESHOLD
-
-# Template paths
-TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
-YELLOW_TEMPLATE = TEMPLATE_DIR / "yellow_soldier_barrack_4k.png"
-WHITE_TEMPLATE = TEMPLATE_DIR / "white_soldier_barrack_4k.png"
-STOPWATCH_TEMPLATE = TEMPLATE_DIR / "stopwatch_barrack_4k.png"
+from utils.template_matcher import match_template_fixed
 
 # Use config values
 TEMPLATE_SIZE = BARRACKS_TEMPLATE_SIZE
@@ -48,40 +42,12 @@ class BarrackState(Enum):
 class BarracksStateMatcher:
     """Detects the state of all 4 barracks buildings."""
 
+    YELLOW_TEMPLATE = "yellow_soldier_barrack_4k.png"
+    WHITE_TEMPLATE = "white_soldier_barrack_4k.png"
+    STOPWATCH_TEMPLATE = "stopwatch_barrack_4k.png"
+
     def __init__(self):
-        # Load templates
-        self.yellow_template = cv2.imread(str(YELLOW_TEMPLATE))
-        self.white_template = cv2.imread(str(WHITE_TEMPLATE))
-        self.stopwatch_template = cv2.imread(str(STOPWATCH_TEMPLATE))
-
-        if self.yellow_template is None:
-            print(f"Warning: Could not load {YELLOW_TEMPLATE}")
-        if self.white_template is None:
-            print(f"Warning: Could not load {WHITE_TEMPLATE}")
-        if self.stopwatch_template is None:
-            print(f"Warning: Could not load {STOPWATCH_TEMPLATE}")
-
-        # Convert to grayscale
-        if self.yellow_template is not None:
-            self.yellow_gray = cv2.cvtColor(self.yellow_template, cv2.COLOR_BGR2GRAY)
-        if self.white_template is not None:
-            self.white_gray = cv2.cvtColor(self.white_template, cv2.COLOR_BGR2GRAY)
-        if self.stopwatch_template is not None:
-            self.stopwatch_gray = cv2.cvtColor(self.stopwatch_template, cv2.COLOR_BGR2GRAY)
-
-    def _match_template_at_position(self, frame_gray, template_gray, x, y):
-        """Match template at a specific position, return score."""
-        tw, th = TEMPLATE_SIZE
-
-        # Extract ROI at position
-        roi = frame_gray[y:y+th, x:x+tw]
-
-        if roi.shape != template_gray.shape:
-            return 1.0  # No match
-
-        # Direct comparison using TM_SQDIFF_NORMED
-        result = cv2.matchTemplate(roi, template_gray, cv2.TM_SQDIFF_NORMED)
-        return result[0][0]
+        pass  # Templates are now loaded by template_matcher
 
     def _count_yellow_pixels(self, roi_bgr):
         """
@@ -89,31 +55,19 @@ class BarracksStateMatcher:
 
         Used to distinguish READY (yellow soldier ~2600 pixels) from
         PENDING (white soldier ~0 pixels) when template scores are ambiguous.
-
-        Args:
-            roi_bgr: BGR numpy array of the barrack bubble ROI
-
-        Returns:
-            int: Number of yellow pixels in the ROI
         """
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-        # Yellow in HSV: Hue 15-45, high Saturation, high Value
         lower_yellow = np.array([15, 100, 100])
         upper_yellow = np.array([45, 255, 255])
         mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
         return np.count_nonzero(mask)
 
-    def get_barrack_scores(self, frame, barrack_index, frame_gray=None):
+    def get_barrack_scores(self, frame, barrack_index):
         """
         Get all template scores for a single barrack.
 
-        Args:
-            frame: BGR numpy array screenshot
-            barrack_index: 0-3 for the 4 barracks
-            frame_gray: Optional pre-computed grayscale frame
-
         Returns:
-            dict with 'stopwatch', 'yellow', 'white' scores (1.0 if template not loaded)
+            dict with 'stopwatch', 'yellow', 'white' scores (1.0 if no match)
         """
         scores = {'stopwatch': 1.0, 'yellow': 1.0, 'white': 1.0}
 
@@ -121,22 +75,35 @@ class BarracksStateMatcher:
             return scores
 
         x, y = BARRACKS_POSITIONS[barrack_index]
+        tw, th = TEMPLATE_SIZE
 
-        if frame_gray is None:
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Match each template at this position
+        _, stopwatch_score, _ = match_template_fixed(
+            frame,
+            self.STOPWATCH_TEMPLATE,
+            position=(x, y),
+            size=(tw, th),
+            threshold=MATCH_THRESHOLD
+        )
+        scores['stopwatch'] = stopwatch_score
 
-        if self.stopwatch_template is not None:
-            scores['stopwatch'] = self._match_template_at_position(
-                frame_gray, self.stopwatch_gray, x, y
-            )
-        if self.yellow_template is not None:
-            scores['yellow'] = self._match_template_at_position(
-                frame_gray, self.yellow_gray, x, y
-            )
-        if self.white_template is not None:
-            scores['white'] = self._match_template_at_position(
-                frame_gray, self.white_gray, x, y
-            )
+        _, yellow_score, _ = match_template_fixed(
+            frame,
+            self.YELLOW_TEMPLATE,
+            position=(x, y),
+            size=(tw, th),
+            threshold=MATCH_THRESHOLD
+        )
+        scores['yellow'] = yellow_score
+
+        _, white_score, _ = match_template_fixed(
+            frame,
+            self.WHITE_TEMPLATE,
+            position=(x, y),
+            size=(tw, th),
+            threshold=MATCH_THRESHOLD
+        )
+        scores['white'] = white_score
 
         return scores
 
@@ -151,22 +118,11 @@ class BarracksStateMatcher:
            - If yellow_pixels >= threshold → READY
            - Else → PENDING
         3. No template passes → UNKNOWN
-
-        Args:
-            frame: BGR numpy array screenshot
-            barrack_index: 0-3 for the 4 barracks
-            frame_gray: Optional pre-computed grayscale frame
-
-        Returns:
-            (BarrackState, best_score) tuple
         """
         if barrack_index < 0 or barrack_index >= len(BARRACKS_POSITIONS):
             return BarrackState.UNKNOWN, 1.0
 
-        if frame_gray is None:
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        scores = self.get_barrack_scores(frame, barrack_index, frame_gray)
+        scores = self.get_barrack_scores(frame, barrack_index)
 
         # Check which templates pass threshold
         stopwatch_pass = scores['stopwatch'] <= MATCH_THRESHOLD
@@ -199,34 +155,13 @@ class BarracksStateMatcher:
         return BarrackState.UNKNOWN, best_score
 
     def get_all_states(self, frame):
-        """
-        Get the state of all 4 barracks.
-
-        Args:
-            frame: BGR numpy array screenshot
-
-        Returns:
-            List of (BarrackState, score) tuples for each barrack
-        """
+        """Get the state of all 4 barracks."""
         return [self.get_barrack_state(frame, i) for i in range(4)]
 
     def get_states_summary(self, frame):
-        """
-        Get a summary of all barrack states.
-
-        Args:
-            frame: BGR numpy array screenshot
-
-        Returns:
-            dict with counts: {'ready': N, 'pending': N, 'training': N, 'unknown': N}
-        """
+        """Get a summary of all barrack states."""
         states = self.get_all_states(frame)
-        summary = {
-            'ready': 0,
-            'pending': 0,
-            'training': 0,
-            'unknown': 0
-        }
+        summary = {'ready': 0, 'pending': 0, 'training': 0, 'unknown': 0}
 
         for state, score in states:
             summary[state.value] += 1
@@ -234,15 +169,7 @@ class BarracksStateMatcher:
         return summary
 
     def format_states(self, frame):
-        """
-        Format barrack states as a human-readable string.
-
-        Args:
-            frame: BGR numpy array screenshot
-
-        Returns:
-            String like "B1:READY B2:TRAINING B3:PENDING B4:TRAINING"
-        """
+        """Format barrack states as a human-readable string."""
         states = self.get_all_states(frame)
         parts = []
         for i, (state, score) in enumerate(states):
@@ -257,20 +184,11 @@ class BarracksStateMatcher:
         return " ".join(parts)
 
     def format_states_detailed(self, frame):
-        """
-        Format barrack states with all template scores for debugging.
-
-        Args:
-            frame: BGR numpy array screenshot
-
-        Returns:
-            String with state and all scores for each barrack
-        """
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        """Format barrack states with all template scores for debugging."""
         parts = []
         for i in range(4):
-            state, _ = self.get_barrack_state(frame, i, frame_gray)
-            scores = self.get_barrack_scores(frame, i, frame_gray)
+            state, _ = self.get_barrack_state(frame, i)
+            scores = self.get_barrack_scores(frame, i)
             state_char = {
                 BarrackState.READY: "R",
                 BarrackState.PENDING: "P",
@@ -287,6 +205,7 @@ class BarracksStateMatcher:
 # Singleton instance
 _matcher = None
 
+
 def get_matcher():
     global _matcher
     if _matcher is None:
@@ -295,39 +214,15 @@ def get_matcher():
 
 
 def check_barracks_states(frame):
-    """
-    Convenience function to check all barrack states.
-
-    Args:
-        frame: BGR numpy array screenshot
-
-    Returns:
-        List of (BarrackState, score) tuples
-    """
+    """Convenience function to check all barrack states."""
     return get_matcher().get_all_states(frame)
 
 
 def format_barracks_states(frame):
-    """
-    Convenience function to get formatted barrack states string.
-
-    Args:
-        frame: BGR numpy array screenshot
-
-    Returns:
-        String like "B1:R B2:T B3:P B4:T"
-    """
+    """Convenience function to get formatted barrack states string."""
     return get_matcher().format_states(frame)
 
 
 def format_barracks_states_detailed(frame):
-    """
-    Convenience function to get detailed barrack states with all scores.
-
-    Args:
-        frame: BGR numpy array screenshot
-
-    Returns:
-        String like "B1:R(s=0.100,y=0.030,w=0.080) B2:T(s=0.020,y=0.150,w=0.140) ..."
-    """
+    """Convenience function to get detailed barrack states with all scores."""
     return get_matcher().format_states_detailed(frame)

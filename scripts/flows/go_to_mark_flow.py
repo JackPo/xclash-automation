@@ -16,11 +16,11 @@ Templates:
 """
 
 import time
-import cv2
 from pathlib import Path
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
+from utils.template_matcher import match_template
 
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
 
@@ -36,27 +36,13 @@ GO_BUTTON_SEARCH_Y_END = 1800
 
 THRESHOLD = 0.05
 
-
-def _search_go_button(frame):
-    """Search for Go button in entry area."""
-    template = cv2.imread(str(TEMPLATE_DIR / "go_button_4k.png"), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        return False, 1.0, None
-
-    # Extract search region
-    roi = frame[GO_BUTTON_SEARCH_Y_START:GO_BUTTON_SEARCH_Y_END,
-                GO_BUTTON_SEARCH_X_START:GO_BUTTON_SEARCH_X_END]
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if len(roi.shape) == 3 else roi
-
-    result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-
-    if min_val <= THRESHOLD:
-        # Convert back to full frame coords
-        found_x = GO_BUTTON_SEARCH_X_START + min_loc[0] + template.shape[1] // 2
-        found_y = GO_BUTTON_SEARCH_Y_START + min_loc[1] + template.shape[0] // 2
-        return True, min_val, (found_x, found_y)
-    return False, min_val, None
+# Search region for Go button
+GO_BUTTON_SEARCH_REGION = (
+    GO_BUTTON_SEARCH_X_START,
+    GO_BUTTON_SEARCH_Y_START,
+    GO_BUTTON_SEARCH_X_END - GO_BUTTON_SEARCH_X_START,
+    GO_BUTTON_SEARCH_Y_END - GO_BUTTON_SEARCH_Y_START
+)
 
 
 def go_to_mark_flow(adb, screenshot_helper=None, debug=False):
@@ -91,7 +77,11 @@ def go_to_mark_flow(adb, screenshot_helper=None, debug=False):
             print("  Step 3: Searching for Go button...")
         frame = win.get_screenshot_cv2()
 
-        found, score, click_pos = _search_go_button(frame)
+        found, score, click_pos = match_template(
+            frame, "go_button_4k.png",
+            search_region=GO_BUTTON_SEARCH_REGION,
+            threshold=THRESHOLD
+        )
         if debug:
             print(f"    Go button: found={found}, score={score:.4f}, pos={click_pos}")
 

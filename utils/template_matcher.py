@@ -199,7 +199,7 @@ def match_template_fixed(
     position: Tuple[int, int],
     size: Tuple[int, int],
     threshold: Optional[float] = None
-) -> Tuple[bool, float]:
+) -> Tuple[bool, float, Tuple[int, int]]:
     """
     Match template at a fixed position (no searching).
 
@@ -213,11 +213,12 @@ def match_template_fixed(
         threshold: Override default threshold
 
     Returns:
-        (found: bool, score: float)
+        (found: bool, score: float, center: tuple)
+        - center is (x + w//2, y + h//2) - the click position
     """
     template = _load_template(template_name)
     if template is None:
-        return False, 1.0
+        return False, 1.0, (0, 0)
 
     mask = _load_mask(template_name)
 
@@ -232,23 +233,26 @@ def match_template_fixed(
     w, h = size
     roi = gray[y:y+h, x:x+w]
 
+    # Calculate center (click position)
+    center = (x + w // 2, y + h // 2)
+
     # Check size compatibility
     th, tw = template.shape
     if roi.shape[0] < th or roi.shape[1] < tw:
-        return False, 1.0
+        return False, 1.0, center
 
     if mask is not None:
         # Masked matching
         result = cv2.matchTemplate(roi, template, cv2.TM_CCORR_NORMED, mask=mask)
         score = cv2.minMaxLoc(result)[1]  # max_val
         thresh = threshold if threshold is not None else DEFAULT_CCORR_THRESHOLD
-        return score >= thresh, score
+        return score >= thresh, score, center
     else:
         # Standard matching
         result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
         score = cv2.minMaxLoc(result)[0]  # min_val
         thresh = threshold if threshold is not None else DEFAULT_SQDIFF_THRESHOLD
-        return score <= thresh, score
+        return score <= thresh, score, center
 
 
 def clear_cache():
