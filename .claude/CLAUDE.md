@@ -234,7 +234,7 @@ popups often block the screen. The World/Town button appears shaded/dimmed. Clic
 dismisses popups until the button returns to normal (detected by `view_state_detector`).
 
 **Icon Detection Templates (fixed positions):**
-- `handshake_iter2.png` - Alliance/handshake icon (position: 3088,1780, size: 155x127, threshold: 0.04)
+- `handshake_icon_4k.png` - Alliance/handshake icon (position: 3088,1780, size: 155x127, threshold: 0.04)
 - `treasure_map_4k.png` - Bouncing scroll treasure map (position: 2096,1540, size: 158x162, threshold: 0.05)
 - `harvest_box_4k.png` - Harvest box notification (position: 2100,1540, size: 154x157, threshold: 0.1)
 - `corn_harvest_bubble_4k.png` - Corn harvest bubble (position: 1884,1260, size: 99x74, threshold: 0.05)
@@ -331,7 +331,7 @@ from utils.template_matcher import match_template_fixed, match_template
 # Fixed position matching (icon at known location)
 found, score, center = match_template_fixed(
     frame,
-    "handshake_iter2.png",          # Template name (looks in templates/ground_truth/)
+    "handshake_icon_4k.png",         # Template name (looks in templates/ground_truth/)
     position=(3088, 1780),           # Top-left position
     size=(155, 127),                 # Width x Height
     threshold=0.04                   # TM_SQDIFF_NORMED threshold

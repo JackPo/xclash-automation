@@ -51,7 +51,7 @@ class HandshakeIconMatcher:
     CLICK_X = 3165
     CLICK_Y = 1843
 
-    TEMPLATE_NAME = "handshake_iter2.png"
+    TEMPLATE_NAME = "handshake_icon_4k.png"
     DEFAULT_THRESHOLD = 0.04
 
     def __init__(self, threshold: float = None, debug_dir=None) -> None:

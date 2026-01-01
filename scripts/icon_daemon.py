@@ -364,7 +364,7 @@ class IconDaemon:
         # All templates required by matchers and view_state_detector
         required_templates = [
             # Icon matcher templates
-            'handshake_iter2.png',
+            'handshake_icon_4k.png',
             'treasure_map_4k.png',
             'corn_harvest_bubble_4k.png',
             'gold_coin_tight_4k.png',
@@ -1346,7 +1346,7 @@ class IconDaemon:
 
                     if ready_count > 0 or pending_count > 0:
                         self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY, {pending_count} PENDING, triggering soldier training...")
-                        self._run_flow("soldier_training", soldier_training_flow)
+                        self._run_flow("soldier_training", soldier_training_flow, critical=True)
 
                 # =================================================================
                 # UNKNOWN STATE TRACKING AND RECOVERY
@@ -1449,7 +1449,8 @@ class IconDaemon:
 
                 # Idle return-to-town - every 5 iterations when idle, return to TOWN
                 # Most scanning happens in TOWN view, so we want to be there when idle
-                if effective_idle_secs >= self.IDLE_THRESHOLD and not self.critical_flow_active:
+                # CRITICAL: Skip if ANY flow is running (not just critical flows)
+                if effective_idle_secs >= self.IDLE_THRESHOLD and not self.active_flows:
                     self.idle_iteration_count += 1
 
                     if self.idle_iteration_count >= self.IDLE_RETURN_TO_TOWN_INTERVAL:
@@ -1470,7 +1471,7 @@ class IconDaemon:
                                 go_to_town(self.adb, debug=False)
                                 self.logger.info(f"[{iteration}] IDLE RETURN: View reset complete")
                 else:
-                    # Not idle or critical flow active - reset counter
+                    # Not idle or a flow is active - reset counter
                     self.idle_iteration_count = 0
 
                 # =================================================================
@@ -1748,7 +1749,7 @@ class IconDaemon:
                     if self.enhance_hero_last_block_start != block_start:
                         # Trigger flow - it will check progress and skip if chest3 reached
                         self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins:.0f}min of Enhance Hero, checking progress and upgrading if needed...")
-                        self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow)
+                        self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow, critical=True)
                         self.enhance_hero_last_block_start = block_start
 
                 # =================================================================
@@ -1941,13 +1942,13 @@ class IconDaemon:
                 # Tavern quest: 5 min idle, 30 min cooldown (claims + Go clicks + timer scan)
                 if self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] TAVERN QUEST: idle={idle_str}, triggering quest flow...")
-                    if self._run_flow("tavern_quest", run_tavern_quest_flow):
+                    if self._run_flow("tavern_quest", run_tavern_quest_flow, critical=True):
                         self.scheduler.record_flow_run("tavern_scan")
 
                 # Gift box flow: requires WORLD view (town_present means we're in WORLD), 5 min idle, 1 hour cooldown
                 if town_present and self.scheduler.is_flow_ready("gift_box", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] GIFT BOX: idle={idle_str}, triggering flow...")
-                    if self._run_flow("gift_box", gift_box_flow):
+                    if self._run_flow("gift_box", gift_box_flow, critical=True):
                         self.scheduler.record_flow_run("gift_box")
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)

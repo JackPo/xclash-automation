@@ -60,6 +60,34 @@ Pre-condition: At marked Royal City (star icon with ! visible)
 | `mark_apply_button_4k.png` | Apply button |
 | `mark_title_domestic_affairs_4k.png` | Example title detail header |
 
+## WebSocket API Commands
+
+The daemon exposes title management via WebSocket API (default port 9876):
+
+### `list_titles`
+Lists all available kingdom titles.
+
+```json
+{"command": "list_titles"}
+```
+
+Response includes title keys like `minister_of_science`, `minister_of_construction`, etc.
+
+### `apply_title`
+Applies a specific title. Requires being at marked Royal City with star icon visible.
+
+```json
+{"command": "apply_title", "args": {"title": "minister_of_science"}}
+```
+
+**Title keys:**
+- `prime_minister` - Building +20%, Tech Research +20%, Soldier Training +10%
+- `marshall` - Barrack Capacity +20%, Soldier Training +20%
+- `minister_of_health` - Hospital Capacity +20%, Healing Speed +20%
+- `minister_of_construction` - Building +50%, Tech Research +25%
+- `minister_of_science` - Tech Research +50%, Building +25%
+- `minister_of_domestic_affairs` - Food/Iron/Gold Output +100% each
+
 ## JSON Data
 
 Full structured data: `data/kingdom_titles.json`
