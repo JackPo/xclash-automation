@@ -279,6 +279,11 @@ BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height - MUST match template files
 BARRACKS_MATCH_THRESHOLD = 0.08   # Animation causes score variance 0.00-0.08
 ```
 
+**Barracks Detection Logic:**
+Detection matches ALL templates (stopwatch, yellow, white) and picks the BEST match
+(lowest score for SQDIFF). This prevents false TRAINING detection when white soldier
+matches better than stopwatch. Order of checking doesn't matter - best score wins.
+
 NOTE: Different soldier types have different face icons! Multiple yellow soldier
 templates are needed to match all variants. Both barracks_state_matcher and
 hospital_state_matcher use the same yellow soldier templates.

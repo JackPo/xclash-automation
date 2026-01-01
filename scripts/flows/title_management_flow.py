@@ -27,7 +27,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
 from utils.return_to_base_view import return_to_base_view
-from utils.template_matcher import match_template_fixed
+from utils.view_state_detector import go_to_town
+from utils.template_matcher import match_template_fixed, match_template
 
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -208,10 +209,23 @@ def title_management_flow(adb, title_name, screenshot_helper=None, debug=False, 
         print(f"  Buffs: {[b['name'] + ' ' + b['value'] for b in title_info['buffs']]}")
 
     try:
-        # Step 1: Click star icon
+        # Step 1: Find and click star icon (search instead of fixed position)
         if debug:
-            print(f"  Step 1: Clicking star icon at {STAR_ICON_CLICK}")
-        adb.tap(*STAR_ICON_CLICK)
+            print("  Step 1: Searching for star icon...")
+        frame = win.get_screenshot_cv2()
+        found, score, star_pos = match_template(
+            frame, "mark_star_icon_4k.png",
+            threshold=0.15  # Relaxed threshold for star icon
+        )
+        if not found:
+            # Fallback to fixed position if template not found
+            if debug:
+                print(f"    Star icon not found (score={score:.4f}), using fixed position {STAR_ICON_CLICK}")
+            star_pos = STAR_ICON_CLICK
+        else:
+            if debug:
+                print(f"    Star icon found at {star_pos} (score={score:.4f})")
+        adb.tap(*star_pos)
 
         # Poll for Royal City header
         if debug:
@@ -316,8 +330,9 @@ def title_management_flow(adb, title_name, screenshot_helper=None, debug=False, 
     finally:
         if return_to_base:
             if debug:
-                print("  Returning to base view...")
+                print("  Returning to TOWN...")
             return_to_base_view(adb, win, debug=debug)
+            go_to_town(adb)
         else:
             if debug:
                 print("  Staying on screen (--no-return)")

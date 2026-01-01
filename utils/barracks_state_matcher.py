@@ -130,12 +130,11 @@ class BarracksStateMatcher:
         Get the state of a single barrack.
 
         Detection logic:
-        1. If stopwatch matches → TRAINING
-        2. If yellow OR white matches:
-           - Count yellow pixels in ROI
-           - If yellow_pixels >= threshold → READY
-           - Else → PENDING
-        3. No template matches → UNKNOWN
+        1. Get all template match scores
+        2. Find BEST match (lowest score for SQDIFF)
+        3. If stopwatch is best → TRAINING
+        4. If yellow/white is best → use yellow pixel counting for READY vs PENDING
+        5. No template matches → UNKNOWN
 
         Note: Uses `found` from template_matcher which correctly handles
         both SQDIFF (no mask) and CCORR (with mask) matching methods.
@@ -150,24 +149,34 @@ class BarracksStateMatcher:
         yellow_found, yellow_score = matches['yellow']
         white_found, white_score = matches['white']
 
-        # If stopwatch matches, it's TRAINING
+        # Collect all matches that passed threshold
+        candidates = []
         if stopwatch_found:
-            return BarrackState.TRAINING, stopwatch_score
+            candidates.append(('stopwatch', stopwatch_score))
+        if yellow_found:
+            candidates.append(('yellow', yellow_score))
+        if white_found:
+            candidates.append(('white', white_score))
 
-        # If yellow or white matches, use yellow pixel counting to distinguish
-        if yellow_found or white_found:
-            x, y = BARRACKS_POSITIONS[barrack_index]
-            tw, th = TEMPLATE_SIZE
-            roi_bgr = frame[y:y+th, x:x+tw]
-            yellow_pixels = self._count_yellow_pixels(roi_bgr)
+        if not candidates:
+            return BarrackState.UNKNOWN, min(stopwatch_score, yellow_score, white_score)
 
-            if yellow_pixels >= BARRACKS_YELLOW_PIXEL_THRESHOLD:
-                return BarrackState.READY, yellow_score
-            else:
-                return BarrackState.PENDING, white_score
+        # Pick the BEST match (lowest score for SQDIFF)
+        best_type, best_score = min(candidates, key=lambda x: x[1])
 
-        # No match - return UNKNOWN with a score for debugging
-        return BarrackState.UNKNOWN, stopwatch_score
+        if best_type == 'stopwatch':
+            return BarrackState.TRAINING, best_score
+
+        # Best match is yellow or white - use yellow pixel counting to distinguish
+        x, y = BARRACKS_POSITIONS[barrack_index]
+        tw, th = TEMPLATE_SIZE
+        roi_bgr = frame[y:y+th, x:x+tw]
+        yellow_pixels = self._count_yellow_pixels(roi_bgr)
+
+        if yellow_pixels >= BARRACKS_YELLOW_PIXEL_THRESHOLD:
+            return BarrackState.READY, yellow_score
+        else:
+            return BarrackState.PENDING, white_score
 
     def get_all_states(self, frame):
         """Get the state of all 4 barracks."""
