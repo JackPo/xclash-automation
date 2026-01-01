@@ -144,6 +144,7 @@ TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
+UNKNOWN_LOOP_TIMEOUT = 480         # 8 minutes - force restart if recovery keeps cycling
 
 # Resolution check (prevents template matching failures from resolution drift)
 RESOLUTION_CHECK_INTERVAL = 100    # Check resolution every N daemon iterations
@@ -189,16 +190,26 @@ EQUIPMENT_BUBBLE = {
 }
 
 # =============================================================================
-# DETECTION THRESHOLDS (TM_SQDIFF_NORMED - lower score = better match)
-# Threshold is maximum score to consider a match. Typical: 0.04-0.10
+# DETECTION THRESHOLDS
+# NOTE: Using COLOR matching. Masks auto-detected by template_matcher.
+#
+# MASKED templates (*_mask_4k.png exists): score ~1.0 = match, threshold is MINIMUM
+# NON-MASKED templates: score ~0.0 = match, threshold is MAXIMUM
 # =============================================================================
 
-THRESHOLDS = {
+# Masked templates - threshold is MINIMUM score required (score >= threshold)
+# These have *_mask_4k.png files, use TM_CCORR_NORMED
+THRESHOLDS_MASKED = {
+    'corn': 0.99,       # corn_harvest_bubble_mask_4k.png
+    'gold': 0.99,       # gold_coin_tight_mask_4k.png
+    'iron': 0.99,       # iron_bar_tight_mask_4k.png
+    'gem': 0.99,        # gem_tight_mask_4k.png
+}
+
+# Non-masked templates - threshold is MAXIMUM score allowed (score <= threshold)
+# Use TM_SQDIFF_NORMED
+THRESHOLDS_SQDIFF = {
     'dog_house': 0.1,
-    'corn': 0.06,
-    'gold': 0.06,
-    'iron': 0.08,
-    'gem': 0.13,
     'cabbage': 0.05,
     'equipment': 0.06,
     'handshake': 0.04,
@@ -209,6 +220,9 @@ THRESHOLDS = {
     'claim_button': 0.05,
     'use_button': 0.05,
 }
+
+# Combined for backward compatibility - matchers use this
+THRESHOLDS = {**THRESHOLDS_SQDIFF, **THRESHOLDS_MASKED}
 
 # =============================================================================
 # BARRACKS POSITIONS (4K resolution)

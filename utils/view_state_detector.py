@@ -5,7 +5,9 @@ Detection - Button location (3600, 1920) 240x240:
 - world_button_4k.png matches -> TOWN view
 - town_button_4k.png matches -> WORLD view
 - town_button_zoomed_out_4k.png matches -> WORLD view
-- back_button_4k.png matches -> CHAT view
+
+CHAT detection - Chat header at (1854, 36) 123x59:
+- chat_header_4k.png matches -> CHAT view (NOT back button!)
 
 Navigation paths:
 - TOWN -> WORLD: click (3720, 2040) - center of World button
@@ -32,17 +34,18 @@ BUTTON_Y = 1920
 BUTTON_W = 240
 BUTTON_H = 240
 
-BACK_X = 1300
-BACK_Y = 1950
-BACK_W = 220
-BACK_H = 220
+# Chat header coordinates (top of chat panel)
+CHAT_HEADER_X = 1854
+CHAT_HEADER_Y = 36
+CHAT_HEADER_W = 123
+CHAT_HEADER_H = 59
 
 # Click coordinates
 TOGGLE_BUTTON_CLICK = (3720, 2040)  # Center of World/Town button
 BACK_BUTTON_CLICK = (1407, 2055)    # Center of back button
 
 THRESHOLD = 0.05  # For TM_SQDIFF_NORMED (lower = better match)
-BACK_THRESHOLD = 0.3  # For TM_SQDIFF_NORMED (lower = better - converted from TM_CCOEFF_NORMED)
+CHAT_THRESHOLD = 0.05  # For chat header detection
 
 
 def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, float]:
@@ -76,23 +79,20 @@ def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, floa
         if found:
             return state, score
 
-    # Check back button area for CHAT state
-    back_templates = ["back_button_4k.png", "back_button_light_4k.png"]
+    # Check for CHAT state using Chat header template (NOT back button!)
+    found, score, _ = match_template_fixed(
+        frame,
+        "chat_header_4k.png",
+        position=(CHAT_HEADER_X, CHAT_HEADER_Y),
+        size=(CHAT_HEADER_W, CHAT_HEADER_H),
+        threshold=CHAT_THRESHOLD
+    )
 
-    for back_name in back_templates:
-        found, score, _ = match_template_fixed(
-            frame,
-            back_name,
-            position=(BACK_X, BACK_Y),
-            size=(BACK_W, BACK_H),
-            threshold=BACK_THRESHOLD
-        )
+    if debug:
+        print(f"chat_header_4k.png: {score:.4f}")
 
-        if debug:
-            print(f"{back_name}: {score:.4f}")
-
-        if found:
-            return ViewState.CHAT, score
+    if found:
+        return ViewState.CHAT, score
 
     return ViewState.UNKNOWN, 1.0
 

@@ -72,6 +72,7 @@ from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_s
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
+from utils.debug_screenshot import get_daemon_debug
 
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
@@ -101,6 +102,7 @@ from config import (
     BAG_FLOW_COOLDOWN,
     GIFT_BOX_COOLDOWN,
     UNKNOWN_STATE_TIMEOUT,
+    UNKNOWN_LOOP_TIMEOUT,
     STAMINA_REGION,
     # Arms Race automation settings
     ARMS_RACE_BEAST_TRAINING_ENABLED,
@@ -133,6 +135,8 @@ from config import (
     EXPECTED_RESOLUTION,
     # Tavern quest scan
     TAVERN_SCAN_COOLDOWN,
+    TAVERN_QUEST_START_HOUR,
+    TAVERN_QUEST_START_MINUTE,
     # WebSocket API server
     DAEMON_SERVER_PORT,
     DAEMON_SERVER_ENABLED,
@@ -254,6 +258,11 @@ class IconDaemon:
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
         self.UNKNOWN_HYSTERESIS = 10  # Seconds out of UNKNOWN before resetting timer
 
+        # UNKNOWN recovery loop detection - force restart if recovery keeps cycling
+        self.unknown_recovery_count = 0  # How many times recovery ran
+        self.unknown_first_recovery_time = None  # When first recovery started
+        self.UNKNOWN_LOOP_TIMEOUT = UNKNOWN_LOOP_TIMEOUT  # 8 min from config
+
         # Disconnection dialog tracking (user playing on mobile)
         self.disconnection_dialog_detected_time = None  # When we first saw the dialog
 
@@ -261,10 +270,13 @@ class IconDaemon:
         self.RESOLUTION_CHECK_INTERVAL = RESOLUTION_CHECK_INTERVAL
         self.EXPECTED_RESOLUTION = EXPECTED_RESOLUTION
 
-        # Scheduled + continuous idle triggers - DISABLED
-        # Hero upgrade now only triggers during Arms Race "Enhance Hero" event (lines 800-816)
+        # Scheduled triggers (old mechanism - kept for future use)
         self.scheduled_triggers = []  # Empty - no scheduled triggers
         self.continuous_idle_start = None  # Track when continuous idle began
+
+        # Tavern quest scheduled trigger at 10:30 PM Pacific
+        # Triggers immediately when time is reached, ignoring cooldown/idle
+        self.tavern_scheduled_triggered_date = None  # Track which date we've triggered
 
         # Arms Race event tracking (values from config)
         # Beast Training: Mystic Beast last N minutes, stamina threshold, cooldown between rallies
@@ -617,6 +629,50 @@ class IconDaemon:
         except Exception as e:
             self.logger.error(f"Failed to check foreground app: {e}")
             return False
+
+    def _force_app_restart(self):
+        """Force stop and restart xclash app when stuck in UNKNOWN loop."""
+        import subprocess
+        from pathlib import Path
+
+        self.logger.info("FORCING APP RESTART due to UNKNOWN recovery loop...")
+
+        # Force stop the app
+        try:
+            subprocess.run(
+                [self.adb.ADB_PATH, '-s', self.adb.device, 'shell',
+                 'am force-stop com.xman.na.gp'],
+                capture_output=True, timeout=10
+            )
+            self.logger.info("App force-stopped")
+        except Exception as e:
+            self.logger.error(f"Failed to force stop app: {e}")
+
+        time.sleep(2)
+
+        # Start the app
+        try:
+            subprocess.run(
+                [self.adb.ADB_PATH, '-s', self.adb.device, 'shell',
+                 'am start -n com.xman.na.gp/com.q1.ext.Q1UnityActivity'],
+                capture_output=True, timeout=10
+            )
+            self.logger.info("App started, waiting 30s for load...")
+        except Exception as e:
+            self.logger.error(f"Failed to start app: {e}")
+
+        time.sleep(30)  # Wait for app to load
+
+        # Run setup to ensure resolution
+        try:
+            subprocess.run(
+                ['python', 'scripts/setup_bluestacks.py'],
+                capture_output=True, timeout=30,
+                cwd=str(Path(__file__).parent.parent)
+            )
+            self.logger.info("setup_bluestacks.py completed")
+        except Exception as e:
+            self.logger.error(f"Failed to run setup: {e}")
 
     def _check_resolution(self, iteration: int, idle_seconds: float) -> bool:
         """
@@ -1148,6 +1204,21 @@ class IconDaemon:
                 view_state = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
                 back_present, back_score = self.back_button_matcher.is_present(frame)
 
+                # DEBUG: Capture screenshot when view is CHAT or UNKNOWN (problematic states)
+                if view_state in ("CHAT", "UNKNOWN"):
+                    get_daemon_debug().capture(frame, iteration, view_state, "view_problem")
+
+                # DEBUG: Periodic baseline capture (every 50 iterations)
+                if iteration % 50 == 0:
+                    get_daemon_debug().capture(frame, iteration, view_state, "baseline")
+
+                # Reset UNKNOWN recovery loop counters when we're genuinely out of UNKNOWN
+                # This only resets when detect_view returns TOWN/WORLD, not when return_to_base_view says "success"
+                if view_state in ("TOWN", "WORLD") and self.unknown_recovery_count > 0:
+                    self.logger.debug(f"[{iteration}] UNKNOWN loop counters reset (view={view_state})")
+                    self.unknown_recovery_count = 0
+                    self.unknown_first_recovery_time = None
+
                 # For backwards compatibility with flow checks
                 world_present = (view_state == "TOWN")
                 town_present = (view_state == "WORLD")
@@ -1437,14 +1508,34 @@ class IconDaemon:
 
                         # Full recovery: After 180s, run return_to_base_view
                         if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT:
-                            self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY: In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
+                            # Track recovery cycles for loop detection
+                            if self.unknown_first_recovery_time is None:
+                                self.unknown_first_recovery_time = time.time()
+                            self.unknown_recovery_count += 1
+
+                            # Check if we're stuck in a loop (multiple recoveries in short time)
+                            time_since_first = time.time() - self.unknown_first_recovery_time
+                            if time_since_first >= self.UNKNOWN_LOOP_TIMEOUT:
+                                self.logger.error(f"[{iteration}] UNKNOWN LOOP DETECTED: {self.unknown_recovery_count} recoveries in {time_since_first/60:.1f}min - FORCING APP RESTART")
+                                self._force_app_restart()
+                                # Reset all UNKNOWN tracking after restart
+                                self.unknown_recovery_count = 0
+                                self.unknown_first_recovery_time = None
+                                self.unknown_state_start = None
+                                self.unknown_state_left_time = None
+                                continue
+
+                            self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY (attempt {self.unknown_recovery_count}): In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
+                            # DEBUG: Capture screenshot before recovery
+                            get_daemon_debug().capture(frame, iteration, view_state, "recovery", f"attempt_{self.unknown_recovery_count}")
                             success = return_to_base_view(self.adb, self.windows_helper, debug=True)
                             if success:
                                 self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY: Successfully reached base view")
                             else:
                                 self.logger.warning(f"[{iteration}] UNKNOWN FULL RECOVERY: Had to restart app")
-                            self.unknown_state_start = None  # Reset after recovery attempt
+                            self.unknown_state_start = None  # Reset UNKNOWN timer after recovery attempt
                             self.unknown_state_left_time = None
+                            # NOTE: Do NOT reset unknown_recovery_count here - only reset when view is actually TOWN/WORLD
                             continue  # Skip rest of iteration, start fresh
 
                 # Idle return-to-town - every 5 iterations when idle, return to TOWN
@@ -1494,7 +1585,11 @@ class IconDaemon:
                 # Pre-event stamina claim: 6 min before Beast Training, claim if red dot visible
                 # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
                 # Uses scheduler's pre_beast_stamina_claim flow config (idle_required=20s, lower than IDLE_THRESHOLD)
-                if in_pre_beast_window and self.scheduler.is_flow_ready("pre_beast_stamina_claim", idle_seconds=effective_idle_secs):
+                # REQUIRES: TOWN or WORLD view (need to see stamina area)
+                if in_pre_beast_window and view_state not in ("TOWN", "WORLD"):
+                    self.logger.warning(f"[{iteration}] PRE-BEAST STAMINA: {minutes_until_beast:.1f}min until event but view={view_state} - cannot detect red dot!")
+                    get_daemon_debug().capture(frame, iteration, view_state, "pre_beast_blocked", f"{minutes_until_beast:.0f}min")
+                if in_pre_beast_window and view_state in ("TOWN", "WORLD") and self.scheduler.is_flow_ready("pre_beast_stamina_claim", idle_seconds=effective_idle_secs):
                     # Calculate which upcoming block this is for
                     upcoming_beast_block = arms_race['block_end']  # Next block starts when current ends
 
@@ -1939,8 +2034,19 @@ class IconDaemon:
                     if self._run_flow("bag", bag_flow, critical=True):
                         self.scheduler.record_flow_run("bag_flow")
 
+                # Tavern quest SCHEDULED trigger at 10:30 PM Pacific (ignores cooldown/idle)
+                # This ensures quests start right when the window opens
+                now_pacific = datetime.now(self.pacific_tz)
+                tavern_trigger_time = now_pacific.replace(hour=TAVERN_QUEST_START_HOUR, minute=TAVERN_QUEST_START_MINUTE, second=0, microsecond=0)
+                if (now_pacific >= tavern_trigger_time and
+                    self.tavern_scheduled_triggered_date != now_pacific.date()):
+                    self.logger.info(f"[{iteration}] TAVERN QUEST SCHEDULED: {TAVERN_QUEST_START_HOUR}:{TAVERN_QUEST_START_MINUTE:02d} PT reached, triggering flow...")
+                    if self._run_flow("tavern_quest", run_tavern_quest_flow, critical=True):
+                        self.tavern_scheduled_triggered_date = now_pacific.date()
+                        self.scheduler.record_flow_run("tavern_scan")
+
                 # Tavern quest: 5 min idle, 30 min cooldown (claims + Go clicks + timer scan)
-                if self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
+                elif self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
                     self.logger.info(f"[{iteration}] TAVERN QUEST: idle={idle_str}, triggering quest flow...")
                     if self._run_flow("tavern_quest", run_tavern_quest_flow, critical=True):
                         self.scheduler.record_flow_run("tavern_scan")

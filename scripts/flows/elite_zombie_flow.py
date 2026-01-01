@@ -209,10 +209,10 @@ def elite_zombie_flow(adb) -> bool:
         _log(f"Step 1: Clicking magnifying glass at {MAGNIFYING_GLASS_CLICK}")
         adb.tap(*MAGNIFYING_GLASS_CLICK)
 
-        # Poll for search button to appear (proves search panel is open)
-        # Search button is in lower half of screen
+        # Poll for rally search button to appear (proves search panel is open)
+        # This is the "Search" text button at bottom of Elite Zombie panel
         found, score, loc, frame = _poll_for_template(
-            win, "search_button_4k.png",
+            win, "rally_search_button_4k.png",
             threshold=SEARCH_BUTTON_THRESHOLD,
             search_region=(1600, 1800, 700, 400)
         )
@@ -259,11 +259,11 @@ def elite_zombie_flow(adb) -> bool:
         if frame is not None:
             _save_debug_screenshot(frame, "03_after_plus_clicks")
 
-        # Step 4: VERIFY search button still visible, then click it
+        # Step 4: VERIFY rally search button still visible, then click it
         _log(f"Step 4: Verifying and clicking search button...")
         frame = win.get_screenshot_cv2()
         found, score, loc = _verify_template(
-            frame, "search_button_4k.png",
+            frame, "rally_search_button_4k.png",
             threshold=SEARCH_BUTTON_THRESHOLD,
             search_region=(1600, 1800, 700, 400)
         )
@@ -274,7 +274,7 @@ def elite_zombie_flow(adb) -> bool:
             return False
 
         _log(f"  Search button at {loc} (score={score:.4f}), clicking...")
-        adb.tap(*loc)  # Click the actual button location, not fixed coords
+        adb.tap(*loc)  # Click detected location of rally_search_button
 
         # Poll for rally button to appear (proves search completed and zombie found)
         _log("  Waiting for search results...")

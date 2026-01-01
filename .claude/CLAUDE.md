@@ -56,8 +56,12 @@ When an icon has transparency (background shows through), standard template matc
    ```
 
 **Templates with masks**:
-- `search_button_4k.png` + `search_button_mask_4k.png` - Magnifying glass (19, 1432) 119x118
+- `search_button_4k.png` + `search_button_mask_4k.png` - Magnifying glass icon (19, 1432) 119x118 - used to verify search panel opened
 - `title_active_icon_4k.png` + `title_active_icon_mask_4k.png` - Title scroll icon (203, 216) 69x62
+
+**IMPORTANT: Search button templates**:
+- `search_button_4k.png` - The **magnifying glass** icon on left sidebar (verifies search panel opened)
+- `rally_search_button_4k.png` - The **"Search" text button** at bottom of Elite Zombie panel (368x126) - click this to search for zombie
 
 ## ⚠️ CRITICAL: Screenshot Rules
 
@@ -711,10 +715,10 @@ Harvest actions (corn, gold, iron, gem, cabbage, equipment) require ALL of:
 
 When stamina >= 118 AND user idle for 5+ minutes:
 1. Navigate to WORLD view
-2. Click magnifying glass → **POLL** for `search_button_4k.png` (verify panel opened)
+2. Click magnifying glass → **POLL** for `rally_search_button_4k.png` (verify panel opened)
 3. Click Elite Zombie tab → **VERIFY** `elite_zombie_tab_4k.png`
 4. Click plus button N times (increase level, configurable via ELITE_ZOMBIE_PLUS_CLICKS)
-5. **VERIFY** `search_button_4k.png` visible, then click (use detected location)
+5. **VERIFY** `rally_search_button_4k.png` visible, then click (use detected location)
 6. **POLL** for `rally_button_4k.png` → click detected location
 7. **POLL** for `team_up_button_4k.png` (verify rally screen loaded)
 8. Select LEFTMOST idle hero (with Zz icon)
@@ -727,7 +731,7 @@ When stamina >= 118 AND user idle for 5+ minutes:
 - Calls `return_to_base_view()` on any failure
 
 **Templates Used**:
-- `search_button_4k.png` (380x136, threshold 0.05)
+- `rally_search_button_4k.png` (368x126, threshold 0.05) - "Search" text button at bottom of panel
 - `elite_zombie_tab_4k.png` (284x97, threshold 0.1)
 - `rally_button_4k.png` (153x177, threshold 0.08)
 - `team_up_button_4k.png` (368x134, threshold 0.05)
