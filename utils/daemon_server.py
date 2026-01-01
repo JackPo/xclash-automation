@@ -149,6 +149,9 @@ class DaemonWebSocketServer:
             "set_rally_target": self._cmd_set_rally_target,
             "add_rallies": self._cmd_add_rallies,
             "get_rally_status": self._cmd_get_rally_status,
+            # Title commands
+            "apply_title": self._cmd_apply_title,
+            "list_titles": self._cmd_list_titles,
         }
 
         handler = handlers.get(cmd)
@@ -429,4 +432,62 @@ class DaemonWebSocketServer:
             "rallies_possible_natural": rallies_possible_natural if current_stamina is not None else None,
             "stamina_needed": stamina_needed if target else None,
             "stamina_shortfall": stamina_shortfall,
+        }
+
+    # =========================================================================
+    # Title Commands
+    # =========================================================================
+
+    def _cmd_apply_title(self, args: dict) -> dict:
+        """Apply a kingdom title. Requires being at marked Royal City."""
+        from scripts.flows.go_to_mark_flow import go_to_mark_flow
+        from scripts.flows.title_management_flow import title_management_flow, TITLE_DATA
+
+        title_name = args.get("title")
+        if not title_name:
+            raise ValueError("Missing 'title' argument. Use list_titles to see available titles.")
+
+        # Validate title exists
+        titles = TITLE_DATA.get("titles", {})
+        if title_name not in titles:
+            raise ValueError(f"Unknown title: {title_name}. Available: {list(titles.keys())}")
+
+        # Step 1: Go to marked Royal City
+        logger.info(f"Navigating to marked Royal City...")
+        go_success = go_to_mark_flow(self.daemon.adb, debug=False)
+        if not go_success:
+            return {"success": False, "error": "Failed to navigate to marked Royal City"}
+
+        # Step 2: Apply the title
+        logger.info(f"Applying title: {title_name}")
+        result = title_management_flow(
+            self.daemon.adb,
+            title_name,
+            screenshot_helper=self.daemon.windows_helper,
+            debug=False,
+            return_to_base=True
+        )
+
+        title_info = titles[title_name]
+        return {
+            "success": result,
+            "title": title_name,
+            "display_name": title_info.get("display_name"),
+            "buffs": title_info.get("buffs", [])
+        }
+
+    def _cmd_list_titles(self, args: dict) -> dict:
+        """List available kingdom titles."""
+        from scripts.flows.title_management_flow import TITLE_DATA
+
+        titles = TITLE_DATA.get("titles", {})
+        return {
+            "titles": [
+                {
+                    "name": name,
+                    "display_name": info.get("display_name"),
+                    "buffs": [f"{b['name']} {b['value']}" for b in info.get("buffs", [])]
+                }
+                for name, info in titles.items()
+            ]
         }
