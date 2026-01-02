@@ -28,7 +28,7 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
 from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import go_to_town
-from utils.template_matcher import match_template_fixed, match_template
+from utils.template_matcher import match_template
 
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -84,7 +84,7 @@ def _poll_for_template(win, template_path, pos, size, timeout=POLL_TIMEOUT, debu
     last_score = 1.0
     while time.time() - start < timeout:
         frame = win.get_screenshot_cv2()
-        matched, score, _ = match_template_fixed(frame, template_name, pos, size, threshold=THRESHOLD)
+        matched, score, _ = match_template(frame, template_name, pos, size, threshold=THRESHOLD)
         last_score = score
         if matched:
             if debug:
@@ -111,19 +111,19 @@ def check_holding_status(frame, debug=False):
     from utils.ocr_client import OCRClient
 
     # Check for "You're currently holding this title" text
-    holding_this_matched, holding_this_score, _ = match_template_fixed(
+    holding_this_matched, holding_this_score, _ = match_template(
         frame, "mark_currently_holding_title_4k.png",
         HOLDING_TITLE_POS, HOLDING_TITLE_SIZE, threshold=THRESHOLD
     )
 
     # Check for "You're currently serving as" text (holding different title)
-    serving_as_matched, serving_as_score, _ = match_template_fixed(
+    serving_as_matched, serving_as_score, _ = match_template(
         frame, "mark_currently_serving_as_4k.png",
         SERVING_AS_POS, SERVING_AS_SIZE, threshold=THRESHOLD
     )
 
     # Check if Apply button is visible
-    apply_matched, apply_score, _ = match_template_fixed(
+    apply_matched, apply_score, _ = match_template(
         frame, "mark_apply_button_4k.png",
         APPLY_BUTTON_POS, APPLY_BUTTON_SIZE, threshold=THRESHOLD
     )

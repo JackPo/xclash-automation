@@ -29,7 +29,7 @@ import numpy as np
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 # Setup logger
 logger = logging.getLogger("gift_box_flow")
@@ -40,7 +40,9 @@ GIFT_BOX_CLICK = (445, 435)  # Center of icon
 
 # Claim All button in Loot dialog
 CLAIM_ALL_CLICK = (1913, 1699)  # Center of Claim All button
-BACK_BUTTON_CLICK = (1407, 2055)  # Back button to close dialogs
+
+from utils.ui_helpers import click_back
+from config import BACK_BUTTON_CLICK
 
 # Threshold
 GIFT_BOX_THRESHOLD = 0.06
@@ -72,7 +74,7 @@ def gift_box_flow(adb, win=None, debug: bool = False) -> bool:
         _log("Step 1: Checking for gift box...")
 
     frame = win.get_screenshot_cv2()
-    is_present, score, _ = match_template_fixed(
+    is_present, score, _ = match_template(
         frame, "gift_box_4k.png",
         (GIFT_BOX_REGION[0], GIFT_BOX_REGION[1]),
         (GIFT_BOX_REGION[2], GIFT_BOX_REGION[3]),
@@ -101,7 +103,7 @@ def gift_box_flow(adb, win=None, debug: bool = False) -> bool:
     # Step 4: Click back button to close rewards popup
     if debug:
         _log(f"Step 4: Clicking back button at {BACK_BUTTON_CLICK}")
-    adb.tap(*BACK_BUTTON_CLICK)
+    click_back(adb)
     time.sleep(0.5)
 
     # Step 5: Return to base view

@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import time
 import cv2
 
-from config import BARRACKS_POSITIONS
+from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS
 from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level
 from utils.promote_button_matcher import is_promote_visible, get_promote_click
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -35,8 +35,7 @@ from utils.soldier_panel_slider import drag_slider_to_max
 # UI positions (4K resolution)
 UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
 
-# Barracks bubble click positions
-BARRACKS_CLICK_OFFSETS = (40, 43)
+# BARRACKS_CLICK_OFFSETS imported from config
 
 # Soldier levels range
 MIN_LEVEL = 3

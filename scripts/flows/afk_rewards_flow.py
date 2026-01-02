@@ -27,13 +27,13 @@ import cv2
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
+from utils.debug_screenshot import save_debug_screenshot
 
 # Setup logger
 logger = logging.getLogger("afk_rewards_flow")
 
-# Debug output directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "afk_rewards_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+# Flow name for debug screenshots
+FLOW_NAME = "afk_rewards"
 
 # Click coordinates (4K resolution)
 AFK_CHEST_CLICK = (805, 1709)  # Center of AFK rewards chest
@@ -46,10 +46,7 @@ MAX_CLAIM_ATTEMPTS = 3  # Maximum claim button clicks
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = DEBUG_DIR / f"{timestamp}_{name}.png"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
 def _log(msg: str):

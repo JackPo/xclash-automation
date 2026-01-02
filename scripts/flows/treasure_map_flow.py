@@ -36,13 +36,13 @@ from utils.treasure_dig_matchers import (
 )
 from utils.back_button_matcher import BackButtonMatcher
 from utils.hero_selector import HeroSelector
+from utils.debug_screenshot import save_debug_screenshot
 
 # Setup logger
 logger = logging.getLogger("treasure_map_flow")
 
-# Debug output directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "treasure_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+# Flow name for debug screenshots
+FLOW_NAME = "treasure_flow"
 
 # Fixed click coordinates for treasure map icon (4K resolution)
 CLICK_X = 2175
@@ -59,10 +59,7 @@ BACK_BUTTON_MAX_CLICKS = 5  # Max back button clicks to exit
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = DEBUG_DIR / f"{timestamp}_{name}.png"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
 def _log(msg: str):
@@ -144,15 +141,25 @@ def treasure_map_flow(adb):
 
 
 def _wait_and_click_chat_notification(adb) -> bool:
-    """Wait for chat notification and click Kingdom link."""
+    """Wait for chat notification and click Kingdom link. Scrolls up if not visible."""
     notification_matcher = TreasureChatNotificationMatcher()
     win = WindowsScreenshotHelper()
 
-    for attempt in range(MAX_ATTEMPTS):
+    # Chat scroll parameters - swipe UP to reveal content BELOW (treasure notification)
+    CHAT_CENTER_X = 1920
+    CHAT_SWIPE_START_Y = 1400  # Start lower (bottom)
+    CHAT_SWIPE_END_Y = 800     # End higher (top) = swipe UP
+    MAX_SCROLL_ATTEMPTS = 5
+    CHECKS_BEFORE_SCROLL = 2   # Check twice before scrolling
+
+    scroll_count = 0
+    check_count = 0
+
+    for attempt in range(MAX_ATTEMPTS + MAX_SCROLL_ATTEMPTS * CHECKS_BEFORE_SCROLL):
         frame = win.get_screenshot_cv2()
 
         if frame is None:
-            _log(f"  Chat check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
+            _log(f"  Chat check {attempt+1}: Screenshot failed!")
             time.sleep(CHECK_INTERVAL)
             continue
 
@@ -161,7 +168,7 @@ def _wait_and_click_chat_notification(adb) -> bool:
         # Save every attempt for debugging
         _save_debug_screenshot(frame, f"02_chat_check_{attempt+1}_score{score:.3f}")
 
-        _log(f"  Chat check {attempt+1}/{MAX_ATTEMPTS}: present={is_present}, score={score:.4f}, pos={found_pos}")
+        _log(f"  Chat check {attempt+1}: present={is_present}, score={score:.4f}, pos={found_pos}")
 
         if is_present and found_pos:
             click_x, click_y = notification_matcher.get_click_position(found_pos)
@@ -170,9 +177,20 @@ def _wait_and_click_chat_notification(adb) -> bool:
             adb.tap(click_x, click_y)
             return True
 
+        check_count += 1
+
+        # After CHECKS_BEFORE_SCROLL checks without finding, scroll up
+        if check_count >= CHECKS_BEFORE_SCROLL and scroll_count < MAX_SCROLL_ATTEMPTS:
+            _log(f"  Not found, scrolling UP in chat (scroll {scroll_count+1}/{MAX_SCROLL_ATTEMPTS})...")
+            adb.swipe(CHAT_CENTER_X, CHAT_SWIPE_START_Y, CHAT_CENTER_X, CHAT_SWIPE_END_Y, duration=300)
+            scroll_count += 1
+            check_count = 0
+            time.sleep(0.5)  # Wait for scroll animation
+            continue
+
         time.sleep(CHECK_INTERVAL)
 
-    _log(f"  Chat notification NOT FOUND after {MAX_ATTEMPTS} attempts")
+    _log(f"  Chat notification NOT FOUND after {MAX_ATTEMPTS} attempts and {scroll_count} scrolls")
     return False
 
 

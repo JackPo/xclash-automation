@@ -23,13 +23,13 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.snowman_chat_matcher import SnowmanChatMatcher
 from utils.snowman_matcher import SnowmanMatcher
 from utils.return_to_base_view import return_to_base_view
+from utils.debug_screenshot import save_debug_screenshot
 
 # Setup logger
 logger = logging.getLogger("snowman_flow")
 
-# Debug output directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "snowman_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+# Flow name for debug screenshots
+FLOW_NAME = "snowman"
 
 # Timing constants
 INITIAL_DELAY = 1.0
@@ -40,10 +40,7 @@ NAV_WAIT_SECONDS = 3.0  # Wait for map navigation after clicking chat
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = DEBUG_DIR / f"{timestamp}_{name}.png"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
 def _log(msg: str):

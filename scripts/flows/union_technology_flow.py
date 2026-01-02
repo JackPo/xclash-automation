@@ -33,7 +33,7 @@ import numpy as np
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
-from utils.template_matcher import match_template_fixed, match_template_all
+from utils.template_matcher import match_template
 
 # Setup logger
 logger = logging.getLogger("union_technology_flow")
@@ -70,41 +70,46 @@ SCREEN_TRANSITION_DELAY = 1.5
 LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
 
 def _is_on_technology_panel(frame: np.ndarray) -> tuple[bool, float]:
-    """Check if we're on the Union Technology panel by matching header at fixed position."""
-    found, score, _ = match_template_fixed(
+    """Check if we're on the Union Technology panel by matching header."""
+    found, score, _ = match_template(
         frame, "union_technology_header_4k.png",
-        position=(HEADER_X, HEADER_Y),
-        size=(HEADER_WIDTH, HEADER_HEIGHT),
+        search_region=(HEADER_X, HEADER_Y, HEADER_WIDTH, HEADER_HEIGHT),
         threshold=HEADER_THRESHOLD
     )
     return found, score
 
 
-def _is_donate_dialog_visible(frame: np.ndarray) -> tuple[bool, float]:
-    """Check if donate dialog is visible by matching donate_200 button at fixed position."""
-    found, score, _ = match_template_fixed(
-        frame, "tech_donate_200_button_4k.png",
-        position=(DONATE_BUTTON_X, DONATE_BUTTON_Y),
-        size=(DONATE_BUTTON_WIDTH, DONATE_BUTTON_HEIGHT),
+def _is_donate_dialog_active(frame: np.ndarray) -> tuple[bool, float]:
+    """Check if donate dialog shows ACTIVE (yellow) button - can donate."""
+    found, score, _ = match_template(
+        frame, "tech_donate_200_button_active_4k.png",
+        search_region=(DONATE_BUTTON_X, DONATE_BUTTON_Y, DONATE_BUTTON_WIDTH, DONATE_BUTTON_HEIGHT),
+        threshold=DONATE_BUTTON_THRESHOLD
+    )
+    return found, score
+
+
+def _is_donate_dialog_inactive(frame: np.ndarray) -> tuple[bool, float]:
+    """Check if donate dialog shows INACTIVE (gray) button - nothing to donate."""
+    found, score, _ = match_template(
+        frame, "tech_donate_200_button_inactive_4k.png",
+        search_region=(DONATE_BUTTON_X, DONATE_BUTTON_Y, DONATE_BUTTON_WIDTH, DONATE_BUTTON_HEIGHT),
         threshold=DONATE_BUTTON_THRESHOLD
     )
     return found, score
 
 
 def _find_thumbs_up_badge_topmost(frame: np.ndarray) -> tuple[int, int, float] | None:
-    """Find the red thumbs up badge with lowest Y value (top-most). Returns (center_x, center_y, score) or None."""
-    # Use match_template_all which returns CENTER coordinates sorted by Y
-    matches = match_template_all(
+    """Find the red thumbs up badge. Returns (center_x, center_y, score) or None."""
+    found, score, loc = match_template(
         frame, "tech_donate_thumbs_up_4k.png",
-        threshold=THUMBS_UP_THRESHOLD,
-        min_distance=MIN_DISTANCE_BETWEEN_MATCHES
+        threshold=THUMBS_UP_THRESHOLD
     )
 
-    if not matches:
+    if not found or loc is None:
         return None
 
-    # First match is top-most (sorted by Y)
-    return matches[0]
+    return (loc[0], loc[1], score)
 
 
 def _save_debug_screenshot(frame, name: str) -> str:
@@ -183,12 +188,20 @@ def union_technology_flow(adb) -> bool:
     if frame is not None:
         _save_debug_screenshot(frame, "05_after_badge_click")
 
-    # Step 6: Validate donate dialog appeared
-    is_dialog_visible, dialog_score = _is_donate_dialog_visible(frame)
-    _log(f"Step 6: Donate dialog validation - visible={is_dialog_visible}, score={dialog_score:.4f}")
+    # Step 6: Check donate dialog state (active vs inactive)
+    is_active, active_score = _is_donate_dialog_active(frame)
+    is_inactive, inactive_score = _is_donate_dialog_inactive(frame)
+    _log(f"Step 6: Donate dialog - active={is_active} ({active_score:.4f}), inactive={is_inactive} ({inactive_score:.4f})")
 
-    if not is_dialog_visible:
-        _log("WARNING: Donate dialog not detected, trying to click anyway")
+    if is_inactive:
+        _log("Donate button is INACTIVE (gray) - nothing to donate, skipping")
+        return_to_base_view(adb, win, debug=False)
+        elapsed = time.time() - flow_start
+        _log(f"=== UNION TECHNOLOGY FLOW COMPLETE (nothing to donate) === (took {elapsed:.1f}s)")
+        return True
+
+    if not is_active:
+        _log("WARNING: Donate dialog state unclear, trying to click anyway")
 
     # Step 7: Long press on donate button (3 second hold)
     _log(f"Step 7: Long pressing donate button at {DONATE_BUTTON_CLICK} for 3 seconds")

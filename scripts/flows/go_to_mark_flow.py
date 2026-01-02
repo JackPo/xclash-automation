@@ -20,7 +20,7 @@ from pathlib import Path
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import go_to_world
 from utils.return_to_base_view import return_to_base_view
-from utils.template_matcher import match_template, match_template_fixed, has_mask
+from utils.template_matcher import match_template, has_mask
 
 # Thresholds - different for masked vs non-masked templates
 SQDIFF_THRESHOLD = 0.1   # For non-masked templates (lower=better)
@@ -68,7 +68,7 @@ def _poll_for_mark_tab_fixed(win, timeout=POLL_TIMEOUT, debug=False):
         frame = win.get_screenshot_cv2()
 
         # Check inactive first
-        found, score, _ = match_template_fixed(
+        found, score, _ = match_template(
             frame, "search_mark_tab_inactive_4k.png",
             MARK_TAB_POS, MARK_TAB_SIZE, threshold=SQDIFF_THRESHOLD
         )
@@ -78,7 +78,7 @@ def _poll_for_mark_tab_fixed(win, timeout=POLL_TIMEOUT, debug=False):
             return True, False, score, frame
 
         # Check active
-        found, score, _ = match_template_fixed(
+        found, score, _ = match_template(
             frame, "search_mark_tab_active_4k.png",
             MARK_TAB_POS, MARK_TAB_SIZE, threshold=SQDIFF_THRESHOLD
         )

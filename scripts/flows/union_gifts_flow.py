@@ -33,14 +33,14 @@ import numpy as np
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
+from utils.debug_screenshot import save_debug_screenshot
 
 # Setup logger
 logger = logging.getLogger("union_gifts_flow")
 
-# Debug output directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "union_gifts_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+# Flow name for debug screenshots
+FLOW_NAME = "union_gifts"
 
 # Fixed click coordinates (4K resolution)
 UNION_BUTTON_CLICK = (3165, 2033)  # Union button on bottom bar
@@ -49,7 +49,9 @@ LOOT_CHEST_TAB_CLICK = (1622, 545)  # Loot Chest tab
 RARE_GIFTS_TAB_CLICK = (2202, 548)  # Rare Gifts tab
 LOOT_CHEST_CLAIM_ALL_CLICK = (1879, 2051)  # Claim All button for Loot Chest
 RARE_GIFTS_CLAIM_ALL_CLICK = (2217, 2049)  # Claim All button for Rare Gifts
-BACK_BUTTON_CLICK = (1407, 2055)  # Back button (same as chat back)
+
+from utils.ui_helpers import click_back
+from config import BACK_BUTTON_CLICK
 
 # Back button detection (fixed position)
 BACK_BUTTON_X = 1345
@@ -61,7 +63,7 @@ BACK_BUTTON_THRESHOLD = 0.06
 
 def _is_back_button_present(frame: np.ndarray) -> tuple[bool, float]:
     """Check if back button is present at fixed location using template_matcher."""
-    is_present, score, _ = match_template_fixed(
+    is_present, score, _ = match_template(
         frame, "back_button_union_4k.png",
         (BACK_BUTTON_X, BACK_BUTTON_Y),
         (BACK_BUTTON_WIDTH, BACK_BUTTON_HEIGHT),
@@ -77,10 +79,7 @@ CLAIM_DELAY = 1.0  # Delay after claiming
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = DEBUG_DIR / f"{timestamp}_{name}.png"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
 def _log(msg: str):
@@ -169,7 +168,7 @@ def union_gifts_flow(adb) -> bool:
     for attempt in range(max_back_attempts):
         # Click back button first (don't check before clicking)
         _log(f"Clicking Back button at {BACK_BUTTON_CLICK} (attempt {attempt + 1})")
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(CLICK_DELAY)
 
         # Now check if back button is still visible

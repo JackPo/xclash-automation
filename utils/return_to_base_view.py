@@ -25,8 +25,10 @@ import numpy as np
 # Target resolution
 TARGET_RESOLUTION = "3840x2160"
 
+# Import from centralized config
+from config import BACK_BUTTON_CLICK
+
 # Click positions
-BACK_BUTTON_CLICK = (1407, 2055)
 MAP_DESELECT_CLICK = (500, 1000)  # Click on empty map area to deselect troops
 CENTER_SCREEN_CLICK = (1920, 1600)  # Click center-bottom for "Tap to Close" popups
 
@@ -256,7 +258,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Phase 1: Click back button while visible
         back_clicks = 0
         while back_clicks < MAX_BACK_CLICKS:
-            time.sleep(2.0)  # Give UI time to settle before checking
+            time.sleep(0.5)  # Give UI time to settle before checking
             frame = win.get_screenshot_cv2()
             if frame is None:
                 if debug:
@@ -271,19 +273,12 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     print(f"    [RETURN] Reached {view_state.value} view (score={view_score:.3f})")
                 return True
 
-            # Check for back button
-            back_present, back_score = back_matcher.is_present(frame)
-            if back_present:
-                # Save debug screenshot before back click
-                debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
-                debug_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                debug_path = debug_dir / f"return_back_click_a{attempt+1}_c{back_clicks+1}_{timestamp}.png"
-                cv2.imwrite(str(debug_path), frame)
+            # Check for back button using search
+            back_present, back_score, back_pos = back_matcher.find(frame)
+            if back_present and back_pos:
                 if debug:
-                    print(f"    [RETURN] Saved debug screenshot: {debug_path.name}")
-                    print(f"    [RETURN] Back button visible (score={back_score:.3f}), clicking...")
-                adb.tap(*BACK_BUTTON_CLICK)
+                    print(f"    [RETURN] Back button found at {back_pos} (score={back_score:.3f}), clicking...")
+                adb.tap(*back_pos)
                 back_clicks += 1
             else:
                 if debug:
@@ -291,7 +286,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 break
 
         # Phase 2: Check view state again
-        time.sleep(2.0)  # Give UI time to settle
+        time.sleep(0.5)  # Give UI time to settle
         frame = win.get_screenshot_cv2()
         if frame is not None:
             view_state, view_score = detect_view(frame)
@@ -328,7 +323,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Detect other states
             troop_selected, troop_score = _detect_troop_selected(frame)
             resource_bar, resource_score = _detect_resource_bar(frame)
-            back_present, back_score = back_matcher.is_present(frame)
+            back_present, back_score, back_pos = back_matcher.find(frame)
 
             # Save debug screenshot with state info
             debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
@@ -381,12 +376,12 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                         return True
                 continue
 
-            elif back_present:
+            elif back_present and back_pos:
                 # Back button visible - we're in some menu/dialog
                 if debug:
-                    print("    [RETURN] BACK BUTTON visible - clicking to exit dialog...")
-                adb.tap(*BACK_BUTTON_CLICK)
-                time.sleep(2.0)
+                    print(f"    [RETURN] BACK BUTTON at {back_pos} - clicking to exit dialog...")
+                adb.tap(*back_pos)
+                time.sleep(1.0)
                 continue
 
             else:
@@ -434,11 +429,17 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                             return True
                     continue  # Retry from top
 
-                # Neither grass nor ground found - fall back to default recovery
-                if debug:
-                    print("    [RETURN] No confident grass/ground match - trying back button location...")
-                adb.tap(*BACK_BUTTON_CLICK)
-                time.sleep(2.0)
+                # Neither grass nor ground found - search for back button again
+                back_found, back_score2, back_pos2 = back_matcher.find(frame)
+                if back_found and back_pos2:
+                    if debug:
+                        print(f"    [RETURN] Found back button at {back_pos2} (score={back_score2:.3f})")
+                    adb.tap(*back_pos2)
+                    time.sleep(1.0)
+                else:
+                    if debug:
+                        print("    [RETURN] No back button found, skipping...")
+                    time.sleep(0.5)
 
                 # Check again
                 frame = win.get_screenshot_cv2()
@@ -481,7 +482,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         cv2.imwrite(str(debug_path), frame)
         # Also detect view state for the marker
         view_state, view_score = detect_view(frame)
-        back_present, back_score = back_matcher.is_present(frame)
+        back_present, back_score, _ = back_matcher.find(frame)
         print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")
         print(f"    [RETURN] Screenshot saved: {debug_path.name}")
         print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")

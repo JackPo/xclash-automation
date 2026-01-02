@@ -8,7 +8,7 @@ Coordinates loaded from config - override in config_local.py for your town layou
 import numpy as np
 
 from config import DOG_HOUSE_POSITION, DOG_HOUSE_SIZE, THRESHOLDS
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 
 class DogHouseMatcher:
@@ -41,7 +41,7 @@ class DogHouseMatcher:
         Returns:
             (is_aligned, score) - is_aligned=True if dog house is at expected position
         """
-        is_aligned, score, _ = match_template_fixed(
+        is_aligned, score, _ = match_template(
             frame,
             self.TEMPLATE_NAME,
             position=self.POSITION,

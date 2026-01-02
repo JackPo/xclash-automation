@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from config import EQUIPMENT_BUBBLE, THRESHOLDS
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 
 class EquipmentEnhancementMatcher:
@@ -36,11 +36,7 @@ class EquipmentEnhancementMatcher:
         if frame is None or frame.size == 0:
             return False, 1.0
 
-        is_present, score, _ = match_template_fixed(
-            frame,
-            self.TEMPLATE_NAME,
-            position=(self.ICON_X, self.ICON_Y),
-            size=(self.ICON_WIDTH, self.ICON_HEIGHT),
+        is_present, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(self.ICON_X, self.ICON_Y, self.ICON_WIDTH, self.ICON_HEIGHT),
             threshold=self.threshold
         )
 

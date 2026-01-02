@@ -37,7 +37,9 @@ DEPLOY_BUTTON_REGION = (1950, 1976, 377, 145)
 DEPLOY_BUTTON_CLICK = (2138, 2048)
 
 CAMCORDER_ICON_REGION = (1355, 1853, 115, 119)
-BACK_BUTTON_CLICK = (1407, 2055)
+
+from utils.ui_helpers import click_back
+from config import BACK_BUTTON_CLICK
 
 # Templates
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -158,7 +160,7 @@ def faction_trials_flow(adb=None, win=None, max_iterations: int = 20, debug: boo
         # Click back button to exit battle
         if debug:
             print(f"  Clicking back button at {BACK_BUTTON_CLICK}")
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(1.5)
 
         battles_completed += 1

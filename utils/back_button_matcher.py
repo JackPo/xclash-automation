@@ -1,53 +1,80 @@
 """
-Back button matcher for detecting chat/dialog windows.
+Back button matcher - SEARCHES for back buttons across the screen.
 
-Uses template_matcher for fixed-position detection.
+Uses template_matcher to find back buttons anywhere in the bottom portion.
+Tries multiple templates to handle different button styles.
 
-FIXED specs (4K resolution):
-- Position: (1345, 2002) size 107x111 pixels
-- Click position: (1407, 2055) - center of back button
-- Threshold: 0.06 (TM_SQDIFF_NORMED, lower = better)
+Templates:
+- back_button_4k.png - Standard back button
+- back_button_light_4k.png - Light colored variant
+- back_button_union_4k.png - Union panel back button
 """
 from __future__ import annotations
 
 import numpy as np
 
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 
 class BackButtonMatcher:
     """
-    Presence detector for back button at FIXED location.
+    Search-based detector for back buttons.
+    Finds back button anywhere in search region and returns click position.
     """
 
-    POSITION_X = 1345
-    POSITION_Y = 2002
-    WIDTH = 107
-    HEIGHT = 111
+    # Templates to try (in order)
+    TEMPLATES = [
+        "back_button_union_4k.png",
+        "back_button_4k.png",
+        "back_button_light_4k.png",
+    ]
 
-    CLICK_X = 1407
-    CLICK_Y = 2055
+    # Search in bottom half of screen where back buttons typically appear
+    SEARCH_REGION = (0, 1080, 3840, 1080)  # x, y, w, h - bottom half
 
-    TEMPLATE_NAME = "back_button_union_4k.png"
-    DEFAULT_THRESHOLD = 0.06
+    # Tight threshold to avoid false positives
+    DEFAULT_THRESHOLD = 0.05
 
     def __init__(self, threshold: float = None, debug_dir=None) -> None:
-        # debug_dir ignored - kept for backward compatibility
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def find(self, frame: np.ndarray) -> tuple[bool, float, tuple[int, int] | None]:
+        """
+        Search for back button in frame.
+
+        Returns:
+            (found: bool, score: float, click_pos: tuple or None)
+            click_pos is center of detected button
+        """
         if frame is None or frame.size == 0:
-            return False, 1.0
+            return False, 1.0, None
 
-        is_present, score, _ = match_template_fixed(
-            frame,
-            self.TEMPLATE_NAME,
-            position=(self.POSITION_X, self.POSITION_Y),
-            size=(self.WIDTH, self.HEIGHT),
-            threshold=self.threshold
-        )
+        best_score = 1.0
+        best_pos = None
+        best_found = False
 
-        return is_present, score
+        for template_name in self.TEMPLATES:
+            found, score, location = match_template(
+                frame,
+                template_name,
+                search_region=self.SEARCH_REGION,
+                threshold=self.threshold
+            )
+
+            if found and score < best_score:
+                best_score = score
+                best_found = True
+                # match_template already returns center coordinates
+                if location:
+                    best_pos = location
+
+        return best_found, best_score, best_pos
+
+    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+        """Legacy API - returns (found, score) without position."""
+        found, score, _ = self.find(frame)
+        return found, score
 
     def click(self, adb_helper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        """Legacy API - clicks fixed position. Use find() for dynamic position."""
+        adb_helper.tap(1407, 2055)

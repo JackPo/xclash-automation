@@ -41,19 +41,19 @@ CLAIM_POLL_INTERVAL = 0.5  # seconds between polls
 PRE_ARRIVAL_BUFFER = 15    # seconds before completion to navigate to tavern
 SHORT_TIMER_THRESHOLD = 30 # seconds - timer considered "about to complete"
 
-# Template paths
-TEMPLATE_DIR = "templates/ground_truth"
-MY_QUESTS_ACTIVE_TEMPLATE = f"{TEMPLATE_DIR}/tavern_my_quests_active_4k.png"
-ALLY_QUESTS_ACTIVE_TEMPLATE = f"{TEMPLATE_DIR}/tavern_ally_quests_active_4k.png"
-CLAIM_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/claim_button_tavern_4k.png"
-GOLD_SCROLL_LV4_TEMPLATE = f"{TEMPLATE_DIR}/gold_scroll_lv4_4k.png"
-GO_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/go_button_4k.png"
-QUESTION_MARK_TILE_TEMPLATE = f"{TEMPLATE_DIR}/quest_question_tile_4k.png"
+# Template paths (absolute paths from project root)
+TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
+MY_QUESTS_ACTIVE_TEMPLATE = str(TEMPLATE_DIR / "tavern_my_quests_active_4k.png")
+ALLY_QUESTS_ACTIVE_TEMPLATE = str(TEMPLATE_DIR / "tavern_ally_quests_active_4k.png")
+CLAIM_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "claim_button_tavern_4k.png")
+GOLD_SCROLL_LV4_TEMPLATE = str(TEMPLATE_DIR / "gold_scroll_lv4_4k.png")
+GO_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "go_button_4k.png")
+QUESTION_MARK_TILE_TEMPLATE = str(TEMPLATE_DIR / "quest_question_tile_4k.png")
 
 # Bounty Quest dialog templates
-BOUNTY_QUEST_TITLE_TEMPLATE = f"{TEMPLATE_DIR}/bounty_quest_title_4k.png"
-AUTO_DISPATCH_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/auto_dispatch_button_4k.png"
-PROCEED_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/proceed_button_4k.png"
+BOUNTY_QUEST_TITLE_TEMPLATE = str(TEMPLATE_DIR / "bounty_quest_title_4k.png")
+AUTO_DISPATCH_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "auto_dispatch_button_4k.png")
+PROCEED_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "proceed_button_4k.png")
 
 # Bounty Quest button click positions (center of buttons)
 AUTO_DISPATCH_CLICK = (1670, 1770)
@@ -633,8 +633,9 @@ def is_in_tavern(frame_gray: np.ndarray) -> tuple[bool, str]:
         return True, "my_quests"
 
 
-# Back button position for dismissing popups
-BACK_BUTTON_CLICK = (1407, 2055)
+# Import back button from centralized config
+from config import BACK_BUTTON_CLICK
+from utils.ui_helpers import click_back
 
 
 def wait_for_tavern_tabs(adb: ADBHelper, win: WindowsScreenshotHelper,
@@ -676,7 +677,7 @@ def wait_for_tavern_tabs(adb: ADBHelper, win: WindowsScreenshotHelper,
         # Still in popup - click back button to dismiss
         if debug:
             logger.debug(f"[POPUP] Attempt {attempt + 1}/{max_attempts}: Tabs not visible, clicking back")
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(0.5)
 
     logger.warning(f"[POPUP] Failed to return to Tavern after {max_attempts} attempts")
@@ -779,113 +780,18 @@ def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr, deb
 
 def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=None, debug: bool = False) -> dict:
     """
-    Navigate to tavern, verify timer < 30s exists, poll for Claim button.
+    DEPRECATED: Use run_tavern_quest_flow instead.
 
-    This is the scheduled flow triggered by the daemon 15 seconds before a quest completes.
+    run_tavern_quest_flow does everything this function does PLUS:
+    - Go button clicking for gold scroll quests
+    - Go button clicking for question mark quests
+    - Double-pass strategy to avoid UI glitches missing claims
+    - Timer scanning for scheduler
 
-    Args:
-        adb: ADBHelper instance
-        win: WindowsScreenshotHelper instance (optional, creates one if not provided)
-        ocr: OCR client instance (optional, creates OCRClient if not provided)
-        debug: Enable debug logging
-
-    Returns:
-        dict with 'claims' count and 'success' bool
+    This function is kept for backward compatibility but should not be used.
     """
-    if win is None:
-        win = WindowsScreenshotHelper()
-    if ocr is None:
-        from utils.ocr_client import OCRClient
-        ocr = OCRClient()
-
-    logger.info("=== TAVERN QUEST CLAIM FLOW START ===")
-
-    # Step 1: Navigate to TOWN (tavern button only visible in TOWN)
-    from utils.view_state_detector import go_to_town
-    logger.info("Step 1: Navigating to TOWN view")
-    if not go_to_town(adb, debug=debug):
-        logger.warning("Failed to navigate to TOWN! Aborting.")
-        return {"claims": 0, "success": False}
-
-    # Step 2: Click tavern button to open
-    TAVERN_BUTTON_CLICK = (80, 1220)
-    logger.info(f"Step 2: Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
-    adb.tap(*TAVERN_BUTTON_CLICK)
-    time.sleep(1.5)  # Wait for tavern to open
-
-    # Step 3: Verify we're in Tavern on My Quests tab
-    frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    in_tavern, active_tab = is_in_tavern(frame_gray)
-    if not in_tavern:
-        logger.warning("Not in Tavern after clicking button! Aborting.")
-        return_to_base_view(adb, win, debug=debug)
-        return {"claims": 0, "success": False}
-
-    # Switch to My Quests if needed
-    if active_tab != "my_quests":
-        logger.info(f"Switching to My Quests tab (current: {active_tab})")
-        adb.tap(*MY_QUESTS_CLICK)
-        time.sleep(0.5)
-
-    # Step 4: Check for Claim buttons FIRST (quest may have already completed during tavern open)
-    frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    claim_template = cv2.imread(str(CLAIM_BUTTON_TEMPLATE), cv2.IMREAD_GRAYSCALE)
-    if claim_template is None:
-        logger.error(f"Failed to load claim template: {CLAIM_BUTTON_TEMPLATE}")
-        return_to_base_view(adb, win, debug=debug)
-        return {"claims": 0, "success": False}
-
-    claim_buttons = find_claim_buttons(frame_gray, claim_template)
-    claims = 0
-
-    if claim_buttons:
-        logger.info(f"Found {len(claim_buttons)} Claim button(s) already visible! Quest completed during tavern open.")
-        # Click the first claim button
-        x, y = claim_buttons[0]
-        logger.info(f"Clicking Claim at ({x}, {y})")
-        adb.tap(x, y)
-        claims += 1
-        time.sleep(1.0)
-        # Dismiss popup
-        adb.tap(1920, 1080)
-        time.sleep(0.5)
-        # Update schedule and exit
-        frame = win.get_screenshot_cv2()
-        scan_and_schedule_quest_completions(frame, ocr)
-        return_to_base_view(adb, win, debug=debug)
-        logger.info(f"=== TAVERN QUEST CLAIM FLOW END === Claims: {claims}")
-        return {"claims": claims, "success": True}
-
-    # Step 5: No Claim visible yet - check for timer < 30s to decide if we should wait
-    timers = find_quest_timers(frame, frame_gray, ocr=ocr)
-    has_short_timer = any(t['seconds'] is not None and t['seconds'] < SHORT_TIMER_THRESHOLD for t in timers)
-
-    if not has_short_timer:
-        logger.info(f"No Claim buttons and no timers < {SHORT_TIMER_THRESHOLD}s found, exiting")
-        # Still update schedule with current timers
-        scan_and_schedule_quest_completions(frame, ocr)
-        return_to_base_view(adb, win, debug=debug)
-        return {"claims": 0, "success": True}
-
-    logger.info(f"Found timer(s) < {SHORT_TIMER_THRESHOLD}s, starting poll loop")
-
-    # Step 6: Poll for Claim button
-    claims = poll_for_claim_button(adb, win, ocr, debug=debug)
-
-    # Step 7: Update schedule with remaining timers
-    frame = win.get_screenshot_cv2()
-    scan_and_schedule_quest_completions(frame, ocr)
-
-    # Step 8: Return to base view
-    logger.info("Returning to base view")
-    return_to_base_view(adb, win, debug=debug)
-
-    logger.info(f"=== TAVERN QUEST CLAIM FLOW END === Claims: {claims}")
-    return {"claims": claims, "success": True}
+    logger.warning("tavern_quest_claim_flow is DEPRECATED - use run_tavern_quest_flow instead")
+    return run_tavern_quest_flow(adb, win, debug=debug)
 
 
 def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=None, debug: bool = False) -> dict:

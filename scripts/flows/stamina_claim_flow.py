@@ -23,25 +23,25 @@ from pathlib import Path
 import time
 import re
 
+from config import STAMINA_REGION, STAMINA_CLAIM_BUTTON, BACK_BUTTON_CLICK
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.template_matcher import match_template
+from utils.ui_helpers import click_back
 from .back_from_chat_flow import back_from_chat_flow
 
-# Fixed click position (center of Claim button)
-CLAIM_BUTTON_X = 2284
-CLAIM_BUTTON_Y = 743
+# Click position from config
+CLAIM_BUTTON_X = STAMINA_CLAIM_BUTTON['click'][0]
+CLAIM_BUTTON_Y = STAMINA_CLAIM_BUTTON['click'][1]
 
-# Stamina display click position (to open popup)
-# Based on STAMINA_REGION from config: (69, 203, 96, 60)
-STAMINA_DISPLAY_X = 117  # center of region
-STAMINA_DISPLAY_Y = 233
+# Stamina display click position (center of STAMINA_REGION)
+STAMINA_DISPLAY_X = STAMINA_REGION[0] + STAMINA_REGION[2] // 2
+STAMINA_DISPLAY_Y = STAMINA_REGION[1] + STAMINA_REGION[3] // 2
 
 # Matching threshold using TM_SQDIFF_NORMED (lower is better, 0 = perfect)
 MATCH_THRESHOLD = 0.05
 
-# Search region for Claim button (to avoid false positives elsewhere)
-# Based on stamina popup location - upper half of center screen
-SEARCH_REGION = (1800, 400, 800, 500)  # x, y, w, h
+# Search region from config
+SEARCH_REGION = STAMINA_CLAIM_BUTTON['search_region']
 
 # Timer region - where countdown shows when Claim is not available
 # Detected via Gemini: (2161, 693) to (2407, 792), size 246x99
@@ -151,7 +151,7 @@ def stamina_claim_flow(adb, screenshot_helper=None):
             print("    [STAMINA-CLAIM] Timer OCR failed")
 
         # Close popup
-        adb.tap(1407, 2055)  # Click back button to close stamina popup
+        click_back(adb)  # Click back button to close stamina popup
         time.sleep(0.3)
         back_from_chat_flow(adb, win)
         return result
@@ -163,7 +163,7 @@ def stamina_claim_flow(adb, screenshot_helper=None):
     # Step 5: Wait and close popup
     time.sleep(0.5)
     print("    [STAMINA-CLAIM] Step 4: Closing popup with back button")
-    adb.tap(1407, 2055)  # Click back button to close stamina popup
+    click_back(adb)  # Click back button to close stamina popup
     time.sleep(0.3)
     back_from_chat_flow(adb, win)
 
@@ -226,7 +226,7 @@ def check_claim_status(adb, screenshot_helper=None) -> dict:
         result["timer_seconds"] = _ocr_timer(frame)
 
     # Close popup without clicking Claim
-    adb.tap(1407, 2055)
+    click_back(adb)
     time.sleep(0.3)
     back_from_chat_flow(adb, win)
 

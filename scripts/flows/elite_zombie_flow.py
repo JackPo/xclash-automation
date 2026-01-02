@@ -37,14 +37,14 @@ from utils.view_state_detector import detect_view, go_to_world, ViewState
 from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template, has_mask
+from utils.debug_screenshot import save_debug_screenshot
 from config import ELITE_ZOMBIE_PLUS_CLICKS
 
 # Setup logger
 logger = logging.getLogger("elite_zombie_flow")
 
-# Debug output directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "elite_zombie_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+# Flow name for debug screenshots
+FLOW_NAME = "elite_zombie"
 
 # Template directory (for debug saves only)
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -56,6 +56,12 @@ PLUS_BUTTON_CLICK = (2232, 1875)
 SEARCH_BUTTON_CLICK = (1914, 2018)
 RALLY_BUTTON_CLICK = (1915, 1682)
 TEAM_UP_BUTTON_CLICK = (1912, 1648)
+
+# Elite Zombie tab FIXED position for template matching (4K)
+# Template size: 269x101
+ELITE_ZOMBIE_TAB_POSITION = (1923, 1045)  # Top-left corner (verified via region search)
+ELITE_ZOMBIE_TAB_SIZE = (269, 101)
+ELITE_ZOMBIE_TAB_THRESHOLD = 0.06
 
 # Timing constants
 CLICK_DELAY = 0.3  # Delay after each click
@@ -85,10 +91,7 @@ UNKNOWN_EVENTS_DIR = Path(__file__).parent.parent.parent / "templates" / "unknow
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = DEBUG_DIR / f"{timestamp}_{name}.png"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
 def _log(msg: str):
@@ -205,43 +208,78 @@ def elite_zombie_flow(adb) -> bool:
                     return False
                 time.sleep(SCREEN_TRANSITION_DELAY)
 
-        # Step 1: Click magnifying glass and VERIFY search panel opened
+        # Step 1: Click magnifying glass
         _log(f"Step 1: Clicking magnifying glass at {MAGNIFYING_GLASS_CLICK}")
         adb.tap(*MAGNIFYING_GLASS_CLICK)
+        time.sleep(SCREEN_TRANSITION_DELAY)
 
-        # Poll for rally search button to appear (proves search panel is open)
-        # This is the "Search" text button at bottom of Elite Zombie panel
-        found, score, loc, frame = _poll_for_template(
-            win, "rally_search_button_4k.png",
-            threshold=SEARCH_BUTTON_THRESHOLD,
-            search_region=(1600, 1800, 700, 400)
-        )
-        if frame is not None:
-            _save_debug_screenshot(frame, "01_after_magnifying_glass")
-        if not found:
-            _log("FAILED: Search panel did not open (search button not found)")
+        # Step 2: Poll for Elite Zombie tab at FIXED position (active OR inactive)
+        # This confirms search panel opened, regardless of which tab is shown
+        _log("Step 2: Polling for Elite Zombie tab at FIXED position...")
+        panel_opened = False
+        for attempt in range(MAX_POLL_ATTEMPTS):
+            frame = win.get_screenshot_cv2()
+
+            # Check if ACTIVE
+            is_active, active_score, _ = match_template(
+                frame, "search_elite_zombie_tab_active_4k.png",
+                position=ELITE_ZOMBIE_TAB_POSITION,
+                size=ELITE_ZOMBIE_TAB_SIZE,
+                threshold=ELITE_ZOMBIE_TAB_THRESHOLD
+            )
+            if is_active:
+                _log(f"  Elite Zombie tab ACTIVE (score={active_score:.4f}) after {attempt+1} attempts")
+                panel_opened = True
+                break
+
+            # Check if INACTIVE
+            is_inactive, inactive_score, _ = match_template(
+                frame, "search_elite_zombie_tab_inactive_4k.png",
+                position=ELITE_ZOMBIE_TAB_POSITION,
+                size=ELITE_ZOMBIE_TAB_SIZE,
+                threshold=ELITE_ZOMBIE_TAB_THRESHOLD
+            )
+            if is_inactive:
+                _log(f"  Elite Zombie tab INACTIVE (score={inactive_score:.4f}) after {attempt+1} attempts")
+                panel_opened = True
+                break
+
+            _log(f"  Attempt {attempt+1}: active={active_score:.4f}, inactive={inactive_score:.4f}")
+            time.sleep(POLL_INTERVAL)
+
+        if not panel_opened:
+            _log("FAILED: Search panel did not open (Elite Zombie tab not found)")
+            _save_debug_screenshot(frame, "01_search_panel_not_opened")
             return_to_base_view(adb, win, debug=False)
             return False
-        _log(f"  Search panel verified (search button at {loc})")
 
-        # Step 2: Click Elite Zombie tab and VERIFY tab selected
-        _log(f"Step 2: Clicking Elite Zombie tab at {ELITE_ZOMBIE_TAB_CLICK}")
-        adb.tap(*ELITE_ZOMBIE_TAB_CLICK)
-        time.sleep(CLICK_DELAY)
+        _save_debug_screenshot(frame, "01_search_panel_opened")
 
-        # Verify Elite Zombie tab is selected (template should match)
-        frame = win.get_screenshot_cv2()
-        found, score, loc = _verify_template(
-            frame, "elite_zombie_tab_4k.png",
-            threshold=VERIFY_THRESHOLD,
-            search_region=(1800, 950, 500, 300)
-        )
-        if frame is not None:
-            _save_debug_screenshot(frame, "02_after_elite_zombie_tab")
-        if not found:
-            _log(f"  WARNING: Elite Zombie tab not confirmed (score={score:.4f}), continuing anyway")
+        # Step 3: If not active, click Elite Zombie tab to activate it
+        if not is_active:
+            _log(f"Step 3: Clicking Elite Zombie tab at {ELITE_ZOMBIE_TAB_CLICK}...")
+            adb.tap(*ELITE_ZOMBIE_TAB_CLICK)
+            time.sleep(CLICK_DELAY)
+
+            # Re-verify it's now active
+            frame = win.get_screenshot_cv2()
+            is_active, active_score, _ = match_template(
+                frame, "search_elite_zombie_tab_active_4k.png",
+                position=ELITE_ZOMBIE_TAB_POSITION,
+                size=ELITE_ZOMBIE_TAB_SIZE,
+                threshold=ELITE_ZOMBIE_TAB_THRESHOLD
+            )
+            _log(f"  After click - Elite Zombie tab ACTIVE: score={active_score:.4f}, found={is_active}")
+
+            if not is_active:
+                _log("FAILED: Elite Zombie tab not active after clicking!")
+                _save_debug_screenshot(frame, "02_elite_zombie_tab_not_active")
+                return_to_base_view(adb, win, debug=False)
+                return False
         else:
-            _log(f"  Elite Zombie tab verified (score={score:.4f})")
+            _log("Step 3: Elite Zombie tab already active, skipping click")
+
+        _save_debug_screenshot(frame, "02_elite_zombie_tab_active")
 
         # Step 2.5: Check if Klass Rally is active
         is_klass = _is_klass_event(frame)

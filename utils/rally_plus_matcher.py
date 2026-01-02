@@ -7,19 +7,20 @@ Uses template_matcher for full-frame search, then filters to slot 4 position.
 import numpy as np
 from typing import List, Tuple
 
+from config import RALLY_PLUS_BUTTON_X, RALLY_PLUS_BUTTON_THRESHOLD
 from utils.template_matcher import match_template
 
 
 class RallyPlusMatcher:
     """Detects rally plus buttons using full-frame search."""
 
-    # Plus button coordinates (from docs/joining_rallies.md)
-    PLUS_BUTTON_X = 1902  # Slot 4 (rightmost plus button position)
+    # Plus button coordinates (from config.py)
+    PLUS_BUTTON_X = RALLY_PLUS_BUTTON_X  # Slot 4 (rightmost plus button position)
     PLUS_BUTTON_WIDTH = 130
     PLUS_BUTTON_HEIGHT = 130
 
     TEMPLATE_NAME = "rally_plus_button_4k.png"
-    DEFAULT_THRESHOLD = 0.05
+    DEFAULT_THRESHOLD = RALLY_PLUS_BUTTON_THRESHOLD
 
     def __init__(self, threshold: float = None):
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
@@ -31,7 +32,7 @@ class RallyPlusMatcher:
         Strategy:
         1. Run template matching on ENTIRE frame
         2. Find all matches below threshold
-        3. Filter to keep only matches near X=1902 (slot 4 position)
+        3. Filter to keep only matches near RALLY_PLUS_BUTTON_X (slot 4 position)
         4. Return all matches sorted by Y (top to bottom)
 
         Args:

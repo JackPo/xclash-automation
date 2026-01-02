@@ -28,7 +28,8 @@ import numpy as np
 # Use button can be at different Y positions depending on dialog type
 USE_BUTTON_X_REGION = (1750, 2100)  # X range to search
 USE_BUTTON_Y_REGION = (1400, 1700)  # Y range to search (covers both dialog types)
-BACK_BUTTON_CLICK = (1407, 2055)
+
+from utils.ui_helpers import click_back
 
 # Bag header region for verification (same as bag_special_flow)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
@@ -218,7 +219,7 @@ def use_item_subflow(adb, win, debug: bool = False) -> bool:
     for attempt in range(max_attempts):
         if debug:
             print(f"  Clicking back (attempt {attempt + 1})...")
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(0.5)
 
         # Check if we're back at the bag screen

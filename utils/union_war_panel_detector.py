@@ -10,7 +10,7 @@ Checks for:
 
 import numpy as np
 
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 
 class UnionWarPanelDetector:
@@ -44,11 +44,7 @@ class UnionWarPanelDetector:
         Returns:
             (present, score) - True if heading detected
         """
-        found, score, _ = match_template_fixed(
-            frame,
-            self.HEADING_TEMPLATE,
-            position=(self.HEADING_X, self.HEADING_Y),
-            size=(self.HEADING_WIDTH, self.HEADING_HEIGHT),
+        found, score, _ = match_template(frame, self.HEADING_TEMPLATE, search_region=(self.HEADING_X, self.HEADING_Y, self.HEADING_WIDTH, self.HEADING_HEIGHT),
             threshold=self.HEADING_THRESHOLD
         )
 
@@ -61,11 +57,7 @@ class UnionWarPanelDetector:
         Returns:
             (selected, score) - True if tab is selected
         """
-        found, score, _ = match_template_fixed(
-            frame,
-            self.TAB_TEMPLATE,
-            position=(self.TAB_X, self.TAB_Y),
-            size=(self.TAB_WIDTH, self.TAB_HEIGHT),
+        found, score, _ = match_template(frame, self.TAB_TEMPLATE, search_region=(self.TAB_X, self.TAB_Y, self.TAB_WIDTH, self.TAB_HEIGHT),
             threshold=self.TAB_THRESHOLD
         )
 

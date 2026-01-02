@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import go_to_town
 from utils.barracks_state_matcher import check_barracks_states, BarrackState
@@ -45,7 +45,7 @@ def verify_title_active(win, debug=False):
         True if title active icon is visible, False otherwise
     """
     frame = win.get_screenshot_cv2()
-    found, score, center = match_template_fixed(
+    found, score, center = match_template(
         frame,
         "title_active_icon_4k.png",
         TITLE_ACTIVE_ICON_POS,

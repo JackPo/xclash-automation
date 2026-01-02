@@ -18,9 +18,13 @@ import cv2
 import numpy as np
 
 
-# Fixed click position for back button
-BACK_BUTTON_X = 1407
-BACK_BUTTON_Y = 2055
+# Import from centralized config
+from config import BACK_BUTTON_CLICK
+from utils.ui_helpers import click_back
+
+# Extract X, Y for logging purposes
+BACK_BUTTON_X = BACK_BUTTON_CLICK[0]
+BACK_BUTTON_Y = BACK_BUTTON_CLICK[1]
 
 # Search region around the back button (with some margin)
 SEARCH_X = 1300
@@ -121,7 +125,7 @@ def back_from_chat_flow(adb, screenshot_helper=None, max_clicks=5):
 
         # Click the back button
         print(f"    [BACK] Clicking back button ({variant}, score={score:.3f})")
-        adb.tap(BACK_BUTTON_X, BACK_BUTTON_Y)
+        click_back(adb)
         clicks += 1
 
         # Wait for UI to update

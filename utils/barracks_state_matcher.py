@@ -25,7 +25,7 @@ import numpy as np
 from enum import Enum
 
 from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_THRESHOLD, BARRACKS_YELLOW_PIXEL_THRESHOLD
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 # Use config values
 TEMPLATE_SIZE = BARRACKS_TEMPLATE_SIZE
@@ -81,27 +81,15 @@ class BarracksStateMatcher:
 
         # Match each template at this position - USE the found result from template_matcher
         # template_matcher handles SQDIFF vs CCORR correctly based on mask presence
-        stopwatch_found, stopwatch_score, _ = match_template_fixed(
-            frame,
-            self.STOPWATCH_TEMPLATE,
-            position=(x, y),
-            size=(tw, th),
+        stopwatch_found, stopwatch_score, _ = match_template(frame, self.STOPWATCH_TEMPLATE, search_region=(x, y, tw, th),
             threshold=MATCH_THRESHOLD
         )
 
-        yellow_found, yellow_score, _ = match_template_fixed(
-            frame,
-            self.YELLOW_TEMPLATE,
-            position=(x, y),
-            size=(tw, th),
+        yellow_found, yellow_score, _ = match_template(frame, self.YELLOW_TEMPLATE, search_region=(x, y, tw, th),
             threshold=MATCH_THRESHOLD
         )
 
-        white_found, white_score, _ = match_template_fixed(
-            frame,
-            self.WHITE_TEMPLATE,
-            position=(x, y),
-            size=(tw, th),
+        white_found, white_score, _ = match_template(frame, self.WHITE_TEMPLATE, search_region=(x, y, tw, th),
             threshold=MATCH_THRESHOLD
         )
 

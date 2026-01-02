@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
-from utils.template_matcher import match_template_fixed, match_template
+from utils.template_matcher import match_template
 from utils.return_to_base_view import return_to_base_view
 from utils.barracks_state_matcher import check_barracks_states, BarrackState
 from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE
@@ -59,7 +59,7 @@ def _poll_for_template_fixed(win, template_name, pos, size, timeout=POLL_TIMEOUT
     last_score = 1.0
     while time.time() - start < timeout:
         frame = win.get_screenshot_cv2()
-        found, score, center = match_template_fixed(frame, template_name, pos, size, threshold=THRESHOLD)
+        found, score, center = match_template(frame, template_name, pos, size, threshold=THRESHOLD)
         last_score = score
         if found:
             if debug:

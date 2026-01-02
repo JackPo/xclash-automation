@@ -17,27 +17,27 @@ from pathlib import Path
 import time
 import cv2
 
+from config import STAMINA_REGION, STAMINA_USE_BUTTON, BACK_BUTTON_CLICK
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.ui_helpers import click_back
 from .back_from_chat_flow import back_from_chat_flow
 
 # Template for Use button detection
 USE_BUTTON_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "use_button_4k.png"
 
-# Fixed click position (center of Use button)
-USE_BUTTON_X = 2284
-USE_BUTTON_Y = 1440
+# Click position from config
+USE_BUTTON_X = STAMINA_USE_BUTTON['click'][0]
+USE_BUTTON_Y = STAMINA_USE_BUTTON['click'][1]
 
-# Stamina display click position (to open popup)
-# Based on STAMINA_REGION from config: (69, 203, 96, 60)
-STAMINA_DISPLAY_X = 117  # center of region
-STAMINA_DISPLAY_Y = 233
+# Stamina display click position (center of STAMINA_REGION)
+STAMINA_DISPLAY_X = STAMINA_REGION[0] + STAMINA_REGION[2] // 2
+STAMINA_DISPLAY_Y = STAMINA_REGION[1] + STAMINA_REGION[3] // 2
 
 # Matching threshold using TM_SQDIFF_NORMED (lower is better, 0 = perfect)
 MATCH_THRESHOLD = 0.05
 
-# Search region for Use button (to avoid false positives elsewhere)
-# Based on stamina popup location - lower half of center screen
-SEARCH_REGION = (1800, 1100, 800, 500)  # x, y, w, h
+# Search region from config
+SEARCH_REGION = STAMINA_USE_BUTTON['search_region']
 
 
 def stamina_use_flow(adb, screenshot_helper=None):
@@ -93,7 +93,7 @@ def stamina_use_flow(adb, screenshot_helper=None):
     if min_val > MATCH_THRESHOLD:
         print("    [STAMINA-USE] Use button not found (no recovery items available)")
         # Close popup
-        adb.tap(1407, 2055)  # Click back button to close stamina popup
+        click_back(adb)  # Click back button to close stamina popup
         time.sleep(0.3)
         back_from_chat_flow(adb, win)
         return False
@@ -105,7 +105,7 @@ def stamina_use_flow(adb, screenshot_helper=None):
     # Step 5: Wait and close popup
     time.sleep(0.5)
     print("    [STAMINA-USE] Step 4: Closing popup with back button")
-    adb.tap(1407, 2055)  # Click back button to close stamina popup
+    click_back(adb)  # Click back button to close stamina popup
     time.sleep(0.3)
     back_from_chat_flow(adb, win)
 

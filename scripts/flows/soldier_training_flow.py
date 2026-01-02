@@ -19,13 +19,13 @@ import time
 import cv2
 import numpy as np
 
-from config import BARRACKS_POSITIONS, SOLDIER_TRAINING_DEFAULT_LEVEL
+from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS, SOLDIER_TRAINING_DEFAULT_LEVEL
 from utils.return_to_base_view import return_to_base_view
 
-# Template paths for panel verification
-TEMPLATE_DIR = "templates/ground_truth"
-SOLDIER_TRAINING_HEADER_TEMPLATE = f"{TEMPLATE_DIR}/soldier_training_header_4k.png"
-TRAIN_BUTTON_TEMPLATE = f"{TEMPLATE_DIR}/train_button_4k.png"
+# Template paths for panel verification (absolute paths from project root)
+TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
+SOLDIER_TRAINING_HEADER_TEMPLATE = str(TEMPLATE_DIR / "soldier_training_header_4k.png")
+TRAIN_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "train_button_4k.png")
 
 # Fixed positions for templates (4K)
 HEADER_REGION = (1678, 315, 480, 54)  # x, y, w, h
@@ -35,9 +35,7 @@ from utils.barracks_state_matcher import BarrackState, get_matcher as get_barrac
 from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level, get_leftmost_visible, get_rightmost_visible
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-# Barracks bubble click positions (center of each bubble)
-# Bubble is 81x87, so center offset is ~40, 43
-BARRACKS_CLICK_OFFSETS = (40, 43)
+# BARRACKS_CLICK_OFFSETS imported from config
 
 
 def is_soldier_training_panel_open(frame) -> tuple[bool, float]:

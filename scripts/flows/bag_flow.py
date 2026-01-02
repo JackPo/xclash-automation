@@ -25,7 +25,7 @@ if str(_script_dir) not in sys.path:
 import cv2
 import numpy as np
 
-from utils.template_matcher import match_template_fixed, match_template
+from utils.template_matcher import match_template
 from scripts.flows.bag_special_flow import bag_special_flow
 from scripts.flows.bag_hero_flow import bag_hero_flow
 from scripts.flows.bag_resources_flow import bag_resources_flow
@@ -37,9 +37,12 @@ from utils.view_state_detector import go_to_town
 BAG_BUTTON_REGION = (3679, 1596, 72, 77)
 BAG_BUTTON_CLICK = (3725, 1624)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
-BACK_BUTTON_CLICK = (1407, 2055)
 
-VERIFICATION_THRESHOLD = 0.01
+from utils.ui_helpers import click_back
+
+# Thresholds: bag_button has mask (CCORR, higher=better), bag_tab no mask (SQDIFF, lower=better)
+BAG_BUTTON_THRESHOLD = 0.97  # CCORR - masked template
+BAG_TAB_THRESHOLD = 0.05     # SQDIFF - no mask
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
@@ -68,7 +71,7 @@ def detect_active_tab(frame: np.ndarray, debug: bool = False) -> str | None:
     best_score = 1.0
 
     for tab_name, template_name in ACTIVE_TAB_TEMPLATES.items():
-        found, min_val, _ = match_template(frame, template_name, threshold=VERIFICATION_THRESHOLD)
+        found, min_val, _ = match_template(frame, template_name, threshold=0.1)
 
         if debug:
             print(f"    {tab_name}: {min_val:.4f}")
@@ -144,11 +147,11 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     # Step 1: Verify bag button visible (confirms we're in TOWN)
     frame = win.get_screenshot_cv2()
-    is_present, score, _ = match_template_fixed(
+    is_present, score, _ = match_template(
         frame, "bag_button_4k.png",
         (BAG_BUTTON_REGION[0], BAG_BUTTON_REGION[1]),
         (BAG_BUTTON_REGION[2], BAG_BUTTON_REGION[3]),
-        threshold=VERIFICATION_THRESHOLD
+        threshold=BAG_BUTTON_THRESHOLD
     )
     if not is_present:
         logger.warning(f"[BAG] Bag button not found (score={score:.4f}), aborting")
@@ -163,11 +166,11 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     # Verify bag opened
     frame = win.get_screenshot_cv2()
-    is_present, score, _ = match_template_fixed(
+    is_present, score, _ = match_template(
         frame, "bag_tab_4k.png",
         (BAG_TAB_REGION[0], BAG_TAB_REGION[1]),
         (BAG_TAB_REGION[2], BAG_TAB_REGION[3]),
-        threshold=VERIFICATION_THRESHOLD
+        threshold=BAG_TAB_THRESHOLD
     )
     if not is_present:
         logger.warning(f"[BAG] Bag didn't open (tab score={score:.4f}), running recovery")
@@ -202,7 +205,7 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
 
     # Step 6: Close bag and return to base view
     logger.info("[BAG] Step 6: Closing bag...")
-    adb.tap(*BACK_BUTTON_CLICK)
+    click_back(adb)
     time.sleep(0.5)
 
     return_to_base_view(adb, win, debug=debug)

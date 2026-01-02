@@ -24,7 +24,7 @@ from pathlib import Path
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
-from utils.template_matcher import match_template_fixed, match_template
+from utils.template_matcher import match_template
 
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -76,14 +76,14 @@ def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=F
             print("  Step 2: Verifying Soldier Training panel...")
         frame = win.get_screenshot_cv2()
 
-        header_ok, header_score, _ = match_template_fixed(
+        header_ok, header_score, _ = match_template(
             frame,
             "soldier_training_header_4k.png",
             SOLDIER_TRAINING_HEADER_POS,
             SOLDIER_TRAINING_HEADER_SIZE,
             threshold=THRESHOLD
         )
-        speedup_ok, speedup_score, _ = match_template_fixed(
+        speedup_ok, speedup_score, _ = match_template(
             frame,
             "speed_up_button_4k.png",
             SPEED_UP_BUTTON_POS,

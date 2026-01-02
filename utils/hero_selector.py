@@ -16,7 +16,7 @@ Detection uses TM_SQDIFF_NORMED with threshold 0.1.
 
 import numpy as np
 
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 
 class HeroSelector:
@@ -51,11 +51,7 @@ class HeroSelector:
         x, y = slot['pos']
         w, h = slot['size']
 
-        found, score, _ = match_template_fixed(
-            frame,
-            self.TEMPLATE_NAME,
-            position=(x, y),
-            size=(w, h),
+        found, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(x, y, w, h),
             threshold=self.THRESHOLD
         )
 

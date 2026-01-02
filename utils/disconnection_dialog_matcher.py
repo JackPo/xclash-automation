@@ -8,7 +8,7 @@ the user time to manage things on mobile.
 
 import numpy as np
 
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 # Fixed positions (4K resolution)
 DIALOG_REGION = (1400, 650, 1020, 380)  # x, y, width, height
@@ -33,11 +33,7 @@ def is_disconnection_dialog_visible(frame: np.ndarray, debug: bool = False) -> t
         return False, 1.0
 
     x, y, w, h = DIALOG_REGION
-    is_visible, score, _ = match_template_fixed(
-        frame,
-        "disconnection_dialog_4k.png",
-        position=(x, y),
-        size=(w, h),
+    is_visible, score, _ = match_template(frame, "disconnection_dialog_4k.png", search_region=(x, y, w, h),
         threshold=THRESHOLD
     )
 

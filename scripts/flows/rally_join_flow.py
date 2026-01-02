@@ -30,7 +30,10 @@ from utils.ocr_client import OCRClient
 from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.back_button_matcher import BackButtonMatcher
+from utils.debug_screenshot import save_debug_screenshot
 
+# Flow name for debug screenshots
+FLOW_NAME = "rally_join"
 
 # Import config values
 try:
@@ -86,9 +89,7 @@ def _should_ignore_daily_limit() -> bool:
     return False
 
 
-# Debug directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "templates" / "debug" / "rally_join_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+# DEBUG_DIR now handled by save_debug_screenshot utility
 
 # Team Up button template path
 TEAM_UP_TEMPLATE_PATH = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "team_up_button_4k.png"
@@ -369,7 +370,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     _save_debug_screenshot(frame, "02_after_plus_click")
 
     # DEBUG: Save the EXACT frame we're passing to hero selector
-    cv2.imwrite("zz_detection_frame.png", frame)
+    from utils.debug_screenshot import save_debug_screenshot
+    save_debug_screenshot(frame, "rally_join", "zz_detection_frame")
 
     # DEBUG: Log all slot scores
     debug_selector = HeroSelector()
@@ -538,8 +540,4 @@ def _save_debug_screenshot(frame, label: str):
         frame: BGR screenshot
         label: Description label for filename
     """
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{timestamp}_{label}.png"
-    filepath = DEBUG_DIR / filename
-    cv2.imwrite(str(filepath), frame)
+    save_debug_screenshot(frame, FLOW_NAME, label)

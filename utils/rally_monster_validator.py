@@ -17,11 +17,11 @@ from datetime import datetime
 class RallyMonsterValidator:
     """Validates rally monsters using OCR and configuration rules."""
 
-    # Monster icon offset relative to plus button
-    # Plus button at (1905, 477) → Monster icon to the LEFT and ABOVE
-    # Corrected offset (monster is LEFT of plus, not right)
-    MONSTER_OFFSET_X = 235  # Monster is 235px LEFT of plus (was wrongly +735)
-    MONSTER_OFFSET_Y = -151  # Monster is 151px ABOVE plus
+    # Monster icon offset relative to plus button CENTER
+    # Note: rally_plus_matcher.find_all_plus_buttons() returns CENTER coordinates
+    # Monster region is offset from that center position
+    MONSTER_OFFSET_X = 235   # Pixels to the RIGHT of plus button center
+    MONSTER_OFFSET_Y = -151  # Pixels ABOVE plus button center (negative = up)
     MONSTER_WIDTH = 290
     MONSTER_HEIGHT = 363
 
@@ -60,8 +60,8 @@ class RallyMonsterValidator:
         Calculate monster icon region from plus button position.
 
         Args:
-            plus_x: X coordinate of plus button top-left
-            plus_y: Y coordinate of plus button top-left
+            plus_x: X coordinate of plus button CENTER
+            plus_y: Y coordinate of plus button CENTER
 
         Returns:
             (x, y, w, h) - Monster icon bounding box
@@ -76,8 +76,8 @@ class RallyMonsterValidator:
 
         Args:
             frame: BGR screenshot from WindowsScreenshotHelper
-            plus_x: X coordinate of plus button
-            plus_y: Y coordinate of plus button
+            plus_x: X coordinate of plus button CENTER
+            plus_y: Y coordinate of plus button CENTER
             rally_index: Index of this rally in the list (for data gathering filenames)
 
         Returns:

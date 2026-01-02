@@ -8,7 +8,7 @@ Click position: (2157, 1697) - center of full button
 
 import numpy as np
 
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 # Fixed location for promote text
 PROMOTE_REGION = (2065, 1648, 181, 54)  # x, y, width, height
@@ -43,11 +43,7 @@ class PromoteButtonMatcher:
             return False, 1.0
 
         x, y, w, h = PROMOTE_REGION
-        is_match, score, _ = match_template_fixed(
-            frame,
-            self.TEMPLATE_NAME,
-            position=(x, y),
-            size=(w, h),
+        is_match, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(x, y, w, h),
             threshold=self.threshold
         )
 

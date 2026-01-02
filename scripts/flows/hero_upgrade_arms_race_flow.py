@@ -23,7 +23,6 @@ Templates:
 
 import time
 import logging
-import subprocess
 
 from config import ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -44,8 +43,8 @@ CURRENT_POINTS_REGION = (1466, 693, 135, 50)
 # Fing Hero button position
 FING_HERO_BUTTON_CLICK = (2272, 2038)
 
-# Back button position (for returning to hero grid after checking a hero)
-BACK_BUTTON_CLICK = (1407, 2055)
+from utils.ui_helpers import click_back
+from config import BACK_BUTTON_CLICK
 
 # Get chest3 threshold from metadata JSON
 def _get_chest3_threshold() -> int:
@@ -53,15 +52,10 @@ def _get_chest3_threshold() -> int:
     meta = get_event_metadata("Enhance Hero")
     return meta["chest3"]
 
-# ADB path for hardware back button
-ADB_PATH = "C:/Program Files/BlueStacks_nxt/hd-adb.exe"
-
-
-def _press_hardware_back():
+def _press_hardware_back(adb):
     """Press Android hardware back button to close panels that don't have visible back buttons."""
     try:
-        subprocess.run([ADB_PATH, '-s', 'emulator-5554', 'shell', 'input', 'keyevent', 'KEYCODE_BACK'],
-                      capture_output=True, timeout=5)
+        adb._run_adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK'])
         time.sleep(0.5)
     except Exception as e:
         logger.warning(f"Hardware back failed: {e}")
@@ -129,14 +123,14 @@ def check_enhance_hero_progress(adb, win) -> dict:
             logger.warning("OCR returned no valid results")
 
         # Close Events panel (click back or tap outside)
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(0.5)
 
     except Exception as e:
         logger.error(f"Error checking progress: {e}")
         # Try to close panel
         try:
-            adb.tap(*BACK_BUTTON_CLICK)
+            click_back(adb)
         except:
             pass
 
@@ -168,7 +162,7 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
 
     if progress["success"] and progress["chest3_reached"]:
         logger.info(f"Chest3 already reached ({progress['current_points']}/{chest3}). Skipping upgrades.")
-        _press_hardware_back()  # Close any open panel
+        _press_hardware_back(adb)  # Close any open panel
         return_to_base_view(adb, win, debug=False)
         return True
 
@@ -196,7 +190,7 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
     if not tiles_with_dots:
         logger.info("No tiles with red dots found")
         # Close hero panel with hardware back (no visible close button)
-        _press_hardware_back()
+        _press_hardware_back(adb)
         return_to_base_view(adb, win, debug=False)
         return True
 
@@ -220,7 +214,7 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
         frame = win.get_screenshot_cv2()
         if frame is None:
             logger.error("Failed to get screenshot")
-            adb.tap(*BACK_BUTTON_CLICK)
+            click_back(adb)
             time.sleep(0.5)
             continue
 
@@ -237,21 +231,21 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
             # Check if we've hit the max upgrades
             if upgrades_done >= ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES:
                 logger.info(f"Reached max upgrades ({ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES})")
-                _press_hardware_back()  # Close hero panel
+                _press_hardware_back(adb)  # Close hero panel
                 return_to_base_view(adb, win, debug=False)
                 logger.info(f"Flow complete - {upgrades_done} upgrade(s) performed")
                 return True
 
             # More upgrades allowed, click back to continue
             logger.info(f"Upgrade {upgrades_done}/{ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES} done, continuing...")
-            adb.tap(*BACK_BUTTON_CLICK)
+            click_back(adb)
             time.sleep(0.5)
         else:
             logger.debug(f"Upgrade not available (avail={avail_score:.3f}, unavail={unavail_score:.3f})")
 
         # Click back to return to hero grid
         logger.debug("Clicking back to return to grid")
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(0.5)
 
         # Re-take screenshot for next iteration (grid may have changed)
@@ -259,7 +253,7 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
 
     # Step 6: Exit hero grid and return to base view
     logger.info("Step 5: Returning to base view...")
-    _press_hardware_back()  # Close hero panel (no visible close button)
+    _press_hardware_back(adb)  # Close hero panel (no visible close button)
     return_to_base_view(adb, win, debug=False)
 
     logger.info(f"Flow complete - {upgrades_done} upgrades performed")

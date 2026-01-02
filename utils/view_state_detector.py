@@ -18,7 +18,7 @@ from enum import Enum
 import numpy as np
 import time
 
-from utils.template_matcher import match_template_fixed, match_template
+from utils.template_matcher import match_template
 
 
 class ViewState(Enum):
@@ -65,11 +65,10 @@ def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, floa
     ]
 
     for template_name, state in templates:
-        found, score, _ = match_template_fixed(
+        found, score, _ = match_template(
             frame,
             template_name,
-            position=(BUTTON_X, BUTTON_Y),
-            size=(BUTTON_W, BUTTON_H),
+            search_region=(BUTTON_X, BUTTON_Y, BUTTON_W, BUTTON_H),
             threshold=THRESHOLD
         )
 
@@ -80,11 +79,10 @@ def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, floa
             return state, score
 
     # Check for CHAT state using Chat header template (NOT back button!)
-    found, score, _ = match_template_fixed(
+    found, score, _ = match_template(
         frame,
         "chat_header_4k.png",
-        position=(CHAT_HEADER_X, CHAT_HEADER_Y),
-        size=(CHAT_HEADER_W, CHAT_HEADER_H),
+        search_region=(CHAT_HEADER_X, CHAT_HEADER_Y, CHAT_HEADER_W, CHAT_HEADER_H),
         threshold=CHAT_THRESHOLD
     )
 

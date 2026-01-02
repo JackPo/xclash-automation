@@ -31,7 +31,7 @@ from config import (
     HOSPITAL_CLICK_POSITION,
     HOSPITAL_MATCH_THRESHOLD,
 )
-from utils.template_matcher import match_template_fixed
+from utils.template_matcher import match_template
 
 
 class HospitalState(Enum):
@@ -74,29 +74,17 @@ class HospitalStateMatcher:
         scores = {'handshake': 1.0, 'stopwatch': 1.0, 'healing': 1.0, 'yellow_soldier': 1.0}
 
         # Match each template at the hospital position
-        _, handshake_score, _ = match_template_fixed(
-            frame,
-            self.HANDSHAKE_TEMPLATE,
-            position=(self.icon_x, self.icon_y),
-            size=(self.icon_w, self.icon_h),
+        _, handshake_score, _ = match_template(frame, self.HANDSHAKE_TEMPLATE, search_region=(self.icon_x, self.icon_y, self.icon_w, self.icon_h),
             threshold=self.threshold
         )
         scores['handshake'] = handshake_score
 
-        _, stopwatch_score, _ = match_template_fixed(
-            frame,
-            self.STOPWATCH_TEMPLATE,
-            position=(self.icon_x, self.icon_y),
-            size=(self.icon_w, self.icon_h),
+        _, stopwatch_score, _ = match_template(frame, self.STOPWATCH_TEMPLATE, search_region=(self.icon_x, self.icon_y, self.icon_w, self.icon_h),
             threshold=self.threshold
         )
         scores['stopwatch'] = stopwatch_score
 
-        _, healing_score, _ = match_template_fixed(
-            frame,
-            self.HEALING_TEMPLATE,
-            position=(self.icon_x, self.icon_y),
-            size=(self.icon_w, self.icon_h),
+        _, healing_score, _ = match_template(frame, self.HEALING_TEMPLATE, search_region=(self.icon_x, self.icon_y, self.icon_w, self.icon_h),
             threshold=self.threshold
         )
         scores['healing'] = healing_score
@@ -104,11 +92,7 @@ class HospitalStateMatcher:
         # Match against all yellow soldier variants, use best (lowest) score
         yellow_scores = []
         for template_name in self.YELLOW_SOLDIER_TEMPLATES:
-            _, score, _ = match_template_fixed(
-                frame,
-                template_name,
-                position=(self.icon_x, self.icon_y),
-                size=(self.icon_w, self.icon_h),
+            _, score, _ = match_template(frame, template_name, search_region=(self.icon_x, self.icon_y, self.icon_w, self.icon_h),
                 threshold=self.threshold
             )
             yellow_scores.append(score)
