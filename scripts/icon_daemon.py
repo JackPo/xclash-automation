@@ -77,8 +77,8 @@ from utils.debug_screenshot import get_daemon_debug
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_last_6_minutes_phase, check_progress_quick
-from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_last_6_minutes_phase, check_progress_quick, marshall_speedup_all_flow
+from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
@@ -141,6 +141,39 @@ from config import (
     DAEMON_SERVER_PORT,
     DAEMON_SERVER_ENABLED,
 )
+
+from dataclasses import dataclass
+from typing import Callable, Optional, List
+from enum import IntEnum
+
+
+class FlowPriority(IntEnum):
+    """
+    Flow priority levels. Higher = more urgent, runs first.
+
+    When multiple flows are triggered in the same iteration,
+    the highest priority one wins.
+    """
+    LOW = 10           # Harvest bubbles (corn, gold, iron, gem, cabbage, equip)
+    NORMAL = 20        # Regular flows (AFK rewards, union gifts/tech, bag)
+    HIGH = 30          # Important flows (hospital, barracks training)
+    URGENT = 40        # Time-sensitive (elite zombie rally, treasure map)
+    CRITICAL = 50      # Arms Race event flows (beast training, enhance hero)
+
+
+@dataclass
+class FlowCandidate:
+    """
+    A flow that has been detected as triggerable.
+
+    Collected during detection phase, executed in execution phase.
+    """
+    name: str
+    flow_func: Callable
+    priority: FlowPriority
+    critical: bool = False
+    reason: str = ""  # Why this flow was triggered (for logging)
+    record_to_scheduler: bool = False  # If True, records cooldown after execution
 
 
 class IconDaemon:
@@ -217,9 +250,8 @@ class IconDaemon:
         self.last_gift_box_time = 0
         self.GIFT_BOX_COOLDOWN = GIFT_BOX_COOLDOWN
 
-        # Tavern scan cooldown - every 30 minutes, requires 5 min idle + TOWN view
-        self.last_tavern_scan_time = 0
-        self.TAVERN_SCAN_COOLDOWN = TAVERN_SCAN_COOLDOWN
+        # Tavern quest cooldown - every 30 minutes, requires 5 min idle + TOWN view
+        self.TAVERN_QUEST_COOLDOWN = TAVERN_SCAN_COOLDOWN
 
         # VS Day 7 chest surprise - trigger bag flow at 10, 5, 1 min remaining
         self.VS_CHEST_CHECKPOINTS = [10, 5, 1]  # Minutes before day ends
@@ -242,7 +274,7 @@ class IconDaemon:
             "union_technology": {"cooldown": UNION_TECHNOLOGY_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
-            "tavern_scan": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "tavern_quest": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
         })
 
         # Unified stamina validation - ONE system for all stamina-based triggers
@@ -527,6 +559,69 @@ class IconDaemon:
             self.logger.info("STARTUP: WebSocket API server disabled by config")
 
         self.logger.info("STARTUP: Ready")
+
+    def _can_run_flow(self) -> bool:
+        """
+        Check if a flow can be started (no other flow is active).
+
+        Use this BEFORE logging "triggering" messages and clicking UI elements
+        to prevent flows from stepping on each other.
+
+        Returns:
+            True if no flow is active, False otherwise
+        """
+        with self.flow_lock:
+            if self.active_flows:
+                return False
+            if self.critical_flow_active:
+                return False
+        return True
+
+    def _execute_best_flow(self, candidates: List[FlowCandidate], iteration: int) -> Optional[str]:
+        """
+        From a list of flow candidates, select and execute the highest priority one.
+
+        This is the SINGLE point of execution for flows detected in an iteration.
+        Only ONE flow runs per iteration, preventing flows from stepping on each other.
+
+        Args:
+            candidates: List of FlowCandidate objects detected this iteration
+            iteration: Current iteration number (for logging)
+
+        Returns:
+            Name of the flow that was started, or None if no flow could run
+        """
+        if not candidates:
+            return None
+
+        # Check if we can run any flow
+        with self.flow_lock:
+            if self.active_flows:
+                self.logger.debug(f"[{iteration}] FLOW BLOCKED: {len(candidates)} candidates, but {self.active_flows} already running")
+                return None
+            if self.critical_flow_active:
+                self.logger.debug(f"[{iteration}] FLOW BLOCKED: {len(candidates)} candidates, but critical flow {self.critical_flow_name} active")
+                return None
+
+        # Sort by priority (highest first)
+        candidates.sort(key=lambda c: c.priority, reverse=True)
+        best = candidates[0]
+
+        # Log what we're doing
+        if len(candidates) > 1:
+            skipped = ", ".join([f"{c.name}({c.priority.name})" for c in candidates[1:]])
+            self.logger.info(f"[{iteration}] FLOW SELECT: {best.name} (priority={best.priority.name}) - {best.reason}")
+            self.logger.debug(f"[{iteration}] FLOW SKIPPED: {skipped}")
+        else:
+            self.logger.info(f"[{iteration}] FLOW: {best.name} - {best.reason}")
+
+        # Execute the best flow
+        if self._run_flow(best.name, best.flow_func, critical=best.critical):
+            # Record cooldown if needed
+            if best.record_to_scheduler:
+                self.scheduler.record_flow_run(best.name)
+            return best.name
+        return None
 
     def _run_flow(self, flow_name: str, flow_func, critical: bool = False):
         """
@@ -877,6 +972,10 @@ class IconDaemon:
         with self.flow_lock:
             return len(self.active_flows) == 0
 
+    def _is_user_idle(self) -> bool:
+        """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
+        return get_user_idle_seconds() >= self.IDLE_THRESHOLD
+
     def _run_flow_sync(self, flow_name: str, flow_func, critical: bool = False) -> dict:
         """
         Run a flow synchronously (blocking) and return its result.
@@ -961,7 +1060,7 @@ class IconDaemon:
         global union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow
         global stamina_claim_flow, stamina_use_flow, soldier_training_flow
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
-        global tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow, faction_trials_flow
+        global tavern_quest_claim_flow, run_tavern_quest_flow, faction_trials_flow
 
         from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
@@ -970,7 +1069,7 @@ class IconDaemon:
                           hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow,
                           soldier_training_flow, soldier_upgrade_flow, rally_join_flow,
                           healing_flow, bag_flow, gift_box_flow)
-        from flows.tavern_quest_flow import tavern_quest_claim_flow, tavern_scan_flow, run_tavern_quest_flow
+        from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
         from flows.faction_trials_flow import faction_trials_flow
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
@@ -983,7 +1082,6 @@ class IconDaemon:
         """
         return {
             "tavern_quest": (run_tavern_quest_flow, True),  # Double-pass claim strategy
-            "tavern_scan": (tavern_scan_flow, False),  # Legacy scan flow
             "bag_flow": (bag_flow, True),
             "union_gifts": (union_gifts_flow, False),
             "union_technology": (union_technology_flow, False),
@@ -1089,34 +1187,60 @@ class IconDaemon:
                     time.sleep(self.interval)
                     continue
 
+                # =================================================================
+                # FLOW CANDIDATE COLLECTION
+                # All flow detection adds to this list - NO direct execution here.
+                # At the end of detection, _execute_best_flow() picks ONE to run.
+                # This prevents flows from stepping on each other.
+                # =================================================================
+                flow_candidates: List[FlowCandidate] = []
+
                 # Check IMMEDIATE action icons FIRST (before slow OCR)
                 handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
                 treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
                 harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
 
-                # Trigger immediate actions right away (no stamina/idle requirements)
+                # Collect immediate actions as candidates (no idle requirements)
                 if handshake_present:
-                    self.logger.info(f"[{iteration}] HANDSHAKE detected (diff={handshake_score:.4f})")
-                    self._run_flow("handshake", handshake_flow)
+                    flow_candidates.append(FlowCandidate(
+                        name="handshake",
+                        flow_func=handshake_flow,
+                        priority=FlowPriority.URGENT,
+                        reason=f"score={handshake_score:.4f}"
+                    ))
 
                 if treasure_present:
                     # Validate: treasure map can only appear when world/town button visible
                     view_state, view_score = detect_view(frame)
                     if view_state in (ViewState.TOWN, ViewState.WORLD):
-                        self.logger.info(f"[{iteration}] TREASURE detected (diff={treasure_score:.4f}, view={view_state.value})")
-                        self._run_flow("treasure_map", treasure_map_flow, critical=True)
+                        flow_candidates.append(FlowCandidate(
+                            name="treasure_map",
+                            flow_func=treasure_map_flow,
+                            priority=FlowPriority.URGENT,
+                            critical=True,
+                            reason=f"score={treasure_score:.4f}, view={view_state.value}"
+                        ))
                     else:
                         self.logger.warning(f"[{iteration}] TREASURE rejected - no world/town icon (view={view_state.value}, score={treasure_score:.4f})")
 
                 if harvest_present:
-                    self.logger.info(f"[{iteration}] HARVEST detected (diff={harvest_score:.4f})")
-                    self._run_flow("harvest_box", harvest_box_flow)
+                    flow_candidates.append(FlowCandidate(
+                        name="harvest_box",
+                        flow_func=harvest_box_flow,
+                        priority=FlowPriority.URGENT,
+                        reason=f"score={harvest_score:.4f}"
+                    ))
 
                 # Tavern Quest scheduled claim - check if completion is imminent (within 15 seconds)
-                # Critical flow - blocks other daemon actions while polling for claim
+                # Uses run_tavern_quest_flow for double-pass strategy (avoids UI glitches missing claims)
                 if self.scheduler.is_tavern_completion_imminent():
-                    self.logger.info(f"[{iteration}] TAVERN QUEST completion imminent, triggering claim flow")
-                    self._run_flow("tavern_quest_claim", tavern_quest_claim_flow, critical=True)
+                    flow_candidates.append(FlowCandidate(
+                        name="tavern_quest",
+                        flow_func=run_tavern_quest_flow,
+                        priority=FlowPriority.CRITICAL,  # Imminent completion is time-critical
+                        critical=True,
+                        reason="completion imminent"
+                    ))
 
                 # Get current time for cooldown checks
                 current_time = time.time()
@@ -1344,39 +1468,65 @@ class IconDaemon:
 
                 # Corn, Gold, Iron, Gem, Cabbage, Equip - quick bubble clicks in TOWN
                 # Skip if Beast Training rally has priority (time-critical)
-                if corn_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
-                    self.logger.info(f"[{iteration}] CORN: Triggering harvest flow (score={corn_score:.4f})")
-                    self._run_flow("corn_harvest", corn_harvest_flow)
+                # Collect as flow candidates - execution happens via _execute_best_flow()
+                if corn_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                    flow_candidates.append(FlowCandidate(
+                        name="corn_harvest",
+                        flow_func=corn_harvest_flow,
+                        priority=FlowPriority.LOW,
+                        reason=f"score={corn_score:.4f}"
+                    ))
 
-                if gold_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
-                    self.logger.info(f"[{iteration}] GOLD detected (diff={gold_score:.4f})")
-                    self._run_flow("gold_coin", gold_coin_flow)
+                if gold_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                    flow_candidates.append(FlowCandidate(
+                        name="gold_coin",
+                        flow_func=gold_coin_flow,
+                        priority=FlowPriority.LOW,
+                        reason=f"score={gold_score:.4f}"
+                    ))
 
-                if iron_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
-                    self.logger.info(f"[{iteration}] IRON detected (diff={iron_score:.4f})")
-                    self._run_flow("iron_bar", iron_bar_flow)
+                if iron_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                    flow_candidates.append(FlowCandidate(
+                        name="iron_bar",
+                        flow_func=iron_bar_flow,
+                        priority=FlowPriority.LOW,
+                        reason=f"score={iron_score:.4f}"
+                    ))
 
-                if gem_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
-                    self.logger.info(f"[{iteration}] GEM detected (diff={gem_score:.4f})")
-                    self._run_flow("gem", gem_flow)
+                if gem_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                    flow_candidates.append(FlowCandidate(
+                        name="gem",
+                        flow_func=gem_flow,
+                        priority=FlowPriority.LOW,
+                        reason=f"score={gem_score:.4f}"
+                    ))
 
-                if cabbage_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
-                    self.logger.info(f"[{iteration}] CABBAGE detected (diff={cabbage_score:.4f})")
-                    self._run_flow("cabbage", cabbage_flow)
+                if cabbage_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                    flow_candidates.append(FlowCandidate(
+                        name="cabbage",
+                        flow_func=cabbage_flow,
+                        priority=FlowPriority.LOW,
+                        reason=f"score={cabbage_score:.4f}"
+                    ))
 
-                if equip_present and world_present and harvest_idle_ok and harvest_aligned and not beast_training_priority:
-                    self.logger.info(f"[{iteration}] EQUIPMENT ENHANCEMENT detected (diff={equip_score:.4f})")
-                    self._run_flow("equipment_enhancement", equipment_enhancement_flow)
+                if equip_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                    flow_candidates.append(FlowCandidate(
+                        name="equipment_enhancement",
+                        flow_func=equipment_enhancement_flow,
+                        priority=FlowPriority.LOW,
+                        reason=f"score={equip_score:.4f}"
+                    ))
 
                 # Hospital state detection with majority vote (same 60% rule as barracks)
                 # History accumulates when in TOWN, idle check is only for ACTION
+                hospital_action_triggered = False
                 if world_present:
                     self.hospital_state_history.append(hospital_state)
                     if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
                         self.hospital_state_history.pop(0)
 
-                    # Check if we have enough readings and idle threshold met
-                    if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and harvest_idle_ok:
+                    # Check if we have enough readings and idle threshold met (fresh check)
+                    if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and self._is_user_idle():
                         # Count each actionable state
                         help_ready_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HELP_READY)
                         healing_count = sum(1 for s in self.hospital_state_history if s == HospitalState.HEALING)
@@ -1385,33 +1535,54 @@ class IconDaemon:
                         # Use 60% majority rule (same as barracks)
                         min_required = int(self.HOSPITAL_CONSECUTIVE_REQUIRED * 0.6)  # 6 out of 10
 
-                        # HELP_READY: Just click to request ally help
+                        # Get click position for hospital actions
+                        hospital_click_x, hospital_click_y = self.hospital_matcher.get_click_position()
+
+                        # HELP_READY: Just click to request ally help (simple action, not a flow)
                         if help_ready_count >= min_required:
-                            self.logger.info(f"[{iteration}] HOSPITAL HELP_READY confirmed ({help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {help_ready_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%) - requesting ally help")
-                            click_x, click_y = self.hospital_matcher.get_click_position()
-                            mark_daemon_action()
-                            self.adb.tap(click_x, click_y)
-                            self.hospital_state_history = []
+                            # Create a simple click flow
+                            def help_ready_flow(adb, x=hospital_click_x, y=hospital_click_y):
+                                mark_daemon_action()
+                                adb.tap(x, y)
+                            flow_candidates.append(FlowCandidate(
+                                name="hospital_help",
+                                flow_func=help_ready_flow,
+                                priority=FlowPriority.HIGH,
+                                reason=f"HELP_READY {help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
+                            ))
+                            hospital_action_triggered = True
 
                         # HEALING: Click to open panel, run healing flow
                         elif healing_count >= min_required:
-                            self.logger.info(f"[{iteration}] HOSPITAL HEALING confirmed ({healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {healing_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
-                            click_x, click_y = self.hospital_matcher.get_click_position()
-                            mark_daemon_action()
-                            self.adb.tap(click_x, click_y)
-                            time.sleep(2.5)  # Wait for panel to fully open
-                            self._run_flow("healing", healing_flow)
-                            self.hospital_state_history = []
+                            # Create wrapper that clicks, waits, then runs healing_flow
+                            def healing_wrapper(adb, x=hospital_click_x, y=hospital_click_y):
+                                mark_daemon_action()
+                                adb.tap(x, y)
+                                time.sleep(2.5)  # Wait for panel to fully open
+                                healing_flow(adb)
+                            flow_candidates.append(FlowCandidate(
+                                name="healing",
+                                flow_func=healing_wrapper,
+                                priority=FlowPriority.HIGH,
+                                reason=f"HEALING {healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
+                            ))
+                            hospital_action_triggered = True
 
                         # SOLDIERS_WOUNDED: Click to open panel, run healing flow
                         elif wounded_count >= min_required:
-                            self.logger.info(f"[{iteration}] HOSPITAL SOLDIERS_WOUNDED confirmed ({wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED} = {wounded_count*100//self.HOSPITAL_CONSECUTIVE_REQUIRED}%)")
-                            click_x, click_y = self.hospital_matcher.get_click_position()
-                            mark_daemon_action()
-                            self.adb.tap(click_x, click_y)
-                            time.sleep(2.5)  # Wait for panel to fully open
-                            self._run_flow("healing", healing_flow)
-                            self.hospital_state_history = []
+                            # Create wrapper that clicks, waits, then runs healing_flow
+                            def wounded_wrapper(adb, x=hospital_click_x, y=hospital_click_y):
+                                mark_daemon_action()
+                                adb.tap(x, y)
+                                time.sleep(2.5)  # Wait for panel to fully open
+                                healing_flow(adb)
+                            flow_candidates.append(FlowCandidate(
+                                name="healing",
+                                flow_func=wounded_wrapper,
+                                priority=FlowPriority.HIGH,
+                                reason=f"WOUNDED {wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
+                            ))
+                            hospital_action_triggered = True
                 else:
                     # Not in TOWN - reset hospital state history
                     if self.hospital_state_history:
@@ -1419,16 +1590,22 @@ class IconDaemon:
 
                 # Barracks: READY/PENDING barracks (non-Arms Race ONLY)
                 # During Arms Race "Soldier Training" or VS promotion days, soldier_upgrade_flow handles this
+                # Fresh idle check (user may have become active)
                 is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                if world_present and harvest_aligned and harvest_idle_ok and not is_arms_race_soldier_active:
+                if world_present and harvest_aligned and self._is_user_idle() and not is_arms_race_soldier_active:
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
                     pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
 
                     if ready_count > 0 or pending_count > 0:
-                        self.logger.info(f"[{iteration}] BARRACKS: {ready_count} READY, {pending_count} PENDING, triggering soldier training...")
-                        self._run_flow("soldier_training", soldier_training_flow, critical=True)
+                        flow_candidates.append(FlowCandidate(
+                            name="soldier_training",
+                            flow_func=soldier_training_flow,
+                            priority=FlowPriority.HIGH,
+                            critical=True,
+                            reason=f"{ready_count} READY, {pending_count} PENDING"
+                        ))
 
                 # =================================================================
                 # UNKNOWN STATE TRACKING AND RECOVERY
@@ -1497,9 +1674,32 @@ class IconDaemon:
                                 self.logger.debug(f"[{iteration}] DISCONNECTION DIALOG: Dialog dismissed externally")
                                 self.disconnection_dialog_detected_time = None
 
-                        # Quick recovery: After 10s in UNKNOWN, try clicking safe ground
+                        # Quick recovery: After 10s in UNKNOWN, try back button FIRST then safe ground
                         if 10 <= unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
+                            from utils.template_matcher import match_template
                             from utils.safe_ground_matcher import find_safe_ground
+                            from utils.ui_helpers import click_back
+
+                            # FIRST: Check for back button with masked template (catches dialogs/menus)
+                            back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
+                            if back_found:
+                                self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Back button detected (score={back_score:.4f}), clicking...")
+                                mark_daemon_action()
+                                click_back(self.adb)
+                                time.sleep(0.5)
+                                # Re-check view state
+                                new_frame = self.windows_helper.get_screenshot_cv2()
+                                new_state, _ = detect_view(new_frame)
+                                if new_state.name in ("TOWN", "WORLD"):
+                                    self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Success! Now in {new_state.name}")
+                                    self.unknown_state_start = None
+                                    self.unknown_state_left_time = None
+                                    continue  # Skip rest of iteration, start fresh
+                                else:
+                                    self.logger.debug(f"[{iteration}] UNKNOWN QUICK RECOVERY: Still in {new_state.name}, will keep trying back button")
+                                    continue  # Keep trying back button if it's still visible
+
+                            # SECOND: Try safe ground (for floating popups without back button)
                             ground_pos = find_safe_ground(frame, debug=self.debug)
                             if ground_pos:
                                 self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
@@ -1597,6 +1797,7 @@ class IconDaemon:
                 # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
                 # Uses scheduler's pre_beast_stamina_claim flow config (idle_required=20s, lower than IDLE_THRESHOLD)
                 # REQUIRES: TOWN or WORLD view (need to see stamina area)
+                pre_beast_stamina_claimed = False
                 if in_pre_beast_window and view_state not in ("TOWN", "WORLD"):
                     self.logger.warning(f"[{iteration}] PRE-BEAST STAMINA: {minutes_until_beast:.1f}min until event but view={view_state} - cannot detect red dot!")
                     get_daemon_debug().capture(frame, iteration, view_state, "pre_beast_blocked", f"{minutes_until_beast:.0f}min")
@@ -1609,25 +1810,32 @@ class IconDaemon:
                         # Check for red notification dot
                         has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
                         if has_dot:
-                            self.logger.info(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until Beast Training, red dot detected ({red_count} pixels), claiming stamina early to start cooldown...")
-                            claim_success = self._run_flow("stamina_claim", stamina_claim_flow)
-                            if claim_success:
-                                self.beast_training_pre_claim_block = upcoming_beast_block
-                                self.scheduler.record_flow_run("pre_beast_stamina_claim")
-                                self.logger.info(f"[{iteration}] PRE-BEAST TRAINING: Stamina claimed, cooldown started. Will claim again in last 6 min of event.")
+                            pre_beast_stamina_claimed = True
+                            flow_candidates.append(FlowCandidate(
+                                name="stamina_claim",
+                                flow_func=stamina_claim_flow,
+                                priority=FlowPriority.CRITICAL,
+                                reason=f"pre-beast {minutes_until_beast:.1f}min, red dot ({red_count} pixels)"
+                            ))
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until event, but no red dot ({red_count} pixels)")
 
                 # Elite zombie rally - stamina >= 118 and idle 5+ min
                 # BLOCKED: if Beast Training starts in < 6 minutes (preserve stamina for event)
                 elite_rally_blocked = in_pre_beast_window
+                elite_zombie_triggered = False
                 if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and effective_idle_secs >= self.IDLE_THRESHOLD:
                     if elite_rally_blocked:
                         self.logger.info(f"[{iteration}] ELITE ZOMBIE: BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
                     else:
-                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: Stamina={confirmed_stamina} >= {self.ELITE_ZOMBIE_STAMINA_THRESHOLD}, idle={idle_str}, triggering rally...")
-                        self._run_flow("elite_zombie", elite_zombie_flow, critical=True)
-                        self.stamina_reader.reset()  # Reset after triggering
+                        elite_zombie_triggered = True
+                        flow_candidates.append(FlowCandidate(
+                            name="elite_zombie",
+                            flow_func=elite_zombie_flow,
+                            priority=FlowPriority.URGENT,
+                            critical=True,
+                            reason=f"stamina={confirmed_stamina}, idle={idle_str}"
+                        ))
 
                 # =================================================================
                 # ARMS RACE EVENT TRACKING
@@ -1765,58 +1973,69 @@ class IconDaemon:
                     if rally_target is None:
                         rally_target = self.BEAST_TRAINING_MAX_RALLIES
 
-                    # STEP 1: Stamina Claim - if stamina < 60 AND red dot visible, claim free stamina
-                    # Track if claim was attempted (to know if we should try Use button)
-                    claim_triggered = False
+                    # STEP 1: Stamina Claim candidate - if stamina < 60 AND red dot visible
+                    # Highest priority within beast training (get free stamina first)
+                    beast_claim_candidate = False
                     if (stamina_confirmed and
                         confirmed_stamina < self.STAMINA_CLAIM_THRESHOLD):
                         # Check for red notification dot (indicates free claim available)
                         has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
                         if has_dot:
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, red dot detected ({red_count} pixels), triggering stamina claim...")
-                            claim_triggered = self._run_flow("stamina_claim", stamina_claim_flow)
+                            beast_claim_candidate = True
+                            flow_candidates.append(FlowCandidate(
+                                name="beast_stamina_claim",
+                                flow_func=stamina_claim_flow,
+                                priority=FlowPriority.CRITICAL,
+                                reason=f"beast training, stamina={confirmed_stamina}, red dot ({red_count}px)"
+                            ))
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, but no red dot ({red_count} pixels), skipping claim")
 
-                    # STEP 2: Rally - if stamina >= 20, cooldown ok, and under target, do rallies FIRST
-                    # This burns down stamina so we can then use recovery items
+                    # STEP 2: Rally candidate - if stamina >= 20, cooldown ok, and under target
+                    # Only add if claim wasn't already a candidate (mutually exclusive)
                     rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
-                    rally_triggered = False
-                    if (stamina_confirmed and
+                    beast_rally_candidate = False
+                    if (not beast_claim_candidate and
+                        stamina_confirmed and
                         confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
                         rally_cooldown_ok and
-                        self.beast_training_rally_count < rally_target and  # Check against target
-                        not claim_triggered):  # Don't rally if we just claimed (wait for stamina to update)
-                        self.beast_training_rally_count += 1
-                        self.scheduler.update_arms_race_state(beast_training_rally_count=self.beast_training_rally_count)
-                        remaining = rally_target - self.beast_training_rally_count
-                        self.logger.info(f"[{iteration}] BEAST TRAINING: Mystic Beast ({arms_race_remaining_mins}min left), stamina={confirmed_stamina}, triggering rally #{self.beast_training_rally_count}/{rally_target} ({remaining} remaining)...")
-                        # Use elite_zombie_flow with 0 plus clicks
-                        import config
-                        original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
-                        config.ELITE_ZOMBIE_PLUS_CLICKS = 0
-                        rally_triggered = self._run_flow("beast_training", elite_zombie_flow, critical=True)
-                        config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
-                        self.beast_training_last_rally = current_time
-                        self.stamina_reader.reset()  # Reset after triggering
+                        self.beast_training_rally_count < rally_target):
+                        # Create wrapper that handles config manipulation
+                        def beast_rally_wrapper():
+                            import config
+                            original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
+                            config.ELITE_ZOMBIE_PLUS_CLICKS = 0
+                            try:
+                                return elite_zombie_flow(self.adb)
+                            finally:
+                                config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
 
-                    # STEP 3: Use Button - only AFTER rallies have burned stamina down to < 20
+                        beast_rally_candidate = True
+                        remaining = rally_target - self.beast_training_rally_count - 1  # -1 because we're about to do one
+                        flow_candidates.append(FlowCandidate(
+                            name="beast_training",
+                            flow_func=beast_rally_wrapper,
+                            priority=FlowPriority.CRITICAL,
+                            critical=True,
+                            reason=f"rally #{self.beast_training_rally_count+1}/{rally_target}, {remaining} remaining, {arms_race_remaining_mins:.0f}min left"
+                        ))
+
+                    # STEP 3: Use Button candidate - only if neither claim nor rally is a candidate
                     # Conditions: idle 5+ min, rally count < target, stamina < 20, Use clicks < 4, cooldown
-                    # For 3rd+ uses, require being in the last N minutes of the block
                     # SMART: Check claim timer first - if free claim will be available before event ends, WAIT
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
                                            arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
-                    if (self.BEAST_TRAINING_USE_ENABLED and
-                        effective_idle_secs >= self.IDLE_THRESHOLD and  # Standard idle check (5 min)
+                    if (not beast_claim_candidate and
+                        not beast_rally_candidate and
+                        self.BEAST_TRAINING_USE_ENABLED and
+                        effective_idle_secs >= self.IDLE_THRESHOLD and
                         stamina_confirmed and
                         confirmed_stamina < self.BEAST_TRAINING_USE_STAMINA_THRESHOLD and
-                        self.beast_training_rally_count < rally_target and  # Use target instead of MAX_RALLIES
+                        self.beast_training_rally_count < rally_target and
                         self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
                         use_cooldown_ok and
-                        use_allowed_by_time and
-                        not claim_triggered and  # Only use if claim wasn't just triggered
-                        not rally_triggered):    # Only use if rally wasn't just triggered (wait for stamina to update)
+                        use_allowed_by_time):
 
                         # SMART CHECK: Will free claim be available before event ends?
                         # If yes, WAIT for it instead of using recovery items
@@ -1833,30 +2052,33 @@ class IconDaemon:
                                 f"(event has {arms_race_remaining_mins:.0f}min left) - WAITING instead of using recovery item"
                             )
                         else:
-                            # Timer won't expire in time OR OCR failed - use recovery item
-                            self.beast_training_use_count += 1
+                            # Timer won't expire in time OR OCR failed - add use candidate
                             remaining = rally_target - self.beast_training_rally_count
-                            reason = "timer OCR failed" if timer_seconds is None else f"timer {timer_seconds//60}min > event {arms_race_remaining_mins:.0f}min"
-                            self.logger.info(
-                                f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.BEAST_TRAINING_USE_STAMINA_THRESHOLD}, "
-                                f"using recovery item ({reason}) (use #{self.beast_training_use_count}/{self.BEAST_TRAINING_USE_MAX}, "
-                                f"rally #{self.beast_training_rally_count}/{rally_target}, {remaining} remaining)..."
-                            )
-                            self._run_flow("stamina_use", stamina_use_flow)
-                            self.beast_training_last_use_time = current_time
+                            timer_reason = "timer OCR failed" if timer_seconds is None else f"timer {timer_seconds//60}min > event {arms_race_remaining_mins:.0f}min"
+                            flow_candidates.append(FlowCandidate(
+                                name="beast_stamina_use",
+                                flow_func=stamina_use_flow,
+                                priority=FlowPriority.CRITICAL,
+                                reason=f"recovery item ({timer_reason}), use #{self.beast_training_use_count+1}/{self.BEAST_TRAINING_USE_MAX}, rally #{self.beast_training_rally_count}/{rally_target}"
+                            ))
 
                 # Enhance Hero: last N minutes, runs once per block
                 # NO idle requirement - flow checks real-time progress and skips if chest3 reached
+                enhance_hero_candidate = False
                 if (self.ARMS_RACE_ENHANCE_HERO_ENABLED and
                     arms_race_event == "Enhance Hero" and
                     arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES):
                     # Check if we already triggered for this block
                     block_start = arms_race['block_start']
                     if self.enhance_hero_last_block_start != block_start:
-                        # Trigger flow - it will check progress and skip if chest3 reached
-                        self.logger.info(f"[{iteration}] ENHANCE HERO: Last {arms_race_remaining_mins:.0f}min of Enhance Hero, checking progress and upgrading if needed...")
-                        self._run_flow("enhance_hero_arms_race", hero_upgrade_arms_race_flow, critical=True)
-                        self.enhance_hero_last_block_start = block_start
+                        enhance_hero_candidate = True
+                        flow_candidates.append(FlowCandidate(
+                            name="enhance_hero_arms_race",
+                            flow_func=hero_upgrade_arms_race_flow,
+                            priority=FlowPriority.CRITICAL,
+                            critical=True,
+                            reason=f"last {arms_race_remaining_mins:.0f}min of Enhance Hero"
+                        ))
 
                 # =================================================================
                 # GENERIC ARMS RACE PROGRESS CHECK - ALL EVENTS, last 10 minutes
@@ -1901,12 +2123,53 @@ class IconDaemon:
                         # Mark block as checked (even on failure, to avoid spam)
                         self.arms_race_progress_check_block = block_start
 
+                # =========================================================
+                # SOLDIER SPEEDUP AT HOUR 2 AND HOUR 3 (Marshall + Quick Speedup)
+                # During "Soldier Training" event, speed up all TRAINING barracks
+                # Hour 2: ~2 hours into event, Hour 3: ~3 hours into event
+                # Uses Marshall title for speedup bonus, then Quick Speedup all barracks
+                # =========================================================
+                is_soldier_event = arms_race_event == "Soldier Training"
+                soldier_speedup_h2_candidate = False
+                soldier_speedup_h3_candidate = False
+                speedup_block_start = None
+
+                if is_soldier_event and self._is_user_idle():
+                    hours_into_event = arms_race['time_elapsed'].total_seconds() / 3600
+                    speedup_block_start = arms_race['block_start']
+                    phase_state = self.scheduler.get_arms_race_state()
+
+                    # Hour 2 checkpoint (2.0 - 2.5 hours into event)
+                    if 2.0 <= hours_into_event < 2.5:
+                        hour2_block = phase_state.get("soldier_speedup_hour2_block")
+                        if hour2_block != str(speedup_block_start):
+                            soldier_speedup_h2_candidate = True
+                            flow_candidates.append(FlowCandidate(
+                                name="soldier_speedup_h2",
+                                flow_func=lambda: marshall_speedup_all_flow(self.adb, self.windows_helper, debug=self.debug),
+                                priority=FlowPriority.CRITICAL,
+                                critical=True,
+                                reason=f"Hour 2 checkpoint ({hours_into_event:.2f}h into event)"
+                            ))
+
+                    # Hour 3 checkpoint (3.0 - 3.5 hours into event)
+                    elif 3.0 <= hours_into_event < 3.5:
+                        hour3_block = phase_state.get("soldier_speedup_hour3_block")
+                        if hour3_block != str(speedup_block_start):
+                            soldier_speedup_h3_candidate = True
+                            flow_candidates.append(FlowCandidate(
+                                name="soldier_speedup_h3",
+                                flow_func=lambda: marshall_speedup_all_flow(self.adb, self.windows_helper, debug=self.debug),
+                                priority=FlowPriority.CRITICAL,
+                                critical=True,
+                                reason=f"Hour 3 checkpoint ({hours_into_event:.2f}h into event)"
+                            ))
+
                 # Soldier Training: during Soldier Training event OR VS promotion day, idle 5+ min
                 # Requires TOWN view and dog house aligned (same as harvest conditions)
                 # CONTINUOUSLY checks for READY/PENDING barracks and upgrades them (no block limitation)
                 # VS override: On VS_SOLDIER_PROMOTION_DAYS, promotions run ALL DAY regardless of event
                 is_vs_promotion_day = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                is_soldier_event = arms_race_event == "Soldier Training"
 
                 if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
                     (is_soldier_event or is_vs_promotion_day) and
@@ -1960,6 +2223,10 @@ class IconDaemon:
                             if ready_count > 0:
                                 self.logger.info(f"[{iteration}] SOLDIER: Collecting from {ready_count} READY barrack(s) at indices {ready_indices}")
                                 for idx in ready_indices:
+                                    # Re-check idle - stop if user became active
+                                    if get_user_idle_seconds() < self.IDLE_THRESHOLD:
+                                        self.logger.info(f"[{iteration}] SOLDIER: User active, stopping collection loop")
+                                        break
                                     click_x, click_y = get_barrack_click_position(idx)
                                     self.logger.info(f"[{iteration}] SOLDIER: Collecting from barrack {idx+1} at ({click_x}, {click_y})")
                                     mark_daemon_action()
@@ -1973,6 +2240,11 @@ class IconDaemon:
                             # Then upgrade each validated PENDING barrack
                             upgrades = 0
                             for idx in pending_indices:
+                                # Re-check idle - stop if user became active
+                                if get_user_idle_seconds() < self.IDLE_THRESHOLD:
+                                    self.logger.info(f"[{iteration}] SOLDIER: User active, stopping upgrade loop")
+                                    break
+
                                 # Check if another flow is running BEFORE clicking
                                 if not self._can_run_flow():
                                     self.logger.debug(f"[{iteration}] SOLDIER: Skipping - another flow is active")
@@ -2014,23 +2286,35 @@ class IconDaemon:
                 # =================================================================
 
                 # AFK rewards: requires AFK icon detected + harvest conditions + cooldown
-                if afk_present and world_present and harvest_aligned:
+                if afk_present and world_present and harvest_aligned and self._is_user_idle():
                     if self.scheduler.is_flow_ready("afk_rewards", idle_seconds=effective_idle_secs):
-                        self.logger.info(f"[{iteration}] AFK REWARDS detected (diff={afk_score:.4f})")
-                        if self._run_flow("afk_rewards", afk_rewards_flow):
-                            self.scheduler.record_flow_run("afk_rewards")
+                        flow_candidates.append(FlowCandidate(
+                            name="afk_rewards",
+                            flow_func=afk_rewards_flow,
+                            priority=FlowPriority.NORMAL,
+                            reason=f"score={afk_score:.4f}",
+                            record_to_scheduler=True
+                        ))
 
                 # Union gifts: 1 hour cooldown
-                if self.scheduler.is_flow_ready("union_gifts", idle_seconds=effective_idle_secs):
-                    self.logger.info(f"[{iteration}] UNION GIFTS: idle={idle_str}, triggering flow...")
-                    if self._run_flow("union_gifts", union_gifts_flow):
-                        self.scheduler.record_flow_run("union_gifts")
+                if self._is_user_idle() and self.scheduler.is_flow_ready("union_gifts", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="union_gifts",
+                        flow_func=union_gifts_flow,
+                        priority=FlowPriority.NORMAL,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
 
                 # Union technology: 1 hour cooldown
-                if self.scheduler.is_flow_ready("union_technology", idle_seconds=effective_idle_secs):
-                    self.logger.info(f"[{iteration}] UNION TECHNOLOGY: idle={idle_str}, triggering flow...")
-                    if self._run_flow("union_technology", union_technology_flow):
-                        self.scheduler.record_flow_run("union_technology")
+                if self._is_user_idle() and self.scheduler.is_flow_ready("union_technology", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="union_technology",
+                        flow_func=union_technology_flow,
+                        priority=FlowPriority.NORMAL,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
 
                 # VS Day 7 chest surprise: trigger bag flow at 10, 5, 1 min remaining
                 # This opens level chests right before VS day ends to surprise competitors
@@ -2042,43 +2326,72 @@ class IconDaemon:
                     self.vs_chest_triggered.clear()
                     self.vs_chest_last_day = vs_day
 
+                # Track which VS checkpoint triggered this candidate (if any)
+                vs_checkpoint_triggered = None
+
                 # On Day 7, check if we should trigger bag flow at checkpoint
-                if vs_day == 7 and effective_idle_secs >= self.IDLE_THRESHOLD:
+                if vs_day == 7 and self._is_user_idle():
                     for checkpoint in self.VS_CHEST_CHECKPOINTS:
                         if vs_minutes_remaining <= checkpoint and checkpoint not in self.vs_chest_triggered:
-                            self.logger.info(f"[{iteration}] VS CHEST SURPRISE: Day 7, {vs_minutes_remaining:.1f} min left (checkpoint {checkpoint}), triggering bag flow...")
-                            self._run_flow("bag", bag_flow, critical=True)
-                            self.vs_chest_triggered.add(checkpoint)
-                            break  # Only trigger once per iteration
+                            vs_checkpoint_triggered = checkpoint
+                            flow_candidates.append(FlowCandidate(
+                                name="bag_flow",
+                                flow_func=bag_flow,
+                                priority=FlowPriority.CRITICAL,  # VS surprise is time-critical
+                                critical=True,
+                                reason=f"VS Day 7 surprise, {vs_minutes_remaining:.1f}min left (checkpoint {checkpoint})"
+                            ))
+                            break  # Only add one candidate
 
                 # Bag flow: idle threshold, cooldown (navigates to TOWN itself)
-                if self.scheduler.is_flow_ready("bag_flow", idle_seconds=effective_idle_secs):
-                    self.logger.info(f"[{iteration}] BAG FLOW: idle={idle_str}, triggering flow...")
-                    if self._run_flow("bag", bag_flow, critical=True):
-                        self.scheduler.record_flow_run("bag_flow")
+                if self._is_user_idle() and self.scheduler.is_flow_ready("bag_flow", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="bag_flow",
+                        flow_func=bag_flow,
+                        priority=FlowPriority.NORMAL,
+                        critical=True,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
 
                 # Tavern quest SCHEDULED trigger at 10:30 PM Pacific (ignores cooldown/idle)
                 # This ensures quests start right when the window opens
                 now_pacific = datetime.now(self.pacific_tz)
                 tavern_trigger_time = now_pacific.replace(hour=TAVERN_QUEST_START_HOUR, minute=TAVERN_QUEST_START_MINUTE, second=0, microsecond=0)
+                tavern_scheduled_triggered = False
                 if (now_pacific >= tavern_trigger_time and
                     self.tavern_scheduled_triggered_date != now_pacific.date()):
-                    self.logger.info(f"[{iteration}] TAVERN QUEST SCHEDULED: {TAVERN_QUEST_START_HOUR}:{TAVERN_QUEST_START_MINUTE:02d} PT reached, triggering flow...")
-                    if self._run_flow("tavern_quest", run_tavern_quest_flow, critical=True):
-                        self.tavern_scheduled_triggered_date = now_pacific.date()
-                        self.scheduler.record_flow_run("tavern_scan")
+                    tavern_scheduled_triggered = True
+                    flow_candidates.append(FlowCandidate(
+                        name="tavern_quest",
+                        flow_func=run_tavern_quest_flow,
+                        priority=FlowPriority.HIGH,  # Scheduled triggers are important
+                        critical=True,
+                        reason=f"scheduled {TAVERN_QUEST_START_HOUR}:{TAVERN_QUEST_START_MINUTE:02d} PT",
+                        record_to_scheduler=True
+                    ))
 
                 # Tavern quest: 5 min idle, 30 min cooldown (claims + Go clicks + timer scan)
-                elif self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
-                    self.logger.info(f"[{iteration}] TAVERN QUEST: idle={idle_str}, triggering quest flow...")
-                    if self._run_flow("tavern_quest", run_tavern_quest_flow, critical=True):
-                        self.scheduler.record_flow_run("tavern_scan")
+                elif self._is_user_idle() and self.scheduler.is_flow_ready("tavern_quest", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="tavern_quest",
+                        flow_func=run_tavern_quest_flow,
+                        priority=FlowPriority.NORMAL,
+                        critical=True,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
 
                 # Gift box flow: requires WORLD view (town_present means we're in WORLD), 5 min idle, 1 hour cooldown
-                if town_present and self.scheduler.is_flow_ready("gift_box", idle_seconds=effective_idle_secs):
-                    self.logger.info(f"[{iteration}] GIFT BOX: idle={idle_str}, triggering flow...")
-                    if self._run_flow("gift_box", gift_box_flow, critical=True):
-                        self.scheduler.record_flow_run("gift_box")
+                if town_present and self._is_user_idle() and self.scheduler.is_flow_ready("gift_box", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="gift_box",
+                        flow_func=gift_box_flow,
+                        priority=FlowPriority.NORMAL,
+                        critical=True,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
                 # Track continuous idle start time (using BlueStacks-specific idle)
@@ -2090,6 +2403,7 @@ class IconDaemon:
 
                 # Check scheduled triggers
                 now_pacific = datetime.now(self.pacific_tz)
+                scheduled_trigger_candidate = None  # Track which trigger was added
                 for trigger in self.scheduled_triggers:
                     # Check if we're past trigger time and haven't triggered today
                     if now_pacific.time() >= trigger['trigger_time']:
@@ -2100,11 +2414,71 @@ class IconDaemon:
                                 if idle_duration >= trigger['required_idle_seconds']:
                                     # Additional conditions: TOWN view, dog house aligned
                                     if world_present and harvest_aligned:
-                                        self.logger.info(f"[{iteration}] SCHEDULED TRIGGER: {trigger['name']} at {trigger['trigger_time']}, idle duration={idle_duration/3600:.2f}h >= {trigger['required_idle_seconds']/3600:.2f}h required")
-                                        self._run_flow(trigger['name'], trigger['flow'])
-                                        trigger['last_triggered_date'] = now_pacific.date()
+                                        scheduled_trigger_candidate = trigger
+                                        flow_candidates.append(FlowCandidate(
+                                            name=trigger['name'],
+                                            flow_func=trigger['flow'],
+                                            priority=FlowPriority.HIGH,  # Scheduled triggers are important
+                                            reason=f"scheduled {trigger['trigger_time']}, idle {idle_duration/3600:.2f}h"
+                                        ))
+                                        break  # Only one scheduled trigger per iteration
                                     else:
                                         self.logger.debug(f"[{iteration}] SCHEDULED TRIGGER: {trigger['name']} - conditions not met (view={view_state}, aligned={harvest_aligned})")
+
+                # =================================================================
+                # FLOW EXECUTION - Execute ONE flow from all candidates
+                # This is the SINGLE point of execution, preventing flows from
+                # stepping on each other. Priority determines which flow runs.
+                # =================================================================
+                executed_flow = self._execute_best_flow(flow_candidates, iteration)
+                if executed_flow:
+                    self.logger.debug(f"[{iteration}] Executed flow: {executed_flow}")
+
+                    # Handle special post-execution tracking
+                    if executed_flow == "bag_flow" and vs_checkpoint_triggered is not None:
+                        self.vs_chest_triggered.add(vs_checkpoint_triggered)
+                        self.logger.info(f"[{iteration}] VS checkpoint {vs_checkpoint_triggered} marked as triggered")
+
+                    if executed_flow == "tavern_quest" and tavern_scheduled_triggered:
+                        self.tavern_scheduled_triggered_date = now_pacific.date()
+                        self.logger.info(f"[{iteration}] Tavern scheduled trigger marked for {now_pacific.date()}")
+
+                    # Reset hospital state history after hospital flows execute
+                    if executed_flow in ("hospital_help", "healing"):
+                        self.hospital_state_history = []
+
+                    # Beast training post-execution tracking
+                    if executed_flow == "beast_training":
+                        self.beast_training_rally_count += 1
+                        self.scheduler.update_arms_race_state(beast_training_rally_count=self.beast_training_rally_count)
+                        self.beast_training_last_rally = current_time
+                        self.stamina_reader.reset()
+                        self.logger.info(f"[{iteration}] Beast training rally #{self.beast_training_rally_count} complete")
+
+                    if executed_flow == "beast_stamina_use":
+                        self.beast_training_use_count += 1
+                        self.beast_training_last_use_time = current_time
+                        self.logger.info(f"[{iteration}] Beast training use #{self.beast_training_use_count} complete")
+
+                    # Enhance hero block tracking
+                    if executed_flow == "enhance_hero_arms_race" and enhance_hero_candidate:
+                        block_start = arms_race['block_start']
+                        self.enhance_hero_last_block_start = block_start
+                        self.logger.info(f"[{iteration}] Enhance hero arms race complete for block {block_start}")
+
+                    # Soldier speedup block tracking
+                    if executed_flow == "soldier_speedup_h2" and soldier_speedup_h2_candidate and speedup_block_start:
+                        self.scheduler.update_arms_race_state(soldier_speedup_hour2_block=str(speedup_block_start))
+                        self.logger.info(f"[{iteration}] Soldier speedup Hour 2 complete")
+
+                    if executed_flow == "soldier_speedup_h3" and soldier_speedup_h3_candidate and speedup_block_start:
+                        self.scheduler.update_arms_race_state(soldier_speedup_hour3_block=str(speedup_block_start))
+                        self.logger.info(f"[{iteration}] Soldier speedup Hour 3 complete")
+
+                    # Scheduled trigger tracking
+                    if scheduled_trigger_candidate and executed_flow == scheduled_trigger_candidate['name']:
+                        scheduled_trigger_candidate['last_triggered_date'] = now_pacific.date()
+                        self.logger.info(f"[{iteration}] Scheduled trigger {scheduled_trigger_candidate['name']} marked for {now_pacific.date()}")
 
                 # Log view state for debugging
                 if view_state == "TOWN":
