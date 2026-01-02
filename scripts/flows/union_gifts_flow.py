@@ -35,6 +35,7 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
 from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
+from utils.return_to_base_view import return_to_base_view
 
 # Setup logger
 logger = logging.getLogger("union_gifts_flow")
@@ -58,15 +59,14 @@ BACK_BUTTON_X = 1345
 BACK_BUTTON_Y = 2002
 BACK_BUTTON_WIDTH = 107
 BACK_BUTTON_HEIGHT = 111
-BACK_BUTTON_THRESHOLD = 0.06
+BACK_BUTTON_THRESHOLD = 0.95  # CCORR (has mask) - higher is better
 
 
 def _is_back_button_present(frame: np.ndarray) -> tuple[bool, float]:
     """Check if back button is present at fixed location using template_matcher."""
     is_present, score, _ = match_template(
         frame, "back_button_union_4k.png",
-        (BACK_BUTTON_X, BACK_BUTTON_Y),
-        (BACK_BUTTON_WIDTH, BACK_BUTTON_HEIGHT),
+        search_region=(BACK_BUTTON_X, BACK_BUTTON_Y, BACK_BUTTON_WIDTH, BACK_BUTTON_HEIGHT),
         threshold=BACK_BUTTON_THRESHOLD
     )
     return is_present, score
@@ -160,30 +160,9 @@ def union_gifts_flow(adb) -> bool:
     if frame is not None:
         _save_debug_screenshot(frame, "06_after_rare_claim")
 
-    # Step 7: Click Back button until no longer visible
-    # Click first, then check if still there, repeat until gone
-    _log("Step 7: Clicking Back button until menu closed")
-    max_back_attempts = 5
-
-    for attempt in range(max_back_attempts):
-        # Click back button first (don't check before clicking)
-        _log(f"Clicking Back button at {BACK_BUTTON_CLICK} (attempt {attempt + 1})")
-        click_back(adb)
-        time.sleep(CLICK_DELAY)
-
-        # Now check if back button is still visible
-        frame = win.get_screenshot_cv2()
-        if frame is None:
-            break
-
-        is_present, score = _is_back_button_present(frame)
-        _save_debug_screenshot(frame, f"07_back_check_{attempt}")
-
-        if not is_present:
-            _log(f"Back button no longer visible (score={score:.4f}), menu closed")
-            break
-
-        _log(f"Back button still visible (score={score:.4f}), will click again")
+    # Step 7: Return to base view (TOWN/WORLD)
+    _log("Step 7: Returning to base view...")
+    return_to_base_view(adb, win, debug=False)
 
     elapsed = time.time() - flow_start
     _log(f"=== UNION GIFTS FLOW SUCCESS === (took {elapsed:.1f}s)")

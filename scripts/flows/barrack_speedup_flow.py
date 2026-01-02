@@ -59,7 +59,7 @@ def _poll_for_template_fixed(win, template_name, pos, size, timeout=POLL_TIMEOUT
     last_score = 1.0
     while time.time() - start < timeout:
         frame = win.get_screenshot_cv2()
-        found, score, center = match_template(frame, template_name, pos, size, threshold=THRESHOLD)
+        found, score, center = match_template(frame, template_name, search_region=(*pos, *size), threshold=THRESHOLD)
         last_score = score
         if found:
             if debug:

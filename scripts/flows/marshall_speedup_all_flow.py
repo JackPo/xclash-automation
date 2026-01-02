@@ -48,8 +48,7 @@ def verify_title_active(win, debug=False):
     found, score, center = match_template(
         frame,
         "title_active_icon_4k.png",
-        TITLE_ACTIVE_ICON_POS,
-        TITLE_ACTIVE_ICON_SIZE,
+        search_region=(*TITLE_ACTIVE_ICON_POS, *TITLE_ACTIVE_ICON_SIZE),
         threshold=TITLE_ACTIVE_THRESHOLD
     )
     if debug:

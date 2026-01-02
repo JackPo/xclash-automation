@@ -83,7 +83,7 @@ def _is_city_unoccupied(frame) -> bool:
     found, score, _ = match_template(
         frame, UNOCCUPIED_TEMPLATE,
         search_region=(1500, 200, 800, 300),
-        threshold=0.9
+        threshold=0.1  # SQDIFF (no mask) - lower is better
     )
     return found
 
@@ -119,11 +119,9 @@ def _click_march_button(adb, win) -> bool:
     )
 
     if found and loc:
-        # Click center of march button
-        w, h = 200, 60  # Approximate march button size
-        center = (loc[0] + w // 2, loc[1] + h // 2)
-        _log(f"Clicking March button at {center} (score={score:.4f})")
-        adb.tap(*center)
+        # loc is already CENTER - click directly
+        _log(f"Clicking March button at {loc} (score={score:.4f})")
+        adb.tap(*loc)
         return True
     else:
         _log(f"March button not found (score={score:.4f}), trying fixed position")

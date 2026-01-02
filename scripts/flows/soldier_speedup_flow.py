@@ -79,15 +79,13 @@ def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=F
         header_ok, header_score, _ = match_template(
             frame,
             "soldier_training_header_4k.png",
-            SOLDIER_TRAINING_HEADER_POS,
-            SOLDIER_TRAINING_HEADER_SIZE,
+            search_region=(*SOLDIER_TRAINING_HEADER_POS, *SOLDIER_TRAINING_HEADER_SIZE),
             threshold=THRESHOLD
         )
         speedup_ok, speedup_score, _ = match_template(
             frame,
             "speed_up_button_4k.png",
-            SPEED_UP_BUTTON_POS,
-            SPEED_UP_BUTTON_SIZE,
+            search_region=(*SPEED_UP_BUTTON_POS, *SPEED_UP_BUTTON_SIZE),
             threshold=THRESHOLD
         )
 
