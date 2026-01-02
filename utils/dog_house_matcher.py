@@ -15,8 +15,7 @@ class DogHouseMatcher:
     """Detect dog house at configurable position to verify town view alignment."""
 
     # Load from config (can be overridden in config_local.py)
-    POSITION = DOG_HOUSE_POSITION  # (x, y)
-    SIZE = DOG_HOUSE_SIZE  # (width, height)
+    REGION = (*DOG_HOUSE_POSITION, *DOG_HOUSE_SIZE)  # (x, y, w, h)
 
     TEMPLATE_NAME = "dog_house_4k.png"
     DEFAULT_THRESHOLD = THRESHOLDS.get('dog_house', 0.1)
@@ -44,8 +43,7 @@ class DogHouseMatcher:
         is_aligned, score, _ = match_template(
             frame,
             self.TEMPLATE_NAME,
-            position=self.POSITION,
-            size=self.SIZE,
+            search_region=self.REGION,
             threshold=self.threshold
         )
 
@@ -78,8 +76,7 @@ if __name__ == "__main__":
 
     print(f"Dog House Alignment Check")
     print(f"=" * 40)
-    print(f"Position: {matcher.POSITION}")
-    print(f"Size: {matcher.SIZE}")
+    print(f"Region: {matcher.REGION}")
     print(f"Threshold: {matcher.threshold}")
     print(f"Score: {score:.4f}")
     print(f"Aligned: {is_aligned}")

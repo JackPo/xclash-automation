@@ -59,8 +59,7 @@ TEAM_UP_BUTTON_CLICK = (1912, 1648)
 
 # Elite Zombie tab FIXED position for template matching (4K)
 # Template size: 269x101
-ELITE_ZOMBIE_TAB_POSITION = (1923, 1045)  # Top-left corner (verified via region search)
-ELITE_ZOMBIE_TAB_SIZE = (269, 101)
+ELITE_ZOMBIE_TAB_REGION = (1923, 1045, 269, 101)  # x, y, w, h
 ELITE_ZOMBIE_TAB_THRESHOLD = 0.06
 
 # Timing constants
@@ -223,8 +222,7 @@ def elite_zombie_flow(adb) -> bool:
             # Check if ACTIVE
             is_active, active_score, _ = match_template(
                 frame, "search_elite_zombie_tab_active_4k.png",
-                position=ELITE_ZOMBIE_TAB_POSITION,
-                size=ELITE_ZOMBIE_TAB_SIZE,
+                search_region=ELITE_ZOMBIE_TAB_REGION,
                 threshold=ELITE_ZOMBIE_TAB_THRESHOLD
             )
             if is_active:
@@ -235,8 +233,7 @@ def elite_zombie_flow(adb) -> bool:
             # Check if INACTIVE
             is_inactive, inactive_score, _ = match_template(
                 frame, "search_elite_zombie_tab_inactive_4k.png",
-                position=ELITE_ZOMBIE_TAB_POSITION,
-                size=ELITE_ZOMBIE_TAB_SIZE,
+                search_region=ELITE_ZOMBIE_TAB_REGION,
                 threshold=ELITE_ZOMBIE_TAB_THRESHOLD
             )
             if is_inactive:
@@ -265,8 +262,7 @@ def elite_zombie_flow(adb) -> bool:
             frame = win.get_screenshot_cv2()
             is_active, active_score, _ = match_template(
                 frame, "search_elite_zombie_tab_active_4k.png",
-                position=ELITE_ZOMBIE_TAB_POSITION,
-                size=ELITE_ZOMBIE_TAB_SIZE,
+                search_region=ELITE_ZOMBIE_TAB_REGION,
                 threshold=ELITE_ZOMBIE_TAB_THRESHOLD
             )
             _log(f"  After click - Elite Zombie tab ACTIVE: score={active_score:.4f}, found={is_active}")

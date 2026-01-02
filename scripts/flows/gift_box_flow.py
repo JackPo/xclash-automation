@@ -76,8 +76,7 @@ def gift_box_flow(adb, win=None, debug: bool = False) -> bool:
     frame = win.get_screenshot_cv2()
     is_present, score, _ = match_template(
         frame, "gift_box_4k.png",
-        (GIFT_BOX_REGION[0], GIFT_BOX_REGION[1]),
-        (GIFT_BOX_REGION[2], GIFT_BOX_REGION[3]),
+        search_region=GIFT_BOX_REGION,
         threshold=GIFT_BOX_THRESHOLD
     )
     if not is_present:
