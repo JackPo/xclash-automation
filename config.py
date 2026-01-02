@@ -241,6 +241,10 @@ BARRACKS_POSITIONS = [
 # Template size for barracks state detection
 BARRACKS_TEMPLATE_SIZE = (81, 87)  # width, height
 
+# Click offset from bubble top-left to center (for clicking barracks bubbles)
+# Bubble is 81x87, so center offset is ~40, 43
+BARRACKS_CLICK_OFFSETS = (40, 43)
+
 # Match threshold for barracks state (TM_SQDIFF_NORMED)
 # Raised to 0.08 from 0.06 due to animation variance (scores 0.00-0.08)
 BARRACKS_MATCH_THRESHOLD = 0.08  # With yellow pixel verification for READY/PENDING
@@ -290,6 +294,16 @@ STAMINA_USE_BUTTON = {
     'click': (2284, 1440),
 }
 
+# =============================================================================
+# COMMON UI POSITIONS (4K resolution)
+# =============================================================================
+
+# Back button - used to close popups, exit panels, dismiss dialogs
+BACK_BUTTON_CLICK = (1407, 2055)
+
+# Toggle button - switches between TOWN and WORLD views
+TOGGLE_BUTTON_CLICK = (3720, 2040)
+
 # BlueStacks keybindings (must match your BlueStacks game controls setup)
 # These are sent via Windows API, not ADB
 KEY_ZOOM_IN = 'shift+a'    # Pinch zoom in
@@ -298,6 +312,29 @@ KEY_PAN_UP = 'up'          # Arrow keys for camera pan
 KEY_PAN_DOWN = 'down'
 KEY_PAN_LEFT = 'left'
 KEY_PAN_RIGHT = 'right'
+
+# =============================================================================
+# ROYAL CITY PANEL BUTTONS (4K resolution)
+# =============================================================================
+# When clicking on a Royal City (via Mark or map), a panel opens with buttons.
+# Button positions vary based on panel location, but RELATIVE positions are stable.
+# Find Attack button, then calculate others using offsets.
+
+# Relative offsets from Attack button (verified across multiple screenshots)
+ROYAL_CITY_BUTTON_OFFSETS = {
+    'attack': (0, 0),      # Reference point
+    'rally': (205, 49),    # Attack + (205, 49)
+    'scout': (411, 0),     # Attack + (411, 0)
+}
+
+# Button size (all same)
+ROYAL_CITY_BUTTON_SIZE = (153, 177)
+
+# Templates (in templates/ground_truth/)
+# - royal_city_attack_button_4k.png + royal_city_attack_button_mask_4k.png
+# - rally_button_4k.png + rally_button_mask_4k.png
+# - royal_city_scout_button_4k.png + royal_city_scout_button_mask_4k.png
+# - royal_city_unoccupied_tab_4k.png (570x55) - detects if city is unoccupied
 
 # =============================================================================
 # RALLY JOINING AUTOMATION
@@ -411,14 +448,14 @@ RALLY_JOIN_MONSTERS = {
 }
 
 # Plus button detection (fixed X + Y search)
-RALLY_PLUS_BUTTON_X = 1905  # Fixed X coordinate (rightmost column)
+RALLY_PLUS_BUTTON_X = 1902  # Fixed X coordinate (rightmost column, matches template detection)
 RALLY_PLUS_BUTTON_THRESHOLD = 0.05  # Template matching threshold
 RALLY_PLUS_SEARCH_Y_START = 400  # Y search range start
 RALLY_PLUS_SEARCH_Y_END = 1800   # Y search range end
 
-# Monster icon relative to plus button
-RALLY_MONSTER_OFFSET_X = 235   # Pixels LEFT of plus button
-RALLY_MONSTER_OFFSET_Y = -151  # Pixels above plus button
+# Monster icon relative to plus button CENTER (from rally_plus_matcher)
+RALLY_MONSTER_OFFSET_X = 235   # Pixels RIGHT of plus button center
+RALLY_MONSTER_OFFSET_Y = -151  # Pixels ABOVE plus button center (negative = up)
 RALLY_MONSTER_WIDTH = 290      # Monster icon width
 RALLY_MONSTER_HEIGHT = 363     # Monster icon height
 

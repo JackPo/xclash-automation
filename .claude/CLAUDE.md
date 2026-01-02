@@ -21,6 +21,81 @@ python calibration/detect_object.py check.png "the back button with arrow icon"
 3. Extract template using the returned bounding box
 4. Save to `templates/ground_truth/`
 
+**Correlation-based template extraction (for consistent framing)**:
+
+When extracting multiple similar templates (e.g., Attack, Rally, Scout buttons), use an existing well-framed template as reference to get consistent framing across all:
+
+```python
+import cv2
+
+frame = cv2.imread('screenshot.png')
+reference_template = cv2.imread('templates/ground_truth/rally_button_4k.png')  # Well-framed reference
+
+# Define search region: expected position +/- 100px on all sides
+expected_x, expected_y = 1639, 1658  # Rough position from Gemini
+w, h = reference_template.shape[1], reference_template.shape[0]
+
+region_x = expected_x - 100
+region_y = expected_y - 100
+region_w = w + 200
+region_h = h + 200
+
+region = frame[region_y:region_y+region_h, region_x:region_x+region_w]
+
+# Find highest correlation match
+result = cv2.matchTemplate(region, reference_template, cv2.TM_CCORR_NORMED)
+min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+# Convert to full frame coordinates
+best_x = region_x + max_loc[0]
+best_y = region_y + max_loc[1]
+
+print(f'Best correlation: {max_val:.4f} at ({best_x}, {best_y})')
+
+# Extract with correct framing
+new_template = frame[best_y:best_y+h, best_x:best_x+w]
+cv2.imwrite('templates/ground_truth/new_button_4k.png', new_template)
+```
+
+**Why this works**: Similar UI elements (hexagon buttons, tabs, icons) share structural features. Even if the icon inside differs, the hexagon border/shape correlates well. This finds the optimal crop position that matches the reference framing.
+
+**When to use**:
+- Extracting multiple buttons in a row (Attack, Rally, Scout)
+- Ensuring consistent padding/centering across related templates
+- When Gemini gives rough coordinates but framing looks off
+
+**Tip**: If buttons are on the same row, find the best Y position for one, then use that Y for all others (only search horizontally).
+
+**Full workflow: Extract templates + create masks (tried and true pattern)**:
+
+1. **Take first screenshot** with panel open (background A)
+2. **Use Gemini** to roughly locate buttons: `python calibration/detect_object.py screenshot.png "the Attack button"`
+3. **Use correlation matching** with a well-framed reference template to find exact positions
+4. **Extract templates** at those positions, save to `ground_truth/`
+5. **Take second screenshot** with different background (pan map, switch view)
+6. **Use Gemini again** to roughly locate buttons in new screenshot
+7. **Correlation match again** using the templates you just extracted
+8. **Create masks** by comparing the two extractions:
+
+```python
+import cv2
+import numpy as np
+
+# Load both extractions (same button, different backgrounds)
+img1 = cv2.imread('templates/ground_truth/button_4k.png')
+img2 = cv2.imread('screenshots/debug/button_new_bg.png')
+
+# Create mask: identical pixels = opaque (white), different = background (black)
+diff = cv2.absdiff(img1, img2)
+diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+mask = (diff_gray < 10).astype(np.uint8) * 255
+
+cv2.imwrite('templates/ground_truth/button_mask_4k.png', mask)
+print(f'Opaque: {100*np.sum(mask==255)/mask.size:.1f}%')  # Should be 50-70%
+```
+
+**Why this works**: The hexagon/icon stays the same, only the background changes. Comparing pixels reveals which are part of the actual UI element (consistent) vs transparent background (varies).
+
 **Masked Template Extraction** (for icons with transparent backgrounds):
 
 When an icon has transparency (background shows through), standard template matching fails because the background changes. Use masked matching instead:
@@ -58,6 +133,7 @@ When an icon has transparency (background shows through), standard template matc
 **Templates with masks**:
 - `search_button_4k.png` + `search_button_mask_4k.png` - Magnifying glass icon (19, 1432) 119x118 - used to verify search panel opened
 - `title_active_icon_4k.png` + `title_active_icon_mask_4k.png` - Title scroll icon (203, 216) 69x62
+- `rally_button_4k.png` + `rally_button_mask_4k.png` - Rally button hexagon (153x177) - works on any background
 
 **IMPORTANT: Search button templates**:
 - `search_button_4k.png` - The **magnifying glass** icon on left sidebar (verifies search panel opened)
@@ -87,7 +163,7 @@ frame = win.get_screenshot_cv2()  # Returns BGR numpy array
 
 ## Project Context
 
-This is an automation project for Clash of Clans using BlueStacks Android emulator.
+This is an automation project for X-Clash using BlueStacks Android emulator.
 
 Key components:
 - ADB path: `C:\Program Files\BlueStacks_nxt\hd-adb.exe`
@@ -139,13 +215,10 @@ Settings that belong in `config.py`:
 
 **How it works**: `config.py` loads first, then `config_local.py` overrides any values it defines.
 
-**Root directory should ONLY contain:**
-- Config files (config.py, config_local.py, config_local.py.example)
-- Documentation (README.md, ARCHITECTURE.md, ARMS_RACE_SCHEDULE.md, etc.)
-- Main automation scripts (setup_bluestacks.py, etc.)
-- Data files (castle_database.csv)
-
-**Never create temporary files in root** - use appropriate subdirectories.
+**Root directory should stay clean**:
+- Use `screenshots/`, `templates/`, `logs/`, and `data/` for artifacts
+- Keep docs indexed in `docs/README.md`
+- Avoid creating new ad-hoc files in the root
 
 ## BlueStacks Setup
 
@@ -252,6 +325,24 @@ dismisses popups until the button returns to normal (detected by `view_state_det
 - `open_button_4k.png` - Open button in dialogs (242x99)
 - `back_button_union_4k.png` - Back button (position: 1345,2002, size: 107x111, threshold: 0.06)
 
+**Royal City Panel Templates (4K):**
+
+When clicking on a Royal City (via Mark or map), a panel opens with action buttons. The panel can be in two states:
+- **Occupied**: Shows alliance tab, allows title application
+- **Unoccupied**: Shows "Unoccupied" tab, no title application possible
+
+| Template | Size | Position (top-left) | Click Center | Notes |
+|----------|------|---------------------|--------------|-------|
+| `royal_city_unoccupied_tab_4k.png` | 570x55 | (1630, 330) | - | Detects unoccupied state |
+| `royal_city_attack_button_4k.png` | 153x177 | (1634, 1609) | (1710, 1697) | Red X icon |
+| `rally_button_4k.png` + mask | 153x177 | (1839, 1658) | (1916, 1746) | Blue flag icon (masked) |
+| `royal_city_scout_button_4k.png` | 153x177 | (2045, 1609) | (2121, 1697) | Blue binoculars icon |
+
+**Usage in title flow:**
+1. Navigate to Royal City via `go_to_mark_flow`
+2. Check for `royal_city_unoccupied_tab_4k.png` - if found, city is unoccupied → cannot apply title
+3. If occupied, proceed with title application
+
 **Union Gifts Flow Templates:**
 - `union_button_4k.png` - Union button on bottom bar (click: 3165, 2033)
 - `union_rally_gifts_button_4k.png` - Union Rally Gifts menu item (click: 2175, 1193)
@@ -343,19 +434,36 @@ found, score, center = match_template_fixed(
 # Returns: (bool, float, tuple) - (is_match, score, center_coords)
 
 # Search-based matching (find template anywhere in region/frame)
-found, score, location = match_template(
+found, score, center = match_template(
     frame,
     "claim_button_4k.png",
     search_region=(2100, 0, 400, 2160),  # Optional: x, y, w, h
     threshold=0.02
 )
-# Returns: (bool, float, tuple) - (is_match, score, top_left_coords)
+# Returns: (bool, float, tuple) - (is_match, score, CENTER_coords)
+# CRITICAL: Returns CENTER of template match, NOT top-left!
+# To click the matched element, just use: adb.tap(*center)
+# Do NOT add half the template size - that would double-offset!
+```
+
+**CRITICAL - match_template returns CENTER coordinates:**
+```python
+# CORRECT - click the returned center directly:
+found, score, center = match_template(frame, "button_4k.png")
+if found:
+    adb.tap(*center)  # center is already the click position!
+
+# WRONG - do NOT add half template size:
+found, score, center = match_template(frame, "button_4k.png")
+if found:
+    click = (center[0] + w//2, center[1] + h//2)  # WRONG! Double offset!
+    adb.tap(*click)
 ```
 
 **Benefits:**
 - **Auto mask detection**: If `<template>_mask_4k.png` exists, uses masked matching automatically
 - **Cached templates**: Templates loaded once and cached (no repeated cv2.imread)
-- **Consistent API**: Same interface everywhere, returns center coordinates
+- **Consistent API**: Same interface everywhere, returns CENTER coordinates (ready to click)
 - **Less code**: ~500 lines removed from individual matchers
 
 **Matching methods:**
@@ -654,6 +762,33 @@ cat logs/current_daemon.log
 
 # Search for specific events
 grep "BAG FLOW\|triggering" logs/current_daemon.log
+```
+
+### Flow Coordination
+
+The daemon uses `_run_flow()` and `_run_flow_sync()` to prevent flows from interrupting each other:
+
+- **`active_flows` set**: Tracks currently running flows
+- **`critical_flow_active` flag**: When True, blocks non-critical flows
+- **`_can_run_flow()` helper**: Pre-check before clicking to avoid UI interference
+
+**CRITICAL**: All flows must check `_can_run_flow()` BEFORE clicking any UI elements. This prevents:
+- Rally join from interrupting bag flow
+- Soldier upgrade from interrupting treasure map
+- Any flow from clicking while another flow has the UI open
+
+**Flow coordination pattern**:
+```python
+# CORRECT: Check BEFORE clicking
+if not self._can_run_flow():
+    self.logger.debug("Skipping - another flow is active")
+else:
+    self.adb.tap(x, y)  # Only click if no flow active
+    self._run_flow_sync("flow_name", flow_func, critical=True)
+
+# WRONG: Click first, check later (causes interruptions)
+self.adb.tap(x, y)  # BAD - already clicked!
+self._run_flow_sync(...)  # Too late to prevent interference
 ```
 
 ### Idle Detection Modes
@@ -975,6 +1110,67 @@ RALLY_MONSTERS = [
 - `utils/rally_exhaustion_tracker.py` - Daily limit tracking
 - `utils/rally_monster_validator.py` - OCR and validation
 
+### Royal City Flow (Scheduled)
+
+**Trigger**: Scheduled execution (e.g., "at 6AM tomorrow, attack Royal City")
+
+**Prerequisite**: Must use `go_to_mark_flow` first to navigate to the Royal City location on the map.
+
+**Flow sequence** (`scripts/flows/royal_city_flow.py`):
+1. **Find and click star** in center of screen to open Royal City panel
+   - Template: `star_single_4k.png` (search region 1400,600 1100x1000, threshold 0.15)
+2. **Verify city is UNCLAIMED** - only unclaimed cities can be attacked/scouted
+   - Template: `royal_city_unoccupied_tab_4k.png` (570x55)
+   - If OCCUPIED: abort flow (can't attack your own alliance's city)
+3. **Perform action** based on argument:
+
+| Action | Button Template | What Happens |
+|--------|-----------------|--------------|
+| `scout` | `royal_city_scout_button_4k.png` | Just clicks Scout, done |
+| `attack` | `royal_city_attack_button_4k.png` | Opens troop selection |
+| `rally` | `rally_button_4k.png` | Opens rally setup |
+
+4. **For attack/rally only**:
+   - Select rightmost idle hero (with Zz icon) using `HeroSelector`
+   - Click March button at (1912, 1648) or template match
+5. `return_to_base_view()` to exit
+
+**Templates** (all 153x177 with masks for TM_CCORR_NORMED):
+- `royal_city_attack_button_4k.png` + `royal_city_attack_button_mask_4k.png`
+- `royal_city_scout_button_4k.png` + `royal_city_scout_button_mask_4k.png`
+- `rally_button_4k.png` + `rally_button_mask_4k.png`
+- `royal_city_unoccupied_tab_4k.png` (no mask needed)
+- `star_single_4k.png` (TM_SQDIFF_NORMED, threshold 0.15)
+
+**Button relative offsets** (from Attack button position):
+```python
+# In config.py
+ROYAL_CITY_BUTTON_OFFSETS = {
+    'attack': (0, 0),      # Reference point
+    'rally': (205, 49),    # Attack + (205, 49)
+    'scout': (411, 0),     # Attack + (411, 0)
+}
+ROYAL_CITY_BUTTON_SIZE = (153, 177)
+```
+
+**Usage**:
+```bash
+# Scout only (fast)
+python scripts/flows/royal_city_flow.py scout --debug
+
+# Attack with rightmost idle hero
+python scripts/flows/royal_city_flow.py attack --debug
+
+# Rally (sets up rally, others can join)
+python scripts/flows/royal_city_flow.py rally --debug
+```
+
+**Scheduling**: This flow will be called by the daemon scheduler at specified times. User specifies when (e.g., "6AM tomorrow") and the scheduler queues the flow for execution.
+
+**Files**:
+- `scripts/flows/royal_city_flow.py` - Main flow
+- `scripts/flows/go_to_mark_flow.py` - Navigation to marked location (prerequisite)
+
 ### Currently Detected Icons
 
 | Icon | Matcher | Threshold | Click Position | Flow |
@@ -991,6 +1187,7 @@ RALLY_MONSTERS = [
 | Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
 | Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3725, 1624) | `bag_flow` |
 | Snowman Party | Chat message | `snowman_chat_matcher.py` | N/A | `snowman_flow` (scaffolding) |
+| Royal City | Scheduled | User-specified time | N/A | `royal_city_flow` ✓ |
 
 ### Snowman Party Flow (Scaffolding - Claim Step TBD)
 
