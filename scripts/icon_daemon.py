@@ -423,8 +423,8 @@ class IconDaemon:
             raise RuntimeError("Could not start OCR server!")
         print("  OCR server is running")
 
-        # ADB
-        self.adb = ADBHelper()
+        # ADB - with idle tracking callback to filter daemon actions from user idle
+        self.adb = ADBHelper(on_action=mark_daemon_action)
         print(f"  Connected to device: {self.adb.device}")
 
         # Windows screenshot helper
@@ -474,7 +474,7 @@ class IconDaemon:
         print(f"  Hospital state matcher: threshold={self.hospital_matcher.threshold}, consecutive={self.HOSPITAL_CONSECUTIVE_REQUIRED}")
 
         self.back_button_matcher = BackButtonMatcher(debug_dir=debug_dir)
-        print(f"  Back button matcher: {self.back_button_matcher.TEMPLATE_NAME} (threshold={self.back_button_matcher.threshold})")
+        print(f"  Back button matcher: {self.back_button_matcher.TEMPLATES} (threshold={self.back_button_matcher.threshold})")
 
         self.dog_house_matcher = DogHouseMatcher(debug_dir=debug_dir)
         print(f"  Dog house matcher: {self.dog_house_matcher.TEMPLATE_NAME} (threshold={self.dog_house_matcher.threshold})")
@@ -872,6 +872,11 @@ class IconDaemon:
 
         return result
 
+    def _can_run_flow(self) -> bool:
+        """Check if a new flow can be started (no other flow is active)."""
+        with self.flow_lock:
+            return len(self.active_flows) == 0
+
     def _run_flow_sync(self, flow_name: str, flow_func, critical: bool = False) -> dict:
         """
         Run a flow synchronously (blocking) and return its result.
@@ -1015,7 +1020,7 @@ class IconDaemon:
             "active_flows": list(self.active_flows),
             "critical_flow": self.critical_flow_name,
             "stamina": self.stamina_reader.history[-1] if self.stamina_reader.history else None,
-            "idle_seconds": get_idle_seconds(),
+            "idle_seconds": get_user_idle_seconds(),  # Use filtered idle (same as gating logic)
             "arms_race": {
                 "event": arms_race.get("current"),
                 "day": arms_race.get("day"),
@@ -1126,11 +1131,8 @@ class IconDaemon:
                         march_x, march_y, _ = march_match
                         # Check prerequisites: TOWN or WORLD view, idle, cooldown
                         view_state, _ = detect_view(frame)
-                        # Get idle based on config
-                        self.bluestacks_idle_detector.update()
-                        rally_sys_idle = get_idle_seconds()
-                        rally_bs_idle = self.bluestacks_idle_detector.get_bluestacks_idle_seconds()
-                        rally_effective_idle = rally_bs_idle if USE_BLUESTACKS_IDLE else rally_sys_idle
+                        # Use filtered idle (excludes daemon's own clicks) - consistent with rest of daemon
+                        rally_effective_idle = get_user_idle_seconds()
 
                         # Union Boss mode: faster cooldown (15s instead of 30s)
                         in_union_boss_mode = current_time < self.union_boss_mode_until
@@ -1146,24 +1148,33 @@ class IconDaemon:
                             self.logger.debug(f"[{iteration}] UNION BOSS MODE: {remaining}s remaining, cooldown={rally_cooldown}s")
 
                         if rally_idle_ok and rally_view_ok and rally_cooldown_elapsed:
-                            mode_str = " [BOSS MODE]" if in_union_boss_mode else ""
-                            self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}{mode_str}")
-                            # Click the march button to open Union War panel
-                            click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
-                            mark_daemon_action()
-                            self.adb.tap(click_x, click_y)
-                            self.last_rally_march_click = current_time
-                            time.sleep(0.5)  # Brief wait for panel to start loading
+                            # Check if another flow is running BEFORE clicking
+                            if not self._can_run_flow():
+                                self.logger.debug(f"[{iteration}] RALLY: Skipping - another flow is active")
+                            else:
+                                mode_str = " [BOSS MODE]" if in_union_boss_mode else ""
+                                self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}{mode_str}")
+                                # Click the march button to open Union War panel
+                                click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
+                                mark_daemon_action()
+                                self.adb.tap(click_x, click_y)
+                                self.last_rally_march_click = current_time
+                                time.sleep(0.5)  # Brief wait for panel to start loading
 
-                            # Run rally join flow directly (not via _run_flow) to get result
-                            try:
-                                result = rally_join_flow(self.adb, union_boss_mode=in_union_boss_mode)
-                                # Check if Union Boss was joined - enter Union Boss mode
-                                if result.get('monster_name') == 'Union Boss':
-                                    self.union_boss_mode_until = current_time + UNION_BOSS_MODE_DURATION
-                                    self.logger.info(f"[{iteration}] UNION BOSS detected! Entering Union Boss mode for 30 minutes")
-                            except Exception as e:
-                                self.logger.error(f"[{iteration}] Rally join flow error: {e}")
+                                # Run rally join flow via _run_flow_sync to get result AND coordinate with other flows
+                                flow_result = self._run_flow_sync(
+                                    "rally_join_flow",
+                                    lambda adb: rally_join_flow(adb, union_boss_mode=in_union_boss_mode),
+                                    critical=True
+                                )
+                                if flow_result.get("success"):
+                                    result = flow_result.get("result", {})
+                                    # Check if Union Boss was joined - enter Union Boss mode
+                                    if result.get('monster_name') == 'Union Boss':
+                                        self.union_boss_mode_until = current_time + UNION_BOSS_MODE_DURATION
+                                        self.logger.info(f"[{iteration}] UNION BOSS detected! Entering Union Boss mode for 30 minutes")
+                                elif flow_result.get("error"):
+                                    self.logger.warning(f"[{iteration}] Rally join blocked: {flow_result.get('error')}")
 
                 # Periodic OCR server health check (every 5 minutes)
                 if current_time - self.last_ocr_health_check >= self.OCR_HEALTH_CHECK_INTERVAL:
@@ -1962,6 +1973,11 @@ class IconDaemon:
                             # Then upgrade each validated PENDING barrack
                             upgrades = 0
                             for idx in pending_indices:
+                                # Check if another flow is running BEFORE clicking
+                                if not self._can_run_flow():
+                                    self.logger.debug(f"[{iteration}] SOLDIER: Skipping - another flow is active")
+                                    break  # Exit loop, don't interrupt other flow
+
                                 self.logger.info(f"[{iteration}] SOLDIER: Processing barrack {idx+1}...")
 
                                 # Click to open this barrack's panel
@@ -1971,8 +1987,15 @@ class IconDaemon:
                                 self.adb.tap(click_x, click_y)
                                 time.sleep(1.0)
 
-                                # Run upgrade flow (assumes panel is open)
-                                success = soldier_upgrade_flow(self.adb, barrack_index=idx, debug=True)
+                                # Run upgrade flow via _run_flow_sync to coordinate with other flows
+                                flow_result = self._run_flow_sync(
+                                    f"soldier_upgrade_flow_b{idx+1}",
+                                    lambda adb, idx=idx: soldier_upgrade_flow(adb, barrack_index=idx, debug=True),
+                                    critical=True
+                                )
+                                success = flow_result.get("success") and flow_result.get("result", False)
+                                if not flow_result.get("success") and flow_result.get("error"):
+                                    self.logger.warning(f"[{iteration}] SOLDIER: Upgrade blocked: {flow_result.get('error')}")
                                 if success:
                                     upgrades += 1
                                     self.logger.info(f"[{iteration}] SOLDIER: Barrack {idx+1} upgrade complete")
@@ -2012,7 +2035,7 @@ class IconDaemon:
                 # VS Day 7 chest surprise: trigger bag flow at 10, 5, 1 min remaining
                 # This opens level chests right before VS day ends to surprise competitors
                 vs_day = arms_race['day']
-                vs_minutes_remaining = arms_race.get('minutes_remaining', 999)
+                vs_minutes_remaining = arms_race_remaining_mins  # Use already-calculated value
 
                 # Reset checkpoint tracking when day changes
                 if vs_day != self.vs_chest_last_day:

@@ -452,29 +452,38 @@ class DaemonWebSocketServer:
         if title_name not in titles:
             raise ValueError(f"Unknown title: {title_name}. Available: {list(titles.keys())}")
 
-        # Step 1: Go to marked Royal City
-        logger.info(f"Navigating to marked Royal City...")
-        go_success = go_to_mark_flow(self.daemon.adb, debug=False)
-        if not go_success:
-            return {"success": False, "error": "Failed to navigate to marked Royal City"}
+        # Mark as critical flow to prevent daemon interference
+        self.daemon.critical_flow_active = True
+        self.daemon.critical_flow_name = "apply_title"
 
-        # Step 2: Apply the title
-        logger.info(f"Applying title: {title_name}")
-        result = title_management_flow(
-            self.daemon.adb,
-            title_name,
-            screenshot_helper=self.daemon.windows_helper,
-            debug=False,
-            return_to_base=True
-        )
+        try:
+            # Step 1: Go to marked Royal City
+            logger.info(f"Navigating to marked Royal City...")
+            go_success = go_to_mark_flow(self.daemon.adb, debug=False)
+            if not go_success:
+                return {"success": False, "error": "Failed to navigate to marked Royal City"}
 
-        title_info = titles[title_name]
-        return {
-            "success": result,
-            "title": title_name,
-            "display_name": title_info.get("display_name"),
-            "buffs": title_info.get("buffs", [])
-        }
+            # Step 2: Apply the title
+            logger.info(f"Applying title: {title_name}")
+            result = title_management_flow(
+                self.daemon.adb,
+                title_name,
+                screenshot_helper=self.daemon.windows_helper,
+                debug=False,
+                return_to_base=True
+            )
+
+            title_info = titles[title_name]
+            return {
+                "success": result,
+                "title": title_name,
+                "display_name": title_info.get("display_name"),
+                "buffs": title_info.get("buffs", [])
+            }
+        finally:
+            # Always clear critical flow flag
+            self.daemon.critical_flow_active = False
+            self.daemon.critical_flow_name = None
 
     def _cmd_list_titles(self, args: dict) -> dict:
         """List available kingdom titles."""

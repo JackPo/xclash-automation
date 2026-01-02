@@ -40,9 +40,9 @@ CHAT_HEADER_Y = 36
 CHAT_HEADER_W = 123
 CHAT_HEADER_H = 59
 
-# Click coordinates
-TOGGLE_BUTTON_CLICK = (3720, 2040)  # Center of World/Town button
-BACK_BUTTON_CLICK = (1407, 2055)    # Center of back button
+# Import from centralized config
+from config import BACK_BUTTON_CLICK, TOGGLE_BUTTON_CLICK
+from utils.ui_helpers import click_back
 
 THRESHOLD = 0.05  # For TM_SQDIFF_NORMED (lower = better match)
 CHAT_THRESHOLD = 0.05  # For chat header detection
@@ -131,7 +131,7 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
         if current == ViewState.CHAT:
             if debug:
                 print(f"In CHAT, clicking back button at {BACK_BUTTON_CLICK}")
-            adb.tap(*BACK_BUTTON_CLICK)
+            click_back(adb)
             time.sleep(0.5)
             continue
 
@@ -151,12 +151,25 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
             time.sleep(1.0)
             continue
 
-        # UNKNOWN state - likely a floating popup blocking the view
+        # UNKNOWN state - likely a dialog/popup blocking the view
         if current == ViewState.UNKNOWN:
             from utils.safe_grass_matcher import find_safe_grass
             from utils.safe_ground_matcher import find_safe_ground
+            from utils.template_matcher import match_template
 
-            # Check for grass (WORLD view indicator)
+            # FIRST: Check for back button with HIGH CERTAINTY (masked template)
+            # This catches dialogs/menus that need back button to close
+            back_found, back_score, back_pos = match_template(
+                frame, "back_button_union_4k.png", threshold=0.98
+            )
+            if back_found:
+                if debug:
+                    print(f"UNKNOWN state, back button detected (score={back_score:.4f}) - clicking at {BACK_BUTTON_CLICK}")
+                click_back(adb)
+                time.sleep(0.5)
+                continue
+
+            # If no back button, check grass/ground for floating popups
             grass_pos = find_safe_grass(frame, debug=False)
             if grass_pos:
                 if debug:
@@ -165,7 +178,6 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
                 time.sleep(0.5)
                 continue
 
-            # Check for ground (TOWN view indicator)
             ground_pos = find_safe_ground(frame, debug=False)
             if ground_pos:
                 if debug:
@@ -174,10 +186,10 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
                 time.sleep(0.5)
                 continue
 
-            # No grass/ground found - fall back to back button (might be menu/dialog)
+            # Nothing found - try back button anyway as last resort
             if debug:
-                print(f"UNKNOWN state, no grass/ground - trying back button at {BACK_BUTTON_CLICK}")
-            adb.tap(*BACK_BUTTON_CLICK)
+                print(f"UNKNOWN state, nothing detected - trying back button at {BACK_BUTTON_CLICK}")
+            click_back(adb)
             time.sleep(0.5)
             continue
 
@@ -213,7 +225,7 @@ def exit_chat(adb, debug: bool = False) -> ViewState:
             return current
 
         # Click back button
-        adb.tap(*BACK_BUTTON_CLICK)
+        click_back(adb)
         time.sleep(0.5)
 
     return ViewState.UNKNOWN
