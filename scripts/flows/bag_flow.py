@@ -149,8 +149,7 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
     frame = win.get_screenshot_cv2()
     is_present, score, _ = match_template(
         frame, "bag_button_4k.png",
-        (BAG_BUTTON_REGION[0], BAG_BUTTON_REGION[1]),
-        (BAG_BUTTON_REGION[2], BAG_BUTTON_REGION[3]),
+        search_region=BAG_BUTTON_REGION,
         threshold=BAG_BUTTON_THRESHOLD
     )
     if not is_present:
@@ -168,8 +167,7 @@ def bag_flow(adb, win=None, debug: bool = False) -> dict:
     frame = win.get_screenshot_cv2()
     is_present, score, _ = match_template(
         frame, "bag_tab_4k.png",
-        (BAG_TAB_REGION[0], BAG_TAB_REGION[1]),
-        (BAG_TAB_REGION[2], BAG_TAB_REGION[3]),
+        search_region=BAG_TAB_REGION,
         threshold=BAG_TAB_THRESHOLD
     )
     if not is_present:

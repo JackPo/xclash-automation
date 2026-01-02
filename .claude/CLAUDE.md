@@ -418,32 +418,35 @@ hospital_state_matcher use the same yellow soldier templates.
 
 ## Centralized Template Matching
 
-**ALL template matching MUST use `utils/template_matcher.py`** - NOT direct cv2.matchTemplate calls.
+**ALL template matching MUST use `utils/template_matcher.py`** - ONE function: `match_template()`
 
 ```python
-from utils.template_matcher import match_template_fixed, match_template
+from utils.template_matcher import match_template
 
 # Fixed position matching (icon at known location)
-found, score, center = match_template_fixed(
+found, score, center = match_template(
     frame,
-    "handshake_icon_4k.png",         # Template name (looks in templates/ground_truth/)
-    position=(3088, 1780),           # Top-left position
-    size=(155, 127),                 # Width x Height
-    threshold=0.04                   # TM_SQDIFF_NORMED threshold
+    "handshake_iter2.png",              # Template name (looks in templates/ground_truth/)
+    search_region=(3088, 1780, 155, 127),  # x, y, width, height
+    threshold=0.04                       # TM_SQDIFF_NORMED threshold
 )
 # Returns: (bool, float, tuple) - (is_match, score, center_coords)
 
-# Search-based matching (find template anywhere in region/frame)
+# Search-based matching (find template anywhere in frame)
 found, score, center = match_template(
     frame,
     "claim_button_4k.png",
-    search_region=(2100, 0, 400, 2160),  # Optional: x, y, w, h
     threshold=0.02
 )
 # Returns: (bool, float, tuple) - (is_match, score, CENTER_coords)
-# CRITICAL: Returns CENTER of template match, NOT top-left!
-# To click the matched element, just use: adb.tap(*center)
-# Do NOT add half the template size - that would double-offset!
+
+# Search within a region
+found, score, center = match_template(
+    frame,
+    "claim_button_4k.png",
+    search_region=(2100, 0, 400, 2160),  # x, y, w, h
+    threshold=0.02
+)
 ```
 
 **CRITICAL - match_template returns CENTER coordinates:**
@@ -461,10 +464,10 @@ if found:
 ```
 
 **Benefits:**
+- **ONE function**: `match_template()` handles both fixed-position and search-based matching
 - **Auto mask detection**: If `<template>_mask_4k.png` exists, uses masked matching automatically
 - **Cached templates**: Templates loaded once and cached (no repeated cv2.imread)
 - **Consistent API**: Same interface everywhere, returns CENTER coordinates (ready to click)
-- **Less code**: ~500 lines removed from individual matchers
 
 **Matching methods:**
 - `TM_SQDIFF_NORMED`: Default for unmasked templates. Score 0.0 = perfect match. Threshold is MAX allowed score.
