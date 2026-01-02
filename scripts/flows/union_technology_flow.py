@@ -22,7 +22,6 @@ import sys
 import time
 import logging
 from pathlib import Path
-from datetime import datetime
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -33,21 +32,14 @@ import cv2
 import numpy as np
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.view_state_detector import detect_view, ViewState
 from utils.return_to_base_view import return_to_base_view
+from utils.template_matcher import match_template_fixed, match_template_all
 
 # Setup logger
 logger = logging.getLogger("union_technology_flow")
 
-# Debug output directory
-DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "union_technology_flow"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-
-# Template paths
+# Template paths (for reference only - using template_matcher)
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
-UNION_TECHNOLOGY_HEADER_TEMPLATE = TEMPLATES_DIR / "union_technology_header_4k.png"
-TECH_DONATE_THUMBS_UP_TEMPLATE = TEMPLATES_DIR / "tech_donate_thumbs_up_4k.png"
-TECH_DONATE_200_BUTTON_TEMPLATE = TEMPLATES_DIR / "tech_donate_200_button_4k.png"
 
 # Fixed click coordinates (4K resolution)
 UNION_BUTTON_CLICK = (3165, 2033)  # Union button on bottom bar
@@ -77,145 +69,48 @@ CLICK_DELAY = 0.5
 SCREEN_TRANSITION_DELAY = 1.5
 LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
 
-# Load templates once
-_header_template = None
-_thumbs_up_template = None
-_donate_button_template = None
-
-
-def _get_header_template():
-    global _header_template
-    if _header_template is None:
-        _header_template = cv2.imread(str(UNION_TECHNOLOGY_HEADER_TEMPLATE), cv2.IMREAD_GRAYSCALE)
-    return _header_template
-
-
-def _get_thumbs_up_template():
-    global _thumbs_up_template
-    if _thumbs_up_template is None:
-        _thumbs_up_template = cv2.imread(str(TECH_DONATE_THUMBS_UP_TEMPLATE), cv2.IMREAD_GRAYSCALE)
-    return _thumbs_up_template
-
-
-def _get_donate_button_template():
-    global _donate_button_template
-    if _donate_button_template is None:
-        _donate_button_template = cv2.imread(str(TECH_DONATE_200_BUTTON_TEMPLATE), cv2.IMREAD_GRAYSCALE)
-    return _donate_button_template
-
-
 def _is_on_technology_panel(frame: np.ndarray) -> tuple[bool, float]:
     """Check if we're on the Union Technology panel by matching header at fixed position."""
-    template = _get_header_template()
-    if template is None:
-        return False, 1.0
-
-    # Extract ROI at fixed position
-    roi = frame[HEADER_Y:HEADER_Y + HEADER_HEIGHT, HEADER_X:HEADER_X + HEADER_WIDTH]
-
-    if len(roi.shape) == 3:
-        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    else:
-        roi_gray = roi
-
-    # Resize template if needed to match ROI
-    if roi_gray.shape != template.shape:
-        template_resized = cv2.resize(template, (roi_gray.shape[1], roi_gray.shape[0]))
-    else:
-        template_resized = template
-
-    # Template match
-    result = cv2.matchTemplate(roi_gray, template_resized, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-    score = float(min_val)
-
-    is_on_panel = score <= HEADER_THRESHOLD
-    return is_on_panel, score
+    found, score, _ = match_template_fixed(
+        frame, "union_technology_header_4k.png",
+        position=(HEADER_X, HEADER_Y),
+        size=(HEADER_WIDTH, HEADER_HEIGHT),
+        threshold=HEADER_THRESHOLD
+    )
+    return found, score
 
 
 def _is_donate_dialog_visible(frame: np.ndarray) -> tuple[bool, float]:
     """Check if donate dialog is visible by matching donate_200 button at fixed position."""
-    template = _get_donate_button_template()
-    if template is None:
-        return False, 1.0
-
-    # Extract ROI at fixed position
-    roi = frame[DONATE_BUTTON_Y:DONATE_BUTTON_Y + DONATE_BUTTON_HEIGHT,
-                DONATE_BUTTON_X:DONATE_BUTTON_X + DONATE_BUTTON_WIDTH]
-
-    if len(roi.shape) == 3:
-        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    else:
-        roi_gray = roi
-
-    # Resize template if needed to match ROI
-    if roi_gray.shape != template.shape:
-        template_resized = cv2.resize(template, (roi_gray.shape[1], roi_gray.shape[0]))
-    else:
-        template_resized = template
-
-    # Template match
-    result = cv2.matchTemplate(roi_gray, template_resized, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-    score = float(min_val)
-
-    is_visible = score <= DONATE_BUTTON_THRESHOLD
-    return is_visible, score
+    found, score, _ = match_template_fixed(
+        frame, "tech_donate_200_button_4k.png",
+        position=(DONATE_BUTTON_X, DONATE_BUTTON_Y),
+        size=(DONATE_BUTTON_WIDTH, DONATE_BUTTON_HEIGHT),
+        threshold=DONATE_BUTTON_THRESHOLD
+    )
+    return found, score
 
 
-def _find_thumbs_up_badge_highest_y(frame: np.ndarray) -> tuple[int, int, float] | None:
-    """Find the red thumbs up badge with highest Y value. Returns (x, y, score) or None."""
-    template = _get_thumbs_up_template()
-    if template is None:
-        return None
-
-    if len(frame.shape) == 3:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = frame
-
-    h, w = template.shape
-    result = cv2.matchTemplate(gray, template, cv2.TM_SQDIFF_NORMED)
-
-    # Find all matches below threshold
-    matches = []
-    locations = np.where(result < THUMBS_UP_THRESHOLD)
-
-    for pt in zip(*locations[::-1]):  # x, y format
-        score = result[pt[1], pt[0]]
-        center_x = pt[0] + w // 2
-        center_y = pt[1] + h // 2
-        matches.append((center_x, center_y, float(score)))
+def _find_thumbs_up_badge_topmost(frame: np.ndarray) -> tuple[int, int, float] | None:
+    """Find the red thumbs up badge with lowest Y value (top-most). Returns (center_x, center_y, score) or None."""
+    # Use match_template_all which returns CENTER coordinates sorted by Y
+    matches = match_template_all(
+        frame, "tech_donate_thumbs_up_4k.png",
+        threshold=THUMBS_UP_THRESHOLD,
+        min_distance=MIN_DISTANCE_BETWEEN_MATCHES
+    )
 
     if not matches:
         return None
 
-    # Remove duplicates (matches too close together)
-    filtered = []
-    for match in sorted(matches, key=lambda x: x[2]):  # Sort by score
-        x, y, score = match
-        is_duplicate = False
-        for fx, fy, _ in filtered:
-            if abs(x - fx) < MIN_DISTANCE_BETWEEN_MATCHES and abs(y - fy) < MIN_DISTANCE_BETWEEN_MATCHES:
-                is_duplicate = True
-                break
-        if not is_duplicate:
-            filtered.append(match)
-
-    if not filtered:
-        return None
-
-    # Pick the one with lowest Y value (top-most / higher position on screen)
-    lowest_y_match = min(filtered, key=lambda x: x[1])
-    return lowest_y_match
+    # First match is top-most (sorted by Y)
+    return matches[0]
 
 
 def _save_debug_screenshot(frame, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = DEBUG_DIR / f"{timestamp}_{name}.png"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    from utils.debug_screenshot import save_debug_screenshot
+    return save_debug_screenshot(frame, "union_technology", name)
 
 
 def _log(msg: str):
@@ -267,7 +162,7 @@ def union_technology_flow(adb) -> bool:
         return False
 
     # Step 4: Find red thumbs up badge (highest Y)
-    badge = _find_thumbs_up_badge_highest_y(frame)
+    badge = _find_thumbs_up_badge_topmost(frame)
 
     if badge is None:
         _log("No donation badge found, nothing to donate")
