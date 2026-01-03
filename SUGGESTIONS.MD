@@ -62,6 +62,16 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 ### 12. Dead state variable beast_training_pre_claim_done - FIXED
 - Removed unused `self.beast_training_pre_claim_done` from `scripts/icon_daemon.py:353`
 
+### 13. UNKNOWN full recovery ran when user was NOT idle - FIXED
+- Full recovery (`return_to_base_view` after 180s in UNKNOWN) triggered regardless of idle status
+- Added idle check: `if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT and effective_idle_secs >= self.IDLE_THRESHOLD:`
+- Won't interrupt active gameplay anymore
+
+### 14. Disk cleanup was O(n²) and froze daemon - FIXED
+- `utils/debug_screenshot.py:_cleanup_old` called `_get_disk_usage_gb()` after EVERY file deletion
+- 10,000 files = 100 million stat() calls, took minutes
+- Refactored to single scan with byte tracking - now O(n), takes seconds
+
 ## Verified fixes / confirmed OK (observed in current code)
 - VS Day 7 chest checkpoints use `arms_race_remaining_mins` instead of a missing field in `scripts/icon_daemon.py`.
 - Rally monster offsets treat plus button coordinates as centers (`utils/rally_monster_validator.py`, `config.py`).
@@ -106,7 +116,25 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 
 10) Recovery/setup uses `python` binary that may not exist
 - `utils/return_to_base_view.py:121-131` and `scripts/icon_daemon.py:756-770` call `['python', 'scripts/setup_bluestacks.py']`.
-- On systems where only `python3` is available (common), recovery/resolution fix silently fails, leading to endless recovery loops.
+- On systems where only `python3` is available (common), recovery/resolution fix silently fails.
+- **N/A for this setup** - Windows has `python` in PATH.
+
+11) Foreground detection relies on `grep` inside `adb shell`
+- `scripts/icon_daemon.py:_is_xclash_in_foreground` and `utils/return_to_base_view._is_xclash_in_foreground` run `dumpsys window | grep mFocusedApp`.
+- Some Android shells lack `grep`.
+- **N/A for this setup** - BlueStacks has grep, verified working.
+
+12) OCR server restart logic is Windows‑only and can leave orphans
+- `utils/ocr_client.kill_ocr_servers()` uses `wmic` (removed on newer Windows, unavailable in WSL/Linux).
+- If kill fails, a stale server can keep port 5123 busy; new starts fail silently.
+
+13) OCR auto‑start only tries once per process
+- `OCRClient._auto_start_attempted` prevents any retry after the first failure.
+- A transient failure (GPU busy, slow load) can permanently disable OCR until daemon restart.
+
+14) OCR call sites lack error handling
+- Several helpers call `OCRClient.extract_text/number` without try/except; if OCR dies mid‑flow, the flow crashes and leaves UI in an unknown state.
+- Examples: `utils/stamina_popup_helper.py`, `utils/hospital_panel_helper.py`, `utils/arms_race_ocr.py`.
 
 ## Candidate flow system review (flow stepping/overlap)
 
@@ -179,6 +207,8 @@ Suggested fix:
 - Runtime `IDLE_THRESHOLD` updates (via API) don’t propagate to all checks: rally join uses module `IDLE_THRESHOLD` constant, and scheduler flow configs are initialized from config at startup only. Evidence: `scripts/icon_daemon.py:1265`, `utils/scheduler.py:19-30`.
 - `_verify_templates()` doesn’t include templates used by critical matchers (e.g., `back_button_union_4k.png` and its mask, shaded button templates). Missing files won’t be caught at startup.
 - VS Day 7 bag-flow surprise does **not** record scheduler cooldown, so a normal bag-flow can fire immediately after the surprise run. Evidence: `scripts/icon_daemon.py:2356-2377`.
+- `ADBHelper.ADB_PATH` is hard‑coded to `C:\\Program Files\\BlueStacks_nxt\\hd-adb.exe` with no config override. Any non‑default install path breaks all ADB actions. Evidence: `utils/adb_helper.py:37`.
+- `WindowsScreenshotHelper` hard-codes the window title ("BlueStacks App Player") and target window size; if the title changes or the window is resized/fullscreen, it raises and most flows don’t catch it, killing the daemon thread. Evidence: `utils/windows_screenshot_helper.py:32-96`.
 - Back button templates include a dark variant (`back_button_union_dark_4k.png`) that is unused; decide whether to add to matchers or remove.
 - View detection doesn’t consider shaded world/town button variants (`world_button_shaded_4k.png`, `world_button_shaded_dark_4k.png`), so modal popups can force `UNKNOWN` state and unnecessary recovery. Evidence: `utils/view_state_detector.py:33-53` vs `utils/shaded_button_helper.py:10-23`.
 - ~~`beast_training_pre_claim_done` is defined but never used (dead state).~~ **FIXED** - Removed dead variable.
@@ -187,14 +217,14 @@ Suggested fix:
 - Flow return types are inconsistent (some return `bool`, others return `dict`, others return `None`), making centralized success tracking/error handling fragile.
 - Multiple back‑button paths compete (`BackButtonMatcher`, `back_from_chat_flow`, `click_back`, hard‑coded `BACK_BUTTON_CLICK`), often without sharing the detected location. Consolidate to one back‑button API.
 - Recovery logic is duplicated across `return_to_base_view`, `view_state_detector.navigate_to`, and daemon UNKNOWN recovery. These heuristics drift and conflict; consolidate into a single recovery state machine.
+- Global config mutation is used for flow behavior (e.g., `ELITE_ZOMBIE_PLUS_CLICKS` toggled in Beast Training). This is not thread‑safe and can leak into other flows if a critical flow overlaps or crashes. Prefer passing parameters instead of mutating `config`.
 
 ## Debug outputs / artifacts
 - Debug images still write to repo root or `screenshots/debug` without cleanup:
   - `utils/training_slider_helper.py`
   - `utils/windows_screenshot_helper.py`
   - `utils/view_state_detector.py`
-  - `utils/return_to_base_view.py`
-- `return_to_base_view` still writes a restart screenshot even when `debug=False` (RESTART_TRIGGER_*).
+- ~~`return_to_base_view` still writes a restart screenshot even when `debug=False` (RESTART_TRIGGER_*).~~ **FIXED** - See fix #11.
 
 ## Refactor opportunities
 1) Centralize UI constants (template names, regions, click points).
