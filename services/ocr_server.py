@@ -22,9 +22,10 @@ Endpoints:
 import io
 import json
 import base64
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs
 import threading
+import traceback
 
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
@@ -128,7 +129,8 @@ class OCRHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         """Custom logging."""
-        print(f"[OCR] {args[0]}")
+        message = format % args
+        print(f"[OCR] {message}")
 
     def send_json(self, data: dict, status: int = 200):
         """Send JSON response."""
@@ -220,6 +222,8 @@ class OCRHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Not found"}, 404)
 
         except Exception as e:
+            print(f"[OCR] ERROR handling {self.path}: {e}")
+            traceback.print_exc()
             self.send_json({"error": str(e)}, 500)
 
     def _handle_ocr(self, data):
@@ -284,7 +288,7 @@ def main():
     load_model()
 
     # Start server
-    server = HTTPServer((HOST, PORT), OCRHandler)
+    server = ThreadingHTTPServer((HOST, PORT), OCRHandler)
     print(f"\nServer listening on http://{HOST}:{PORT}")
     print("Endpoints:")
     print("  POST /ocr        - Extract text from image")
