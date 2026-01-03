@@ -31,7 +31,14 @@ echo '{"cmd": "get_zombie_mode"}' | websocat ws://127.0.0.1:9876
 
 # Clear mode (revert to elite)
 echo '{"cmd": "clear_zombie_mode"}' | websocat ws://127.0.0.1:9876
+
+# Manual zombie attack (with custom type and plus_clicks)
+echo '{"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "plus_clicks": 10}}' | websocat ws://127.0.0.1:9876
 ```
+
+**`run_zombie_attack` arguments:**
+- `zombie_type`: "gold", "food", or "iron_mine" (default: "gold")
+- `plus_clicks`: Number of plus button clicks to increase level (default: 10)
 
 **State storage** (`data/daemon_schedule.json`):
 ```json

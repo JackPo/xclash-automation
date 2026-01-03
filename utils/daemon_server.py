@@ -156,6 +156,8 @@ class DaemonWebSocketServer:
             "set_zombie_mode": self._cmd_set_zombie_mode,
             "get_zombie_mode": self._cmd_get_zombie_mode,
             "clear_zombie_mode": self._cmd_clear_zombie_mode,
+            # Flow with arguments
+            "run_zombie_attack": self._cmd_run_zombie_attack,
         }
 
         handler = handlers.get(cmd)
@@ -582,3 +584,63 @@ class DaemonWebSocketServer:
             "mode": "elite",
             "message": "Zombie mode cleared, reverted to elite zombie rallies"
         }
+
+    # =========================================================================
+    # Parameterized Flow Commands
+    # =========================================================================
+
+    def _cmd_run_zombie_attack(self, args: dict) -> dict:
+        """
+        Run zombie attack flow with custom parameters.
+
+        Args:
+            zombie_type: "gold", "food", or "iron_mine" (default: "gold")
+            plus_clicks: Number of plus button clicks (default: 10)
+
+        Example:
+            {"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "plus_clicks": 10}}
+        """
+        from scripts.flows.zombie_attack_flow import zombie_attack_flow
+
+        zombie_type = args.get("zombie_type", "gold")
+        plus_clicks = args.get("plus_clicks", 10)
+
+        # Validate zombie_type
+        valid_types = ["gold", "food", "iron_mine"]
+        if zombie_type not in valid_types:
+            raise ValueError(f"Invalid zombie_type: {zombie_type}. Valid: {valid_types}")
+
+        try:
+            plus_clicks = int(plus_clicks)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid plus_clicks value: {plus_clicks}")
+
+        logger.info(f"Running zombie_attack_flow(zombie_type={zombie_type}, plus_clicks={plus_clicks})")
+
+        # Mark as flow to prevent daemon interference
+        flow_name = f"zombie_attack_{zombie_type}"
+        self.daemon.critical_flow_active = False  # Not critical, but track it
+        self.daemon.active_flows.add(flow_name)
+
+        try:
+            result = zombie_attack_flow(
+                self.daemon.adb,
+                zombie_type=zombie_type,
+                plus_clicks=plus_clicks
+            )
+            return {
+                "success": True,
+                "zombie_type": zombie_type,
+                "plus_clicks": plus_clicks,
+                "result": result
+            }
+        except Exception as e:
+            logger.error(f"zombie_attack_flow failed: {e}")
+            return {
+                "success": False,
+                "zombie_type": zombie_type,
+                "plus_clicks": plus_clicks,
+                "error": str(e)
+            }
+        finally:
+            self.daemon.active_flows.discard(flow_name)

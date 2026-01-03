@@ -1150,7 +1150,6 @@ class IconDaemon:
             "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, debug=False), True),
             "healing": (healing_flow, False),
             "elite_zombie": (elite_zombie_flow, False),
-            "zombie_attack": (lambda adb: zombie_attack_flow(adb, zombie_type='iron_mine', plus_clicks=10), False),
             "handshake": (handshake_flow, False),
             "treasure_map": (treasure_map_flow, True),
             "corn_harvest": (corn_harvest_flow, False),

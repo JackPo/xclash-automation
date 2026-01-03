@@ -321,26 +321,25 @@ def zombie_attack_flow(adb, zombie_type: str = 'iron_mine', plus_clicks: int = 1
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, "08_after_soldier_selection")
 
-        # Step 10: Poll for and click March button
-        march_region = (*MARCH_BUTTON_POS, *MARCH_BUTTON_SIZE)
-        _log(f"Step 10: Waiting for march button at {MARCH_BUTTON_POS}...")
+        # Step 10: Poll for and click March button (full frame search, use detected location)
+        _log(f"Step 10: Waiting for march button...")
         found = False
         score = 1.0
+        march_loc = None
         for attempt in range(10):
             frame = win.get_screenshot_cv2()
-            found, score, _ = match_template(
+            found, score, march_loc = match_template(
                 frame, "march_button_4k.png",
-                search_region=march_region,
                 threshold=0.05  # SQDIFF, lower is better
             )
             if found:
-                _log(f"  March button found (score={score:.4f}) after {attempt + 1} attempts")
+                _log(f"  March button found at {march_loc} (score={score:.4f}) after {attempt + 1} attempts")
                 break
             time.sleep(POLL_INTERVAL)
 
-        if found:
-            _log(f"Clicking march button at {MARCH_BUTTON_CLICK}...")
-            adb.tap(*MARCH_BUTTON_CLICK)
+        if found and march_loc:
+            _log(f"Clicking march button at detected location {march_loc}...")
+            adb.tap(*march_loc)
             time.sleep(SCREEN_TRANSITION_DELAY)
         else:
             _log(f"WARNING: March button not found (score={score:.4f}), continuing anyway...")
