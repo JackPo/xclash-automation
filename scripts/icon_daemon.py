@@ -823,7 +823,14 @@ class IconDaemon:
             if score_4k <= score_lowres:
                 return True
 
-            # Low-res matches better - resolution drifted!
+            # GUARD: If NEITHER template matches well (both > 0.08), something is covering
+            # the corner (popup, menu, etc.) - this is NOT a resolution issue
+            MATCH_THRESHOLD = 0.08
+            if score_4k > MATCH_THRESHOLD and score_lowres > MATCH_THRESHOLD:
+                self.logger.debug(f"[{iteration}] Resolution check: both templates fail to match (4K={score_4k:.4f}, lowres={score_lowres:.4f}), corner likely covered - skipping")
+                return True  # Assume resolution is fine, corner just covered
+
+            # Low-res matches better AND actually matches - resolution drifted!
             self.logger.warning(f"[{iteration}] Resolution drift detected! 4K={score_4k:.4f} > lowres={score_lowres:.4f}")
             self.logger.info(f"[{iteration}] Running setup_bluestacks.py to fix...")
             _run_setup_bluestacks(debug=self.debug)
