@@ -50,7 +50,10 @@ from config import BACK_BUTTON_CLICK
 def _get_chest3_threshold() -> int:
     """Get chest3 threshold from Arms Race metadata JSON."""
     meta = get_event_metadata("Enhance Hero")
-    return meta["chest3"]
+    chest3 = meta.get("chest3")
+    if chest3 is None:
+        return 12000  # Default fallback if metadata not collected
+    return chest3
 
 def _press_hardware_back(adb):
     """Press Android hardware back button to close panels that don't have visible back buttons."""

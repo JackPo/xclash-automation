@@ -31,12 +31,6 @@ IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
 DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
 
-# Idle detection mode (DEPRECATED - now using UserIdleTracker)
-# The new UserIdleTracker excludes daemon's own clicks from idle calculation,
-# which fixes the issue where daemon ADB clicks were resetting Windows idle.
-# This setting is kept for backward compatibility but is NO LONGER USED.
-USE_BLUESTACKS_IDLE = False  # DISABLED - feature was broken
-
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
@@ -157,7 +151,7 @@ UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before 
 UNKNOWN_LOOP_TIMEOUT = 480         # 8 minutes - force restart if recovery keeps cycling
 
 # Resolution check (prevents template matching failures from resolution drift)
-RESOLUTION_CHECK_INTERVAL = 100    # Check resolution every N daemon iterations
+RESOLUTION_CHECK_INTERVAL = 10     # Check resolution every N daemon iterations (~30 seconds)
 EXPECTED_RESOLUTION = "3840x2160"  # Expected BlueStacks resolution for templates
 
 # Screen regions (4K resolution: 3840x2160)

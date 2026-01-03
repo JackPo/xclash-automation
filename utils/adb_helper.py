@@ -35,7 +35,6 @@ class ADBHelper:
     """
 
     ADB_PATH = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
-    EXPECTED_RESOLUTION = (3840, 2160)  # 4K
 
     def __init__(self, auto_connect=True, on_action=None):
         """

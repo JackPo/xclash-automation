@@ -22,11 +22,8 @@ from utils.back_button_matcher import BackButtonMatcher
 from utils.adb_helper import ADBHelper
 import numpy as np
 
-# Target resolution
-TARGET_RESOLUTION = "3840x2160"
-
 # Import from centralized config
-from config import BACK_BUTTON_CLICK
+from config import BACK_BUTTON_CLICK, EXPECTED_RESOLUTION
 
 # Click positions
 MAP_DESELECT_CLICK = (500, 1000)  # Click on empty map area to deselect troops
@@ -231,9 +228,9 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     else:
         # Only run setup if resolution is not already correct
         current_res = _get_current_resolution(adb)
-        if current_res != TARGET_RESOLUTION:
+        if current_res != EXPECTED_RESOLUTION:
             if debug:
-                print(f"    [RETURN] Resolution is {current_res}, expected {TARGET_RESOLUTION}, running setup...")
+                print(f"    [RETURN] Resolution is {current_res}, expected {EXPECTED_RESOLUTION}, running setup...")
             _run_setup_bluestacks(debug)
         else:
             if debug:

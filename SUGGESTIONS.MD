@@ -72,6 +72,49 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 - 10,000 files = 100 million stat() calls, took minutes
 - Refactored to single scan with byte tracking - now O(n), takes seconds
 
+## Fixes Applied (2025-01-03)
+
+### 15. USE_BLUESTACKS_IDLE dead code - FIXED
+- Removed unused `USE_BLUESTACKS_IDLE = False` from `config.py`
+- Removed import and `bluestacks_idle_detector` initialization from `scripts/icon_daemon.py`
+
+### 16. Unused local variables - FIXED
+- Removed `hospital_action_triggered` assignments (set but never read)
+- Removed `pre_beast_stamina_claimed` assignments (set but never read)
+
+### 17. Resolution constant inconsistency - FIXED
+- `utils/return_to_base_view.py` now imports `EXPECTED_RESOLUTION` from config instead of hardcoding
+- Deleted unused `EXPECTED_RESOLUTION = (3840, 2160)` tuple from `utils/adb_helper.py`
+
+### 18. _verify_templates() incomplete - FIXED
+- Added 14 missing templates to startup verification:
+  - Shaded buttons: `world_button_shaded_4k.png`, `world_button_shaded_dark_4k.png`
+  - Back buttons: `back_button_union_4k.png`, `back_button_union_mask_4k.png`
+  - Barracks state: `stopwatch_barrack_4k.png`, `white_soldier_barrack_4k.png`, `yellow_soldier_barrack_4k.png` (v1-v6)
+
+### 19. OCR retry logic broken - FIXED
+- Added `_last_start_attempt` timestamp to `OCRClient`
+- Allow retry after 5 minutes (`RETRY_COOLDOWN = 300`) instead of permanent failure
+- Health check now resets `_auto_start_attempted` before restarting
+
+### 20. OCR _post_multipart() crashes on network errors - FIXED
+- Added try/except around `urlopen()` in `utils/ocr_client.py`
+- Returns `{"error": ..., "text": None}` instead of raising exceptions
+- Handles `URLError`, `HTTPError`, and generic exceptions
+
+### 21. Enhance Hero crash when metadata missing - FIXED
+- `_get_chest3_threshold()` now uses `.get("chest3")` with fallback to 12000
+- Prevents `TypeError` when Arms Race metadata not yet collected
+
+### 22. BackButtonMatcher.click() ignores detected position - FIXED
+- Added `detected_pos` parameter to `click()` method
+- Uses detected position if provided, falls back to fixed (1407, 2055)
+
+### 23. Testing gaps - FIXED
+- Created `tests/test_templates.py` - verifies template existence, mask pairs, sizes
+- Created `tests/test_flows_smoke.py` - verifies flow imports and structure
+- All 82 tests pass
+
 ## Verified fixes / confirmed OK (observed in current code)
 - VS Day 7 chest checkpoints use `arms_race_remaining_mins` instead of a missing field in `scripts/icon_daemon.py`.
 - Rally monster offsets treat plus button coordinates as centers (`utils/rally_monster_validator.py`, `config.py`).
@@ -136,6 +179,22 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 - Several helpers call `OCRClient.extract_text/number` without try/except; if OCR dies mid‑flow, the flow crashes and leaves UI in an unknown state.
 - Examples: `utils/stamina_popup_helper.py`, `utils/hospital_panel_helper.py`, `utils/arms_race_ocr.py`.
 
+15) OCR requests can freeze the daemon for up to 120s
+- `OCRClient.TIMEOUT = 120` and OCR is called in the main daemon loop (`scripts/icon_daemon.py:1308`).
+- If the OCR server stalls, the entire daemon loop blocks for 2 minutes.
+
+16) OCR HTTP errors bubble up and kill flows
+- `_post_multipart` doesn’t catch `HTTPError`/`URLError`; failures propagate to callers.
+- Many flows don’t catch OCR exceptions → flow aborts without cleanup.
+
+17) Enhance Hero flow can crash when metadata is missing
+- `hero_upgrade_arms_race_flow._get_chest3_threshold()` returns `None` if metadata isn’t collected.
+- `current_points >= chest3` then raises `TypeError`. Evidence: `scripts/flows/hero_upgrade_arms_race_flow.py:74-107`.
+
+18) Stamina popup cooldown OCR returns “ready” on parse failure
+- `get_cooldown_seconds()` returns `0` on OCR parse error, which is interpreted as “free claim ready.”
+- This can spam claim clicks even when the timer is still running. Evidence: `utils/stamina_popup_helper.py:50-87`.
+
 ## Candidate flow system review (flow stepping/overlap)
 
 What works:
@@ -168,6 +227,7 @@ Suggested fix:
 - Shaded-button detection only runs once at entry (Step 1b). If a popup appears later, `detect_view` stays UNKNOWN and the loop never calls `dismiss_popups` again.
 - Fixed “blind” clicks (`CENTER_SCREEN_CLICK`, `MAP_DESELECT_CLICK`) are used in UNKNOWN state without verifying UI; can accidentally confirm dialogs or purchase prompts.
 - `_detect_resource_bar` / `_detect_troop_selected` use raw SQDIFF on fixed ROIs; false positives can trigger the wrong recovery branch and random taps.
+- `WindowsScreenshotHelper()` exceptions are not caught in recovery. If the BlueStacks window title changes or the window isn’t found, recovery raises and the daemon can crash instead of restarting cleanly. Evidence: `utils/return_to_base_view.py:207-223`, `utils/windows_screenshot_helper.py:44-96`.
 
 ## Behavior risks / missing checks (random clicking)
 - Handshake flow is a fixed-coordinate tap with no verification (`scripts/flows/handshake_flow.py`).
@@ -177,6 +237,8 @@ Suggested fix:
 - Stamina claim/use flows open/close popups via fixed coordinates without validating popup state and duplicate logic from `utils/stamina_popup_helper.py`.
 - Snowman flow still has a placeholder claim step and clicks the snowman itself (`scripts/flows/snowman_flow.py`).
 - `BackButtonMatcher.click()` ignores the detected location and taps a fixed coordinate; flows that detect then call `click()` can misclick if the back button position shifts or a union variant is shown. Evidence: `utils/back_button_matcher.py:79-80`, `scripts/flows/treasure_map_flow.py:395-414`, `scripts/flows/rally_join_flow.py:361/444/447/526`.
+- Tavern claim polling can exit early when OCR fails: `poll_for_claim_button` stops if no timers < 30s, but OCR failures yield `seconds=None`, so it may exit even when a claim is imminent. Evidence: `scripts/flows/tavern_quest_flow.py:728-771`.
+- Beast Training stamina read returns `0` on OCR failure, which can trigger unnecessary item use decisions. Evidence: `scripts/flows/beast_training_flow.py:28-44`.
 
 ## Template matching migration issues
 - Active flows still use raw `cv2.matchTemplate` (no masks, inconsistent thresholds):
@@ -212,12 +274,20 @@ Suggested fix:
 - Back button templates include a dark variant (`back_button_union_dark_4k.png`) that is unused; decide whether to add to matchers or remove.
 - View detection doesn’t consider shaded world/town button variants (`world_button_shaded_4k.png`, `world_button_shaded_dark_4k.png`), so modal popups can force `UNKNOWN` state and unnecessary recovery. Evidence: `utils/view_state_detector.py:33-53` vs `utils/shaded_button_helper.py:10-23`.
 - ~~`beast_training_pre_claim_done` is defined but never used (dead state).~~ **FIXED** - Removed dead variable.
+- ~~`USE_BLUESTACKS_IDLE` is imported but unused; config flag is dead and misleading.~~ **FIXED** - Removed from config and daemon (fix #15).
+- ~~Local state vars are set but unused (`pre_beast_stamina_claimed`, `hospital_action_triggered`), indicating drift in flow logic.~~ **FIXED** - Removed unused assignments (fix #16).
+- ~~`return_to_base_view` uses a hard‑coded `TARGET_RESOLUTION = "3840x2160"` while the daemon uses `EXPECTED_RESOLUTION` from config.~~ **FIXED** - Now imports from config (fix #17).
 
 ## Additional mess / cleanup candidates
 - Flow return types are inconsistent (some return `bool`, others return `dict`, others return `None`), making centralized success tracking/error handling fragile.
 - Multiple back‑button paths compete (`BackButtonMatcher`, `back_from_chat_flow`, `click_back`, hard‑coded `BACK_BUTTON_CLICK`), often without sharing the detected location. Consolidate to one back‑button API.
 - Recovery logic is duplicated across `return_to_base_view`, `view_state_detector.navigate_to`, and daemon UNKNOWN recovery. These heuristics drift and conflict; consolidate into a single recovery state machine.
 - Global config mutation is used for flow behavior (e.g., `ELITE_ZOMBIE_PLUS_CLICKS` toggled in Beast Training). This is not thread‑safe and can leak into other flows if a critical flow overlaps or crashes. Prefer passing parameters instead of mutating `config`.
+
+## Deprecated/one-off cleanup
+- `deprecated/` contains a large mix of exploratory scripts + images (OCR tests, zoom calibration, template analysis) with hard‑coded paths and missing assets. These files are not referenced by runtime code (no imports found), but they create noise and false leads.
+- Many deprecated scripts refer to non‑existent files or absolute paths (`C:\\Users\\...`, `/sdcard/temp.png`) and obsolete dependencies (pytesseract/easyocr/paddle). Running them will fail, which wastes debugging time.
+- Recommendation: move `deprecated/` to a separate `archive/` folder or a different repo, and add a short `deprecated/README.md` stating they are historical experiments and not part of the automation system.
 
 ## Debug outputs / artifacts
 - Debug images still write to repo root or `screenshots/debug` without cleanup:

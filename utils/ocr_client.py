@@ -35,6 +35,12 @@ SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 # Connection timeout (must be long enough for 4-bit quantized model on GTX 1080)
 TIMEOUT = 120
 
+# Retry cooldown - allow retry after this many seconds
+RETRY_COOLDOWN = 300  # 5 minutes
+
+# Health check caching to reduce /health flood
+HEALTH_CHECK_TTL = 30  # seconds
+
 # Server startup config
 SERVER_STARTUP_TIMEOUT = 120  # Wait up to 2 minutes for server to start
 SERVER_STARTUP_CHECK_INTERVAL = 2  # Check every 2 seconds
@@ -120,7 +126,7 @@ def start_ocr_server() -> bool:
         # Open log file for OCR server output
         # CRITICAL: Do NOT use subprocess.PIPE - it causes buffer deadlock on Windows!
         # If stdout buffer fills (~64KB) and parent doesn't read, child blocks on print()
-        _server_log_file = open(_OCR_SERVER_LOG, 'w')
+        _server_log_file = open(_OCR_SERVER_LOG, 'a', buffering=1)
         print(f"  OCR server output will be logged to: {_OCR_SERVER_LOG}")
 
         # Start server as background process
@@ -139,7 +145,7 @@ def start_ocr_server() -> bool:
         # Wait for server to become available
         start_time = time.time()
         while time.time() - start_time < SERVER_STARTUP_TIMEOUT:
-            if OCRClient.check_server():
+            if OCRClient.check_server(force=True):
                 print("  OCR server started successfully!")
                 return True
             time.sleep(SERVER_STARTUP_CHECK_INTERVAL)
@@ -176,7 +182,9 @@ class OCRClient:
 
     _server_checked = False
     _server_available = False
+    _last_health_check = 0.0
     _auto_start_attempted = False
+    _last_start_attempt = 0.0  # Timestamp of last start attempt
 
     def __init__(self, auto_start: bool = True):
         """
@@ -188,18 +196,23 @@ class OCRClient:
         self._auto_start = auto_start
 
     @classmethod
-    def check_server(cls) -> bool:
+    def check_server(cls, force: bool = False) -> bool:
         """Check if server is available. Returns True if server is up."""
+        now = time.time()
+        if not force and cls._server_checked and (now - cls._last_health_check) < HEALTH_CHECK_TTL:
+            return cls._server_available
         try:
             req = urllib.request.Request(f"{SERVER_URL}/health", method="GET")
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read())
                 cls._server_available = data.get("status") == "ok"
                 cls._server_checked = True
+                cls._last_health_check = now
                 return cls._server_available
-        except:
+        except Exception:
             cls._server_available = False
             cls._server_checked = True
+            cls._last_health_check = now
             return False
 
     @classmethod
@@ -216,8 +229,13 @@ class OCRClient:
         if cls.check_server():
             return
 
-        if auto_start and not cls._auto_start_attempted:
+        # Allow retry after RETRY_COOLDOWN seconds
+        now = time.time()
+        can_retry = not cls._auto_start_attempted or (now - cls._last_start_attempt) >= RETRY_COOLDOWN
+
+        if auto_start and can_retry:
             cls._auto_start_attempted = True
+            cls._last_start_attempt = now
             if start_ocr_server():
                 return
 
@@ -232,9 +250,14 @@ class OCRClient:
         if OCRClient.check_server():
             return
 
+        # Allow retry after RETRY_COOLDOWN seconds
+        now = time.time()
+        can_retry = not OCRClient._auto_start_attempted or (now - OCRClient._last_start_attempt) >= RETRY_COOLDOWN
+
         # Try to start if auto_start enabled
-        if self._auto_start and not OCRClient._auto_start_attempted:
+        if self._auto_start and can_retry:
             OCRClient._auto_start_attempted = True
+            OCRClient._last_start_attempt = now
             if start_ocr_server():
                 return
 
@@ -299,8 +322,15 @@ class OCRClient:
             method="POST"
         )
 
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                return json.loads(resp.read())
+        except urllib.error.URLError as e:
+            return {"error": f"URL error: {e}", "text": None}
+        except urllib.error.HTTPError as e:
+            return {"error": f"HTTP error {e.code}: {e.reason}", "text": None}
+        except Exception as e:
+            return {"error": str(e), "text": None}
 
     def extract_text(self, image, region: Tuple[int, int, int, int] = None,
                      prompt: str = None) -> str:

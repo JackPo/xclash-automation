@@ -94,6 +94,12 @@ class BackButtonMatcher:
         found, score, _ = self.find(frame)
         return found, score
 
-    def click(self, adb_helper) -> None:
-        """Legacy API - clicks fixed position. Use find() for dynamic position."""
-        adb_helper.tap(1407, 2055)
+    def click(self, adb_helper, detected_pos: tuple = None) -> None:
+        """Click back button at detected position, or fallback to fixed position.
+
+        Args:
+            adb_helper: ADBHelper instance
+            detected_pos: Optional (x, y) position from find(). If None, uses fixed fallback.
+        """
+        pos = detected_pos if detected_pos else (1407, 2055)
+        adb_helper.tap(*pos)

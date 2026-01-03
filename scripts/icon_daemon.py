@@ -62,7 +62,6 @@ from utils.back_button_matcher import BackButtonMatcher
 from utils.afk_rewards_matcher import AfkRewardsMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.idle_detector import get_idle_seconds, format_idle_time
-from utils.bluestacks_idle_detector import get_bluestacks_idle_detector, format_bluestacks_idle_time
 from utils.user_idle_tracker import get_user_idle_seconds, mark_daemon_action
 from utils.stamina_reader import StaminaReader
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
@@ -94,7 +93,6 @@ from utils.scheduler import get_scheduler
 from config import (
     IDLE_THRESHOLD,
     IDLE_CHECK_INTERVAL,
-    USE_BLUESTACKS_IDLE,
     ELITE_ZOMBIE_STAMINA_THRESHOLD,
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
     AFK_REWARDS_COOLDOWN,
@@ -227,9 +225,6 @@ class IconDaemon:
         self.last_idle_check_time = 0
         self.IDLE_THRESHOLD = IDLE_THRESHOLD
         self.IDLE_CHECK_INTERVAL = IDLE_CHECK_INTERVAL
-
-        # BlueStacks-specific idle detection (deprecated - keeping for logging only)
-        self.bluestacks_idle_detector = get_bluestacks_idle_detector()
 
         # User idle tracker removed - using raw Windows idle instead
 
@@ -418,14 +413,29 @@ class IconDaemon:
             'gem_tight_4k.png',
             'cabbage_tight_4k.png',
             'sword_tight_4k.png',  # Equipment enhancement
-            'back_button_4k.png',
-            'back_button_light_4k.png',
             'dog_house_4k.png',
             'chest_timer_4k.png',  # AFK rewards
+            # Back button templates (multiple variants)
+            'back_button_4k.png',
+            'back_button_light_4k.png',
+            'back_button_union_4k.png',
+            'back_button_union_mask_4k.png',
+            # Shaded button templates (popup detection)
+            'world_button_shaded_4k.png',
+            'world_button_shaded_dark_4k.png',
             # View state detector templates
             'world_button_4k.png',
             'town_button_4k.png',
             'town_button_zoomed_out_4k.png',
+            # Barracks state templates
+            'stopwatch_barrack_4k.png',
+            'white_soldier_barrack_4k.png',
+            'yellow_soldier_barrack_4k.png',
+            'yellow_soldier_barrack_v2_4k.png',
+            'yellow_soldier_barrack_v3_4k.png',
+            'yellow_soldier_barrack_v4_4k.png',
+            'yellow_soldier_barrack_v5_4k.png',
+            'yellow_soldier_barrack_v6_4k.png',
         ]
 
         missing = []
@@ -688,13 +698,15 @@ class IconDaemon:
         Called periodically and on consecutive OCR failures.
         Returns True if server is healthy (or was restarted), False otherwise.
         """
-        if not OCRClient.check_server():
+        if not OCRClient.check_server(force=True):
             self.logger.warning("OCR server health check FAILED - killing existing servers and restarting...")
             # Kill existing servers first to prevent accumulation
             # (also done inside start_ocr_server, but log explicitly here)
             killed = kill_ocr_servers()
             if killed > 0:
                 self.logger.info(f"Killed {killed} stale OCR server process(es)")
+            # Reset auto-start flag to allow restart
+            OCRClient._auto_start_attempted = False
             if start_ocr_server():
                 self.logger.info("OCR server restarted successfully")
                 self.ocr_client = OCRClient()  # Recreate client
@@ -770,40 +782,82 @@ class IconDaemon:
         except Exception as e:
             self.logger.error(f"Failed to run setup: {e}")
 
-    def _check_resolution(self, iteration: int, idle_seconds: float) -> bool:
+    def _check_resolution(self, iteration: int) -> bool:
         """
-        Check resolution periodically when idle and fix if wrong.
+        Check resolution by comparing world button against 4K vs low-res templates.
 
-        Only checks every RESOLUTION_CHECK_INTERVAL iterations AND when user is idle.
-        If resolution is wrong, runs setup_bluestacks.py to fix it.
+        Checks every RESOLUTION_CHECK_INTERVAL iterations (no idle requirement).
+        If low-res template matches better, resolution drifted - runs setup_bluestacks.py.
 
         Returns True if resolution is OK, False if fix failed.
         """
-        # Only check every N iterations
-        if iteration % self.RESOLUTION_CHECK_INTERVAL != 0:
+        # Only check every N iterations (iteration=0 always checks for startup)
+        if iteration > 0 and iteration % self.RESOLUTION_CHECK_INTERVAL != 0:
             return True  # Not time to check yet
 
-        # Only check when user is idle (no point fixing resolution during active use)
-        if idle_seconds < self.IDLE_THRESHOLD:
-            return True  # User is active, skip check
+        try:
+            import cv2
 
+            # Take screenshot and extract world button region
+            frame = self.windows_helper.get_screenshot_cv2()
+            x, y, w, h = 3600, 1920, 240, 240
+            current_roi = frame[y:y+h, x:x+w]
+
+            # Load both templates
+            template_4k = cv2.imread('templates/ground_truth/world_button_4k.png')
+            template_lowres = cv2.imread('templates/ground_truth/world_button_lowres_4k.png')
+
+            if template_4k is None or template_lowres is None:
+                self.logger.warning(f"[{iteration}] Resolution check: missing templates, falling back to wm size")
+                return self._check_resolution_fallback(iteration)
+
+            # Compare against both (SQDIFF - lower is better)
+            result_4k = cv2.matchTemplate(current_roi, template_4k, cv2.TM_SQDIFF_NORMED)
+            result_lowres = cv2.matchTemplate(current_roi, template_lowres, cv2.TM_SQDIFF_NORMED)
+            score_4k = result_4k[0][0]
+            score_lowres = result_lowres[0][0]
+
+            self.logger.debug(f"[{iteration}] Resolution check: 4K={score_4k:.4f}, lowres={score_lowres:.4f}")
+
+            # If 4K matches better (lower score), resolution is correct
+            if score_4k <= score_lowres:
+                return True
+
+            # Low-res matches better - resolution drifted!
+            self.logger.warning(f"[{iteration}] Resolution drift detected! 4K={score_4k:.4f} > lowres={score_lowres:.4f}")
+            self.logger.info(f"[{iteration}] Running setup_bluestacks.py to fix...")
+            _run_setup_bluestacks(debug=self.debug)
+
+            # Verify fix by re-checking
+            frame = self.windows_helper.get_screenshot_cv2()
+            current_roi = frame[y:y+h, x:x+w]
+            result_4k = cv2.matchTemplate(current_roi, template_4k, cv2.TM_SQDIFF_NORMED)
+            result_lowres = cv2.matchTemplate(current_roi, template_lowres, cv2.TM_SQDIFF_NORMED)
+            score_4k = result_4k[0][0]
+            score_lowres = result_lowres[0][0]
+
+            if score_4k <= score_lowres:
+                self.logger.info(f"[{iteration}] Resolution fixed! 4K={score_4k:.4f}")
+                return True
+            else:
+                self.logger.error(f"[{iteration}] Resolution still wrong after fix: 4K={score_4k:.4f} > lowres={score_lowres:.4f}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"[{iteration}] Resolution check failed: {e}")
+            return True  # Don't block on errors
+
+    def _check_resolution_fallback(self, iteration: int) -> bool:
+        """Fallback resolution check using wm size."""
         current_res = _get_current_resolution(self.adb)
         if current_res == self.EXPECTED_RESOLUTION:
-            self.logger.debug(f"[{iteration}] Resolution check: {current_res} (OK)")
             return True
 
         self.logger.warning(f"[{iteration}] Resolution wrong: {current_res}, expected {self.EXPECTED_RESOLUTION}")
-        self.logger.info(f"[{iteration}] Running setup_bluestacks.py to fix...")
         _run_setup_bluestacks(debug=self.debug)
 
-        # Verify fix
         new_res = _get_current_resolution(self.adb)
-        if new_res == self.EXPECTED_RESOLUTION:
-            self.logger.info(f"[{iteration}] Resolution fixed: {new_res}")
-            return True
-        else:
-            self.logger.error(f"[{iteration}] Resolution still wrong after fix: {new_res}")
-            return False
+        return new_res == self.EXPECTED_RESOLUTION
 
     def _validate_barrack_state(self, barrack_index: int) -> tuple:
         """
@@ -1155,6 +1209,9 @@ class IconDaemon:
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
+        # Check resolution immediately on startup
+        self._check_resolution(0)
+
         iteration = 0
         while True:
             iteration += 1
@@ -1368,8 +1425,8 @@ class IconDaemon:
                 # Use Windows idle directly for all automation checks
                 effective_idle_secs = idle_secs
 
-                # Check resolution periodically when idle (every 100 iterations)
-                self._check_resolution(iteration, idle_secs)
+                # Check resolution periodically (every N iterations, no idle requirement)
+                self._check_resolution(iteration)
 
                 # Get Pacific time for logging
                 pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
@@ -1522,7 +1579,6 @@ class IconDaemon:
 
                 # Hospital state detection with majority vote (same 60% rule as barracks)
                 # History accumulates when in TOWN, idle check is only for ACTION
-                hospital_action_triggered = False
                 if world_present:
                     self.hospital_state_history.append(hospital_state)
                     if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
@@ -1553,7 +1609,6 @@ class IconDaemon:
                                 priority=FlowPriority.HIGH,
                                 reason=f"HELP_READY {help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
                             ))
-                            hospital_action_triggered = True
 
                         # HEALING: Click to open panel, run healing flow
                         elif healing_count >= min_required:
@@ -1569,7 +1624,6 @@ class IconDaemon:
                                 priority=FlowPriority.HIGH,
                                 reason=f"HEALING {healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
                             ))
-                            hospital_action_triggered = True
 
                         # SOLDIERS_WOUNDED: Click to open panel, run healing flow
                         elif wounded_count >= min_required:
@@ -1585,7 +1639,6 @@ class IconDaemon:
                                 priority=FlowPriority.HIGH,
                                 reason=f"WOUNDED {wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
                             ))
-                            hospital_action_triggered = True
                 else:
                     # Not in TOWN - reset hospital state history
                     if self.hospital_state_history:
@@ -1824,7 +1877,6 @@ class IconDaemon:
                 # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
                 # Uses scheduler's pre_beast_stamina_claim flow config (idle_required=20s, lower than IDLE_THRESHOLD)
                 # REQUIRES: TOWN or WORLD view (need to see stamina area)
-                pre_beast_stamina_claimed = False
                 if in_pre_beast_window and view_state not in ("TOWN", "WORLD"):
                     self.logger.warning(f"[{iteration}] PRE-BEAST STAMINA: {minutes_until_beast:.1f}min until event but view={view_state} - cannot detect red dot!")
                     get_daemon_debug().capture(frame, iteration, view_state, "pre_beast_blocked", f"{minutes_until_beast:.0f}min")
@@ -1837,7 +1889,6 @@ class IconDaemon:
                         # Check for red notification dot
                         has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
                         if has_dot:
-                            pre_beast_stamina_claimed = True
                             # Mark this block as claimed BEFORE queueing to prevent re-queue
                             self.beast_training_pre_claim_block = upcoming_beast_block
                             flow_candidates.append(FlowCandidate(
