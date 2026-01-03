@@ -44,7 +44,8 @@ class StaminaReader:
             (False, None) otherwise
         """
         # Invalid reading resets history
-        if stamina is None or not (0 <= stamina <= 200):
+        # Cap raised to 500 - stamina can exceed 200 with recovery items
+        if stamina is None or not (0 <= stamina <= 500):
             self.history = []
             return False, None
 
