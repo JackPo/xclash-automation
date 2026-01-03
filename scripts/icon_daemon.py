@@ -1628,18 +1628,19 @@ class IconDaemon:
                                 self.unknown_state_start = None
                                 self.unknown_state_left_time = None
 
-                # UNKNOWN state recovery - three-tier approach:
-                # 0. Disconnection dialog (5min): User playing on mobile, wait before dismissing
-                # 1. Quick recovery (10s): Click safe ground tile to dismiss popup
-                # 2. Full recovery (180s): Run return_to_base_view if quick recovery fails
+                # UNKNOWN state recovery - IMMEDIATE and aggressive
+                # When stuck in UNKNOWN, try to recover EVERY iteration:
+                # 1. Check for disconnection dialog (user on mobile) → wait before dismiss
+                # 2. Check for shaded button (popup blocking) → click to dismiss
+                # 3. Check for back button → click to close dialog
+                # 4. Check for safe ground → click to dismiss floating panel
+                # 5. If stuck 180s+, run full return_to_base_view
                 # CRITICAL: Skip recovery if ANY flow is active - flows control their own UI
-                # NOTE: Use LOW idle threshold (10s) for UNKNOWN recovery - popups need immediate dismissal
-                UNKNOWN_RECOVERY_IDLE_THRESHOLD = 10  # seconds - much lower than normal IDLE_THRESHOLD
-                if view_state == "UNKNOWN" and effective_idle_secs >= UNKNOWN_RECOVERY_IDLE_THRESHOLD and not self.active_flows:
+                if view_state == "UNKNOWN" and not self.active_flows:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
 
-                        # Check for disconnection dialog (user playing on mobile)
+                        # Check for disconnection dialog (user playing on mobile) - needs idle wait
                         is_disconnected, disc_score = is_disconnection_dialog_visible(frame, debug=self.debug)
                         if is_disconnected:
                             # Track when we first saw the dialog
@@ -1671,16 +1672,36 @@ class IconDaemon:
                                 self.logger.debug(f"[{iteration}] DISCONNECTION DIALOG: Dialog dismissed externally")
                                 self.disconnection_dialog_detected_time = None
 
-                        # Quick recovery: After 10s in UNKNOWN, try back button FIRST then safe ground
-                        if 10 <= unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
+                        # RECOVERY - try every iteration once user is idle
+                        if effective_idle_secs >= self.IDLE_THRESHOLD and unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
                             from utils.template_matcher import match_template
                             from utils.safe_ground_matcher import find_safe_ground
                             from utils.ui_helpers import click_back
+                            from utils.shaded_button_helper import is_button_shaded, BUTTON_CLICK
 
-                            # FIRST: Check for back button with masked template (catches dialogs/menus)
+                            # FIRST: Check for shaded button (popup blocking view)
+                            shaded, shaded_score = is_button_shaded(frame)
+                            if shaded:
+                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Shaded button detected (score={shaded_score:.4f}), clicking to dismiss popup...")
+                                mark_daemon_action()
+                                self.adb.tap(*BUTTON_CLICK)
+                                time.sleep(0.5)
+                                # Re-check view state
+                                new_frame = self.windows_helper.get_screenshot_cv2()
+                                new_state, _ = detect_view(new_frame)
+                                if new_state.name in ("TOWN", "WORLD"):
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
+                                    self.unknown_state_start = None
+                                    self.unknown_state_left_time = None
+                                    continue  # Skip rest of iteration, start fresh
+                                else:
+                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name} after shaded click, will keep trying")
+                                    continue  # Keep trying
+
+                            # SECOND: Check for back button with masked template (catches dialogs/menus)
                             back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
                             if back_found:
-                                self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Back button detected (score={back_score:.4f}), clicking...")
+                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), clicking...")
                                 mark_daemon_action()
                                 click_back(self.adb)
                                 time.sleep(0.5)
@@ -1688,18 +1709,18 @@ class IconDaemon:
                                 new_frame = self.windows_helper.get_screenshot_cv2()
                                 new_state, _ = detect_view(new_frame)
                                 if new_state.name in ("TOWN", "WORLD"):
-                                    self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Success! Now in {new_state.name}")
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
                                     self.unknown_state_start = None
                                     self.unknown_state_left_time = None
                                     continue  # Skip rest of iteration, start fresh
                                 else:
-                                    self.logger.debug(f"[{iteration}] UNKNOWN QUICK RECOVERY: Still in {new_state.name}, will keep trying back button")
+                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying back button")
                                     continue  # Keep trying back button if it's still visible
 
                             # SECOND: Try safe ground (for floating popups without back button)
                             ground_pos = find_safe_ground(frame, debug=self.debug)
                             if ground_pos:
-                                self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
+                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
                                 mark_daemon_action()
                                 self.adb.tap(*ground_pos)
                                 time.sleep(0.5)
@@ -1707,12 +1728,12 @@ class IconDaemon:
                                 new_frame = self.windows_helper.get_screenshot_cv2()
                                 new_state, _ = detect_view(new_frame)
                                 if new_state.name in ("TOWN", "WORLD"):
-                                    self.logger.info(f"[{iteration}] UNKNOWN QUICK RECOVERY: Success! Now in {new_state.name}")
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
                                     self.unknown_state_start = None
                                     self.unknown_state_left_time = None
                                     continue  # Skip rest of iteration, start fresh
                                 else:
-                                    self.logger.debug(f"[{iteration}] UNKNOWN QUICK RECOVERY: Still in {new_state.name}, will retry")
+                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will retry")
 
                         # Full recovery: After 180s, run return_to_base_view
                         if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT:
