@@ -50,6 +50,18 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 - Cooldown checks against `"bag_flow"` never found matching entries
 - Changed `name="bag"` to `name="bag_flow"` in 3 places
 
+### 10. FlowCandidate wrappers have wrong signature - FIXED
+- `beast_rally_wrapper()` defined with no args, but `_run_flow` calls `flow_func(self.adb)`
+- Same for `marshall_speedup_all_flow` lambdas at lines 2174/2187
+- Fixed by adding `adb` parameter: `def beast_rally_wrapper(adb):` and `lambda adb:`
+
+### 11. return_to_base_view RESTART_TRIGGER screenshot unconditional - FIXED
+- `utils/return_to_base_view.py:481-482` wrote screenshot regardless of `debug` flag
+- Wrapped the entire restart screenshot block in `if debug:`
+
+### 12. Dead state variable beast_training_pre_claim_done - FIXED
+- Removed unused `self.beast_training_pre_claim_done` from `scripts/icon_daemon.py:353`
+
 ## Verified fixes / confirmed OK (observed in current code)
 - VS Day 7 chest checkpoints use `arms_race_remaining_mins` instead of a missing field in `scripts/icon_daemon.py`.
 - Rally monster offsets treat plus button coordinates as centers (`utils/rally_monster_validator.py`, `config.py`).
@@ -90,6 +102,12 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 
 8) ~~Pre-beast stamina claim never records cooldown and block isn't updated~~ **FIXED** - See "Fixes Applied" above
 
+9) ~~FlowCandidate wrappers have wrong signature and crash on execution~~ **FIXED** - See "Fixes Applied" above
+
+10) Recovery/setup uses `python` binary that may not exist
+- `utils/return_to_base_view.py:121-131` and `scripts/icon_daemon.py:756-770` call `['python', 'scripts/setup_bluestacks.py']`.
+- On systems where only `python3` is available (common), recovery/resolution fix silently fails, leading to endless recovery loops.
+
 ## Candidate flow system review (flow stepping/overlap)
 
 What works:
@@ -103,6 +121,7 @@ Key issues / bypasses:
 - Rally join runs inline (tap + `_run_flow_sync`) before candidate execution in `scripts/icon_daemon.py:1248-1293`.
 - Soldier upgrade loop taps READY barracks directly (no `active_flows` guard) and runs `_run_flow_sync` per barrack before candidate execution in `scripts/icon_daemon.py:2221-2270`.
 - Foreground recovery runs before the “critical flow active” guard; `return_to_base_view` can fire even while a critical flow is running if the app loses focus. Evidence: `scripts/icon_daemon.py:1181-1188` (foreground check) vs `scripts/icon_daemon.py:1192-1197` (critical flow guard).
+- `record_to_scheduler=True` writes cooldowns immediately after `_run_flow` starts (before success), so failures still consume cooldown and prevent retries. Evidence: `_execute_best_flow` in `scripts/icon_daemon.py:603-622`.
 - Impact: multiple flows can run in the same iteration, and candidates are based on a stale pre-flow screenshot; UI changes from direct flows can invalidate candidates and cause misclicks.
 
 Structural risk:
@@ -111,6 +130,17 @@ Structural risk:
 Suggested fix:
 - Move all UI-affecting actions into FlowCandidates (or mark the iteration as “flow already executed” and skip `_execute_best_flow()`), and gate all direct taps with `_can_run_flow`/`active_flows`.
 
+## Policy: Always record + Always escape (requested)
+- Record EVERY flow attempt regardless of success (add `last_attempt`, `attempt_count`, `last_error`), and only apply cooldowns on `last_success`. This avoids “silent no‑ops” while keeping cooldown logic honest.
+- Standardize flow results (e.g., `FlowResult {success, reason, details}`) so `_run_flow` can record outcomes uniformly.
+- Add a guaranteed escape path for all flows: on exceptions or invalid states, run a bounded `escape_to_base()` (non‑recursive, with a hard cap and restart fallback). Ensure this path runs in a `finally` or in `_run_flow`’s error handler.
+
+## Recovery flow issues (return_to_base_view)
+- Recursion is unbounded (`return_to_base_view` calls itself on failure). Persistent failures can hit recursion limits instead of looping safely.
+- Shaded-button detection only runs once at entry (Step 1b). If a popup appears later, `detect_view` stays UNKNOWN and the loop never calls `dismiss_popups` again.
+- Fixed “blind” clicks (`CENTER_SCREEN_CLICK`, `MAP_DESELECT_CLICK`) are used in UNKNOWN state without verifying UI; can accidentally confirm dialogs or purchase prompts.
+- `_detect_resource_bar` / `_detect_troop_selected` use raw SQDIFF on fixed ROIs; false positives can trigger the wrong recovery branch and random taps.
+
 ## Behavior risks / missing checks (random clicking)
 - Handshake flow is a fixed-coordinate tap with no verification (`scripts/flows/handshake_flow.py`).
 - Harvest box flow clicks icon + Open without verifying either (`scripts/flows/harvest_box_flow.py`).
@@ -118,19 +148,27 @@ Suggested fix:
 - Union gifts flow is mostly blind clicking until back-button loop (`scripts/flows/union_gifts_flow.py`).
 - Stamina claim/use flows open/close popups via fixed coordinates without validating popup state and duplicate logic from `utils/stamina_popup_helper.py`.
 - Snowman flow still has a placeholder claim step and clicks the snowman itself (`scripts/flows/snowman_flow.py`).
-- `BackButtonMatcher.click()` ignores the detected location and taps a fixed coordinate; flows that detect then call `click()` can misclick if the back button position shifts or a union variant is shown. Evidence: `utils/back_button_matcher.py:79-80`, `scripts/flows/treasure_map_flow.py:395-414`.
+- `BackButtonMatcher.click()` ignores the detected location and taps a fixed coordinate; flows that detect then call `click()` can misclick if the back button position shifts or a union variant is shown. Evidence: `utils/back_button_matcher.py:79-80`, `scripts/flows/treasure_map_flow.py:395-414`, `scripts/flows/rally_join_flow.py:361/444/447/526`.
 
 ## Template matching migration issues
 - Active flows still use raw `cv2.matchTemplate` (no masks, inconsistent thresholds):
   - `scripts/flows/tavern_quest_flow.py` (multiple matches)
   - `scripts/flows/bag_special_flow.py`, `scripts/flows/bag_hero_flow.py`, `scripts/flows/bag_resources_flow.py`
   - `scripts/flows/bag_use_item_subflow.py`
+  - `scripts/flows/stamina_use_flow.py`
+  - `scripts/flows/soldier_training_flow.py`
+  - `scripts/flows/back_from_chat_flow.py` (TM_CCOEFF_NORMED, different score semantics)
+  - `scripts/flows/harvest_box_flow.py` (TM_CCOEFF_NORMED)
+  - `scripts/flows/faction_trials_flow.py` (manual, still raw matching)
   - `scripts/flows/rally_join_flow.py`
   - `utils/ally_quest_scanner.py`
   - `utils/replenish_all_helper.py`
   - `utils/hospital_panel_helper.py`, `scripts/flows/hospital_healing_flow.py`
   - `utils/safe_ground_matcher.py`, `utils/training_slider_helper.py`, `utils/return_to_base_view.py`
   - `utils/rally_plus_matcher.py`
+  - `utils/arms_race_panel_helper.py`, `utils/arms_race_ocr.py`
+  - `utils/soldier_panel_slider.py`
+  - `utils/shaded_button_helper.py`
 - `utils/template_matcher.py` docs are inconsistent with code: docs imply masked thresholds of 0.95 and show masked example using `threshold=0.05`, but code uses `DEFAULT_CCORR_THRESHOLD = 0.90`. Update docs/examples to reflect mask semantics.
 - `utils/bubble_matcher.py` docs/threshold defaults assume SQDIFF; masked templates (corn/gold/iron/gem) use CCORR and rely on `config.THRESHOLDS` to be correct.
 - Speedup flows use both `speedup_button_4k.png` and `speed_up_button_4k.png`; verify they are the intended templates and consolidate if they refer to the same UI.
@@ -138,9 +176,17 @@ Suggested fix:
 ## Inconsistencies / drift
 - `world_present`/`town_present` naming inverted by design in `scripts/icon_daemon.py` (easy to misread).
 - Some flow comments still reference old idle thresholds while scheduler uses `IDLE_THRESHOLD`.
+- Runtime `IDLE_THRESHOLD` updates (via API) don’t propagate to all checks: rally join uses module `IDLE_THRESHOLD` constant, and scheduler flow configs are initialized from config at startup only. Evidence: `scripts/icon_daemon.py:1265`, `utils/scheduler.py:19-30`.
+- `_verify_templates()` doesn’t include templates used by critical matchers (e.g., `back_button_union_4k.png` and its mask, shaded button templates). Missing files won’t be caught at startup.
+- VS Day 7 bag-flow surprise does **not** record scheduler cooldown, so a normal bag-flow can fire immediately after the surprise run. Evidence: `scripts/icon_daemon.py:2356-2377`.
 - Back button templates include a dark variant (`back_button_union_dark_4k.png`) that is unused; decide whether to add to matchers or remove.
 - View detection doesn’t consider shaded world/town button variants (`world_button_shaded_4k.png`, `world_button_shaded_dark_4k.png`), so modal popups can force `UNKNOWN` state and unnecessary recovery. Evidence: `utils/view_state_detector.py:33-53` vs `utils/shaded_button_helper.py:10-23`.
-- `beast_training_pre_claim_done` is defined but never used (dead state). Evidence: `scripts/icon_daemon.py:353`.
+- ~~`beast_training_pre_claim_done` is defined but never used (dead state).~~ **FIXED** - Removed dead variable.
+
+## Additional mess / cleanup candidates
+- Flow return types are inconsistent (some return `bool`, others return `dict`, others return `None`), making centralized success tracking/error handling fragile.
+- Multiple back‑button paths compete (`BackButtonMatcher`, `back_from_chat_flow`, `click_back`, hard‑coded `BACK_BUTTON_CLICK`), often without sharing the detected location. Consolidate to one back‑button API.
+- Recovery logic is duplicated across `return_to_base_view`, `view_state_detector.navigate_to`, and daemon UNKNOWN recovery. These heuristics drift and conflict; consolidate into a single recovery state machine.
 
 ## Debug outputs / artifacts
 - Debug images still write to repo root or `screenshots/debug` without cleanup:
@@ -148,6 +194,7 @@ Suggested fix:
   - `utils/windows_screenshot_helper.py`
   - `utils/view_state_detector.py`
   - `utils/return_to_base_view.py`
+- `return_to_base_view` still writes a restart screenshot even when `debug=False` (RESTART_TRIGGER_*).
 
 ## Refactor opportunities
 1) Centralize UI constants (template names, regions, click points).

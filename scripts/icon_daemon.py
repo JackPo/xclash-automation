@@ -350,7 +350,6 @@ class IconDaemon:
 
         # Pre-Beast Training: claim stamina + block elite rallies N minutes before event
         self.BEAST_TRAINING_PRE_EVENT_MINUTES = ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES
-        self.beast_training_pre_claim_done = False  # Track if we've claimed pre-event stamina
         self.beast_training_pre_claim_block = None  # Track which upcoming block we've pre-claimed for
 
         # VS Event overrides - soldier promotions all day on specific days
@@ -2026,12 +2025,12 @@ class IconDaemon:
                         rally_cooldown_ok and
                         self.beast_training_rally_count < rally_target):
                         # Create wrapper that handles config manipulation
-                        def beast_rally_wrapper():
+                        def beast_rally_wrapper(adb):
                             import config
                             original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
                             config.ELITE_ZOMBIE_PLUS_CLICKS = 0
                             try:
-                                return elite_zombie_flow(self.adb)
+                                return elite_zombie_flow(adb)
                             finally:
                                 config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
 
@@ -2171,7 +2170,7 @@ class IconDaemon:
                             soldier_speedup_h2_candidate = True
                             flow_candidates.append(FlowCandidate(
                                 name="soldier_speedup_h2",
-                                flow_func=lambda: marshall_speedup_all_flow(self.adb, self.windows_helper, debug=self.debug),
+                                flow_func=lambda adb: marshall_speedup_all_flow(adb, self.windows_helper, debug=self.debug),
                                 priority=FlowPriority.CRITICAL,
                                 critical=True,
                                 reason=f"Hour 2 checkpoint ({hours_into_event:.2f}h into event)"
@@ -2184,7 +2183,7 @@ class IconDaemon:
                             soldier_speedup_h3_candidate = True
                             flow_candidates.append(FlowCandidate(
                                 name="soldier_speedup_h3",
-                                flow_func=lambda: marshall_speedup_all_flow(self.adb, self.windows_helper, debug=self.debug),
+                                flow_func=lambda adb: marshall_speedup_all_flow(adb, self.windows_helper, debug=self.debug),
                                 priority=FlowPriority.CRITICAL,
                                 critical=True,
                                 reason=f"Hour 3 checkpoint ({hours_into_event:.2f}h into event)"

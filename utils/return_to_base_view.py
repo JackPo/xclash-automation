@@ -472,24 +472,28 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     # STEP 3: All attempts failed - restart app and RETRY (never give up)
     _consecutive_restarts += 1
 
-    # CRITICAL: Save debug screenshot with detailed marker BEFORE restart
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        debug_path = debug_dir / f"RESTART_TRIGGER_{timestamp}.png"
-        cv2.imwrite(str(debug_path), frame)
-        # Also detect view state for the marker
-        view_state, view_score = detect_view(frame)
-        back_present, back_score, _ = back_matcher.find(frame)
-        print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")
-        print(f"    [RETURN] Screenshot saved: {debug_path.name}")
-        print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")
-        print(f"    [RETURN] Back button present: {back_present} (score={back_score:.3f})")
-        print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
+    # Save debug screenshot with detailed marker BEFORE restart (only if debug mode)
+    if debug:
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            debug_path = debug_dir / f"RESTART_TRIGGER_{timestamp}.png"
+            cv2.imwrite(str(debug_path), frame)
+            # Also detect view state for the marker
+            view_state, view_score = detect_view(frame)
+            back_present, back_score, _ = back_matcher.find(frame)
+            print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")
+            print(f"    [RETURN] Screenshot saved: {debug_path.name}")
+            print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")
+            print(f"    [RETURN] Back button present: {back_present} (score={back_score:.3f})")
+            print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
+        else:
+            print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying (no screenshot) ***")
+            print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
     else:
-        print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying (no screenshot) ***")
+        print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")
         print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
 
     if debug:

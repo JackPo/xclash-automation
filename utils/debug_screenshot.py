@@ -106,26 +106,37 @@ class DaemonDebugCapture:
 
     def _cleanup_old(self):
         """Remove oldest screenshots to stay within budget."""
-        usage = self._get_disk_usage_gb()
-        if usage < CLEANUP_THRESHOLD_GB:
+        # Single scan: collect (path, mtime, size) for all files
+        files_info = []
+        total_bytes = 0
+        try:
+            for f in self.base_dir.rglob("*.png"):
+                stat = f.stat()
+                files_info.append((f, stat.st_mtime, stat.st_size))
+                total_bytes += stat.st_size
+        except Exception:
+            pass
+
+        usage_gb = total_bytes / (1024 ** 3)
+        if usage_gb < CLEANUP_THRESHOLD_GB:
             return
 
-        print(f"[DEBUG] Disk usage {usage:.1f}GB, cleaning up...")
+        print(f"[DEBUG] Disk usage {usage_gb:.1f}GB, cleaning up...")
 
-        # Get all files sorted by mtime (oldest first)
-        all_files = sorted(
-            self.base_dir.rglob("*.png"),
-            key=lambda f: f.stat().st_mtime
-        )
+        # Sort by mtime (oldest first)
+        files_info.sort(key=lambda x: x[1])
 
         removed = 0
-        target = CLEANUP_THRESHOLD_GB * 0.8
-        for f in all_files:
-            if self._get_disk_usage_gb() < target:
+        bytes_removed = 0
+        target_bytes = int(CLEANUP_THRESHOLD_GB * 0.8 * (1024 ** 3))
+
+        for f, mtime, size in files_info:
+            if total_bytes - bytes_removed < target_bytes:
                 break
             try:
                 f.unlink()
                 removed += 1
+                bytes_removed += size
             except Exception:
                 pass
 
@@ -139,7 +150,7 @@ class DaemonDebugCapture:
                     pass
 
         if removed:
-            print(f"[DEBUG] Removed {removed} old screenshots")
+            print(f"[DEBUG] Removed {removed} old screenshots ({bytes_removed / (1024**3):.1f}GB)")
 
     def capture(
         self,
