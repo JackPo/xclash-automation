@@ -80,6 +80,7 @@ DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_last_6_minutes_phase, check_progress_quick, marshall_speedup_all_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
+from flows.zombie_attack_flow import zombie_attack_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -1055,6 +1056,7 @@ class IconDaemon:
         global stamina_claim_flow, stamina_use_flow, soldier_training_flow
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
         global tavern_quest_claim_flow, run_tavern_quest_flow, faction_trials_flow
+        global zombie_attack_flow
 
         from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
@@ -1065,6 +1067,7 @@ class IconDaemon:
                           healing_flow, bag_flow, gift_box_flow)
         from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
         from flows.faction_trials_flow import faction_trials_flow
+        from flows.zombie_attack_flow import zombie_attack_flow
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
 
@@ -1085,6 +1088,7 @@ class IconDaemon:
             "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, debug=False), True),
             "healing": (healing_flow, False),
             "elite_zombie": (elite_zombie_flow, False),
+            "zombie_attack": (lambda adb: zombie_attack_flow(adb, zombie_type='iron_mine', plus_clicks=10), False),
             "handshake": (handshake_flow, False),
             "treasure_map": (treasure_map_flow, True),
             "corn_harvest": (corn_harvest_flow, False),
