@@ -30,6 +30,14 @@ The first definition at lines 563-578 (which properly checks both `active_flows`
 ### 5. return_to_base_view unconditional debug screenshots - FIXED
 Wrapped `utils/return_to_base_view.py:328-333` with `if debug:` so screenshots only write when debug mode is on.
 
+### 6. `stamina_confirmed` referenced before assignment - FIXED
+Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` at the start of each daemon loop iteration.
+
+### 7. Pre-beast stamina claim cooldown bypass - FIXED
+- Changed FlowCandidate name from `"stamina_claim"` to `"pre_beast_stamina_claim"` to match scheduler config
+- Added `record_to_scheduler=True` to record the cooldown
+- Set `self.beast_training_pre_claim_block = upcoming_beast_block` before queueing to prevent re-queue
+
 ## Verified fixes / confirmed OK (observed in current code)
 - VS Day 7 chest checkpoints use `arms_race_remaining_mins` instead of a missing field in `scripts/icon_daemon.py`.
 - Rally monster offsets treat plus button coordinates as centers (`utils/rally_monster_validator.py`, `config.py`).
@@ -66,6 +74,10 @@ Wrapped `utils/return_to_base_view.py:328-333` with `if debug:` so screenshots o
 
 6) ~~return_to_base_view writes debug screenshots even when debug=False~~ **FIXED** - See "Fixes Applied" above
 
+7) ~~`stamina_confirmed` referenced before assignment during Beast Training priority check~~ **FIXED** - See "Fixes Applied" above
+
+8) ~~Pre-beast stamina claim never records cooldown and block isn't updated~~ **FIXED** - See "Fixes Applied" above
+
 ## Candidate flow system review (flow stepping/overlap)
 
 What works:
@@ -78,6 +90,7 @@ Key issues / bypasses:
   - `check_arms_race_progress` in `scripts/icon_daemon.py:2087-2094`.
 - Rally join runs inline (tap + `_run_flow_sync`) before candidate execution in `scripts/icon_daemon.py:1248-1293`.
 - Soldier upgrade loop taps READY barracks directly (no `active_flows` guard) and runs `_run_flow_sync` per barrack before candidate execution in `scripts/icon_daemon.py:2221-2270`.
+- Foreground recovery runs before the “critical flow active” guard; `return_to_base_view` can fire even while a critical flow is running if the app loses focus. Evidence: `scripts/icon_daemon.py:1181-1188` (foreground check) vs `scripts/icon_daemon.py:1192-1197` (critical flow guard).
 - Impact: multiple flows can run in the same iteration, and candidates are based on a stale pre-flow screenshot; UI changes from direct flows can invalidate candidates and cause misclicks.
 
 Structural risk:
@@ -93,6 +106,7 @@ Suggested fix:
 - Union gifts flow is mostly blind clicking until back-button loop (`scripts/flows/union_gifts_flow.py`).
 - Stamina claim/use flows open/close popups via fixed coordinates without validating popup state and duplicate logic from `utils/stamina_popup_helper.py`.
 - Snowman flow still has a placeholder claim step and clicks the snowman itself (`scripts/flows/snowman_flow.py`).
+- `BackButtonMatcher.click()` ignores the detected location and taps a fixed coordinate; flows that detect then call `click()` can misclick if the back button position shifts or a union variant is shown. Evidence: `utils/back_button_matcher.py:79-80`, `scripts/flows/treasure_map_flow.py:395-414`.
 
 ## Template matching migration issues
 - Active flows still use raw `cv2.matchTemplate` (no masks, inconsistent thresholds):
@@ -113,6 +127,8 @@ Suggested fix:
 - `world_present`/`town_present` naming inverted by design in `scripts/icon_daemon.py` (easy to misread).
 - Some flow comments still reference old idle thresholds while scheduler uses `IDLE_THRESHOLD`.
 - Back button templates include a dark variant (`back_button_union_dark_4k.png`) that is unused; decide whether to add to matchers or remove.
+- View detection doesn’t consider shaded world/town button variants (`world_button_shaded_4k.png`, `world_button_shaded_dark_4k.png`), so modal popups can force `UNKNOWN` state and unnecessary recovery. Evidence: `utils/view_state_detector.py:33-53` vs `utils/shaded_button_helper.py:10-23`.
+- `beast_training_pre_claim_done` is defined but never used (dead state). Evidence: `scripts/icon_daemon.py:353`.
 
 ## Debug outputs / artifacts
 - Debug images still write to repo root or `screenshots/debug` without cleanup:

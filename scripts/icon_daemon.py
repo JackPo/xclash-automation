@@ -1156,6 +1156,10 @@ class IconDaemon:
             iteration += 1
 
             try:
+                # Initialize stamina tracking for this iteration (set properly at line ~1802)
+                stamina_confirmed = False
+                confirmed_stamina = None
+
                 # Check if paused via API
                 if self.paused:
                     if iteration % 30 == 0:  # Log every ~1 min when paused
@@ -1829,11 +1833,14 @@ class IconDaemon:
                         has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
                         if has_dot:
                             pre_beast_stamina_claimed = True
+                            # Mark this block as claimed BEFORE queueing to prevent re-queue
+                            self.beast_training_pre_claim_block = upcoming_beast_block
                             flow_candidates.append(FlowCandidate(
-                                name="stamina_claim",
+                                name="pre_beast_stamina_claim",  # Must match scheduler config key
                                 flow_func=stamina_claim_flow,
                                 priority=FlowPriority.CRITICAL,
-                                reason=f"pre-beast {minutes_until_beast:.1f}min, red dot ({red_count} pixels)"
+                                reason=f"pre-beast {minutes_until_beast:.1f}min, red dot ({red_count} pixels)",
+                                record_to_scheduler=True  # Record cooldown
                             ))
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until event, but no red dot ({red_count} pixels)")
