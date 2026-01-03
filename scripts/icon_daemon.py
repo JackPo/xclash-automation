@@ -1738,8 +1738,9 @@ class IconDaemon:
                                 else:
                                     self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will retry")
 
-                        # Full recovery: After 180s, run return_to_base_view
-                        if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT:
+                        # Full recovery: After 180s AND user is idle, run return_to_base_view
+                        # Don't interrupt if user is actively using the game
+                        if unknown_duration >= self.UNKNOWN_STATE_TIMEOUT and effective_idle_secs >= self.IDLE_THRESHOLD:
                             # Track recovery cycles for loop detection
                             if self.unknown_first_recovery_time is None:
                                 self.unknown_first_recovery_time = time.time()
