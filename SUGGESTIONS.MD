@@ -38,6 +38,18 @@ Added initialization `stamina_confirmed = False` and `confirmed_stamina = None` 
 - Added `record_to_scheduler=True` to record the cooldown
 - Set `self.beast_training_pre_claim_block = upcoming_beast_block` before queueing to prevent re-queue
 
+### 8. UNKNOWN state recovery was blocked by high idle threshold - FIXED
+- Recovery was gated behind `effective_idle_secs >= IDLE_THRESHOLD` (5 min default)
+- Now uses `self.IDLE_THRESHOLD` from config (respects config_local setting)
+- Added **shaded button detection** as first recovery check (popup blocking view)
+- Recovery tries EVERY iteration: shaded button → back button → safe ground
+- Falls back to full `return_to_base_view` only after 180s stuck
+
+### 9. bag_flow cooldown not applied - FIXED
+- FlowCandidate used `name="bag"` but scheduler config uses `"bag_flow"`
+- Cooldown checks against `"bag_flow"` never found matching entries
+- Changed `name="bag"` to `name="bag_flow"` in 3 places
+
 ## Verified fixes / confirmed OK (observed in current code)
 - VS Day 7 chest checkpoints use `arms_race_remaining_mins` instead of a missing field in `scripts/icon_daemon.py`.
 - Rally monster offsets treat plus button coordinates as centers (`utils/rally_monster_validator.py`, `config.py`).
