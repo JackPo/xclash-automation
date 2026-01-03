@@ -967,11 +967,6 @@ class IconDaemon:
 
         return result
 
-    def _can_run_flow(self) -> bool:
-        """Check if a new flow can be started (no other flow is active)."""
-        with self.flow_lock:
-            return len(self.active_flows) == 0
-
     def _is_user_idle(self) -> bool:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
         return get_user_idle_seconds() >= self.IDLE_THRESHOLD

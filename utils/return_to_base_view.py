@@ -325,14 +325,14 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             resource_bar, resource_score = _detect_resource_bar(frame)
             back_present, back_score, back_pos = back_matcher.find(frame)
 
-            # Save debug screenshot with state info
-            debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            debug_path = debug_dir / f"return_unknown_state_a{attempt+1}_{timestamp}.png"
-            cv2.imwrite(str(debug_path), frame)
-
             if debug:
+                # Save debug screenshot with state info
+                debug_dir = Path(__file__).parent.parent / "screenshots" / "debug"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                debug_path = debug_dir / f"return_unknown_state_a{attempt+1}_{timestamp}.png"
+                cv2.imwrite(str(debug_path), frame)
+
                 print(f"    [RETURN] State detection results:")
                 print(f"      - View: UNKNOWN (score={view_score:.3f})")
                 print(f"      - Troop selected: {troop_selected} (score={troop_score:.3f})")

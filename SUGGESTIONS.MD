@@ -23,6 +23,13 @@ Rewrote `utils/back_button_matcher.py` to:
 - `scripts/flows/royal_city_flow.py:86` - Changed threshold 0.9 to 0.1 (SQDIFF - no mask)
 - `scripts/flows/union_gifts_flow.py:62` - Changed BACK_BUTTON_THRESHOLD from 0.06 to 0.95 (CCORR - has mask)
 
+### 4. Duplicate `_can_run_flow` definition - FIXED
+Deleted the second definition at `scripts/icon_daemon.py:970-973` that ignored `critical_flow_active`.
+The first definition at lines 563-578 (which properly checks both `active_flows` AND `critical_flow_active`) is now the only one.
+
+### 5. return_to_base_view unconditional debug screenshots - FIXED
+Wrapped `utils/return_to_base_view.py:328-333` with `if debug:` so screenshots only write when debug mode is on.
+
 ## Verified fixes / confirmed OK (observed in current code)
 - VS Day 7 chest checkpoints use `arms_race_remaining_mins` instead of a missing field in `scripts/icon_daemon.py`.
 - Rally monster offsets treat plus button coordinates as centers (`utils/rally_monster_validator.py`, `config.py`).
@@ -57,10 +64,27 @@ Rewrote `utils/back_button_matcher.py` to:
 - Impact: API calls can trigger flows in the wrong view, leading to random taps or stuck states.
 - Suggested fix: add flow metadata (required view/panel/idle) and enforce in `trigger_flow`.
 
-6) return_to_base_view writes debug screenshots even when debug=False
-- Evidence: `utils/return_to_base_view.py:328-333` always writes `return_unknown_state_*`.
-- Impact: disk churn and clutter in normal runs; recovery loops can dump many images.
-- Suggested fix: gate behind `debug` or a dedicated flag.
+6) ~~return_to_base_view writes debug screenshots even when debug=False~~ **FIXED** - See "Fixes Applied" above
+
+## Candidate flow system review (flow stepping/overlap)
+
+What works:
+- When UI actions are represented as `FlowCandidate` entries and executed via `_execute_best_flow()`, only one flow thread starts, and `active_flows` prevents concurrent flow threads.
+
+Key issues / bypasses:
+- Direct synchronous UI actions bypass the candidate system and can run while another flow is active, or before `_execute_best_flow()` runs:
+  - `collect_and_save_current_event` in `scripts/icon_daemon.py:1407-1415` (Arms Race data collection).
+  - `run_hour_mark_phase` and `run_last_6_minutes_phase` in `scripts/icon_daemon.py:1889-1937` (Beast Training phases).
+  - `check_arms_race_progress` in `scripts/icon_daemon.py:2087-2094`.
+- Rally join runs inline (tap + `_run_flow_sync`) before candidate execution in `scripts/icon_daemon.py:1248-1293`.
+- Soldier upgrade loop taps READY barracks directly (no `active_flows` guard) and runs `_run_flow_sync` per barrack before candidate execution in `scripts/icon_daemon.py:2221-2270`.
+- Impact: multiple flows can run in the same iteration, and candidates are based on a stale pre-flow screenshot; UI changes from direct flows can invalidate candidates and cause misclicks.
+
+Structural risk:
+- ~~`_can_run_flow` is defined twice~~ **FIXED** - Deleted the second definition at lines 970-973 that ignored `critical_flow_active`. See "Fixes Applied" above.
+
+Suggested fix:
+- Move all UI-affecting actions into FlowCandidates (or mark the iteration as “flow already executed” and skip `_execute_best_flow()`), and gate all direct taps with `_can_run_flow`/`active_flows`.
 
 ## Behavior risks / missing checks (random clicking)
 - Handshake flow is a fixed-coordinate tap with no verification (`scripts/flows/handshake_flow.py`).
