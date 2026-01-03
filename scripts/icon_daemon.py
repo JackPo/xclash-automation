@@ -1633,7 +1633,9 @@ class IconDaemon:
                 # 1. Quick recovery (10s): Click safe ground tile to dismiss popup
                 # 2. Full recovery (180s): Run return_to_base_view if quick recovery fails
                 # CRITICAL: Skip recovery if ANY flow is active - flows control their own UI
-                if view_state == "UNKNOWN" and effective_idle_secs >= self.IDLE_THRESHOLD and not self.active_flows:
+                # NOTE: Use LOW idle threshold (10s) for UNKNOWN recovery - popups need immediate dismissal
+                UNKNOWN_RECOVERY_IDLE_THRESHOLD = 10  # seconds - much lower than normal IDLE_THRESHOLD
+                if view_state == "UNKNOWN" and effective_idle_secs >= UNKNOWN_RECOVERY_IDLE_THRESHOLD and not self.active_flows:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
 
