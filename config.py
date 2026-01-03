@@ -77,6 +77,16 @@ ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES = 10 # 3rd+ uses only allowed in last 
 ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15      # Don't use stamina items if rally count >= this
 ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when stamina < this
 
+# Zombie Mode for Beast Training
+# "elite" = elite_zombie_flow (20 stamina, 2000 pts), "gold"/"food"/"iron_mine" = zombie_attack_flow (10 stamina, 1000 pts)
+# Set via WebSocket: {"action": "set_zombie_mode", "mode": "gold", "hours": 24}
+ZOMBIE_MODE_CONFIG = {
+    "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie", "plus_clicks": 0},
+    "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold", "plus_clicks": 10},
+    "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food", "plus_clicks": 10},
+    "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine", "plus_clicks": 10},
+}
+
 # Enhance Hero (during Enhance Hero event)
 # Triggers hero_upgrade_arms_race_flow to upgrade heroes
 # Flow checks current points from Events panel - skips if chest3 already reached

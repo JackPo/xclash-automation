@@ -19,12 +19,10 @@ import logging
 import time
 from typing import Optional
 
-from config import STAMINA_REGION
+from config import STAMINA_REGION, ZOMBIE_MODE_CONFIG
 from utils.arms_race_panel_helper import (
     check_beast_training_progress,
     CHEST3_TARGET,
-    POINTS_PER_RALLY,
-    STAMINA_PER_RALLY,
 )
 from utils.stamina_popup_helper import (
     get_inventory_snapshot,
@@ -48,11 +46,17 @@ def get_current_stamina(frame, ocr_client: OCRClient = None) -> int:
     return stamina or 0
 
 
-def run_hour_mark_phase(adb, win, debug: bool = False) -> dict:
+def run_hour_mark_phase(adb, win, debug: bool = False, scheduler=None) -> dict:
     """
     Phase 1: Hour mark check and initial stamina claim.
 
     This runs when we enter the last hour of Beast Training (60 min remaining).
+
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        debug: Enable debug logging
+        scheduler: Optional Scheduler instance to get zombie mode
 
     Returns:
         {
@@ -60,20 +64,30 @@ def run_hour_mark_phase(adb, win, debug: bool = False) -> dict:
             "rallies_needed": int,
             "stamina_claimed": int,
             "decision": dict,
-            "current_points": int | None
+            "current_points": int | None,
+            "zombie_mode": str
         }
     """
+    # Get zombie mode from scheduler
+    zombie_mode = "elite"
+    if scheduler:
+        zombie_mode, _ = scheduler.get_zombie_mode()
+    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+    stamina_per_action = mode_config["stamina"]
+
     result = {
         "success": False,
         "rallies_needed": 0,
         "stamina_claimed": 0,
         "decision": None,
-        "current_points": None
+        "current_points": None,
+        "zombie_mode": zombie_mode,
     }
 
     try:
+        action_type = "attacks" if zombie_mode != "elite" else "rallies"
         logger.info("=" * 50)
-        logger.info("=== PHASE 1: HOUR MARK CHECK ===")
+        logger.info(f"=== PHASE 1: HOUR MARK CHECK [mode={zombie_mode}] ===")
         logger.info("=" * 50)
 
         # Step 1: Inventory snapshot (opens/closes popup)
@@ -85,7 +99,7 @@ def run_hour_mark_phase(adb, win, debug: bool = False) -> dict:
 
         # Step 2: Check Arms Race progress (navigates to panel)
         logger.info("Step 2: Checking Arms Race progress...")
-        progress = check_beast_training_progress(adb, win, debug=debug)
+        progress = check_beast_training_progress(adb, win, debug=debug, scheduler=scheduler)
 
         if not progress["success"]:
             logger.error("  Failed to check Arms Race progress")
@@ -96,10 +110,10 @@ def run_hour_mark_phase(adb, win, debug: bool = False) -> dict:
         result["current_points"] = current_points
 
         logger.info(f"  Progress: {current_points}/{CHEST3_TARGET} pts")
-        logger.info(f"  Rallies needed: {rallies_needed}")
+        logger.info(f"  {action_type.capitalize()} needed: {rallies_needed}")
 
         if rallies_needed == 0:
-            logger.info("  CHEST3 ALREADY REACHED! No rallies needed.")
+            logger.info(f"  CHEST3 ALREADY REACHED! No {action_type} needed.")
             result["success"] = True
             result["rallies_needed"] = 0
             return result
@@ -110,9 +124,9 @@ def run_hour_mark_phase(adb, win, debug: bool = False) -> dict:
         logger.info("Step 3: Reading current stamina...")
         frame = win.get_screenshot_cv2()
         current_stamina = get_current_stamina(frame)
-        stamina_needed = rallies_needed * STAMINA_PER_RALLY
+        stamina_needed = rallies_needed * stamina_per_action
         logger.info(f"  Current stamina: {current_stamina}")
-        logger.info(f"  Stamina needed: {stamina_needed}")
+        logger.info(f"  Stamina needed: {stamina_needed} ({rallies_needed} x {stamina_per_action})")
 
         # Step 4: Claude CLI decision
         # Get actual time remaining from Arms Race status
@@ -176,26 +190,41 @@ def run_hour_mark_phase(adb, win, debug: bool = False) -> dict:
     return result
 
 
-def run_last_6_minutes_phase(adb, win, debug: bool = False) -> dict:
+def run_last_6_minutes_phase(adb, win, debug: bool = False, scheduler=None) -> dict:
     """
     Phase 2: Last 6 minutes re-check and final stamina claim.
 
     This runs when we're in the last 6 minutes of Beast Training.
     The free 50 stamina cooldown may have expired by now!
 
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        debug: Enable debug logging
+        scheduler: Optional Scheduler instance to get zombie mode
+
     Returns same structure as hour_mark_phase.
     """
+    # Get zombie mode from scheduler
+    zombie_mode = "elite"
+    if scheduler:
+        zombie_mode, _ = scheduler.get_zombie_mode()
+    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+    stamina_per_action = mode_config["stamina"]
+
     result = {
         "success": False,
         "rallies_needed": 0,
         "stamina_claimed": 0,
         "decision": None,
-        "current_points": None
+        "current_points": None,
+        "zombie_mode": zombie_mode,
     }
 
     try:
+        action_type = "attacks" if zombie_mode != "elite" else "rallies"
         logger.info("=" * 50)
-        logger.info("=== PHASE 2: LAST 6 MINUTES RE-CHECK ===")
+        logger.info(f"=== PHASE 2: LAST 6 MINUTES RE-CHECK [mode={zombie_mode}] ===")
         logger.info("=" * 50)
 
         # Re-check inventory (cooldown may be ready now!)
@@ -210,7 +239,7 @@ def run_last_6_minutes_phase(adb, win, debug: bool = False) -> dict:
 
         # Re-check Arms Race (user may have done rallies!)
         logger.info("Step 2: Re-checking Arms Race progress...")
-        progress = check_beast_training_progress(adb, win, debug=debug)
+        progress = check_beast_training_progress(adb, win, debug=debug, scheduler=scheduler)
 
         if not progress["success"]:
             logger.error("  Failed to check Arms Race progress")
@@ -221,7 +250,7 @@ def run_last_6_minutes_phase(adb, win, debug: bool = False) -> dict:
         result["current_points"] = current_points
 
         logger.info(f"  Progress: {current_points}/{CHEST3_TARGET} pts")
-        logger.info(f"  Rallies still needed: {rallies_needed}")
+        logger.info(f"  {action_type.capitalize()} still needed: {rallies_needed}")
 
         if rallies_needed == 0:
             logger.info("  CHEST3 ALREADY REACHED! Mission accomplished.")
@@ -235,9 +264,9 @@ def run_last_6_minutes_phase(adb, win, debug: bool = False) -> dict:
         logger.info("Step 3: Reading current stamina...")
         frame = win.get_screenshot_cv2()
         current_stamina = get_current_stamina(frame)
-        stamina_needed = rallies_needed * STAMINA_PER_RALLY
+        stamina_needed = rallies_needed * stamina_per_action
         logger.info(f"  Current stamina: {current_stamina}")
-        logger.info(f"  Stamina needed: {stamina_needed}")
+        logger.info(f"  Stamina needed: {stamina_needed} ({rallies_needed} x {stamina_per_action})")
 
         # Get actual time remaining from Arms Race status
         from utils.arms_race import get_arms_race_status

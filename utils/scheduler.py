@@ -32,7 +32,7 @@ FLOW_CONFIGS = {
     "union_technology": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "bag_flow": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
-    "tavern_scan": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
+    "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 20},  # 4hr cooldown, 20s idle
     # Beast Training phases - no cooldown (block-based tracking in arms_race_state)
     "beast_training_hour_mark": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},  # 5 min idle
@@ -448,6 +448,66 @@ class DaemonScheduler:
         }
         self.save()
         logger.info(f"Reset Arms Race state for block starting {block_start}")
+
+    # =========================================================================
+    # Zombie Mode (for Beast Training)
+    # =========================================================================
+
+    def get_zombie_mode(self) -> tuple[str, datetime | None]:
+        """
+        Get current zombie mode and expiry.
+
+        Returns:
+            (mode, expires) tuple. mode is "elite"|"gold"|"food"|"iron_mine".
+            expires is None if permanent or not set.
+        """
+        state = self.schedule.get("zombie_mode", {})
+        mode = state.get("mode", "elite")
+        expires_str = state.get("expires")
+
+        if expires_str:
+            try:
+                expires = datetime.fromisoformat(expires_str)
+                # Handle timezone-aware comparison
+                now = datetime.now(timezone.utc)
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if now > expires:
+                    # Expired, revert to elite
+                    self.clear_zombie_mode()
+                    logger.info("Zombie mode expired, reverting to elite")
+                    return "elite", None
+                return mode, expires
+            except (ValueError, TypeError):
+                return "elite", None
+        return mode, None
+
+    def set_zombie_mode(self, mode: str, hours: float) -> datetime:
+        """
+        Set zombie mode for N hours.
+
+        Args:
+            mode: "elite"|"gold"|"food"|"iron_mine"
+            hours: Duration in hours
+
+        Returns:
+            Expiry datetime
+        """
+        expires = datetime.now(timezone.utc) + timedelta(hours=hours)
+        self.schedule["zombie_mode"] = {
+            "mode": mode,
+            "expires": expires.isoformat(),
+            "set_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.save()
+        logger.info(f"Zombie mode set to '{mode}' for {hours}h (expires {expires})")
+        return expires
+
+    def clear_zombie_mode(self) -> None:
+        """Clear zombie mode, revert to elite."""
+        self.schedule.pop("zombie_mode", None)
+        self.save()
+        logger.info("Zombie mode cleared, reverted to elite")
 
     def record_arms_race_progress(self, event: str, points: int, chest3_target: int | None, block_start: str) -> None:
         """

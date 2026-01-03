@@ -152,6 +152,10 @@ class DaemonWebSocketServer:
             # Title commands
             "apply_title": self._cmd_apply_title,
             "list_titles": self._cmd_list_titles,
+            # Zombie mode commands
+            "set_zombie_mode": self._cmd_set_zombie_mode,
+            "get_zombie_mode": self._cmd_get_zombie_mode,
+            "clear_zombie_mode": self._cmd_clear_zombie_mode,
         }
 
         handler = handlers.get(cmd)
@@ -380,6 +384,7 @@ class DaemonWebSocketServer:
 
     def _cmd_get_rally_status(self, args: dict) -> dict:
         """Get current rally status for Beast Training with stamina projections."""
+        from config import ZOMBIE_MODE_CONFIG
         from utils.arms_race import get_arms_race_status
         from utils.view_state_detector import detect_view, ViewState
 
@@ -394,6 +399,11 @@ class DaemonWebSocketServer:
         if hasattr(self.daemon, 'beast_training_rally_count'):
             count = self.daemon.beast_training_rally_count
 
+        # Get zombie mode for stamina calculations
+        zombie_mode, zombie_expires = self.daemon.scheduler.get_zombie_mode()
+        mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+        stamina_per_action = mode_config["stamina"]
+
         event_remaining_mins = int(arms_race_status["time_remaining"].total_seconds() / 60)
         is_beast_training = arms_race_status["current"] == "Mystic Beast Training"
 
@@ -406,18 +416,18 @@ class DaemonWebSocketServer:
                 frame, self.daemon.STAMINA_REGION
             )
 
-        # Calculate stamina projections
+        # Calculate stamina projections (using zombie mode stamina per action)
         # Natural regen: 1 stamina per 6 minutes
         expected_natural_stamina = event_remaining_mins // 6 if is_beast_training else 0
         total_expected_stamina = (current_stamina or 0) + expected_natural_stamina
-        rallies_possible_natural = total_expected_stamina // 20
+        rallies_possible_natural = total_expected_stamina // stamina_per_action
 
-        # Calculate shortfall for target (each rally costs 20 stamina)
+        # Calculate shortfall for target
         remaining_rallies = (target - count) if target else 0
-        stamina_needed = remaining_rallies * 20
+        stamina_needed = remaining_rallies * stamina_per_action
         stamina_shortfall = max(0, stamina_needed - total_expected_stamina) if current_stamina is not None else None
 
-        return {
+        result = {
             "rally_count": count,
             "target": target,
             "remaining": (target - count) if target else None,
@@ -425,6 +435,9 @@ class DaemonWebSocketServer:
             "current_event": arms_race_status["current"],
             "event_remaining_mins": event_remaining_mins,
             "is_beast_training": is_beast_training,
+            # Zombie mode info
+            "zombie_mode": zombie_mode,
+            "stamina_per_action": stamina_per_action,
             # Stamina projections
             "current_stamina": current_stamina,
             "expected_natural_stamina": expected_natural_stamina,
@@ -433,6 +446,14 @@ class DaemonWebSocketServer:
             "stamina_needed": stamina_needed if target else None,
             "stamina_shortfall": stamina_shortfall,
         }
+
+        if zombie_expires:
+            from datetime import datetime, timezone
+            remaining = (zombie_expires - datetime.now(timezone.utc)).total_seconds() / 3600
+            result["zombie_expires"] = zombie_expires.isoformat()
+            result["zombie_hours_remaining"] = round(remaining, 2)
+
+        return result
 
     # =========================================================================
     # Title Commands
@@ -499,4 +520,65 @@ class DaemonWebSocketServer:
                 }
                 for name, info in titles.items()
             ]
+        }
+
+    # =========================================================================
+    # Zombie Mode Commands
+    # =========================================================================
+
+    def _cmd_set_zombie_mode(self, args: dict) -> dict:
+        """Set zombie mode for Beast Training (gold/food/iron_mine instead of elite)."""
+        from config import ZOMBIE_MODE_CONFIG
+
+        mode = args.get("mode", "gold")
+        hours = args.get("hours", 24)
+
+        if mode not in ZOMBIE_MODE_CONFIG:
+            valid_modes = list(ZOMBIE_MODE_CONFIG.keys())
+            raise ValueError(f"Invalid mode: {mode}. Valid modes: {valid_modes}")
+
+        try:
+            hours = float(hours)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid hours value: {hours}")
+
+        expires = self.daemon.scheduler.set_zombie_mode(mode, hours)
+        mode_config = ZOMBIE_MODE_CONFIG[mode]
+
+        return {
+            "mode": mode,
+            "expires": expires.isoformat(),
+            "hours": hours,
+            "stamina_per_action": mode_config["stamina"],
+            "points_per_action": mode_config["points"],
+        }
+
+    def _cmd_get_zombie_mode(self, args: dict) -> dict:
+        """Get current zombie mode and expiry."""
+        from config import ZOMBIE_MODE_CONFIG
+        from datetime import datetime, timezone
+
+        mode, expires = self.daemon.scheduler.get_zombie_mode()
+        mode_config = ZOMBIE_MODE_CONFIG.get(mode, ZOMBIE_MODE_CONFIG["elite"])
+
+        result = {
+            "mode": mode,
+            "stamina_per_action": mode_config["stamina"],
+            "points_per_action": mode_config["points"],
+        }
+
+        if expires:
+            now = datetime.now(timezone.utc)
+            remaining = (expires - now).total_seconds() / 3600
+            result["expires"] = expires.isoformat()
+            result["hours_remaining"] = round(remaining, 2)
+
+        return result
+
+    def _cmd_clear_zombie_mode(self, args: dict) -> dict:
+        """Clear zombie mode, revert to elite."""
+        self.daemon.scheduler.clear_zombie_mode()
+        return {
+            "mode": "elite",
+            "message": "Zombie mode cleared, reverted to elite zombie rallies"
         }

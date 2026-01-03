@@ -120,6 +120,7 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES,
     ARMS_RACE_BEAST_TRAINING_MAX_RALLIES,
     ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD,
+    ZOMBIE_MODE_CONFIG,
     ARMS_RACE_SOLDIER_TRAINING_ENABLED,
     ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES,
     # VS Event overrides
@@ -1895,6 +1896,9 @@ class IconDaemon:
                         # Check if there's a pre-set target for this block
                         arms_race_state = self.scheduler.get_arms_race_state()
                         next_target = arms_race_state.get("beast_training_next_target_rallies")
+                        # Get zombie mode for logging
+                        block_zombie_mode, block_zombie_expires = self.scheduler.get_zombie_mode()
+                        mode_info = f", mode={block_zombie_mode}" if block_zombie_mode != "elite" else ""
                         if next_target:
                             # Copy next target to current target
                             self.scheduler.update_arms_race_state(
@@ -1902,10 +1906,10 @@ class IconDaemon:
                                 beast_training_next_target_rallies=None,
                                 beast_training_rally_count=0
                             )
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0, target={next_target} (from pre-set)")
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0, target={next_target} (from pre-set){mode_info}")
                         else:
                             self.scheduler.update_arms_race_state(beast_training_rally_count=0)
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0")
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0{mode_info}")
 
                     # =========================================================
                     # SMART BEAST TRAINING FLOW - With Claude CLI decision
@@ -2020,38 +2024,52 @@ class IconDaemon:
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, but no red dot ({red_count} pixels), skipping claim")
 
-                    # STEP 2: Rally candidate - if stamina >= 20, cooldown ok, and under target
+                    # STEP 2: Rally candidate - if stamina >= threshold, cooldown ok, and under target
                     # Only add if claim wasn't already a candidate (mutually exclusive)
+                    # Get current zombie mode (may be "elite", "gold", "food", or "iron_mine")
+                    zombie_mode, zombie_expires = self.scheduler.get_zombie_mode()
+                    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+                    stamina_threshold = mode_config["stamina"]
+
                     rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
                     beast_rally_candidate = False
                     if (not beast_claim_candidate and
                         stamina_confirmed and
-                        confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD and
+                        confirmed_stamina >= stamina_threshold and
                         rally_cooldown_ok and
                         self.beast_training_rally_count < rally_target):
-                        # Create wrapper that handles config manipulation
-                        def beast_rally_wrapper(adb):
-                            import config
-                            original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
-                            config.ELITE_ZOMBIE_PLUS_CLICKS = 0
-                            try:
-                                return elite_zombie_flow(adb)
-                            finally:
-                                config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
+                        # Create wrapper based on zombie mode
+                        if zombie_mode == "elite":
+                            def beast_rally_wrapper(adb):
+                                import config
+                                original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
+                                config.ELITE_ZOMBIE_PLUS_CLICKS = 0
+                                try:
+                                    return elite_zombie_flow(adb)
+                                finally:
+                                    config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
+                        else:
+                            # Zombie attack mode (gold/food/iron_mine)
+                            zombie_type = mode_config.get("zombie_type", "gold")
+                            plus_clicks = mode_config.get("plus_clicks", 10)
+                            def beast_rally_wrapper(adb, zt=zombie_type, pc=plus_clicks):
+                                return zombie_attack_flow(adb, zombie_type=zt, plus_clicks=pc)
 
                         beast_rally_candidate = True
                         remaining = rally_target - self.beast_training_rally_count - 1  # -1 because we're about to do one
+                        mode_str = f"[{zombie_mode}]" if zombie_mode != "elite" else ""
                         flow_candidates.append(FlowCandidate(
                             name="beast_training",
                             flow_func=beast_rally_wrapper,
                             priority=FlowPriority.CRITICAL,
                             critical=True,
-                            reason=f"rally #{self.beast_training_rally_count+1}/{rally_target}, {remaining} remaining, {arms_race_remaining_mins:.0f}min left"
+                            reason=f"{mode_str}rally #{self.beast_training_rally_count+1}/{rally_target}, {remaining} remaining, {arms_race_remaining_mins:.0f}min left"
                         ))
 
                     # STEP 3: Use Button candidate - only if neither claim nor rally is a candidate
-                    # Conditions: idle 5+ min, rally count < target, stamina < 20, Use clicks < 4, cooldown
+                    # Conditions: idle 5+ min, rally count < target, stamina < threshold, Use clicks < 4, cooldown
                     # SMART: Check claim timer first - if free claim will be available before event ends, WAIT
+                    # Note: stamina_threshold is already set from zombie mode (10 for zombie, 20 for elite)
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
                                            arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
@@ -2060,7 +2078,7 @@ class IconDaemon:
                         self.BEAST_TRAINING_USE_ENABLED and
                         effective_idle_secs >= self.IDLE_THRESHOLD and
                         stamina_confirmed and
-                        confirmed_stamina < self.BEAST_TRAINING_USE_STAMINA_THRESHOLD and
+                        confirmed_stamina < stamina_threshold and
                         self.beast_training_rally_count < rally_target and
                         self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
                         use_cooldown_ok and

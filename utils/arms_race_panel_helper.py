@@ -274,25 +274,33 @@ def open_arms_race_panel(adb, win, debug: bool = False, max_scrolls: int = 5) ->
 # PROGRESS CALCULATION
 # =============================================================================
 
-def get_rallies_needed(current_points: int) -> int:
+def get_rallies_needed(current_points: int, zombie_mode: str = "elite") -> int:
     """
-    Calculate rallies needed to reach chest3.
+    Calculate rallies/attacks needed to reach chest3.
 
     Args:
         current_points: Current Arms Race points
+        zombie_mode: "elite" (2000 pts/rally) or "gold"/"food"/"iron_mine" (1000 pts/attack)
 
     Returns:
-        Number of rallies needed (0 if already at or above chest3)
+        Number of rallies/attacks needed (0 if already at or above chest3)
     """
+    from config import ZOMBIE_MODE_CONFIG
+    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+    points_per_action = mode_config["points"]
+
     points_needed = CHEST3_TARGET - current_points
     if points_needed <= 0:
         return 0
-    return ceil(points_needed / POINTS_PER_RALLY)
+    return ceil(points_needed / points_per_action)
 
 
-def get_stamina_needed(rallies_needed: int) -> int:
-    """Calculate stamina needed for the given number of rallies."""
-    return rallies_needed * STAMINA_PER_RALLY
+def get_stamina_needed(rallies_needed: int, zombie_mode: str = "elite") -> int:
+    """Calculate stamina needed for the given number of rallies/attacks."""
+    from config import ZOMBIE_MODE_CONFIG
+    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+    stamina_per_action = mode_config["stamina"]
+    return rallies_needed * stamina_per_action
 
 
 def calculate_boosts_needed(rallies_needed: int, current_stamina: int, stamina_per_boost: int = 40) -> int:
@@ -320,7 +328,7 @@ def calculate_boosts_needed(rallies_needed: int, current_stamina: int, stamina_p
 # MAIN ENTRY POINT
 # =============================================================================
 
-def check_beast_training_progress(adb, win, debug: bool = False) -> dict:
+def check_beast_training_progress(adb, win, debug: bool = False, scheduler=None) -> dict:
     """
     Full check: open panel, verify event, calculate rallies.
 
@@ -331,16 +339,27 @@ def check_beast_training_progress(adb, win, debug: bool = False) -> dict:
         adb: ADBHelper instance
         win: WindowsScreenshotHelper instance
         debug: Enable debug logging
+        scheduler: Optional Scheduler instance to get zombie mode
 
     Returns:
         Dict with:
             - success: bool - True if check completed successfully
             - current_points: int | None - Current Arms Race points
-            - rallies_needed: int | None - Rallies needed for chest3
-            - stamina_needed: int | None - Stamina needed for those rallies
+            - rallies_needed: int | None - Rallies/attacks needed for chest3
+            - stamina_needed: int | None - Stamina needed for those rallies/attacks
             - chest3_target: int - Always 30000
             - event_verified: bool - True if Mystic Beast Training header matched
+            - zombie_mode: str - Current zombie mode ("elite", "gold", etc.)
+            - stamina_per_action: int - Stamina per rally/attack (20 or 10)
+            - points_per_action: int - Points per rally/attack (2000 or 1000)
     """
+    # Get zombie mode from scheduler
+    from config import ZOMBIE_MODE_CONFIG
+    zombie_mode = "elite"
+    if scheduler:
+        zombie_mode, _ = scheduler.get_zombie_mode()
+    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+
     result = {
         "success": False,
         "current_points": None,
@@ -348,6 +367,9 @@ def check_beast_training_progress(adb, win, debug: bool = False) -> dict:
         "stamina_needed": None,
         "chest3_target": CHEST3_TARGET,
         "event_verified": False,
+        "zombie_mode": zombie_mode,
+        "stamina_per_action": mode_config["stamina"],
+        "points_per_action": mode_config["points"],
     }
 
     try:
@@ -379,14 +401,16 @@ def check_beast_training_progress(adb, win, debug: bool = False) -> dict:
 
         result["current_points"] = current_points
 
-        # Calculate rallies needed
-        rallies_needed = get_rallies_needed(current_points)
+        # Calculate rallies/attacks needed based on zombie mode
+        rallies_needed = get_rallies_needed(current_points, zombie_mode)
         result["rallies_needed"] = rallies_needed
-        result["stamina_needed"] = get_stamina_needed(rallies_needed)
+        result["stamina_needed"] = get_stamina_needed(rallies_needed, zombie_mode)
 
+        action_type = "attacks" if zombie_mode != "elite" else "rallies"
         logger.info(
             f"Beast Training progress: {current_points}/{CHEST3_TARGET} pts, "
-            f"need {rallies_needed} rallies ({result['stamina_needed']} stamina)"
+            f"need {rallies_needed} {action_type} ({result['stamina_needed']} stamina) "
+            f"[mode={zombie_mode}]"
         )
 
         result["success"] = True

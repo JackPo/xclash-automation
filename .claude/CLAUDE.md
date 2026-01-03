@@ -1029,23 +1029,66 @@ else:
 
 **See full documentation**: `docs/BEAST_TRAINING_LOGIC.md`
 
-**Key Numbers**:
-- Chest 3 target: 30,000 points
-- Points per rally: 2,000 (20 stamina × 100 pts/stamina)
-- Max rallies: 15 (to reach Chest 3 from 0)
+**Key Numbers** (depends on zombie mode):
+
+| Mode | Stamina/Action | Points/Action | Actions for 30k |
+|------|----------------|---------------|-----------------|
+| elite (default) | 20 | 2,000 | 15 rallies |
+| gold/food/iron_mine | 10 | 1,000 | 30 attacks |
+
+Same total stamina (300), but zombie mode = 2x more actions.
+
+**Zombie Mode**:
+
+Configurable mode to use regular zombie attacks instead of elite zombie rallies:
+
+```python
+# In config.py
+ZOMBIE_MODE_CONFIG = {
+    "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie"},
+    "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold"},
+    "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food"},
+    "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine"},
+}
+```
+
+**WebSocket API for Zombie Mode**:
+```bash
+# Set gold mode for 24 hours
+echo '{"cmd": "set_zombie_mode", "args": {"mode": "gold", "hours": 24}}' | websocat ws://127.0.0.1:9876
+
+# Check current mode
+echo '{"cmd": "get_zombie_mode"}' | websocat ws://127.0.0.1:9876
+
+# Clear mode (revert to elite)
+echo '{"cmd": "clear_zombie_mode"}' | websocat ws://127.0.0.1:9876
+```
+
+**Zombie Mode State** (`data/daemon_schedule.json`):
+```json
+{
+  "zombie_mode": {
+    "mode": "gold",
+    "expires": "2025-01-04T06:00:00+00:00",
+    "set_at": "2025-01-03T06:00:00+00:00"
+  }
+}
+```
+
+Mode auto-expires after set duration, reverting to elite.
 
 **Two-Phase Flow**:
 
 1. **Hour Mark Check** (1 hour into event):
    - Open Events → Arms Race panel
    - OCR current points
-   - Calculate `rallies_needed = ceil((30000 - current_points) / 2000)`
+   - Calculate `actions_needed = ceil((30000 - current_points) / points_per_action)`
    - Set `beast_training_target_rallies`
 
-2. **Rally Execution** (continuous):
+2. **Rally/Attack Execution** (continuous):
    - While `rally_count < target`:
-     - If stamina ≥ 20: do Elite Zombie rally
-     - If stamina < 20 and use_count < 4: click Use button for free 50 stamina
+     - If stamina ≥ threshold (20 elite, 10 zombie): do rally/attack
+     - If stamina < threshold and use_count < 4: click Use button for free 50 stamina
 
 **State Tracking** (`data/daemon_schedule.json`):
 ```json
@@ -1060,8 +1103,8 @@ else:
 **Config**:
 - `ARMS_RACE_BEAST_TRAINING_ENABLED = True`
 - `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60` - Only act in last 60 min
-- `ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20` - Min stamina to rally
 - `ARMS_RACE_BEAST_TRAINING_USE_MAX = 4` - Max Use button clicks per block
+- `ZOMBIE_MODE_CONFIG` - Mode definitions (stamina, points, flow)
 
 ### Rally Join Flow (Union War)
 

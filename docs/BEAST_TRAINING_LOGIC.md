@@ -1,243 +1,107 @@
-# Beast Training (Mystic Beast) Arms Race Logic
+# Mystic Beast Training (Smart Flow)
 
-## Overview
+This document describes the smart Mystic Beast Training automation used during Arms Race. It complements `arms_race.md` and focuses on the point/target logic and stamina decision engine.
 
-During "Mystic Beast Training" Arms Race events, the daemon automatically does Elite Zombie rallies to earn points toward Chest 3.
+## Key numbers
 
-## Key Numbers
+Depends on **zombie mode** (configurable via WebSocket API):
 
-| Value | Amount | Notes |
-|-------|--------|-------|
-| Chest 3 target | 30,000 points | The goal for each event block |
-| Points per stamina | 100 | Every stamina spent = 100 points |
-| Stamina per rally | 20 | Each Elite Zombie rally costs 20 stamina |
-| Points per rally | 2,000 | 20 × 100 = 2000 points per rally |
-| Max rallies for Chest 3 | 15 | ceil(30000 / 2000) = 15 |
+| Mode | Stamina/Action | Points/Action | Actions for 30k |
+|------|----------------|---------------|-----------------|
+| elite (default) | 20 | 2,000 | 15 rallies |
+| gold | 10 | 1,000 | 30 attacks |
+| food | 10 | 1,000 | 30 attacks |
+| iron_mine | 10 | 1,000 | 30 attacks |
 
-## Dynamic Target Calculation
+- Points per stamina: 100 (same for all modes)
+- Chest 3 target: 30000 (from `utils/arms_race.py` metadata)
+- Same total stamina (300), zombie mode = 2x more actions
 
-The daemon calculates a **dynamic rally target** based on:
+## Zombie Mode
 
-```
-rallies_needed = ceil((30000 - current_points) / 2000)
-```
+Allows using regular zombie attacks instead of elite zombie rallies during Beast Training.
 
-But we don't blindly do 15 rallies. We check **actual progress** at the 1-hour mark.
+**WebSocket API:**
+```bash
+# Set gold mode for 24 hours
+echo '{"cmd": "set_zombie_mode", "args": {"mode": "gold", "hours": 24}}' | websocat ws://127.0.0.1:9876
 
-### Example
+# Check current mode
+echo '{"cmd": "get_zombie_mode"}' | websocat ws://127.0.0.1:9876
 
-If at 1-hour mark check:
-- Current points: 18,000
-- Points needed: 30,000 - 18,000 = 12,000
-- Rallies needed: ceil(12,000 / 2,000) = **6 rallies**
-
-## Stamina Budget
-
-Each rally costs 20 stamina. Available stamina sources:
-
-| Source | Amount | Cooldown | Notes |
-|--------|--------|----------|-------|
-| Free Claim | 50 | 4 hours | Button appears when timer expires |
-| Recovery Items (Use) | 50 | None | From bag, limited quantity |
-| Natural regen | ~10-15 | Continuous | Over 4 hours |
-
-**Typical budget**: 20 (current) + 50 (free claim) + 50 (use) = **120 stamina = 6 rallies**
-
-## Smart Stamina Management (Timer OCR)
-
-The daemon OCRs the **claim timer** to decide whether to WAIT or USE recovery items:
-
-```
-When stamina < 20 and still need rallies:
-  1. Open stamina popup
-  2. Check if Claim button is visible
-     - YES: Click it (free 50 stamina)
-     - NO: OCR the countdown timer (HH:MM:SS format)
-  3. Compare timer to event remaining time:
-     - timer < event_remaining → WAIT for free claim
-     - timer >= event_remaining → USE recovery item
+# Clear mode (revert to elite)
+echo '{"cmd": "clear_zombie_mode"}' | websocat ws://127.0.0.1:9876
 ```
 
-**Timer Region**: (2161, 693) size 246x99 - where Claim button appears when available
-
-**Example**:
-- Event has 45 min remaining
-- Timer shows 00:30:00 (30 min until free claim)
-- 30 < 45 → WAIT for free claim instead of using recovery items
-
-This saves recovery items for situations where the timer won't expire in time.
-
-## Two-Phase Flow
-
-### Phase 1: Hour Mark Check (at 1 hour into event)
-
-1. Open Events → Arms Race panel
-2. OCR current points from the panel
-3. Calculate `rallies_needed = ceil((30000 - current_points) / 2000)`
-4. Set `beast_training_target_rallies` = rallies_needed
-5. Return to base view
-
-**Trigger conditions**:
-- Event is "Mystic Beast Training"
-- 1 hour has passed since event start
-- Idle 2+ minutes
-
-### Phase 2: Rally Execution (continuous)
-
-After target is set, daemon continuously:
-
-1. Check stamina (needs ≥ 20)
-2. If stamina OK and rally_count < target:
-   - Run Elite Zombie flow
-   - Increment `beast_training_rally_count`
-3. If stamina < 20 and Use count < 4:
-   - Click Use button to claim free 50 stamina
-   - Increment `beast_training_use_count`
-
-**Stops when**: `rally_count >= target` OR event ends
-
-### Phase 3: Last 6 Minutes Check (optional)
-
-In the last 6 minutes:
-1. Re-check Arms Race panel
-2. Update target based on actual progress
-3. Final push to hit Chest 3
-
-## State Tracking
-
-Stored in `data/daemon_schedule.json` under `arms_race`:
-
+**State storage** (`data/daemon_schedule.json`):
 ```json
 {
-  "beast_training_rally_count": 0,      // Rallies done SINCE last panel check
-  "beast_training_target_rallies": 6,   // Target based on actual points
-  "beast_training_hour_mark_block": "2025-12-30 18:00:00+00:00"
+  "zombie_mode": {
+    "mode": "gold",
+    "expires": "2025-01-04T06:00:00+00:00",
+    "set_at": "2025-01-03T06:00:00+00:00"
+  }
 }
 ```
 
-## Points Are The Source of Truth
+Mode auto-expires after set duration, reverting to elite.
 
-**Every time we check the Arms Race panel**, we:
-1. OCR the actual current points
-2. Calculate `rallies_needed = ceil((30000 - points) / 2000)`
-3. **RESET `rally_count = 0`**
-4. **SET `target = rallies_needed`**
+## Goals
+- Reach chest 3 without wasting stamina or recovery items.
+- Use actual Arms Race points as the source of truth.
 
-This means the counter is ALWAYS recalculated from actual points:
-- If a rally failed silently → points didn't increase → recalculate will still need that rally
-- If we got bonus points from elsewhere → points are higher → recalculate will need fewer rallies
-- No risk of counter getting out of sync with reality
+## Phases
 
-**Example**: If panel shows 26000 points:
-- Points needed: 30000 - 26000 = 4000
-- Rallies needed: ceil(4000 / 2000) = 2
-- Reset: `rally_count = 0`, `target = 2`
-- Daemon does 2 rallies, incrementing `rally_count` to 2
-- When `rally_count >= target` (2 >= 2), stop
+### Phase 1: Hour mark check
+Triggered once when the last-hour window begins.
 
-## Generic Arms Race Progress Check
+Steps:
+1. Open the stamina popup and capture inventory (owned 10/50 items and free-claim cooldown).
+2. Open the Arms Race panel and OCR current points.
+3. Compute rallies needed: `ceil((chest3 - current_points) / 2000)`.
+4. Run the deterministic decision engine (see below) to decide free-claim and item usage.
+5. Execute the decision and persist `beast_training_target_rallies` for the block.
 
-In the last 10 minutes of **every** Arms Race event (not just Beast Training), the daemon:
-1. Opens the Events panel
-2. OCRs current points
-3. Logs them to `data/daemon_schedule.json` under `arms_race_progress`
+### Phase 2: Last 6 minutes check
+Triggered once in the last 6 minutes of the block.
 
-This provides:
-- Data collection for events we don't have automation for (City Construction, Technology Research)
-- Historical record to debug issues ("what were my points at the end?")
-- Chest3 threshold discovery for undocumented events
+Steps:
+1. Re-check current points.
+2. Recompute target rallies and reset the rally counter.
+3. Claim free stamina or use items if needed.
 
-## Config Parameters
+### Continuous rally/attack loop
+During the last `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES` of the block:
+- If stamina >= threshold (20 for elite, 10 for zombie) and under target:
+  - **Elite mode**: run `elite_zombie_flow` with zero plus-clicks
+  - **Zombie mode**: run `zombie_attack_flow` with configured zombie_type and plus_clicks
+- If stamina < `ARMS_RACE_STAMINA_CLAIM_THRESHOLD` and the red dot is visible, run `stamina_claim_flow`.
+- If stamina is low and a free claim will not arrive before the event ends, run `stamina_use_flow`.
 
-In `config.py`:
+## Stamina decision engine
+Implementation: `utils/claude_cli_helper.py` and `utils/stamina_popup_helper.py`.
 
-```python
-ARMS_RACE_BEAST_TRAINING_ENABLED = True           # Master enable
-ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60        # Only act in last 60 min
-ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20   # Min stamina to rally
-ARMS_RACE_BEAST_TRAINING_COOLDOWN = 30            # Seconds between rallies
-ARMS_RACE_BEAST_TRAINING_MAX_RALLIES = 15         # Fallback if no target set
+Despite the name, the decision engine is deterministic and does not call Claude. It uses:
+- Current stamina
+- Item inventory (10 and 50 stamina items)
+- Free-claim cooldown
+- Time remaining in the block
 
-# Use button settings
-ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True       # Enable free stamina claim
-ARMS_RACE_BEAST_TRAINING_USE_MAX = 4              # Max Use clicks per block
-ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use when stamina < this
-```
+Decision rules (simplified):
+- Round required stamina up to the next multiple of 20.
+- Claim free 50 if ready, or if it will be ready before the block ends.
+- Prefer 50 items for bulk, 10 items for remainder.
+- Avoid using items if a free claim will arrive in time.
 
-## Flow Diagram
+## Scheduler state
+Stored in `data/daemon_schedule.json` under `arms_race`:
+- `beast_training_target_rallies`
+- `beast_training_rally_count`
+- `beast_training_hour_mark_block`
+- `beast_training_last_6_block`
 
-```
-Event Start (every 4 hours)
-    │
-    ├── Wait 1 hour
-    │
-    ▼
-Hour Mark Check
-    │
-    ├── OCR current points
-    ├── Calculate rallies_needed
-    ├── Set target
-    │
-    ▼
-Rally Loop (while rally_count < target)
-    │
-    ├── Stamina ≥ 20? ──Yes──> Do Rally ──> Increment rally_count
-    │         │
-    │         No
-    │         │
-    │         ▼
-    │   Red dot visible? ──Yes──> Claim free stamina (+50)
-    │         │
-    │         No
-    │         │
-    │         ▼
-    │   OCR claim timer
-    │         │
-    │         ├── Timer < event remaining? ──Yes──> WAIT for free claim
-    │         │
-    │         No (timer too long or OCR failed)
-    │         │
-    │         ▼
-    │   Use count < 4? ──Yes──> Click Use ──> Get 50 stamina
-    │         │
-    │         No
-    │         │
-    │         ▼
-    │   Wait for natural regen
-    │
-    ▼
-Event End (or target reached)
-    │
-    ├── Reset rally_count = 0
-    ├── Reset use_count = 0
-    ├── Clear target
-    │
-    ▼
-Next Event Block
-```
+The rally counter is reset whenever points are re-checked. Points are the source of truth.
 
-## Troubleshooting
-
-**Q: Why isn't it doing rallies?**
-- Check stamina (needs ≥ 20)
-- Check idle time (needs 2+ min)
-- Check if target already reached (rally_count >= target)
-- Check if Use count maxed (use_count >= 4)
-
-**Q: How do I manually set target?**
-```bash
-# Via daemon WebSocket API
-python -c "
-import asyncio, websockets, json
-async def main():
-    async with websockets.connect('ws://localhost:9876') as ws:
-        await ws.send(json.dumps({'cmd': 'set_rally_target', 'args': {'target': 10}}))
-        print(await ws.recv())
-asyncio.run(main())
-"
-```
-
-**Q: How do I check current state?**
-```bash
-cat data/daemon_schedule.json | python -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d['arms_race'], indent=2))"
-```
+## Related docs
+- `arms_race.md` for the full event automation overview
+- `../ARMS_RACE_SCHEDULE.md` for the schedule table
