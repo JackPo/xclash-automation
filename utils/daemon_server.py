@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Set, TYPE_CHECKING
 
@@ -158,6 +159,10 @@ class DaemonWebSocketServer:
             "clear_zombie_mode": self._cmd_clear_zombie_mode,
             # Flow with arguments
             "run_zombie_attack": self._cmd_run_zombie_attack,
+            "faction_trial": self._cmd_faction_trial,
+            # Stamina commands
+            "use_stamina": self._cmd_use_stamina,
+            "get_stamina_inventory": self._cmd_get_stamina_inventory,
         }
 
         handler = handlers.get(cmd)
@@ -385,68 +390,104 @@ class DaemonWebSocketServer:
         }
 
     def _cmd_get_rally_status(self, args: dict) -> dict:
-        """Get current rally status for Beast Training with stamina projections."""
+        """Get current Arms Race status with real points from game UI.
+
+        Returns what actually matters: points needed, rallies needed, stamina needed,
+        and available stamina items.
+        """
         from config import ZOMBIE_MODE_CONFIG
         from utils.arms_race import get_arms_race_status
-        from utils.view_state_detector import detect_view, ViewState
+        from utils.view_state_detector import detect_view, go_to_town, ViewState
+        from scripts.flows.beast_training_flow import check_progress_quick
+        from utils.stamina_popup_helper import get_inventory_snapshot
 
         arms_race_status = get_arms_race_status()
-        arms_race_state = self.daemon.scheduler.get_arms_race_state()
 
-        count = arms_race_state.get("beast_training_rally_count", 0)
-        target = arms_race_state.get("beast_training_target_rallies")
-        next_target = arms_race_state.get("beast_training_next_target_rallies")
-
-        # Use daemon's in-memory count if available (more up-to-date)
-        if hasattr(self.daemon, 'beast_training_rally_count'):
-            count = self.daemon.beast_training_rally_count
-
-        # Get zombie mode for stamina calculations
+        # Get zombie mode for stamina/points calculations
         zombie_mode, zombie_expires = self.daemon.scheduler.get_zombie_mode()
         mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-        stamina_per_action = mode_config["stamina"]
+        stamina_per_rally = mode_config["stamina"]
+        points_per_rally = mode_config.get("points", 2000)
 
         event_remaining_mins = int(arms_race_status["time_remaining"].total_seconds() / 60)
         is_beast_training = arms_race_status["current"] == "Mystic Beast Training"
 
-        # Get current stamina if in TOWN view
-        current_stamina = None
+        # Check the game for current points
+        current_points = None
+        chest3_target = 30000
+        points_remaining = None
+        rallies_needed = None
+
+        if is_beast_training:
+            try:
+                progress = check_progress_quick(
+                    self.daemon.adb,
+                    self.daemon.windows_helper,
+                    debug=False
+                )
+                if progress.get("success"):
+                    current_points = progress.get("current_points")
+                    if current_points is not None:
+                        points_remaining = max(0, chest3_target - current_points)
+                        rallies_needed = (points_remaining + points_per_rally - 1) // points_per_rally
+            except Exception as e:
+                logger.warning(f"Failed to check arms race progress: {e}")
+
+        # Ensure we're in TOWN for stamina reading
         frame = self.daemon.windows_helper.get_screenshot_cv2()
         view_state, _ = detect_view(frame)
-        if view_state == ViewState.TOWN:
-            current_stamina = self.daemon.ocr_client.extract_number(
-                frame, self.daemon.STAMINA_REGION
-            )
+        if view_state != ViewState.TOWN:
+            go_to_town(self.daemon.adb, debug=False)
+            time.sleep(1.0)
+            frame = self.daemon.windows_helper.get_screenshot_cv2()
 
-        # Calculate stamina projections (using zombie mode stamina per action)
-        # Natural regen: 1 stamina per 6 minutes
-        expected_natural_stamina = event_remaining_mins // 6 if is_beast_training else 0
-        total_expected_stamina = (current_stamina or 0) + expected_natural_stamina
-        rallies_possible_natural = total_expected_stamina // stamina_per_action
+        # Get current stamina
+        current_stamina = self.daemon.ocr_client.extract_number(
+            frame, self.daemon.STAMINA_REGION
+        )
 
-        # Calculate shortfall for target
-        remaining_rallies = (target - count) if target else 0
-        stamina_needed = remaining_rallies * stamina_per_action
-        stamina_shortfall = max(0, stamina_needed - total_expected_stamina) if current_stamina is not None else None
+        # Get stamina inventory (opens popup, reads items, closes)
+        inventory = get_inventory_snapshot(self.daemon.adb, self.daemon.windows_helper)
+        owned_10 = inventory.get("owned_10", 0)
+        owned_50 = inventory.get("owned_50", 0)
+        free_50_cooldown = inventory.get("cooldown_secs", 0)
+        free_50_available = free_50_cooldown == 0
+
+        # Calculate total available stamina from items
+        stamina_from_items = (owned_10 * 10) + (owned_50 * 50) + (50 if free_50_available else 0)
+        total_stamina_available = (current_stamina or 0) + stamina_from_items
+
+        # Calculate stamina needed and shortfall
+        stamina_needed = rallies_needed * stamina_per_rally if rallies_needed else None
+        stamina_shortfall = None
+        if stamina_needed is not None:
+            stamina_shortfall = max(0, stamina_needed - total_stamina_available)
 
         result = {
-            "rally_count": count,
-            "target": target,
-            "remaining": (target - count) if target else None,
-            "next_target": next_target,
             "current_event": arms_race_status["current"],
             "event_remaining_mins": event_remaining_mins,
             "is_beast_training": is_beast_training,
-            # Zombie mode info
-            "zombie_mode": zombie_mode,
-            "stamina_per_action": stamina_per_action,
-            # Stamina projections
+            # Points from game UI
+            "current_points": current_points,
+            "chest3_target": chest3_target,
+            "points_remaining": points_remaining,
+            # What you need to do
+            "rallies_needed": rallies_needed,
+            "stamina_per_rally": stamina_per_rally,
+            "points_per_rally": points_per_rally,
+            "stamina_needed": stamina_needed,
+            # Current stamina
             "current_stamina": current_stamina,
-            "expected_natural_stamina": expected_natural_stamina,
-            "total_expected_stamina": total_expected_stamina if current_stamina is not None else None,
-            "rallies_possible_natural": rallies_possible_natural if current_stamina is not None else None,
-            "stamina_needed": stamina_needed if target else None,
+            # Stamina items available
+            "owned_10_stamina": owned_10,
+            "owned_50_stamina": owned_50,
+            "free_50_available": free_50_available,
+            "free_50_cooldown_secs": free_50_cooldown,
+            "stamina_from_items": stamina_from_items,
+            "total_stamina_available": total_stamina_available,
             "stamina_shortfall": stamina_shortfall,
+            # Zombie mode
+            "zombie_mode": zombie_mode,
         }
 
         if zombie_expires:
@@ -644,3 +685,144 @@ class DaemonWebSocketServer:
             }
         finally:
             self.daemon.active_flows.discard(flow_name)
+
+    def _cmd_faction_trial(self, args: dict) -> dict:
+        """
+        Run the faction trials flow.
+
+        Example:
+            {"cmd": "faction_trial"}
+        """
+        from scripts.flows.faction_trials_flow import faction_trials_flow
+
+        logger.info("Running faction_trials_flow")
+
+        # Mark as flow to prevent daemon interference
+        flow_name = "faction_trial"
+        self.daemon.active_flows.add(flow_name)
+
+        try:
+            battles = faction_trials_flow(self.daemon.adb)
+            return {
+                "success": True,
+                "battles_completed": battles
+            }
+        except Exception as e:
+            logger.error(f"faction_trials_flow failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+        finally:
+            self.daemon.active_flows.discard(flow_name)
+
+    # =========================================================================
+    # Stamina Commands
+    # =========================================================================
+
+    def _cmd_use_stamina(self, args: dict) -> dict:
+        """
+        Use stamina items to replenish stamina.
+
+        Args:
+            claim_free_50: bool - Claim free 50 stamina if available (default: False)
+            use_10_count: int - Number of 10-stamina items to use (default: 0)
+            use_50_count: int - Number of 50-stamina items to use (default: 0)
+
+        Example:
+            {"cmd": "use_stamina", "args": {"claim_free_50": true, "use_10_count": 5}}
+        """
+        from utils.stamina_popup_helper import (
+            open_stamina_popup,
+            close_stamina_popup,
+            claim_free_50,
+            use_10_stamina,
+            use_50_stamina,
+            get_cooldown_seconds,
+            get_owned_counts
+        )
+
+        claim_free = args.get("claim_free_50", False)
+        use_10 = args.get("use_10_count", 0)
+        use_50 = args.get("use_50_count", 0)
+
+        try:
+            use_10 = int(use_10)
+            use_50 = int(use_50)
+        except (TypeError, ValueError):
+            raise ValueError("use_10_count and use_50_count must be integers")
+
+        logger.info(f"Using stamina: claim_free={claim_free}, use_10={use_10}, use_50={use_50}")
+
+        # Open the popup
+        open_stamina_popup(self.daemon.adb)
+
+        # Get current state before using
+        frame = self.daemon.windows_helper.get_screenshot_cv2()
+        owned_before = get_owned_counts(frame)
+        cooldown_before = get_cooldown_seconds(frame)
+
+        result = {
+            "claimed_free_50": False,
+            "used_10": 0,
+            "used_50": 0,
+            "owned_10_before": owned_before["owned_10"],
+            "owned_50_before": owned_before["owned_50"],
+        }
+
+        # Claim free 50 if requested and available
+        if claim_free and cooldown_before == 0:
+            claim_free_50(self.daemon.adb)
+            result["claimed_free_50"] = True
+            logger.info("Claimed free 50 stamina")
+
+        # Use 10-stamina items
+        if use_10 > 0:
+            actual_use = min(use_10, owned_before["owned_10"])
+            if actual_use > 0:
+                use_10_stamina(self.daemon.adb, actual_use)
+                result["used_10"] = actual_use
+                logger.info(f"Used {actual_use} x 10-stamina items")
+
+        # Use 50-stamina items
+        if use_50 > 0:
+            actual_use = min(use_50, owned_before["owned_50"])
+            if actual_use > 0:
+                use_50_stamina(self.daemon.adb, actual_use)
+                result["used_50"] = actual_use
+                logger.info(f"Used {actual_use} x 50-stamina items")
+
+        # Close popup
+        close_stamina_popup(self.daemon.adb)
+
+        # Calculate total stamina gained
+        stamina_gained = (
+            (50 if result["claimed_free_50"] else 0) +
+            (result["used_10"] * 10) +
+            (result["used_50"] * 50)
+        )
+        result["stamina_gained"] = stamina_gained
+
+        return result
+
+    def _cmd_get_stamina_inventory(self, args: dict) -> dict:
+        """
+        Get current stamina inventory without using any items.
+
+        Returns owned counts and free 50 cooldown status.
+        """
+        from utils.stamina_popup_helper import get_inventory_snapshot
+
+        inventory = get_inventory_snapshot(self.daemon.adb, self.daemon.windows_helper)
+
+        return {
+            "owned_10": inventory["owned_10"],
+            "owned_50": inventory["owned_50"],
+            "free_50_available": inventory["cooldown_secs"] == 0,
+            "free_50_cooldown_secs": inventory["cooldown_secs"],
+            "total_stamina_available": (
+                inventory["owned_10"] * 10 +
+                inventory["owned_50"] * 50 +
+                (50 if inventory["cooldown_secs"] == 0 else 0)
+            )
+        }
