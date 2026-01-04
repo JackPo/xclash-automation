@@ -33,6 +33,15 @@ Stamina Commands:
     python daemon_cli.py use_stamina --claim-free            # Claim free 50
     python daemon_cli.py get_stamina_inventory               # Check inventory
 
+Zombie Attack Commands:
+    python daemon_cli.py run_zombie_attack iron_mine         # Attack iron mine zombie
+    python daemon_cli.py run_zombie_attack gold              # Attack gold zombie
+    python daemon_cli.py run_zombie_attack food              # Attack food zombie
+    python daemon_cli.py run_zombie_attack iron_mine --plus 15  # Custom plus clicks
+    python daemon_cli.py set_zombie_mode iron_mine 4         # Set mode for 4 hours
+    python daemon_cli.py get_zombie_mode                     # Check current mode
+    python daemon_cli.py clear_zombie_mode                   # Reset to elite
+
 Examples:
     python daemon_cli.py run_flow bag_flow
     python daemon_cli.py set_config IDLE_THRESHOLD 600
@@ -242,6 +251,29 @@ def main():
                     print(f"Error: Invalid JSON: {arg}")
                     sys.exit(1)
             i += 1
+
+    elif cmd == "run_zombie_attack":
+        # Usage: daemon_cli.py run_zombie_attack <type> [--plus N]
+        if len(sys.argv) < 3:
+            print("Error: run_zombie_attack requires a zombie type")
+            print("Usage: daemon_cli.py run_zombie_attack <iron_mine|gold|food> [--plus N]")
+            sys.exit(1)
+        args["zombie_type"] = sys.argv[2]
+        # Check for --plus argument
+        if "--plus" in sys.argv:
+            plus_idx = sys.argv.index("--plus")
+            if plus_idx + 1 < len(sys.argv):
+                args["plus_clicks"] = int(sys.argv[plus_idx + 1])
+
+    elif cmd == "set_zombie_mode":
+        # Usage: daemon_cli.py set_zombie_mode <mode> [hours]
+        if len(sys.argv) < 3:
+            print("Error: set_zombie_mode requires a mode")
+            print("Usage: daemon_cli.py set_zombie_mode <iron_mine|gold|food> [hours]")
+            sys.exit(1)
+        args["mode"] = sys.argv[2]
+        if len(sys.argv) >= 4:
+            args["hours"] = float(sys.argv[3])
 
     # Send command and print response
     result = asyncio.run(send_command(cmd, args))
