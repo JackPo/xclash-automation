@@ -252,13 +252,28 @@ def _check_daily_limit_dialog(
         print("[RALLY-JOIN] WARNING: daily_rally_rewards_dialog_4k.png not found")
         return False
 
+    # Search in center region only (dialogs appear in center, not at edges)
+    # This prevents false positives on empty white Union War panel
+    CENTER_REGION = (1200, 600, 1400, 800)  # x, y, w, h - center of 4K screen
+    rx, ry, rw, rh = CENTER_REGION
+
     start_time = time.time()
     while time.time() - start_time < timeout:
         frame = win.get_screenshot_cv2()
-        result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
+
+        # Crop to center region
+        roi = frame[ry:ry+rh, rx:rx+rw]
+
+        # Check if template fits in ROI
+        if roi.shape[0] < template.shape[0] or roi.shape[1] < template.shape[1]:
+            time.sleep(0.3)
+            continue
+
+        result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, _, _ = cv2.minMaxLoc(result)
 
-        if min_val < 0.05:  # Dialog found (tight threshold - template includes full text)
+        # Tighter threshold (0.03) + center region = no false positives
+        if min_val < 0.03:
             print(f"[RALLY-JOIN]   Daily limit dialog detected (score={min_val:.4f})")
             return True
 
@@ -334,6 +349,17 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         time.sleep(0.5)
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, "STEP0 AFTER dismiss dialog")
+
+        # Dismiss any leftover Team Up panel underneath by clicking grass
+        print("[RALLY-JOIN] Dismissing any leftover panel by clicking grass...")
+        grass_pos = find_safe_grass(frame, debug=False)
+        if grass_pos:
+            _save_debug_screenshot(frame, "STEP0 CLICKING grass", f"pos={grass_pos}")
+            adb.tap(*grass_pos)
+            time.sleep(0.5)
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "STEP0 AFTER grass click")
+
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
 
@@ -539,6 +565,20 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
             frame = win.get_screenshot_cv2()
             _save_debug_screenshot(frame, "STEP6 AFTER Cancel click")
 
+            # CRITICAL: Dismiss the Team Up panel that's still open underneath!
+            # Click grass to close it before cleanup
+            print("[RALLY-JOIN]   Dismissing Team Up panel by clicking grass...")
+            grass_pos = find_safe_grass(frame, debug=False)
+            if grass_pos:
+                _save_debug_screenshot(frame, "STEP6 CLICKING grass to dismiss panel", f"pos={grass_pos}")
+                adb.tap(*grass_pos)
+                time.sleep(0.5)
+                frame = win.get_screenshot_cv2()
+                _save_debug_screenshot(frame, "STEP6 AFTER grass click")
+            else:
+                print("[RALLY-JOIN]   No grass found - will use return_to_base_view")
+                _save_debug_screenshot(frame, "STEP6 no grass using return_to_base")
+
             # Mark monster as exhausted for today (only if track_daily_limit is True)
             if monster_name is not None:
                 monster_config = _get_monster_config(monster_name)
@@ -587,20 +627,35 @@ def _cleanup_and_exit(
     if daily_limit_template is not None:
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, "CLEANUP checking for late dialog")
-        result = cv2.matchTemplate(frame, daily_limit_template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, _, _ = cv2.minMaxLoc(result)
-        if min_val < 0.05:
-            print(f"[RALLY-JOIN]   Late daily limit dialog detected in cleanup (score={min_val:.4f})")
-            _save_debug_screenshot(frame, "CLEANUP late dialog found", f"score={min_val:.4f}")
-            if _should_ignore_daily_limit():
-                print("[RALLY-JOIN]   Clicking Confirm (ignoring daily limit)")
-                adb.tap(*CONFIRM_CLICK)
-            else:
-                print("[RALLY-JOIN]   Clicking Cancel to dismiss")
-                adb.tap(*CANCEL_CLICK)
-            time.sleep(0.5)
-            frame = win.get_screenshot_cv2()
-            _save_debug_screenshot(frame, "CLEANUP AFTER dialog dismiss")
+
+        # Search in center region only (same as _check_daily_limit_dialog)
+        CENTER_REGION = (1200, 600, 1400, 800)  # x, y, w, h
+        rx, ry, rw, rh = CENTER_REGION
+        roi = frame[ry:ry+rh, rx:rx+rw]
+
+        if roi.shape[0] >= daily_limit_template.shape[0] and roi.shape[1] >= daily_limit_template.shape[1]:
+            result = cv2.matchTemplate(roi, daily_limit_template, cv2.TM_SQDIFF_NORMED)
+            min_val, _, _, _ = cv2.minMaxLoc(result)
+
+            if min_val < 0.03:  # Tighter threshold
+                print(f"[RALLY-JOIN]   Late daily limit dialog detected in cleanup (score={min_val:.4f})")
+                _save_debug_screenshot(frame, "CLEANUP late dialog found", f"score={min_val:.4f}")
+                if _should_ignore_daily_limit():
+                    print("[RALLY-JOIN]   Clicking Confirm (ignoring daily limit)")
+                    adb.tap(*CONFIRM_CLICK)
+                else:
+                    print("[RALLY-JOIN]   Clicking Cancel to dismiss")
+                    adb.tap(*CANCEL_CLICK)
+                time.sleep(0.5)
+                frame = win.get_screenshot_cv2()
+                _save_debug_screenshot(frame, "CLEANUP AFTER dialog dismiss")
+
+                # Also dismiss any Team Up panel underneath
+                grass_pos = find_safe_grass(frame, debug=False)
+                if grass_pos:
+                    print("[RALLY-JOIN]   Clicking grass to dismiss panel")
+                    adb.tap(*grass_pos)
+                    time.sleep(0.5)
 
     # Use centralized return_to_base_view for all back button handling
     print("[RALLY-JOIN]   Returning to base view...")
