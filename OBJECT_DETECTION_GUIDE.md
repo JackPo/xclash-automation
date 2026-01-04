@@ -119,7 +119,7 @@ cv2.imwrite("templates/ground_truth/my_template.png", cropped)
 
 ## Output Files
 
-The `calibration/detect_object.py` script produces:
+The `calibration/detect_object.py` script produces (in the output directory, default `screenshots/`):
 
 | File | Description |
 |------|-------------|
@@ -183,3 +183,6 @@ prompt = "the bouncing treasure map scroll icon overlaying on top of the barrack
 - Official docs: https://ai.google.dev/gemini-api/docs/image-understanding
 - Script location: `calibration/detect_object.py`
 - Templates folder: `templates/ground_truth/`
+
+## Related docs
+- `docs/README.md` for the documentation index

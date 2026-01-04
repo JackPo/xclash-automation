@@ -122,9 +122,10 @@ From calibration run:
 
 ## Files
 
-- `calibrate_slider_time.py` - The calibration script
-- `slider_time_calibration.json` - Calibration results with all data points
-- `calibrate_slider_deprecated.py` - Old ADB calibration script (deprecated)
+- `scripts/calibrate_slider_time.py` - Primary calibration script
+- `calibration/calibrate_slider_time.py` - Legacy copy (same logic)
+- `calibration/slider_time_calibration.json` - Calibration results with all data points
+- `calibration/calibrate_slider_deprecated.py` - Old ADB calibration script (deprecated)
 
 ## Usage in Code
 
@@ -171,7 +172,7 @@ This makes sense because each soldier takes the same amount of time to train, an
 
 ## Integration with Arms Race
 
-The calibration is used by `barracks_training_flow.py` to time training for the Soldier Training Arms Race event.
+The calibration is used by `scripts/flows/barracks_training_flow.py` and is invoked by `scripts/flows/soldier_training_flow.py` to time training so it completes before the next promotion window.
 
 ### Full Workflow Example
 
@@ -215,3 +216,7 @@ success = barracks_training_flow(
 6. Clicks Train button
 
 The "just under" behavior ensures training completes before the event ends, not after.
+
+## Related docs
+- `../docs/arms_race.md` for event timing logic
+- `../docs/README.md` for the documentation index

@@ -1,44 +1,38 @@
-# Union Donation Flow
+# Union Technology Donation Flow
 
-## Trigger Conditions
-- User idle for 20+ minutes
-- No other flows currently running (lowest priority)
-- At most once per hour (cooldown: 60 minutes)
-- Must be in TOWN view with dog house aligned
+Automation flow for donating to Union Technology research.
 
-## Flow Steps
+## Trigger conditions
+- Scheduler-based cooldown (default 1 hour)
+- Idle time >= `IDLE_THRESHOLD`
+- TOWN view recommended (Union button is on the bottom bar)
 
-### Step 1: Click Union Button
-- **Template**: `templates/ground_truth/union_button_4k.png`
-- **Position**: (3087, 1939)
-- **Size**: 157x188
-- **Click**: (3165, 2033)
-- **Wait**: 1.5s for union screen to load
+## Flow steps
+1. Click the Union button on the bottom bar.
+2. Click the Union Technology menu item.
+3. Verify the Technology panel header at a fixed position.
+4. Find a red thumbs-up badge (donation available).
+5. Click the badge (chooses the lowest badge when multiple exist).
+6. Verify the donate dialog by matching the Donate 200 button.
+7. Long-press the Donate button to donate.
+8. Return to base view.
 
-### Step 2: Click Technology Tab
-- TODO: Capture template and coordinates
-- Wait for technology screen
+## Templates and fixed positions (4K)
+Templates used by `scripts/flows/union_technology_flow.py`:
+- `union_technology_header_4k.png`
+- `tech_donate_thumbs_up_4k.png`
+- `tech_donate_200_button_4k.png`
 
-### Step 3: Find Donation Button
-- TODO: Look for "Donate" button on technology items
-- May need to scroll to find available donations
-
-### Step 4: Click Donate
-- TODO: Capture donate button template
-- Click to donate resources
-
-### Step 5: Confirm/Exit
-- TODO: Handle confirmation dialog if any
-- Click back to exit union screen
-
-## Templates Needed
-- [x] `union_button_4k.png` - Union button on bottom bar (3087, 1939) 157x188
-- [ ] `technology_tab_4k.png` - Technology tab in union menu
-- [ ] `donate_button_4k.png` - Donate button on tech items
-- [ ] `union_back_button_4k.png` - Back button to exit union
+Fixed click positions:
+- Union button: (3165, 2033)
+- Union Technology: (2175, 1382)
+- Donate 200: (2157, 1535)
+- Back: (1407, 2055)
 
 ## Notes
-- This is the LOWEST priority flow
-- Only runs when completely idle
-- 1 hour cooldown between runs
-- Should check that union screen actually opened before proceeding
+- Detection uses `WindowsScreenshotHelper` (not ADB screenshots).
+- The flow is low priority and runs after in-town actions.
+- Union Gifts is handled by a separate flow (`scripts/flows/union_gifts_flow.py`).
+
+## Related docs
+- `../docs/README.md` for the documentation index

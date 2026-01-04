@@ -1,8 +1,10 @@
 # Arms Race Schedule
 
+Reference table for the Arms Race rotation. For automation logic and triggers, see `docs/arms_race.md`.
+
 The Arms Race event follows a **7-day cycle with 42 total events** (6 events per day, every 4 hours).
 
-**IMPORTANT**: This is NOT a simple 5-activity rotation. The pattern shifts by one activity each day.
+IMPORTANT: This is NOT a simple 5-activity rotation. The pattern shifts by one activity each day.
 
 ## Key Facts
 
@@ -156,3 +158,6 @@ The schedule follows a **shift pattern**:
 - Day 5 starts: Mystic Beast Training (shifted +1)
 - Day 6 starts: Enhance Hero (wrapped around, shifted +1)
 - Day 7 starts: City Construction (shifted +1)
+
+## Related docs
+- `docs/arms_race.md` for automation behavior and event-specific flows
