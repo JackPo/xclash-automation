@@ -91,6 +91,7 @@ from utils.arms_race_data_collector import (
 )
 from utils.arms_race_panel_helper import check_beast_training_progress, check_arms_race_progress
 from utils.scheduler import get_scheduler
+from utils.config_overrides import get_override_manager
 
 # Import configurable parameters
 from config import (
@@ -334,6 +335,9 @@ class IconDaemon:
         # Unified stamina validation - ONE system for all stamina-based triggers
         # Uses StaminaReader for MODE-based confirmation with consistency check
         self.stamina_reader = StaminaReader()
+
+        # Last detected view state (for dashboard API)
+        self.last_view_state: str | None = None
 
         # Pacific timezone for logging
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
@@ -640,6 +644,21 @@ class IconDaemon:
             self.logger.info("STARTUP: Dashboard disabled by config")
 
         self.logger.info("STARTUP: Ready")
+
+    def _get_config(self, key: str, default: Any) -> Any:
+        """
+        Get effective config value, checking override manager first.
+
+        Args:
+            key: Config key (e.g., 'RALLY_JOIN_ENABLED')
+            default: Default value from config.py
+
+        Returns:
+            Override value if set, otherwise default
+        """
+        manager = get_override_manager()
+        value, is_overridden = manager.get_effective(key, default)
+        return value
 
     def _can_run_flow(self) -> bool:
         """
@@ -1257,6 +1276,7 @@ class IconDaemon:
             "critical_flow": self.critical_flow_name,
             "stamina": self.stamina_reader.history[-1] if self.stamina_reader.history else None,
             "idle_seconds": get_user_idle_seconds(),  # Use filtered idle (same as gating logic)
+            "view": self.last_view_state,  # TOWN, WORLD, CHAT, UNKNOWN
             "arms_race": {
                 "event": arms_race.get("current"),
                 "day": arms_race.get("day"),
@@ -1411,7 +1431,7 @@ class IconDaemon:
                 current_time = time.time()
 
                 # Rally march button check (requires idle + cooldown, but not alignment)
-                if RALLY_JOIN_ENABLED:
+                if self._get_config('RALLY_JOIN_ENABLED', RALLY_JOIN_ENABLED):
                     march_match = self.rally_march_matcher.find_march_button(frame)
                     march_present = march_match is not None
                     march_score = march_match[2] if march_match else 1.0
@@ -1502,6 +1522,7 @@ class IconDaemon:
                 # Get view state using view_state_detector
                 view_state_enum, view_score = detect_view(frame)
                 view_state_str = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
+                self.last_view_state = view_state_str  # Store for dashboard API
                 back_present, back_score = self.back_button_matcher.is_present(frame)
 
                 # DEBUG: Capture screenshot when view is CHAT or UNKNOWN (problematic states)
@@ -1612,7 +1633,8 @@ class IconDaemon:
                 # PRIORITY CHECK: Skip harvest flows if Beast Training rally is imminent
                 # Beast Training rallies are time-critical and should not be blocked by harvest flows
                 beast_training_priority = False
-                if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
+                beast_training_enabled = self._get_config('ARMS_RACE_BEAST_TRAINING_ENABLED', ARMS_RACE_BEAST_TRAINING_ENABLED)
+                if (beast_training_enabled and
                     arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES and
                     stamina_confirmed and
@@ -2015,7 +2037,8 @@ class IconDaemon:
                 # Get zombie mode
                 standalone_zombie_mode, _ = self.scheduler.get_zombie_mode()
                 standalone_mode_config = ZOMBIE_MODE_CONFIG.get(standalone_zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-                if stamina_confirmed and confirmed_stamina is not None and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and effective_idle_secs >= self.IDLE_THRESHOLD:
+                elite_threshold = self._get_config('ELITE_ZOMBIE_STAMINA_THRESHOLD', ELITE_ZOMBIE_STAMINA_THRESHOLD)
+                if stamina_confirmed and confirmed_stamina is not None and confirmed_stamina >= elite_threshold and effective_idle_secs >= self.IDLE_THRESHOLD:
                     if zombie_rally_blocked:
                         self.logger.info(f"[{iteration}] ZOMBIE ({standalone_zombie_mode.upper()}): BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
                     else:
@@ -2053,7 +2076,7 @@ class IconDaemon:
                 # 4. Rally again (with the +50 stamina from Use)
                 #
                 # This order ensures we do rallies FIRST with existing stamina, THEN use recovery items.
-                if (self.ARMS_RACE_BEAST_TRAINING_ENABLED and
+                if (beast_training_enabled and
                     arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES):
 
@@ -2290,7 +2313,8 @@ class IconDaemon:
                 # Enhance Hero: last N minutes, runs once per block
                 # NO idle requirement - flow checks real-time progress and skips if chest3 reached
                 enhance_hero_candidate = False
-                if (self.ARMS_RACE_ENHANCE_HERO_ENABLED and
+                enhance_hero_enabled = self._get_config('ARMS_RACE_ENHANCE_HERO_ENABLED', ARMS_RACE_ENHANCE_HERO_ENABLED)
+                if (enhance_hero_enabled and
                     arms_race_event == "Enhance Hero" and
                     arms_race_remaining_mins <= self.ENHANCE_HERO_LAST_MINUTES):
                     # Check if we already triggered for this block
@@ -2396,7 +2420,8 @@ class IconDaemon:
                 # VS override: On VS_SOLDIER_PROMOTION_DAYS, promotions run ALL DAY regardless of event
                 is_vs_promotion_day = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
 
-                if (self.ARMS_RACE_SOLDIER_TRAINING_ENABLED and
+                soldier_training_enabled = self._get_config('ARMS_RACE_SOLDIER_TRAINING_ENABLED', ARMS_RACE_SOLDIER_TRAINING_ENABLED)
+                if (soldier_training_enabled and
                     (is_soldier_event or is_vs_promotion_day) and
                     effective_idle_secs >= self.IDLE_THRESHOLD):
                     trigger_reason = "VS Day" if is_vs_promotion_day and not is_soldier_event else "Soldier Training event"

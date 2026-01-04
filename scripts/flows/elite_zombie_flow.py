@@ -46,6 +46,17 @@ from config import ELITE_ZOMBIE_PLUS_CLICKS
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
+
+def _get_plus_clicks() -> int:
+    """Get effective ELITE_ZOMBIE_PLUS_CLICKS, checking override manager first."""
+    try:
+        from utils.config_overrides import get_override_manager
+        manager = get_override_manager()
+        value, _ = manager.get_effective('ELITE_ZOMBIE_PLUS_CLICKS', ELITE_ZOMBIE_PLUS_CLICKS)
+        return int(value)
+    except ImportError:
+        return ELITE_ZOMBIE_PLUS_CLICKS
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
@@ -307,11 +318,12 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         is_klass = _is_klass_event(frame)
 
         # Step 3: Click plus button (skip if Klass Rally)
+        plus_clicks = _get_plus_clicks()
         if is_klass:
             _log("Step 3: Skipping plus clicks (Klass Rally)")
         else:
-            _log(f"Step 3: Clicking plus button {ELITE_ZOMBIE_PLUS_CLICKS} times at {PLUS_BUTTON_CLICK}")
-            for i in range(ELITE_ZOMBIE_PLUS_CLICKS):
+            _log(f"Step 3: Clicking plus button {plus_clicks} times at {PLUS_BUTTON_CLICK}")
+            for i in range(plus_clicks):
                 adb.tap(*PLUS_BUTTON_CLICK)
                 time.sleep(PLUS_CLICK_DELAY)
 

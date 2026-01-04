@@ -56,15 +56,23 @@ WindowsScreenshotHelper -> Matchers -> Gating -> Flow -> Scheduler/State
 - `utils/adb_helper.py` handles taps, swipes, and app restarts.
 - All detection uses Windows screenshots, not ADB screenshots.
 
+### Dashboard and config overrides
+- `dashboard/server.py` runs a FastAPI web server for monitoring and control.
+- `utils/config_overrides.py` manages runtime config overrides with expiry.
+- Overrides persist to `data/config_overrides.json` for survival across restarts.
+- See `docs/DASHBOARD.md` for full dashboard documentation.
+
 ## Files and directories (focused view)
 ```
 config.py                  Defaults and global settings
 config_local.py            User overrides (gitignored)
 scripts/icon_daemon.py     Main loop
 scripts/flows/             Automation flows
-utils/                      Matchers, OCR, scheduler, helpers
+utils/                     Matchers, OCR, scheduler, helpers
+dashboard/                 Web dashboard (FastAPI + Alpine.js)
 templates/ground_truth/    4K templates
 data/daemon_schedule.json  Persistent scheduler state
+data/config_overrides.json Runtime config overrides
 logs/                      Runtime logs
 ```
 

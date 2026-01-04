@@ -99,32 +99,44 @@ def find_free_port() -> int:
     return port
 
 
-def get_daemon_status() -> dict[str, Any]:
-    """Get current daemon status."""
-    if _daemon_instance is None:
-        return {
-            "paused": False,
-            "active_flows": [],
-            "critical_flow": None,
-            "stamina": None,
-            "idle_seconds": 0,
-            "view": None,
-        }
+async def get_daemon_status_via_ws() -> dict[str, Any]:
+    """Get daemon status via WebSocket connection."""
+    import websockets
+    import json
 
-    # Access daemon state directly
+    try:
+        async with websockets.connect('ws://localhost:9876', close_timeout=2) as ws:
+            await ws.send(json.dumps({'cmd': 'status'}))
+            response = json.loads(await ws.recv())
+            if response.get('success'):
+                data = response.get('data', {})
+                return {
+                    "paused": data.get('paused', False),
+                    "active_flows": data.get('active_flows', []),
+                    "critical_flow": data.get('critical_flow'),
+                    "stamina": data.get('stamina'),
+                    "idle_seconds": data.get('idle_seconds', 0),
+                    "view": data.get('view'),
+                }
+    except Exception as e:
+        print(f"[DASHBOARD] WebSocket error: {e}")
+
     return {
-        "paused": getattr(_daemon_instance, 'paused', False),
-        "active_flows": list(getattr(_daemon_instance, 'active_flows', set())),
-        "critical_flow": getattr(_daemon_instance, 'critical_flow_name', None),
-        "stamina": getattr(_daemon_instance, 'last_stamina', None),
-        "idle_seconds": getattr(_daemon_instance, 'idle_seconds', 0),
-        "view": getattr(_daemon_instance, 'current_view', None),
+        "paused": False,
+        "active_flows": [],
+        "critical_flow": None,
+        "stamina": None,
+        "idle_seconds": 0,
+        "view": None,
+        "error": "Daemon not connected",
     }
 
 
-def get_flows_list() -> list[dict[str, Any]]:
-    """Get list of all flows with their status."""
+async def get_flows_list_async() -> list[dict[str, Any]]:
+    """Get list of all flows with their status via daemon WebSocket."""
     # Flow definitions with criticality
+    # NOTE: Flows that require arguments (title_management, go_to_mark) are NOT included
+    # Those are handled via separate API commands (apply_title, list_titles, etc.)
     FLOWS = [
         ("tavern_quest", True),
         ("bag_flow", True),
@@ -149,13 +161,13 @@ def get_flows_list() -> list[dict[str, Any]]:
         ("harvest_box", False),
         ("stamina_claim", False),
         ("arms_race_check", False),
-        ("go_to_mark", False),
-        ("title_management", False),
     ]
 
+    # Get active flows from daemon
     active_flows = set()
-    if _daemon_instance:
-        active_flows = getattr(_daemon_instance, 'active_flows', set())
+    status = await get_daemon_status_via_ws()
+    if status.get('active_flows'):
+        active_flows = set(status['active_flows'])
 
     scheduler = get_scheduler()
 
@@ -216,8 +228,8 @@ async def root() -> HTMLResponse:
 
 @app.get("/api/status")
 async def api_status() -> dict[str, Any]:
-    """Get current daemon status."""
-    status = get_daemon_status()
+    """Get current daemon status via WebSocket to daemon."""
+    status = await get_daemon_status_via_ws()
     status["timestamp"] = datetime.now(timezone.utc).isoformat()
     return status
 
@@ -264,74 +276,165 @@ async def api_arms_race_schedule() -> dict[str, Any]:
 @app.get("/api/flows")
 async def api_flows() -> list[dict[str, Any]]:
     """Get list of all flows."""
-    return get_flows_list()
+    return await get_flows_list_async()
+
+
+async def send_daemon_command(cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Send command to daemon via WebSocket."""
+    import websockets
+    import json
+
+    try:
+        async with websockets.connect('ws://localhost:9876', close_timeout=5) as ws:
+            msg = {'cmd': cmd}
+            if args:
+                msg['args'] = args
+            await ws.send(json.dumps(msg))
+            response = json.loads(await ws.recv())
+            return response
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
 
 @app.post("/api/flows/{flow_name}/run")
 async def api_run_flow(flow_name: str) -> dict[str, Any]:
-    """Trigger a flow to run."""
-    if _daemon_instance is None:
-        raise HTTPException(status_code=503, detail="Daemon not connected")
-
-    # Check if daemon has trigger_flow method
-    trigger_flow = getattr(_daemon_instance, 'trigger_flow', None)
-    if trigger_flow is None:
-        raise HTTPException(status_code=503, detail="Daemon does not support flow triggering")
-
-    # Trigger the flow
-    try:
-        result = trigger_flow(flow_name)
-        return {"success": True, "flow": flow_name, "result": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Trigger a flow to run via daemon WebSocket."""
+    response = await send_daemon_command('run_flow', {'flow': flow_name})
+    if response.get('success'):
+        return {"success": True, "flow": flow_name, "result": response.get('data')}
+    else:
+        raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
 
 @app.post("/api/pause")
 async def api_pause() -> dict[str, Any]:
-    """Pause the daemon."""
-    if _daemon_instance is None:
-        raise HTTPException(status_code=503, detail="Daemon not connected")
-
-    _daemon_instance.paused = True
-    return {"success": True, "paused": True}
+    """Pause the daemon via WebSocket."""
+    response = await send_daemon_command('pause')
+    if response.get('success'):
+        return {"success": True, "paused": True}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
 
 @app.post("/api/resume")
 async def api_resume() -> dict[str, Any]:
-    """Resume the daemon."""
-    if _daemon_instance is None:
-        raise HTTPException(status_code=503, detail="Daemon not connected")
-
-    _daemon_instance.paused = False
-    return {"success": True, "paused": False}
+    """Resume the daemon via WebSocket."""
+    response = await send_daemon_command('resume')
+    if response.get('success'):
+        return {"success": True, "paused": False}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
 
 @app.post("/api/return-to-base")
 async def api_return_to_base() -> dict[str, Any]:
-    """Return to base view."""
-    if _daemon_instance is None:
-        raise HTTPException(status_code=503, detail="Daemon not connected")
+    """Return to base view via daemon WebSocket."""
+    response = await send_daemon_command('return_to_base')
+    if response.get('success'):
+        return {"success": True}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
-    # Import here to avoid circular imports
-    from utils.return_to_base_view import return_to_base_view
-    from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
-    adb = ADBHelper()
-    win = WindowsScreenshotHelper()
+@app.get("/api/titles")
+async def api_list_titles() -> dict[str, Any]:
+    """Get list of available kingdom titles."""
+    response = await send_daemon_command('list_titles')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
-    success = return_to_base_view(adb, win, debug=False)
-    return {"success": success}
+
+@app.post("/api/titles/{title_name}/apply")
+async def api_apply_title(title_name: str) -> dict[str, Any]:
+    """Apply a kingdom title."""
+    response = await send_daemon_command('apply_title', {'title': title_name})
+    if response.get('success'):
+        return {"success": True, "title": title_name, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.get("/api/zombie-mode")
+async def api_get_zombie_mode() -> dict[str, Any]:
+    """Get current zombie mode."""
+    response = await send_daemon_command('get_zombie_mode')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/zombie-mode/{mode}")
+async def api_set_zombie_mode(mode: str, hours: float = 24) -> dict[str, Any]:
+    """Set zombie mode (elite, gold, food, iron_mine)."""
+    response = await send_daemon_command('set_zombie_mode', {'mode': mode, 'hours': hours})
+    if response.get('success'):
+        return {"success": True, "mode": mode, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/zombie-attack")
+async def api_run_zombie_attack(zombie_type: str = "gold", plus_clicks: int = 10) -> dict[str, Any]:
+    """Run a zombie attack with specified type."""
+    response = await send_daemon_command('run_zombie_attack', {'zombie_type': zombie_type, 'plus_clicks': plus_clicks})
+    if response.get('success'):
+        return {"success": True, "zombie_type": zombie_type, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
+# Config Override Endpoints
+# ============================================================================
+
+@app.get("/api/config")
+async def api_get_config() -> dict[str, Any]:
+    """Get all config definitions with current values and override status."""
+    response = await send_daemon_command('get_config')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+class OverrideRequest(BaseModel):
+    """Request to set a config override."""
+    value: Any
+    duration_minutes: int | None = None
+
+
+@app.post("/api/config/{key}/override")
+async def api_set_override(key: str, request: OverrideRequest) -> dict[str, Any]:
+    """Set a config override with optional duration."""
+    response = await send_daemon_command('set_override', {
+        'key': key,
+        'value': request.value,
+        'duration_minutes': request.duration_minutes
+    })
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.delete("/api/config/{key}/override")
+async def api_clear_override(key: str) -> dict[str, Any]:
+    """Clear a config override, reverting to default."""
+    response = await send_daemon_command('clear_override', {'key': key})
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.get("/api/config/overrides")
+async def api_list_overrides() -> dict[str, Any]:
+    """Get all currently active overrides."""
+    response = await send_daemon_command('list_overrides')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
 
 @app.get("/api/events")
 async def api_events() -> StreamingResponse:
     """Server-Sent Events stream for live updates."""
     async def event_generator() -> AsyncGenerator[str, None]:
-        last_status = None
         while True:
-            # Get current status
-            status = get_daemon_status()
+            # Get current status via WebSocket
+            status = await get_daemon_status_via_ws()
             arms_race = get_arms_race_status()
 
             data = {
@@ -386,23 +489,34 @@ def start_dashboard_server(daemon_instance: Any = None, port: int | None = None)
     _dashboard_port = port
 
     def run_server():
-        config = uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=port,
-            log_level="warning",  # Reduce noise
-            access_log=False,
-        )
-        server = uvicorn.Server(config)
-        server.run()
+        try:
+            config = uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=port,
+                log_level="warning",
+                access_log=False,
+                log_config=None,  # Disable uvicorn's logging config (conflicts with daemon's Tee stdout)
+            )
+            server = uvicorn.Server(config)
+            server.run()
+        except Exception as e:
+            print(f"[DASHBOARD] Server crashed: {e}")
+            import traceback
+            traceback.print_exc()
 
     thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
 
-    # Give server a moment to start
-    time.sleep(0.5)
+    # Wait for server to start and verify
+    time.sleep(1.5)
 
-    print(f"[DASHBOARD] Dashboard running at: http://localhost:{port}")
+    # Verify port is actually listening
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(('127.0.0.1', port)) == 0:
+            print(f"[DASHBOARD] Dashboard running at: http://localhost:{port}")
+        else:
+            print(f"[DASHBOARD] WARNING: Server thread started but port {port} not listening!")
 
     return port
 

@@ -8,6 +8,7 @@ Start here for project documentation. This repo automates X-Clash on BlueStacks 
 
 ## How the system works
 - [ARCHITECTURE.md](../ARCHITECTURE.md) - system architecture and runtime flow
+- [DASHBOARD.md](DASHBOARD.md) - web dashboard and config overrides
 - [WORLD_TOWN_DETECTION.md](../templates/buttons/WORLD_TOWN_DETECTION.md) - view detection details
 
 ## Event automation

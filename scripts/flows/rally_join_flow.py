@@ -75,6 +75,7 @@ def _should_ignore_daily_limit() -> bool:
     Check if daily limit should be ignored (click Confirm instead of Cancel).
 
     Returns True if:
+    - RALLY_IGNORE_DAILY_LIMIT override is active, OR
     - RALLY_IGNORE_DAILY_LIMIT global flag is True, OR
     - Current UTC time falls within any event in RALLY_IGNORE_DAILY_LIMIT_EVENTS
 
@@ -83,6 +84,17 @@ def _should_ignore_daily_limit() -> bool:
     - End: 02:00 UTC on the day AFTER end date
     Example: end="2025-12-28" means active until 2025-12-29 02:00 UTC
     """
+    # Check config override first
+    try:
+        from utils.config_overrides import get_override_manager
+        manager = get_override_manager()
+        value, is_overridden = manager.get_effective('RALLY_IGNORE_DAILY_LIMIT', RALLY_IGNORE_DAILY_LIMIT)
+        if is_overridden:
+            print(f"[RALLY-JOIN]   Override active: RALLY_IGNORE_DAILY_LIMIT={value}")
+            return value
+    except ImportError:
+        pass
+
     if RALLY_IGNORE_DAILY_LIMIT:
         return True
 

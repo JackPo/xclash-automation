@@ -175,6 +175,11 @@ class DaemonWebSocketServer:
             # Stamina commands
             "use_stamina": self._cmd_use_stamina,
             "get_stamina_inventory": self._cmd_get_stamina_inventory,
+            # Config override commands
+            "get_config": self._cmd_get_config,
+            "set_override": self._cmd_set_override,
+            "clear_override": self._cmd_clear_override,
+            "list_overrides": self._cmd_list_overrides,
         }
 
         if cmd is None:
@@ -911,3 +916,101 @@ class DaemonWebSocketServer:
                 (50 if inventory["cooldown_secs"] == 0 else 0)
             )
         }
+
+    # =========================================================================
+    # Config Override Commands
+    # =========================================================================
+
+    def _cmd_get_config(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Get all config definitions with current values and override status.
+
+        Returns dict of all configs with:
+        - value: Current effective value
+        - default: Default value
+        - overridden: Whether an override is active
+        - expires_in: Seconds until override expires (or None)
+        - type, min, max, category, description
+        """
+        from utils.config_overrides import get_override_manager
+
+        manager = get_override_manager()
+        return {"configs": manager.get_all_configs()}
+
+    def _cmd_set_override(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Set a config override with optional duration.
+
+        Args:
+            key: Config key to override (e.g., "RALLY_JOIN_ENABLED")
+            value: New value
+            duration_minutes: Minutes until expiry (None = permanent)
+
+        Example:
+            {"cmd": "set_override", "args": {"key": "RALLY_JOIN_ENABLED", "value": true, "duration_minutes": 120}}
+        """
+        from utils.config_overrides import get_override_manager, CONFIG_DEFINITIONS
+
+        key = args.get("key")
+        value = args.get("value")
+        duration_val = args.get("duration_minutes")
+
+        if not key:
+            raise ValueError("Missing 'key' argument")
+        if value is None:
+            raise ValueError("Missing 'value' argument")
+
+        # Validate key exists
+        if key not in CONFIG_DEFINITIONS:
+            raise ValueError(f"Unknown config key: {key}. Valid keys: {list(CONFIG_DEFINITIONS.keys())}")
+
+        # Parse duration
+        duration_minutes = None
+        if duration_val is not None:
+            try:
+                duration_minutes = int(duration_val)
+            except (TypeError, ValueError):
+                raise ValueError(f"Invalid duration_minutes: {duration_val}")
+
+        manager = get_override_manager()
+        result = manager.set_override(key, value, duration_minutes)
+
+        logger.info(f"Config override set: {key}={value} for {duration_minutes} minutes")
+        self.broadcast("config_override", {"key": key, "value": value, "duration_minutes": duration_minutes})
+
+        return result
+
+    def _cmd_clear_override(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Clear a config override, reverting to default.
+
+        Args:
+            key: Config key to clear
+
+        Example:
+            {"cmd": "clear_override", "args": {"key": "RALLY_JOIN_ENABLED"}}
+        """
+        from utils.config_overrides import get_override_manager
+
+        key = args.get("key")
+        if not key:
+            raise ValueError("Missing 'key' argument")
+
+        manager = get_override_manager()
+        result = manager.clear_override(key)
+
+        logger.info(f"Config override cleared: {key}")
+        self.broadcast("config_override_cleared", {"key": key})
+
+        return result
+
+    def _cmd_list_overrides(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Get all currently active overrides with time remaining.
+
+        Returns dict of active overrides (keys that are currently overridden).
+        """
+        from utils.config_overrides import get_override_manager
+
+        manager = get_override_manager()
+        return {"overrides": manager.get_active_overrides()}
