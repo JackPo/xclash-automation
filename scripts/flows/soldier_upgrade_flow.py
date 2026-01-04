@@ -22,8 +22,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+import cv2
 import numpy.typing as npt
 
 from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS
@@ -31,12 +33,33 @@ from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level
-from utils.promote_button_matcher import is_promote_visible, get_promote_click
+from utils.promote_button_matcher import is_promote_visible
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.soldier_training_header_matcher import is_panel_open
 from utils.debug_screenshot import save_debug_screenshot
 from utils.return_to_base_view import return_to_base_view
 from utils.soldier_panel_slider import drag_slider_to_max
+
+# Debug screenshot directory for upgrade flow
+UPGRADE_DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "upgrade"
+UPGRADE_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_step_screenshot(frame: npt.NDArray[Any], step: str, extra: str = "") -> None:
+    """Save screenshot with step text annotated on image."""
+    annotated = frame.copy()
+    text = f"UPGRADE: {step}"
+    if extra:
+        text += f" | {extra}"
+    # Draw black background for text
+    cv2.rectangle(annotated, (10, 10), (1600, 80), (0, 0, 0), -1)
+    # Draw white text
+    cv2.putText(annotated, text, (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+
+    timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filename = UPGRADE_DEBUG_DIR / f"{timestamp}_{step.replace(' ', '_').lower()}.png"
+    cv2.imwrite(str(filename), annotated)
+    print(f"  DEBUG: {filename.name}")
 
 # UI positions (4K resolution)
 UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
@@ -136,6 +159,7 @@ def soldier_upgrade_flow(
 
         step_start = time.time()
         frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP0 Check panel open")
         if debug:
             print(f"  Screenshot took: {(time.time() - step_start)*1000:.1f}ms")
 
@@ -147,6 +171,7 @@ def soldier_upgrade_flow(
         if not panel_open:
             if debug:
                 print(f"  ERROR: Soldier training panel not detected (score={score:.6f})")
+            _save_step_screenshot(frame, "STEP0 FAIL panel NOT open", f"score={score:.4f}")
             save_debug_screenshot(frame, "upgrade", "FAIL_step0_panel_not_open")
             return False
 
@@ -159,6 +184,7 @@ def soldier_upgrade_flow(
 
         step_start = time.time()
         frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP1 Find highest level")
         if debug:
             print(f"  Screenshot took: {(time.time() - step_start)*1000:.1f}ms")
 
@@ -170,14 +196,18 @@ def soldier_upgrade_flow(
         if highest is None:
             if debug:
                 print("  ERROR: No unlocked soldier levels found")
+            _save_step_screenshot(frame, "STEP1 FAIL no tiles found")
             save_debug_screenshot(frame, "upgrade", "FAIL_step1_no_tiles")
             return False
+
+        _save_step_screenshot(frame, f"STEP1 Found highest Lv{highest}")
 
         # Step 2: Calculate target level (highest - 1)
         target_level = highest - 1
         if target_level < MIN_LEVEL:
             if debug:
                 print(f"  ERROR: Cannot upgrade below Lv{MIN_LEVEL} (highest={highest})")
+            _save_step_screenshot(frame, f"STEP2 FAIL target below min", f"target=Lv{target_level}")
             return False
 
         if debug:
@@ -214,6 +244,7 @@ def soldier_upgrade_flow(
         while target_info is None and scroll_count < max_scrolls:
             if debug:
                 print(f"  Lv{target_level} not visible, swiping right from tile center... (attempt {scroll_count + 1}/{max_scrolls})")
+            _save_step_screenshot(frame, f"STEP2 Scroll attempt {scroll_count+1}", f"looking for Lv{target_level}")
 
             # Swipe FROM the detected tile TO THE RIGHT to reveal left content
             scroll_end_x = scroll_start_x + 233  # Swipe 233 pixels to the right (reduced by 2/3 from original 700)
@@ -228,9 +259,11 @@ def soldier_upgrade_flow(
         if target_info is None:
             if debug:
                 print(f"  ERROR: Could not find Lv{target_level} tile after {scroll_count} scrolls")
+            _save_step_screenshot(frame, f"STEP2 FAIL no Lv{target_level}", f"after {scroll_count} scrolls")
             save_debug_screenshot(frame, "upgrade", f"FAIL_step2_no_lv{target_level}")
             return False
 
+        _save_step_screenshot(frame, f"STEP2 Found Lv{target_level}", f"at ({target_info['x']}, {target_info['y']})")
         if debug:
             print(f"  Found Lv{target_level} at ({target_info['x']}, {target_info['y']}) score={target_info['score']:.6f}")
 
@@ -242,8 +275,12 @@ def soldier_upgrade_flow(
         if debug:
             print(f"  Clicking at ({click_x}, {click_y})")
 
+        _save_step_screenshot(frame, f"STEP3 CLICKING Lv{target_level} tile", f"pos=({click_x}, {click_y})")
         adb.tap(click_x, click_y)
         time.sleep(0.8)
+
+        frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, f"STEP3 AFTER click tile")
 
         # If scroll_and_select mode, stop here
         if scroll_and_select:
@@ -256,15 +293,20 @@ def soldier_upgrade_flow(
             print("Step 3: Dragging slider to maximum...")
 
         frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP4 BEFORE drag slider")
         if not drag_slider_to_max(adb, frame, debug=debug):
             if debug:
                 print("  WARNING: Could not find slider, continuing anyway...")
         time.sleep(0.5)
 
+        frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP4 AFTER drag slider")
+
         # Step 5: Click Upgrade button
         if debug:
             print("Step 4: Clicking Upgrade button...")
 
+        _save_step_screenshot(frame, "STEP5 CLICKING Upgrade btn", f"pos={UPGRADE_BUTTON_CLICK}")
         adb.tap(*UPGRADE_BUTTON_CLICK)
         time.sleep(1.0)
 
@@ -273,30 +315,44 @@ def soldier_upgrade_flow(
             print("Step 5: Verifying Promote screen...")
 
         frame = win.get_screenshot_cv2()
-        is_promote, score = is_promote_visible(frame, debug=debug)
+        _save_step_screenshot(frame, "STEP5 AFTER click Upgrade")
+        is_promote, score, promote_center = is_promote_visible(frame, debug=debug)
 
-        if not is_promote:
+        if not is_promote or promote_center is None:
             if debug:
-                print(f"  WARNING: Promote button not detected (score={score:.4f})")
-                print("  Attempting to click anyway...")
+                print(f"  ERROR: Promote button not detected (score={score:.4f})")
+            _save_step_screenshot(frame, "STEP5 FAIL no Promote btn", f"score={score:.4f}")
             save_debug_screenshot(frame, "upgrade", "WARN_no_promote_button")
+            return False
+
+        _save_step_screenshot(frame, "STEP5 FOUND Promote btn", f"pos={promote_center}")
+        if debug:
+            print(f"  Promote button found at {promote_center}")
 
         # Step 6a: Drag slider to max on Promote screen
         if debug:
             print("Step 5a: Dragging slider to maximum on Promote screen...")
 
         frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP6 BEFORE Promote slider")
         if not drag_slider_to_max(adb, frame, debug=debug):
             if debug:
                 print("  WARNING: Could not find slider on Promote screen, continuing anyway...")
         time.sleep(0.5)
 
-        # Step 7: Click Promote button
-        if debug:
-            print("Step 6: Clicking Promote button...")
+        frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP6 AFTER Promote slider")
 
-        promote_click = get_promote_click()
-        adb.tap(*promote_click)
+        # Step 7: Click Promote button at FOUND position
+        if debug:
+            print(f"Step 6: Clicking Promote button at {promote_center}...")
+
+        _save_step_screenshot(frame, "STEP7 CLICKING Promote btn", f"pos={promote_center}")
+        adb.tap(*promote_center)
+
+        time.sleep(0.3)
+        frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP7 AFTER click Promote")
 
         # Step 7a: Poll for Insufficient Resources and handle if needed
         if debug:
@@ -306,11 +362,29 @@ def soldier_upgrade_flow(
         replenish_helper = ReplenishAllHelper()
 
         if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
-            # Re-click Promote button after replenishing
+            # Re-find Promote button after replenishing (screen state may have changed)
             if debug:
-                print("  Re-clicking Promote button after replenishment...")
-            adb.tap(*promote_click)
-            time.sleep(0.5)
+                print("  Re-finding Promote button after replenishment...")
+            frame = win.get_screenshot_cv2()
+            _save_step_screenshot(frame, "STEP8 AFTER replenish")
+            is_promote, score, promote_center = is_promote_visible(frame, debug=debug)
+            if is_promote and promote_center:
+                if debug:
+                    print(f"  Clicking Promote button at {promote_center}...")
+                _save_step_screenshot(frame, "STEP8 CLICKING Promote after replenish", f"pos={promote_center}")
+                adb.tap(*promote_center)
+                time.sleep(0.5)
+                frame = win.get_screenshot_cv2()
+                _save_step_screenshot(frame, "STEP8 AFTER 2nd Promote click")
+            else:
+                if debug:
+                    print(f"  ERROR: Promote button not found after replenish (score={score:.4f})")
+                _save_step_screenshot(frame, "STEP8 FAIL no Promote after replenish", f"score={score:.4f}")
+                save_debug_screenshot(frame, "upgrade", "FAIL_promote_after_replenish")
+                return False
+
+        frame = win.get_screenshot_cv2()
+        _save_step_screenshot(frame, "STEP9 FLOW COMPLETE")
 
         if debug:
             total_time = (time.time() - flow_start) * 1000

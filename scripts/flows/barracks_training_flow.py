@@ -192,6 +192,15 @@ def barracks_training_flow(
             _log(f"Step 5: Clicking Train button at ({TRAIN_BUTTON_CENTER[0]}, {TRAIN_BUTTON_CENTER[1]})...", debug)
             adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
             time.sleep(0.5)
+
+            # Check for Insufficient Resources and handle replenishment
+            from utils.replenish_all_helper import ReplenishAllHelper
+            replenish_helper = ReplenishAllHelper()
+            if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
+                _log("  Re-clicking Train button after replenishment...", debug)
+                adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
+                time.sleep(0.5)
+
             _log("Step 5 SUCCESS: Train button clicked", debug)
             success = True
             return True
@@ -266,6 +275,14 @@ def barracks_training_flow(
 
         adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
         time.sleep(0.5)
+
+        # Check for Insufficient Resources and handle replenishment
+        from utils.replenish_all_helper import ReplenishAllHelper
+        replenish_helper = ReplenishAllHelper()
+        if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
+            _log("  Re-clicking Train button after replenishment...", debug)
+            adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
+            time.sleep(0.5)
 
         # Validation: Take screenshot after clicking Train to verify
         frame = win.get_screenshot_cv2()

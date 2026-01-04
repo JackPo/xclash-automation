@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +18,27 @@ import numpy.typing as npt
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
     from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+# Debug screenshot directory
+DEBUG_DIR = Path(__file__).parent.parent / "screenshots" / "debug" / "replenish"
+DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_debug_screenshot(frame: npt.NDArray[Any], step: str, extra: str = "") -> None:
+    """Save screenshot with step text annotated on image."""
+    annotated = frame.copy()
+    text = f"REPLENISH: {step}"
+    if extra:
+        text += f" | {extra}"
+    # Draw black background for text
+    cv2.rectangle(annotated, (10, 10), (1400, 80), (0, 0, 0), -1)
+    # Draw white text
+    cv2.putText(annotated, text, (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+
+    timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filename = DEBUG_DIR / f"{timestamp}_{step.replace(' ', '_').lower()}.png"
+    cv2.imwrite(str(filename), annotated)
+    logging.getLogger(__name__).info(f"DEBUG screenshot: {filename}")
 
 
 class ReplenishAllHelper:
@@ -185,48 +207,100 @@ class ReplenishAllHelper:
         """
         # Take screenshot and check for Replenish all button
         frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP1 Check replenish btn")
 
         if not self.find_replenish_button(frame):
             if debug:
                 self.logger.info("No replenish button found - skipping")
+            _save_debug_screenshot(frame, "STEP1 NO replenish btn found")
             return False
 
         self.logger.info("REPLENISH FLOW: Starting")
+        _save_debug_screenshot(frame, "STEP1 FOUND replenish btn")
 
-        # Step 1: Click "Replenish all" button
+        # Step 2: Click "Replenish all" button
         self.logger.info(f"Clicking Replenish all button at {self.REPLENISH_BUTTON_CENTER}")
         adb.tap(*self.REPLENISH_BUTTON_CENTER)
         time.sleep(0.3)
 
-        # Step 2: Poll for "Use Items" dialog (up to 2 seconds)
-        found_dialog = False
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP2 AFTER click replenish")
+
+        # Step 3: Poll for EITHER "Use Items" dialog OR dimmed "Soldier Training" tab (result screen)
+        # Sometimes clicking Replenish All goes directly to results without confirmation
+        # The dimmed tab appears at top when congrats screen shows - click it to dismiss
+        DIMMED_TAB_CLICK = (1913, 347)  # Center of dimmed Soldier Training tab
+
+        found_use_items = False
+        found_result_screen = False
         for attempt in range(8):  # 8 attempts * 0.25s = 2 seconds
             frame = win.get_screenshot_cv2()
+
+            # Check for Use Items dialog (needs confirmation)
             if self.find_use_items_header(frame):
                 self.logger.info(f"Use Items dialog found after {attempt + 1} attempts")
-                found_dialog = True
+                _save_debug_screenshot(frame, f"STEP3 FOUND UseItems dialog", f"attempt={attempt+1}")
+                found_use_items = True
                 break
+
+            # Check for dimmed Soldier Training tab (result screen - already done)
+            from utils.template_matcher import match_template
+            found_dimmed, score, _ = match_template(frame, "soldier_training_dimmed_tab_4k.png", threshold=0.1)
+            if found_dimmed:
+                self.logger.info(f"Result screen found (dimmed tab) after {attempt + 1} attempts - replenish succeeded!")
+                _save_debug_screenshot(frame, f"STEP3 FOUND result screen", f"attempt={attempt+1}")
+                found_result_screen = True
+                break
+
             time.sleep(0.25)
 
-        if found_dialog:
-            # Step 3: Find and click Confirm button
+        if found_use_items:
+            # Need to click Confirm button
             from utils.template_matcher import match_template
             found_confirm, score, confirm_loc = match_template(frame, "confirm_button_4k.png", threshold=0.1)
 
             if found_confirm and confirm_loc:
                 self.logger.info(f"Confirm button found at {confirm_loc} (score={score:.4f}), clicking...")
+                _save_debug_screenshot(frame, "STEP4 CLICKING Confirm", f"pos={confirm_loc}")
                 adb.tap(*confirm_loc)
             else:
                 self.logger.warning(f"Confirm button not found (score={score:.4f}), using fallback position")
+                _save_debug_screenshot(frame, "STEP4 Confirm NOT found using fallback", f"score={score:.4f}")
                 adb.tap(*self.CONFIRM_BUTTON_POS)
             time.sleep(0.5)
 
-            # Step 4: Tap to close resources result screen
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "STEP5 AFTER click Confirm")
+
+            # After confirm, tap to close result screen
             self.logger.info("Tapping to close resources result screen")
-            adb.tap(1920, 1080)  # Center of screen to dismiss
+            adb.tap(1920, 1080)
             time.sleep(0.3)
+
+        elif found_result_screen:
+            # Result screen showing - click dimmed tab to dismiss
+            _save_debug_screenshot(frame, "STEP4 Clicking dimmed tab to dismiss", f"pos={DIMMED_TAB_CLICK}")
+            self.logger.info(f"Clicking dimmed Soldier Training tab at {DIMMED_TAB_CLICK} to dismiss")
+            adb.tap(*DIMMED_TAB_CLICK)
+            time.sleep(0.3)
+
         else:
-            self.logger.warning("Use Items dialog not found after clicking Replenish all")
+            # Neither found - one more check
+            _save_debug_screenshot(frame, "STEP3 checking final state")
+            from utils.template_matcher import match_template
+            found_dimmed, score, _ = match_template(frame, "soldier_training_dimmed_tab_4k.png", threshold=0.1)
+            if not found_dimmed:
+                _save_debug_screenshot(frame, "STEP3 FAIL no expected screen")
+                self.logger.warning("Neither Use Items dialog nor result screen found")
+                self.logger.info("REPLENISH FLOW: Failed (no expected screen found)")
+                return False
+            # Found on final check - click to dismiss
+            self.logger.info("Result screen found on final check - clicking to dismiss")
+            adb.tap(*DIMMED_TAB_CLICK)
+            time.sleep(0.3)
+
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP6 AFTER dismiss")
 
         self.logger.info("REPLENISH FLOW: Complete")
         return True
@@ -246,15 +320,19 @@ class ReplenishAllHelper:
         Returns:
             True if replenish was needed and handled, False otherwise
         """
+        _save_debug_screenshot(win.get_screenshot_cv2(), "POLL START checking insufficient tab")
+
         for attempt in range(8):  # 8 attempts * 0.25s = 2 seconds
             time.sleep(0.25)
             frame = win.get_screenshot_cv2()
             if self.find_insufficient_resources_tab(frame):
                 if debug:
                     print(f"  Insufficient Resources tab detected (attempt {attempt + 1})")
+                _save_debug_screenshot(frame, f"POLL FOUND insufficient tab", f"attempt={attempt+1}")
                 self.handle_replenish_flow(adb, win, debug=debug)
                 return True
 
+        _save_debug_screenshot(frame, "POLL END no insufficient tab")
         if debug:
             print("  No Insufficient Resources tab found - action succeeded")
         return False
