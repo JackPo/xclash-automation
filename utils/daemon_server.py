@@ -463,6 +463,42 @@ class DaemonWebSocketServer:
         if stamina_needed is not None:
             stamina_shortfall = max(0, stamina_needed - total_stamina_available)
 
+        # Calculate stamina regeneration (1 per 5 mins, leave 5 min buffer)
+        effective_mins = max(0, event_remaining_mins - 5)
+        stamina_regen = effective_mins // 5
+
+        # Calculate optimal stamina usage strategy
+        optimal_strategy = None
+        if stamina_needed is not None and current_stamina is not None:
+            from utils.claude_cli_helper import calculate_optimal_stamina
+            # Account for natural regen when calculating deficit
+            effective_stamina = current_stamina + stamina_regen
+            deficit = max(0, stamina_needed - effective_stamina)
+            if deficit > 0:
+                claim_free, use_10s, use_50s, reasoning = calculate_optimal_stamina(
+                    deficit, owned_10, owned_50, free_50_available
+                )
+                optimal_strategy = {
+                    "claim_free_50": claim_free,
+                    "use_10_count": use_10s,
+                    "use_50_count": use_50s,
+                    "stamina_gained": (50 if claim_free else 0) + use_10s * 10 + use_50s * 50,
+                    "stamina_regen": stamina_regen,
+                    "effective_stamina": effective_stamina,
+                    "reasoning": reasoning
+                }
+            else:
+                # No items needed - regen covers it
+                optimal_strategy = {
+                    "claim_free_50": False,
+                    "use_10_count": 0,
+                    "use_50_count": 0,
+                    "stamina_gained": 0,
+                    "stamina_regen": stamina_regen,
+                    "effective_stamina": effective_stamina,
+                    "reasoning": f"No items needed - {current_stamina} current + {stamina_regen} regen = {effective_stamina} covers {stamina_needed} needed"
+                }
+
         result = {
             "current_event": arms_race_status["current"],
             "event_remaining_mins": event_remaining_mins,
@@ -486,6 +522,8 @@ class DaemonWebSocketServer:
             "stamina_from_items": stamina_from_items,
             "total_stamina_available": total_stamina_available,
             "stamina_shortfall": stamina_shortfall,
+            # Optimal strategy
+            "optimal_strategy": optimal_strategy,
             # Zombie mode
             "zombie_mode": zombie_mode,
         }
