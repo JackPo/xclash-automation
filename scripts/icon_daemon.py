@@ -1827,7 +1827,6 @@ class IconDaemon:
                         if effective_idle_secs >= self.IDLE_THRESHOLD and unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
                             from utils.template_matcher import match_template
                             from utils.safe_ground_matcher import find_safe_ground
-                            from utils.ui_helpers import click_back
                             from utils.shaded_button_helper import is_button_shaded, BUTTON_CLICK
 
                             # FIRST: Check for shaded button (popup blocking view)
@@ -1852,10 +1851,11 @@ class IconDaemon:
                             # SECOND: Check for back button with masked template (catches dialogs/menus)
                             back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
                             if back_found:
-                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), clicking...")
+                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), using return_to_base_view...")
                                 mark_daemon_action()
-                                click_back(self.adb)
-                                time.sleep(0.5)
+                                # Use return_to_base_view instead of click_back - it has proper recovery logic
+                                # and handles floating panels (like Team Up) that have no back button
+                                return_to_base_view(self.adb, self.windows_helper, debug=False)
                                 # Re-check view state
                                 new_frame = self.windows_helper.get_screenshot_cv2()
                                 new_state, _ = detect_view(new_frame)
@@ -1865,8 +1865,8 @@ class IconDaemon:
                                     self.unknown_state_left_time = None
                                     continue  # Skip rest of iteration, start fresh
                                 else:
-                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying back button")
-                                    continue  # Keep trying back button if it's still visible
+                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying")
+                                    continue  # Keep trying
 
                             # SECOND: Try safe ground (for floating popups without back button)
                             ground_pos = find_safe_ground(frame, debug=self.debug)

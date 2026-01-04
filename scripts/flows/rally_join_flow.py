@@ -37,6 +37,7 @@ from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.back_button_matcher import BackButtonMatcher
 from utils.debug_screenshot import save_debug_screenshot
+from utils.safe_grass_matcher import find_safe_grass
 
 # Flow name for debug screenshots
 FLOW_NAME = "rally_join"
@@ -390,10 +391,23 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
             frame = panel_frame
             break
         else:
-            # Wrong monster - click back and try next rally
-            print(f"[RALLY-JOIN]   Skipping {monster_name} Lv.{level}, clicking back")
-            back_button_matcher.click(adb)
-            time.sleep(0.5)
+            # Wrong monster - dismiss Team Up panel by clicking grass
+            print(f"[RALLY-JOIN]   Skipping {monster_name} Lv.{level}, dismissing panel")
+            dismiss_frame = win.get_screenshot_cv2()
+            grass_pos = find_safe_grass(dismiss_frame, debug=False)
+            if grass_pos:
+                adb.tap(*grass_pos)
+                time.sleep(0.5)
+                # Verify panel dismissed - if still open, abort and recover
+                if _wait_for_team_up_panel(win, timeout=0.5) is not None:
+                    print("[RALLY-JOIN]   Panel still open after grass click - recovering")
+                    return_to_base_view(adb, win, debug=False)
+                    return {'success': False, 'monster_name': None}
+            else:
+                # No grass found - use return_to_base_view to recover
+                print("[RALLY-JOIN]   No grass found - recovering")
+                return_to_base_view(adb, win, debug=False)
+                return {'success': False, 'monster_name': None}
     else:
         # No matching rallies found after trying all
         print("[RALLY-JOIN] No matching rallies found. Exiting.")
