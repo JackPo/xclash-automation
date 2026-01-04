@@ -32,11 +32,22 @@ class BlueStacksIdleDetector:
     def __init__(self) -> None:
         self._last_bluestacks_interaction: float = time.time()
         self._bluestacks_hwnd: int | None = None
+        self._bluestacks_child_hwnds: set[int] = set()
         self._find_bluestacks_window()
 
     def _find_bluestacks_window(self) -> None:
-        """Find BlueStacks window handle."""
+        """Find BlueStacks window handle and its children."""
         self._bluestacks_hwnd = win32gui.FindWindow(None, self.BLUESTACKS_TITLE)
+        self._bluestacks_child_hwnds = set()
+        if self._bluestacks_hwnd:
+            # Also find child windows (e.g., HD-Player)
+            def callback(hwnd: int, children: set[int]) -> bool:
+                children.add(hwnd)
+                return True
+            try:
+                win32gui.EnumChildWindows(self._bluestacks_hwnd, callback, self._bluestacks_child_hwnds)
+            except Exception:
+                pass  # Ignore errors during enumeration
 
     def _get_foreground_hwnd(self) -> int:
         """Get handle of current foreground window."""
@@ -51,13 +62,14 @@ class BlueStacksIdleDetector:
         return float(millis) / 1000.0
 
     def _is_bluestacks_foreground(self) -> bool:
-        """Check if BlueStacks is the current foreground window."""
+        """Check if BlueStacks (or one of its child windows) is the current foreground window."""
         if not self._bluestacks_hwnd:
             self._find_bluestacks_window()
         if not self._bluestacks_hwnd:
             return False
         foreground = self._get_foreground_hwnd()
-        return foreground == self._bluestacks_hwnd
+        # Check main window OR any child window (e.g., HD-Player gets focus when clicking in game)
+        return foreground == self._bluestacks_hwnd or foreground in self._bluestacks_child_hwnds
 
     def update(self) -> None:
         """

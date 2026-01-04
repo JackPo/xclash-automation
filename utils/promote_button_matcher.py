@@ -32,7 +32,7 @@ class PromoteButtonMatcher:
     def __init__(self, threshold: float | None = None):
         self.threshold = threshold if threshold is not None else THRESHOLD
 
-    def is_present(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float, tuple[int, int] | None]:
         """
         Check if Promote button is visible at fixed location.
 
@@ -41,21 +41,23 @@ class PromoteButtonMatcher:
             debug: Print debug info if True
 
         Returns:
-            tuple: (is_present: bool, score: float)
+            tuple: (is_present: bool, score: float, center: tuple[int, int] | None)
         """
         if frame is None or frame.size == 0:
-            return False, 1.0
+            return False, 1.0, None
 
         x, y, w, h = PROMOTE_REGION
-        is_match, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(x, y, w, h),
+        is_match, score, center = match_template(frame, self.TEMPLATE_NAME, search_region=(x, y, w, h),
             threshold=self.threshold
         )
 
         if debug:
             status = "present" if is_match else "absent"
             print(f"Promote button: {status} (score={score:.4f}, threshold={self.threshold})")
+            if center:
+                print(f"  Button center: {center}")
 
-        return is_match, score
+        return is_match, score, center if is_match else None
 
     def get_click_position(self) -> tuple[int, int]:
         """Return the click position for the Promote button."""
@@ -74,8 +76,12 @@ def get_matcher() -> PromoteButtonMatcher:
     return _matcher
 
 
-def is_promote_visible(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
-    """Check if Promote button is visible."""
+def is_promote_visible(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float, tuple[int, int] | None]:
+    """Check if Promote button is visible and return its location.
+
+    Returns:
+        tuple: (is_present, score, center) where center is the button center coords or None
+    """
     return get_matcher().is_present(frame, debug=debug)
 
 
@@ -90,6 +96,8 @@ if __name__ == "__main__":
     win = WindowsScreenshotHelper()
     frame = win.get_screenshot_cv2()
 
-    is_present, score = is_promote_visible(frame, debug=True)
+    is_present, score, center = is_promote_visible(frame, debug=True)
     print(f"Promote button present: {is_present}, score: {score:.4f}")
-    print(f"Click position: {get_promote_click()}")
+    if center:
+        print(f"Found at: {center}")
+    print(f"Hardcoded click position: {get_promote_click()}")

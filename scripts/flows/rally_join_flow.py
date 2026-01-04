@@ -19,6 +19,7 @@ Supports DATA GATHERING MODE to collect monster samples for OCR tuning.
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -318,7 +319,12 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
     # Step 0: Check for leftover daily limit dialog and dismiss if present
     # This prevents infinite loop when daemon re-triggers flow with dialog still on screen
+    frame = win.get_screenshot_cv2()
+    _save_debug_screenshot(frame, "STEP0 flow start")
+
     if _check_daily_limit_dialog(win, timeout=0.5):
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP0 daily limit dialog found")
         if _should_ignore_daily_limit():
             print("[RALLY-JOIN] Daily limit dialog at flow start - clicking Confirm (ignoring limit)")
             adb.tap(*CONFIRM_CLICK)
@@ -326,13 +332,15 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
             print("[RALLY-JOIN] Daily limit dialog detected at flow start - dismissing")
             adb.tap(*CANCEL_CLICK)
         time.sleep(0.5)
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP0 AFTER dismiss dialog")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
 
     # Step 1: Validate panel state
     print("[RALLY-JOIN] Step 1: Validating panel state")
     frame = win.get_screenshot_cv2()
-    _save_debug_screenshot(frame, "01_panel_check")
+    _save_debug_screenshot(frame, "STEP1 panel check")
 
     valid, message, details = panel_detector.validate_panel_state(frame)
     print(f"[RALLY-JOIN]   Panel validation: {message}")
@@ -341,16 +349,21 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
     if not valid:
         print(f"[RALLY-JOIN] Panel not valid: {message}. Exiting.")
+        _save_debug_screenshot(frame, "STEP1 FAIL panel invalid", message)
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
+
+    _save_debug_screenshot(frame, "STEP1 panel valid")
 
     # Step 2: Find all plus buttons
     print("[RALLY-JOIN] Step 2: Finding rally plus buttons")
     plus_buttons = plus_matcher.find_all_plus_buttons(frame)
     print(f"[RALLY-JOIN]   Found {len(plus_buttons)} plus button(s)")
+    _save_debug_screenshot(frame, "STEP2 found plus buttons", f"count={len(plus_buttons)}")
 
     if not plus_buttons:
         print("[RALLY-JOIN] No rallies available. Exiting.")
+        _save_debug_screenshot(frame, "STEP2 FAIL no rallies")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
 
@@ -370,13 +383,18 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
         # Click immediately - no OCR delay
         click_x, click_y = plus_matcher.get_click_position(plus_x, plus_y)
+        _save_debug_screenshot(original_frame, f"STEP3 CLICKING rally {i}", f"pos=({click_x}, {click_y})")
         adb.tap(click_x, click_y)
 
         # Wait for Team Up panel (poll, not fixed sleep)
         panel_frame = _wait_for_team_up_panel(win, timeout=3.0)
         if panel_frame is None:
             print(f"[RALLY-JOIN]   Rally {i}: Panel didn't open, trying next")
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, f"STEP3 rally {i} panel FAILED to open")
             continue
+
+        _save_debug_screenshot(panel_frame, f"STEP3 rally {i} panel opened")
 
         # Validate monster from ORIGINAL frame (monster positions are fixed relative to plus buttons)
         should_join, monster_name, level, raw_text = monster_validator.validate_monster(
@@ -384,9 +402,11 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         )
 
         print(f"[RALLY-JOIN]     OCR: {monster_name} Lv.{level} -> should_join={should_join}")
+        _save_debug_screenshot(panel_frame, f"STEP3 OCR result", f"{monster_name} Lv{level} join={should_join}")
 
         if should_join:
             print(f"[RALLY-JOIN]   MATCH: {monster_name} Lv.{level}")
+            _save_debug_screenshot(panel_frame, f"STEP3 MATCH found", f"{monster_name} Lv{level}")
             # Continue with hero selection (panel is already open)
             frame = panel_frame
             break
@@ -394,32 +414,36 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
             # Wrong monster - dismiss Team Up panel by clicking grass
             print(f"[RALLY-JOIN]   Skipping {monster_name} Lv.{level}, dismissing panel")
             dismiss_frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(dismiss_frame, f"STEP3 skip rally {i}", f"{monster_name}")
             grass_pos = find_safe_grass(dismiss_frame, debug=False)
             if grass_pos:
+                _save_debug_screenshot(dismiss_frame, f"STEP3 CLICKING grass", f"pos={grass_pos}")
                 adb.tap(*grass_pos)
                 time.sleep(0.5)
+                frame = win.get_screenshot_cv2()
+                _save_debug_screenshot(frame, f"STEP3 AFTER grass click")
                 # Verify panel dismissed - if still open, abort and recover
                 if _wait_for_team_up_panel(win, timeout=0.5) is not None:
                     print("[RALLY-JOIN]   Panel still open after grass click - recovering")
+                    _save_debug_screenshot(frame, f"STEP3 FAIL panel still open")
                     return_to_base_view(adb, win, debug=False)
                     return {'success': False, 'monster_name': None}
             else:
                 # No grass found - use return_to_base_view to recover
                 print("[RALLY-JOIN]   No grass found - recovering")
+                _save_debug_screenshot(dismiss_frame, f"STEP3 FAIL no grass found")
                 return_to_base_view(adb, win, debug=False)
                 return {'success': False, 'monster_name': None}
     else:
         # No matching rallies found after trying all
         print("[RALLY-JOIN] No matching rallies found. Exiting.")
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP3 FAIL no matching rallies")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': None}
 
     # Panel is already open from the loop above
-    _save_debug_screenshot(frame, "02_after_plus_click")
-
-    # DEBUG: Save the EXACT frame we're passing to hero selector
-    from utils.debug_screenshot import save_debug_screenshot
-    save_debug_screenshot(frame, "rally_join", "zz_detection_frame")
+    _save_debug_screenshot(frame, "STEP4 before hero selection")
 
     # DEBUG: Log all slot scores
     debug_selector = HeroSelector()
@@ -438,15 +462,17 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
     if not idle_slot:
         print("[RALLY-JOIN] No idle heroes found (no Zz icons). Better luck next time!")
+        _save_debug_screenshot(frame, "STEP5 FAIL no idle heroes")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': monster_name}
 
     print(f"[RALLY-JOIN]   Idle hero found at slot {idle_slot['id']}, clicking")
+    _save_debug_screenshot(frame, f"STEP5 CLICKING hero slot {idle_slot['id']}", f"pos={idle_slot['click']}")
     adb.tap(*idle_slot['click'])
     time.sleep(0.3)
 
     frame = win.get_screenshot_cv2()
-    _save_debug_screenshot(frame, "03_after_hero_select")
+    _save_debug_screenshot(frame, "STEP5 AFTER hero click")
 
     # Step 6: Click Team Up button (poll for it at fixed region)
     print("[RALLY-JOIN] Step 6: Clicking Team Up button")
@@ -454,6 +480,7 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
     team_up_template: npt.NDArray[Any] | None = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
     if team_up_template is None:
         print("[RALLY-JOIN] WARNING: team_up_button_4k.png not found, aborting")
+        _save_debug_screenshot(frame, "STEP6 FAIL no teamup template")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': monster_name}
 
@@ -462,19 +489,30 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
                                      TEAM_UP_CLICK, "Team Up button", timeout=3.0)
     if not found:
         print("[RALLY-JOIN] Team Up button not found at expected region, aborting")
+        _save_debug_screenshot(frame, "STEP6 FAIL teamup not found")
         _cleanup_and_exit(adb, win, back_button_matcher)
         return {'success': False, 'monster_name': monster_name}
 
+    _save_debug_screenshot(frame, "STEP6 CLICKING Team Up", f"pos={TEAM_UP_CLICK}")
     # Click at fixed position (button is always here when found)
     adb.tap(*TEAM_UP_CLICK)
 
+    time.sleep(0.3)
+    frame = win.get_screenshot_cv2()
+    _save_debug_screenshot(frame, "STEP6 AFTER Team Up click")
+
     # Step 6b: Check for daily limit dialog
     if _check_daily_limit_dialog(win, timeout=2.0):
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "STEP6 daily limit dialog found")
         if _should_ignore_daily_limit():
             # Ignore daily limit - click Confirm and continue
             print(f"[RALLY-JOIN]   Daily limit reached but ignoring - clicking Confirm")
+            _save_debug_screenshot(frame, "STEP6 CLICKING Confirm ignore limit")
             adb.tap(*CONFIRM_CLICK)
             time.sleep(0.5)
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "STEP6 AFTER Confirm click")
             # Don't mark as exhausted, don't return early - fall through to success path
         else:
             # Respect daily limit - click Cancel and exit
@@ -486,14 +524,20 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
                 found, frame = _poll_for_button(win, cancel_template, CANCEL_REGION,
                                                 CANCEL_CLICK, "Cancel button", timeout=2.0, threshold=0.1)
                 if found:
+                    _save_debug_screenshot(frame, "STEP6 CLICKING Cancel")
                     adb.tap(*CANCEL_CLICK)
                 else:
                     print("[RALLY-JOIN]   Cancel button not at expected region, clicking back instead")
+                    _save_debug_screenshot(frame, "STEP6 Cancel not found clicking back")
                     back_button_matcher.click(adb)
             else:
                 print("[RALLY-JOIN]   Cancel template not found, clicking back instead")
+                _save_debug_screenshot(frame, "STEP6 no cancel template clicking back")
                 back_button_matcher.click(adb)
             time.sleep(0.5)
+
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "STEP6 AFTER Cancel click")
 
             # Mark monster as exhausted for today (only if track_daily_limit is True)
             if monster_name is not None:
@@ -514,7 +558,7 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
     time.sleep(0.5)
     frame = win.get_screenshot_cv2()
-    _save_debug_screenshot(frame, "04_after_team_up")
+    _save_debug_screenshot(frame, "STEP7 before cleanup")
 
     # Step 7: Cleanup and return
     print("[RALLY-JOIN] Step 7: Cleanup and return to base")
@@ -542,10 +586,12 @@ def _cleanup_and_exit(
     daily_limit_template: npt.NDArray[Any] | None = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
     if daily_limit_template is not None:
         frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(frame, "CLEANUP checking for late dialog")
         result = cv2.matchTemplate(frame, daily_limit_template, cv2.TM_SQDIFF_NORMED)
         min_val, _, _, _ = cv2.minMaxLoc(result)
         if min_val < 0.05:
             print(f"[RALLY-JOIN]   Late daily limit dialog detected in cleanup (score={min_val:.4f})")
+            _save_debug_screenshot(frame, "CLEANUP late dialog found", f"score={min_val:.4f}")
             if _should_ignore_daily_limit():
                 print("[RALLY-JOIN]   Clicking Confirm (ignoring daily limit)")
                 adb.tap(*CONFIRM_CLICK)
@@ -553,18 +599,38 @@ def _cleanup_and_exit(
                 print("[RALLY-JOIN]   Clicking Cancel to dismiss")
                 adb.tap(*CANCEL_CLICK)
             time.sleep(0.5)
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "CLEANUP AFTER dialog dismiss")
 
     # Use centralized return_to_base_view for all back button handling
     print("[RALLY-JOIN]   Returning to base view...")
     return_to_base_view(adb, win, debug=False)
 
 
-def _save_debug_screenshot(frame: npt.NDArray[Any], label: str) -> None:
+# Debug screenshot directory for rally flow
+RALLY_DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "rally_join"
+RALLY_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_debug_screenshot(frame: npt.NDArray[Any], label: str, extra: str = "") -> None:
     """
-    Save debug screenshot with timestamp and label.
+    Save debug screenshot with step text annotated on image.
 
     Args:
         frame: BGR screenshot
         label: Description label for filename
+        extra: Extra info to add to annotation
     """
-    save_debug_screenshot(frame, FLOW_NAME, label)
+    annotated = frame.copy()
+    text = f"RALLY: {label}"
+    if extra:
+        text += f" | {extra}"
+    # Draw black background for text
+    cv2.rectangle(annotated, (10, 10), (1800, 80), (0, 0, 0), -1)
+    # Draw white text
+    cv2.putText(annotated, text, (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+
+    timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filename = RALLY_DEBUG_DIR / f"{timestamp}_{label.replace(' ', '_').lower()}.png"
+    cv2.imwrite(str(filename), annotated)
+    print(f"[RALLY-JOIN]   DEBUG: {filename.name}")

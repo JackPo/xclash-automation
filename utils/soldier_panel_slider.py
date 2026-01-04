@@ -19,20 +19,21 @@ import numpy.typing as npt
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
-# Slider constants (4K resolution)
-SLIDER_Y = 1444  # Y coordinate of slider track
-SLIDER_MIN_X = 1570  # Left edge of track (after minus button)
-SLIDER_MAX_X = 2154  # Right edge of track (before plus button) - CLICK HERE FOR MAX
+# Slider constants (4K resolution) - Soldier Training panel
+# Calibrated 2026-01-04 via iterative testing
+SLIDER_Y = 1175  # Y coordinate of slider track center
+SLIDER_MIN_X = 1604  # Left edge of track (after minus button)
+SLIDER_MAX_X = 2137  # Right edge of track (before plus button) - CLICK HERE FOR MAX
 
 # Search region for slider circle template matching
-SEARCH_Y_START = 1400
-SEARCH_Y_END = 1500
-SEARCH_X_START = 1570  # Left edge of track
-SEARCH_X_END = 2154    # Right edge of track
+SEARCH_Y_START = 1145
+SEARCH_Y_END = 1205
+SEARCH_X_START = 1604  # Left edge of track
+SEARCH_X_END = 2137    # Right edge of track
 
 # Plus/Minus buttons (center positions)
-PLUS_BUTTON = (2208, 1444)
-MINUS_BUTTON = (1525, 1444)
+PLUS_BUTTON = (2208, 1175)
+MINUS_BUTTON = (1525, 1175)
 
 # Template path
 TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "ground_truth" / "slider_circle_4k.png"
