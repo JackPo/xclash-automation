@@ -25,9 +25,10 @@ from utils.view_state_detector import go_to_world
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template, has_mask
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Type alias for numpy arrays
 NDArray = npt.NDArray[Any]
@@ -239,7 +240,6 @@ if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     print("=== Go to Mark Flow Test ===")
     print()

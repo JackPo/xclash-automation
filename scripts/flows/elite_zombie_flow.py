@@ -44,9 +44,10 @@ from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
 from config import ELITE_ZOMBIE_PLUS_CLICKS
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Type alias for numpy arrays
 NDArray = npt.NDArray[Any]

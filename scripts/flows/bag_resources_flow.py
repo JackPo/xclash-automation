@@ -30,9 +30,10 @@ import numpy.typing as npt
 
 from scripts.flows.bag_use_item_subflow import use_item_subflow
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Fixed positions (4K resolution)
 BAG_BUTTON_REGION = (3679, 1596, 72, 77)
@@ -123,8 +124,7 @@ def bag_resources_flow(
         Number of diamonds claimed
     """
     if win is None:
-        from utils.windows_screenshot_helper import WindowsScreenshotHelper
-        win = WindowsScreenshotHelper()
+            win = WindowsScreenshotHelper()
 
     # Load templates
     bag_template = _load_template("bag_button_4k.png")
@@ -256,7 +256,6 @@ def bag_resources_flow(
 if __name__ == "__main__":
     import argparse
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     parser = argparse.ArgumentParser(description="Bag Resources Flow - Claim diamonds")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")

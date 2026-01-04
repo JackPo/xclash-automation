@@ -29,9 +29,10 @@ from utils.soldier_panel_slider import (
     MINUS_BUTTON, calculate_slider_position
 )
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Train button time OCR
 TRAIN_BUTTON_POS = (1969, 1399)
@@ -96,7 +97,6 @@ def barracks_training_flow(
         bool: True if training started successfully
     """
     # Import here to avoid circular import at module level
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     flow_start = time.time()
 

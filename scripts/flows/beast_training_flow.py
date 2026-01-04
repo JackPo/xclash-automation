@@ -36,9 +36,10 @@ from utils.claude_cli_helper import get_stamina_decision
 from utils.ocr_client import OCRClient
 from utils.return_to_base_view import return_to_base_view
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     from utils.scheduler import DaemonScheduler
 
 logger = logging.getLogger(__name__)
@@ -423,7 +424,6 @@ if __name__ == "__main__":
     )
 
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     print("=== Beast Training Flow Test ===\n")
 

@@ -12,9 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.cabbage_matcher import CabbageMatcher
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
 def cabbage_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:

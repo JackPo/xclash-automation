@@ -29,8 +29,9 @@ from scripts.flows.go_to_mark_flow import go_to_mark_flow
 from scripts.flows.title_management_flow import title_management_flow
 from scripts.flows.barrack_speedup_flow import barrack_speedup_flow
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     from utils.adb_helper import ADBHelper
 
 

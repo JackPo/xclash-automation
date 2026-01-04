@@ -38,9 +38,10 @@ from utils.back_button_matcher import BackButtonMatcher
 from utils.hero_selector import HeroSelector
 from utils.debug_screenshot import save_debug_screenshot
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Setup logger
 logger = logging.getLogger("treasure_map_flow")
@@ -82,7 +83,6 @@ def treasure_map_flow(adb: ADBHelper) -> bool:
     Returns:
         bool: True if treasure was collected, False otherwise
     """
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     flow_start = time.time()
     _log(f"=== TREASURE FLOW START ===")
     _log(f"Clicking treasure map icon at ({CLICK_X}, {CLICK_Y})")
@@ -142,7 +142,6 @@ def treasure_map_flow(adb: ADBHelper) -> bool:
 
 def _wait_and_click_chat_notification(adb: ADBHelper) -> bool:
     """Wait for chat notification and click Kingdom link. Scrolls up if not visible."""
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     notification_matcher = TreasureChatNotificationMatcher()
     win = WindowsScreenshotHelper()
@@ -193,7 +192,6 @@ def _wait_and_click_chat_notification(adb: ADBHelper) -> bool:
 
 def _wait_and_click_digging_marker(adb: ADBHelper) -> bool:
     """Wait for treasure digging marker and click it."""
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     marker_matcher = TreasureDiggingMarkerMatcher()
     win = WindowsScreenshotHelper()
@@ -222,7 +220,6 @@ def _wait_and_click_digging_marker(adb: ADBHelper) -> bool:
 
 def _wait_and_click_gather(adb: ADBHelper) -> bool:
     """Wait for Gather button and click it."""
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     gather_matcher = GatherButtonMatcher()
     win = WindowsScreenshotHelper()
@@ -251,7 +248,6 @@ def _wait_and_click_gather(adb: ADBHelper) -> bool:
 
 def _select_character_and_march(adb: ADBHelper) -> bool:
     """Select rightmost character (prefer idle with Zz, but fallback to any) and click March."""
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     hero_selector = HeroSelector()
     march_matcher = MarchButtonMatcher()
@@ -301,7 +297,6 @@ def _select_character_and_march(adb: ADBHelper) -> bool:
 
 def _wait_and_collect_treasure(adb: ADBHelper) -> bool:
     """Wait for treasure to be ready and collect it, keep clicking until circle turns white."""
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     ready_matcher = TreasureReadyCircleMatcher()
     win = WindowsScreenshotHelper()
@@ -376,7 +371,6 @@ def _wait_and_collect_treasure(adb: ADBHelper) -> bool:
 
 def _click_back_until_gone(adb: ADBHelper) -> None:
     """Click back button repeatedly until it's no longer visible."""
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     back_matcher = BackButtonMatcher()
     win = WindowsScreenshotHelper()

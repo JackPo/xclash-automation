@@ -30,8 +30,9 @@ if str(_script_dir) not in sys.path:
 import cv2
 import numpy as np
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     from utils.adb_helper import ADBHelper
 
 from utils.return_to_base_view import return_to_base_view

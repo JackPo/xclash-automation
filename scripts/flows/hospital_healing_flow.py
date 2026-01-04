@@ -23,9 +23,10 @@ from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 from utils.ocr_client import OCRClient
 from utils.return_to_base_view import return_to_base_view
@@ -68,7 +69,6 @@ def hospital_healing_flow(
     """
     # Import here to avoid circular imports at runtime
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     if adb is None:
         adb = ADBHelper()

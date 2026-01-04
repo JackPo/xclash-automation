@@ -21,9 +21,10 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Import from centralized config
 from config import BACK_BUTTON_CLICK
@@ -122,8 +123,7 @@ def back_from_chat_flow(
 
     # Get screenshot helper
     if screenshot_helper is None:
-        from utils.windows_screenshot_helper import WindowsScreenshotHelper
-        screenshot_helper = WindowsScreenshotHelper()
+            screenshot_helper = WindowsScreenshotHelper()
 
     clicks = 0
 
@@ -155,7 +155,6 @@ if __name__ == "__main__":
     sys.path.insert(0, str(BASE_DIR))
 
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     adb = ADBHelper()
     helper = WindowsScreenshotHelper()

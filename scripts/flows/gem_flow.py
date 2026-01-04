@@ -12,9 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.gem_matcher import GemMatcher
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
 def gem_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:

@@ -19,9 +19,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy.typing as npt
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +143,7 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
         dict with counts: {"special": N, "hero": N, "resources": N}
     """
     if win is None:
-        from utils.windows_screenshot_helper import WindowsScreenshotHelper
-        win = WindowsScreenshotHelper()
+            win = WindowsScreenshotHelper()
 
     results = {"special": 0, "hero": 0, "resources": 0}
 
@@ -223,7 +223,6 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
 if __name__ == "__main__":
     import argparse
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     parser = argparse.ArgumentParser(description="Bag Flow - Claim from all bag tabs")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")

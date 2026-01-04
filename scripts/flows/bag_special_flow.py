@@ -42,9 +42,10 @@ from scripts.flows.bag_use_item_subflow import use_item_subflow
 from utils.arms_race import get_arms_race_status
 from config import VS_LEVEL_CHEST_DAYS
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Fixed positions (4K resolution)
 BAG_BUTTON_REGION = (3679, 1596, 72, 77)
@@ -176,8 +177,7 @@ def bag_special_flow(
         Number of chests claimed
     """
     if win is None:
-        from utils.windows_screenshot_helper import WindowsScreenshotHelper
-        win = WindowsScreenshotHelper()
+            win = WindowsScreenshotHelper()
 
     # Load templates
     bag_template = _load_template("bag_button_4k.png")
@@ -312,7 +312,6 @@ def bag_special_flow(
 if __name__ == "__main__":
     import argparse
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
     parser = argparse.ArgumentParser(description="Bag Special Flow - Claim chests from Special tab")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")

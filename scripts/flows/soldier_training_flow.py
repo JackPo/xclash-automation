@@ -27,9 +27,10 @@ import numpy.typing as npt
 from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS, SOLDIER_TRAINING_DEFAULT_LEVEL
 from utils.return_to_base_view import return_to_base_view
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Template paths for panel verification (absolute paths from project root)
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"

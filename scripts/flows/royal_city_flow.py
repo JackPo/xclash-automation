@@ -28,8 +28,9 @@ from utils.hero_selector import HeroSelector
 from utils.debug_screenshot import save_debug_screenshot
 from config import ROYAL_CITY_BUTTON_OFFSETS, ROYAL_CITY_BUTTON_SIZE
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     from utils.adb_helper import ADBHelper
 
 logger = logging.getLogger("royal_city_flow")

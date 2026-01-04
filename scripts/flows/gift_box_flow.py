@@ -23,9 +23,10 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent

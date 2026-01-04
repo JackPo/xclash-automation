@@ -33,9 +33,10 @@ class ZombieCardConfig(TypedDict):
     pos: tuple[int, int]
     click: tuple[int, int]
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent

@@ -31,9 +31,10 @@ from utils.template_matcher import match_template
 from utils.ui_helpers import click_back
 from .back_from_chat_flow import back_from_chat_flow
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
 class StaminaClaimResult(TypedDict):

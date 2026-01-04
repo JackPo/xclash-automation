@@ -32,9 +32,10 @@ import numpy.typing as npt
 import time
 import logging
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     from utils.scheduler import DaemonScheduler
     from utils.ocr_client import OCRClient
 

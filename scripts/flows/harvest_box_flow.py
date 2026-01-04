@@ -22,9 +22,10 @@ from typing import TYPE_CHECKING, Any, cast
 import cv2
 import numpy.typing as npt
 
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
-    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 from .back_from_chat_flow import back_from_chat_flow
 
