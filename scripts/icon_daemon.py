@@ -2108,7 +2108,7 @@ class IconDaemon:
                         else:
                             # Zombie attack mode (gold/food/iron_mine)
                             zombie_type = mode_config.get("zombie_type", "gold")
-                            plus_clicks = mode_config.get("plus_clicks", 10)
+                            plus_clicks = mode_config.get("plus_clicks", 5)
                             def beast_rally_wrapper(adb, zt=zombie_type, pc=plus_clicks):
                                 return zombie_attack_flow(adb, zombie_type=zt, plus_clicks=pc)
 

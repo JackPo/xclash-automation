@@ -136,7 +136,7 @@ def _poll_for_template(win, template_name: str, threshold: float = None,
     return False, score, None, frame
 
 
-def zombie_attack_flow(adb, zombie_type: str = 'iron_mine', plus_clicks: int = 10) -> bool:
+def zombie_attack_flow(adb, zombie_type: str = 'iron_mine', plus_clicks: int = 5) -> bool:
     """
     Execute the zombie attack flow.
 
@@ -307,8 +307,8 @@ def zombie_attack_flow(adb, zombie_type: str = 'iron_mine', plus_clicks: int = 1
                 idle_str = "Zz PRESENT (idle)" if status['is_idle'] else "NO Zz (busy)"
                 _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
 
-            # Find RIGHTMOST soldier WITHOUT Zz (busy hero, not idle)
-            idle_slot = hero_selector.find_rightmost_idle(frame, zz_mode='avoid')
+            # Find RIGHTMOST soldier WITH Zz (idle hero, available to send)
+            idle_slot = hero_selector.find_rightmost_idle(frame, zz_mode='require')
 
             if idle_slot:
                 click_pos = idle_slot['click']

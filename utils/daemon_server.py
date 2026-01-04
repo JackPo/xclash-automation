@@ -603,7 +603,7 @@ class DaemonWebSocketServer:
         from scripts.flows.zombie_attack_flow import zombie_attack_flow
 
         zombie_type = args.get("zombie_type", "gold")
-        plus_clicks = args.get("plus_clicks", 10)
+        plus_clicks = args.get("plus_clicks", 5)
 
         # Validate zombie_type
         valid_types = ["gold", "food", "iron_mine"]
