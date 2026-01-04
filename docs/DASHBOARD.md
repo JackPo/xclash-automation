@@ -35,7 +35,11 @@ The port is auto-detected (finds a free port). The URL is printed to console and
 ### Arms Race Panel
 - Current event name and time remaining
 - Day in 7-day cycle
-- Progress toward chest targets
+- **Check Score button**: Opens Arms Race panel in-game, OCRs current points, displays:
+  - Current points
+  - Chest 3 target
+  - Remaining points to Chest 3 (or "Complete!" if reached)
+  - "Checked X ago" timestamp
 
 ### Flow Control Grid
 - All 25+ flows with status indicators
@@ -118,6 +122,7 @@ Override config values temporarily via the dashboard. Useful for:
 | `/api/events` | GET | SSE stream for live updates |
 | `/api/arms-race` | GET | Current Arms Race event and timing |
 | `/api/arms-race/schedule` | GET | Full 7-day schedule |
+| `/api/arms-race/check-score` | POST | Check current Arms Race score (triggers flow, returns points) |
 
 ### Flow Endpoints
 
