@@ -1114,19 +1114,28 @@ Mode auto-expires after set duration, reverting to elite.
 1. Validate Union War panel state (heading + Team Intelligence tab)
 2. Find all plus buttons in rightmost column
 3. For each rally (top to bottom):
+   - Click plus button → Team Up panel opens
    - OCR monster icon to get name and level
    - Check against `RALLY_MONSTERS` config:
      - `auto_join`: Must be True
      - `max_level`: Level must be <= max_level
      - `track_daily_limit`: If True, check exhaustion tracker
-   - If exhausted → skip to next rally
-4. Click plus button for matching rally
-5. **Poll for Team Up panel** (up to 5 seconds, not fixed sleep)
-6. Select leftmost idle hero (must have Zz icon)
-7. Click Team Up button
-8. **Poll for daily limit dialog** (2 seconds):
+   - If skip needed → **dismiss Team Up panel by clicking grass** (see below)
+   - If match → continue to hero selection
+4. **Poll for Team Up panel** (up to 5 seconds, not fixed sleep)
+5. Select leftmost idle hero (must have Zz icon)
+6. Click Team Up button
+7. **Poll for daily limit dialog** (2 seconds):
    - If dialog appears → click Cancel → mark exhausted (if track_daily_limit=True)
-9. Return to base view
+8. Return to base view
+
+**Team Up Panel Dismissal**:
+The Team Up floating panel has **NO back button** - it must be dismissed by clicking outside.
+When skipping a rally (wrong monster/level):
+- Use `find_safe_grass()` to find a safe grass position via template matching
+- Click grass to dismiss the floating panel
+- Verify panel closed; if still open, use `return_to_base_view()` to recover
+- **Never use hardcoded back button position** - it lands on hero portrait button, not grass
 
 **Daily Limit Detection**:
 - Template: `daily_rally_limit_dialog_4k.png` (983x527) - "Tip" header + full text about daily rally rewards
@@ -1155,6 +1164,7 @@ RALLY_MONSTERS = [
 - `scripts/flows/rally_join_flow.py` - Main flow
 - `utils/rally_exhaustion_tracker.py` - Daily limit tracking
 - `utils/rally_monster_validator.py` - OCR and validation
+- `utils/safe_grass_matcher.py` - Find safe grass position for panel dismissal
 
 ### Royal City Flow (Scheduled)
 
