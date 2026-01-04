@@ -68,12 +68,21 @@ class HeroSelector:
                 - 'require': ONLY return heroes WITH Zz. Return None if no Zz found.
                 - 'prefer': PREFER heroes with Zz, but fallback to any hero if no Zz exists.
                 - 'ignore': ALWAYS return first hero regardless of Zz status.
+                - 'avoid': ONLY return heroes WITHOUT Zz (busy). Return None if all have Zz.
 
         Returns:
-            Slot dict if found, None if no heroes available (only possible in 'require' mode)
+            Slot dict if found, None if no heroes available (only possible in 'require'/'avoid' mode)
         """
         if zz_mode == 'ignore':
             return self.SLOTS[0]  # First element is rightmost
+
+        if zz_mode == 'avoid':
+            # Find rightmost hero WITHOUT Zz (busy hero)
+            for slot in self.SLOTS:  # Already ordered rightmost first
+                is_idle, score = self.check_slot_has_zz(frame, slot)
+                if not is_idle:  # NO Zz = busy
+                    return slot
+            return None  # All heroes have Zz (all idle)
 
         for slot in self.SLOTS:  # Already ordered rightmost first
             is_idle, score = self.check_slot_has_zz(frame, slot)
