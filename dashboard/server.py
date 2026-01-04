@@ -412,7 +412,8 @@ def start_dashboard_server(daemon_instance: Any = None, port: int | None = None)
 # ============================================================================
 
 if __name__ == "__main__":
+    from config import DASHBOARD_PORT
     print("Starting dashboard in standalone mode...")
-    port = find_free_port()
+    port = DASHBOARD_PORT if DASHBOARD_PORT else find_free_port()
     print(f"Dashboard: http://localhost:{port}")
     uvicorn.run(app, host="127.0.0.1", port=port)
