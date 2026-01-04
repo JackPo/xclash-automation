@@ -116,11 +116,42 @@
                 <div class="bg-dark-800/50 rounded-xl p-5 border border-green-500/20">
                     <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Current Event</div>
                     <div class="text-xl font-bold text-green-400 mb-3" x-text="armsRace.current_event"></div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 mb-3">
                         <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         <span class="stat-value text-lg text-yellow-300" x-text="formatCountdown(armsRace.time_remaining_seconds)"></span>
+                    </div>
+                    <!-- Score Check -->
+                    <div class="pt-3 border-t border-gray-700/50">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs text-gray-500 uppercase tracking-wide">Progress</span>
+                            <button @click="checkArmsRaceScore()"
+                                    :disabled="armsRaceScoreLoading"
+                                    class="px-3 py-1 text-xs rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 disabled:opacity-50 transition-colors">
+                                <span x-show="!armsRaceScoreLoading">Check Score</span>
+                                <span x-show="armsRaceScoreLoading">Checking...</span>
+                            </button>
+                        </div>
+                        <div x-show="armsRaceScore.current_points !== null" class="text-sm">
+                            <div class="flex justify-between text-gray-300">
+                                <span>Points:</span>
+                                <span class="font-bold text-green-400" x-text="armsRaceScore.current_points?.toLocaleString()"></span>
+                            </div>
+                            <div x-show="armsRaceScore.chest3_target" class="flex justify-between text-gray-400">
+                                <span>Chest 3:</span>
+                                <span x-text="armsRaceScore.chest3_target?.toLocaleString()"></span>
+                            </div>
+                            <div x-show="armsRaceScore.points_to_chest3 !== null" class="flex justify-between text-gray-400">
+                                <span>Remaining:</span>
+                                <span :class="armsRaceScore.points_to_chest3 <= 0 ? 'text-green-400' : ''"
+                                      x-text="armsRaceScore.points_to_chest3 <= 0 ? 'Complete!' : armsRaceScore.points_to_chest3?.toLocaleString()"></span>
+                            </div>
+                            <div x-show="armsRaceScore.last_checked" class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700/50">
+                                Checked <span x-text="formatTimeAgo(armsRaceScore.last_checked)"></span>
+                            </div>
+                        </div>
+                        <div x-show="armsRaceScore.error" class="text-xs text-red-400" x-text="armsRaceScore.error"></div>
                     </div>
                 </div>
 
@@ -541,6 +572,9 @@
                 overrideDuration: '120',  // Default 2 hours
                 staminaThreshold: 118,
                 plusClicks: 5,
+                // Arms Race score check
+                armsRaceScore: { current_points: null, chest3_target: null, points_to_chest3: null, last_checked: null, error: null },
+                armsRaceScoreLoading: false,
 
                 async init() {
                     await Promise.all([
@@ -581,6 +615,33 @@
                         const res = await fetch('/api/arms-race');
                         this.armsRace = await res.json();
                     } catch (e) { console.error('Arms race fetch failed:', e); }
+                },
+
+                async checkArmsRaceScore() {
+                    this.armsRaceScoreLoading = true;
+                    this.armsRaceScore.error = null;
+                    try {
+                        const res = await fetch('/api/arms-race/check-score', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.armsRaceScore = {
+                                current_points: data.current_points,
+                                chest3_target: data.chest3_target,
+                                points_to_chest3: data.points_to_chest3,
+                                last_checked: new Date().toISOString(),
+                                error: null
+                            };
+                            this.showToast(`Score: ${data.current_points?.toLocaleString() || 0} points`, 'success');
+                        } else {
+                            this.armsRaceScore.error = data.error || 'Failed to check score';
+                            this.showToast(this.armsRaceScore.error, 'error');
+                        }
+                    } catch (e) {
+                        this.armsRaceScore.error = e.message;
+                        this.showToast(`Error: ${e.message}`, 'error');
+                    } finally {
+                        this.armsRaceScoreLoading = false;
+                    }
                 },
 
                 async runFlow(name) {
@@ -680,6 +741,20 @@
                     if (diffMins < 60) return `${diffMins}m ago`;
                     if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
                     return new Date(isoDate).toLocaleDateString();
+                },
+
+                formatTimeAgo(isoDate) {
+                    if (!isoDate) return '';
+                    const diffMins = Math.floor((new Date() - new Date(isoDate)) / 60000);
+                    if (diffMins < 1) return 'just now';
+                    if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+                    const hours = Math.floor(diffMins / 60);
+                    const mins = diffMins % 60;
+                    if (hours < 24) {
+                        if (mins === 0) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+                        return `${hours}h ${mins}m ago`;
+                    }
+                    return new Date(isoDate).toLocaleString();
                 },
 
                 // =============================================

@@ -250,6 +250,34 @@ async def api_arms_race() -> dict[str, Any]:
     }
 
 
+@app.post("/api/arms-race/check-score")
+async def api_check_arms_race_score() -> dict[str, Any]:
+    """Check current Arms Race score by triggering the flow."""
+    import websockets
+
+    try:
+        # Longer timeout for flow execution (180s like daemon_cli)
+        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+            await ws.send(json.dumps({'cmd': 'run_flow', 'args': {'flow': 'arms_race_check'}}))
+            response = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
+
+            if response.get('success'):
+                # Flow result is in data.result (the dict returned by check_arms_race_progress)
+                result = response.get('data', {}).get('result', {})
+                return {
+                    "success": True,
+                    "current_points": result.get('current_points'),
+                    "chest3_target": result.get('chest3_target'),
+                    "points_to_chest3": result.get('points_to_chest3'),
+                    "detected_event": result.get('detected_event'),
+                }
+            return {"success": False, "error": response.get('error', 'Failed to check score')}
+    except asyncio.TimeoutError:
+        return {"success": False, "error": "Timeout - flow took too long"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/api/arms-race/schedule")
 async def api_arms_race_schedule() -> dict[str, Any]:
     """Get full 7-day Arms Race schedule."""
