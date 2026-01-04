@@ -1282,7 +1282,8 @@ python scripts/flows/royal_city_flow.py rally --debug
 5. Drag slider to max, check time
 6. If over 1 hour: binary search (8 iterations) to find ~1 hour position
 7. Click Healing button
-8. Return to base view
+8. Check for "Insufficient Resources" prompt → if found, click Replenish All, then click Healing again
+9. Return to base view
 
 **Panel Helper** (`utils/hospital_panel_helper.py`):
 - `find_plus_buttons()` - Detects all plus buttons in panel (Y=550-1200, X=2150-2350)

@@ -245,7 +245,21 @@ def hospital_healing_flow(
         return False
 
     click_healing_button(adb, debug=debug)
-    time.sleep(1.0)
+    time.sleep(0.5)
+
+    # Step 5b: Check for insufficient resources prompt
+    print("\nStep 4b: Checking for insufficient resources...")
+    from utils.replenish_all_helper import ReplenishAllHelper
+    replenish_helper = ReplenishAllHelper()
+
+    if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
+        # Resources were replenished - need to click Healing button again
+        print("  Resources replenished - clicking Healing button again...")
+        time.sleep(0.5)
+        click_healing_button(adb, debug=debug)
+        time.sleep(0.5)
+    else:
+        print("  No resource issue - healing started normally")
 
     # Step 6: Return to base view
     print("\nStep 5: Returning to base view...")
