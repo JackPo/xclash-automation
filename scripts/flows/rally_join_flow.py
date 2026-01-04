@@ -272,8 +272,8 @@ def _check_daily_limit_dialog(
         result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, _, _ = cv2.minMaxLoc(result)
 
-        # Tighter threshold (0.03) + center region = no false positives
-        if min_val < 0.03:
+        # Tight threshold: true match ~0.0004, false positive ~0.04
+        if min_val < 0.01:
             print(f"[RALLY-JOIN]   Daily limit dialog detected (score={min_val:.4f})")
             return True
 
@@ -637,7 +637,7 @@ def _cleanup_and_exit(
             result = cv2.matchTemplate(roi, daily_limit_template, cv2.TM_SQDIFF_NORMED)
             min_val, _, _, _ = cv2.minMaxLoc(result)
 
-            if min_val < 0.03:  # Tighter threshold
+            if min_val < 0.01:  # True match ~0.0004, false positive ~0.04
                 print(f"[RALLY-JOIN]   Late daily limit dialog detected in cleanup (score={min_val:.4f})")
                 _save_debug_screenshot(frame, "CLEANUP late dialog found", f"score={min_val:.4f}")
                 if _should_ignore_daily_limit():
