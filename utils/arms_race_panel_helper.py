@@ -17,12 +17,19 @@ import logging
 import time
 from math import ceil
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any, cast
 
 import cv2
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.scheduler import DaemonScheduler
 
 from utils.arms_race_ocr import (
+    get_current_points,
     get_current_points_verified,
     detect_active_event,
     is_arms_race_panel_open,
@@ -45,9 +52,11 @@ STAMINA_PER_RALLY = 20
 POINTS_PER_RALLY = STAMINA_PER_RALLY * POINTS_PER_STAMINA  # 2000
 
 def get_chest3_target(event_name: str = "Mystic Beast Training") -> int:
-    """Get chest3 target from metadata JSON."""
     meta = get_event_metadata(event_name)
-    return meta["chest3"]
+    chest3 = meta.get("chest3")
+    if chest3 is None:
+        return 30000
+    return int(chest3)
 
 
 # Legacy constants - use get_chest3_target() for dynamic values
@@ -81,7 +90,7 @@ BEAST_TRAINING_HEADER = TEMPLATE_DIR / "mystic_beast_training_4k.png"
 # TEMPLATE MATCHING
 # =============================================================================
 
-def is_arms_race_icon_visible(frame: np.ndarray, use_active: bool = False) -> tuple[bool, float, tuple[int, int]]:
+def is_arms_race_icon_visible(frame: npt.NDArray[Any], use_active: bool = False) -> tuple[bool, float, tuple[int, int]]:
     """
     Check if Arms Race icon is visible anywhere in the bottom bar.
 
@@ -102,8 +111,8 @@ def is_arms_race_icon_visible(frame: np.ndarray, use_active: bool = False) -> tu
         return False, 1.0, (0, 0)
 
     template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        return False, 1.0, (0, 0)
+    if template is None:  # pragma: no cover
+        return False, 1.0, (0, 0)  # type: ignore[unreachable]
 
     # Convert frame to grayscale
     if len(frame.shape) == 3:
@@ -131,7 +140,7 @@ def is_arms_race_icon_visible(frame: np.ndarray, use_active: bool = False) -> tu
         return False, 1.0, (0, 0)
 
 
-def is_beast_training_header_visible(frame: np.ndarray) -> tuple[bool, float]:
+def is_beast_training_header_visible(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
     Check if Mystic Beast Training header is visible.
 
@@ -147,26 +156,11 @@ def is_beast_training_header_visible(frame: np.ndarray) -> tuple[bool, float]:
 # NAVIGATION
 # =============================================================================
 
-def scroll_bottom_bar_left(adb) -> None:
-    """Swipe bottom bar left to reveal Arms Race icon."""
+def scroll_bottom_bar_left(adb: ADBHelper) -> None:
     adb.swipe(SWIPE_START_X, BOTTOM_BAR_Y, SWIPE_END_X, BOTTOM_BAR_Y, duration=SWIPE_DURATION)
 
 
-def ensure_arms_race_visible(adb, win, max_scrolls: int = 3) -> bool:
-    """
-    Scroll bottom bar until Arms Race icon found.
-
-    Checks ACTIVE first (panel already open), then INACTIVE (need to click).
-    Only scrolls if neither is found.
-
-    Args:
-        adb: ADBHelper instance
-        win: WindowsScreenshotHelper instance
-        max_scrolls: Maximum scroll attempts
-
-    Returns:
-        True if icon found, False otherwise
-    """
+def ensure_arms_race_visible(adb: ADBHelper, win: WindowsScreenshotHelper, max_scrolls: int = 3) -> bool:
     for attempt in range(max_scrolls):
         frame = win.get_screenshot_cv2()
 
@@ -191,35 +185,18 @@ def ensure_arms_race_visible(adb, win, max_scrolls: int = 3) -> bool:
     return False
 
 
-def open_arms_race_panel(adb, win, debug: bool = False, max_scrolls: int = 5) -> bool:
-    """
-    Navigate to Arms Race panel with scroll handling.
-
-    1. Find and click Events icon (scans right sidebar)
-    2. Check ACTIVE first (panel already open)
-    3. Check INACTIVE (scroll if needed, then click)
-    4. Verify panel opened
-
-    Args:
-        adb: ADBHelper instance
-        win: WindowsScreenshotHelper instance
-        debug: Enable debug logging
-        max_scrolls: Maximum scroll attempts to find Arms Race
-
-    Returns:
-        True if successfully opened Arms Race panel
-    """
+def open_arms_race_panel(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False, max_scrolls: int = 5) -> bool:
     # Step 1: Find and click Events icon (scans vertically on right side)
     events_matcher = EventsIconMatcher()
     frame = win.get_screenshot_cv2()
     found, score, click_pos = events_matcher.find(frame)
 
-    if not found:
+    if not found or click_pos is None:
         logger.error(f"Events icon NOT FOUND (score={score:.4f}), cannot open Arms Race panel")
         return False
 
     logger.info(f"Events icon found at {click_pos} (score={score:.4f}), clicking...")
-    adb.tap(*click_pos)
+    adb.tap(click_pos[0], click_pos[1])
     time.sleep(1.5)
 
     # Step 3: Check ACTIVE first - panel might already be open
@@ -275,19 +252,9 @@ def open_arms_race_panel(adb, win, debug: bool = False, max_scrolls: int = 5) ->
 # =============================================================================
 
 def get_rallies_needed(current_points: int, zombie_mode: str = "elite") -> int:
-    """
-    Calculate rallies/attacks needed to reach chest3.
-
-    Args:
-        current_points: Current Arms Race points
-        zombie_mode: "elite" (2000 pts/rally) or "gold"/"food"/"iron_mine" (1000 pts/attack)
-
-    Returns:
-        Number of rallies/attacks needed (0 if already at or above chest3)
-    """
     from config import ZOMBIE_MODE_CONFIG
     mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-    points_per_action = mode_config["points"]
+    points_per_action = cast(int, mode_config["points"])
 
     points_needed = CHEST3_TARGET - current_points
     if points_needed <= 0:
@@ -296,10 +263,9 @@ def get_rallies_needed(current_points: int, zombie_mode: str = "elite") -> int:
 
 
 def get_stamina_needed(rallies_needed: int, zombie_mode: str = "elite") -> int:
-    """Calculate stamina needed for the given number of rallies/attacks."""
     from config import ZOMBIE_MODE_CONFIG
     mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-    stamina_per_action = mode_config["stamina"]
+    stamina_per_action = cast(int, mode_config["stamina"])
     return rallies_needed * stamina_per_action
 
 
@@ -328,39 +294,19 @@ def calculate_boosts_needed(rallies_needed: int, current_stamina: int, stamina_p
 # MAIN ENTRY POINT
 # =============================================================================
 
-def check_beast_training_progress(adb, win, debug: bool = False, scheduler=None) -> dict:
-    """
-    Full check: open panel, verify event, calculate rallies.
-
-    This is the main entry point for the daemon to call during
-    Mystic Beast Training event.
-
-    Args:
-        adb: ADBHelper instance
-        win: WindowsScreenshotHelper instance
-        debug: Enable debug logging
-        scheduler: Optional Scheduler instance to get zombie mode
-
-    Returns:
-        Dict with:
-            - success: bool - True if check completed successfully
-            - current_points: int | None - Current Arms Race points
-            - rallies_needed: int | None - Rallies/attacks needed for chest3
-            - stamina_needed: int | None - Stamina needed for those rallies/attacks
-            - chest3_target: int - Always 30000
-            - event_verified: bool - True if Mystic Beast Training header matched
-            - zombie_mode: str - Current zombie mode ("elite", "gold", etc.)
-            - stamina_per_action: int - Stamina per rally/attack (20 or 10)
-            - points_per_action: int - Points per rally/attack (2000 or 1000)
-    """
-    # Get zombie mode from scheduler
+def check_beast_training_progress(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+    scheduler: DaemonScheduler | None = None,
+) -> dict[str, Any]:
     from config import ZOMBIE_MODE_CONFIG
     zombie_mode = "elite"
     if scheduler:
         zombie_mode, _ = scheduler.get_zombie_mode()
     mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
 
-    result = {
+    result: dict[str, Any] = {
         "success": False,
         "current_points": None,
         "rallies_needed": None,
@@ -368,8 +314,8 @@ def check_beast_training_progress(adb, win, debug: bool = False, scheduler=None)
         "chest3_target": CHEST3_TARGET,
         "event_verified": False,
         "zombie_mode": zombie_mode,
-        "stamina_per_action": mode_config["stamina"],
-        "points_per_action": mode_config["points"],
+        "stamina_per_action": cast(int, mode_config["stamina"]),
+        "points_per_action": cast(int, mode_config["points"]),
     }
 
     try:
@@ -432,33 +378,11 @@ def check_beast_training_progress(adb, win, debug: bool = False, scheduler=None)
 # GENERIC ARMS RACE CHECK (for any event)
 # =============================================================================
 
-def check_arms_race_progress(adb, win, debug: bool = False) -> dict:
-    """
-    Generic Arms Race check - works for ANY event.
-
-    Opens panel, detects event, validates against scheduler, OCRs points,
-    and reports which flows would trigger.
-
-    Args:
-        adb: ADBHelper instance
-        win: WindowsScreenshotHelper instance
-        debug: Enable debug logging
-
-    Returns:
-        Dict with:
-            - success: bool
-            - detected_event: str | None - Event detected from panel header
-            - expected_event: str | None - Event from scheduler
-            - event_match: bool - Whether detected matches expected
-            - current_points: int | None
-            - chest3_target: int | None - From metadata
-            - points_to_chest3: int | None - Remaining points needed
-            - would_trigger_flows: list[str] - Flows that would trigger
-    """
+def check_arms_race_progress(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
     from utils.arms_race import get_arms_race_status, get_event_metadata
     from utils.arms_race_ocr import detect_active_event, get_current_points_verified
 
-    result = {
+    result: dict[str, Any] = {
         "success": False,
         "detected_event": None,
         "expected_event": None,

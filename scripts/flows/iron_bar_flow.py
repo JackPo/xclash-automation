@@ -1,17 +1,23 @@
 """
 Iron bar harvest flow - clicks the iron bar bubble.
 """
+from __future__ import annotations
+
 import time
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.iron_bar_matcher import IronBarMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
-def iron_bar_flow(adb, win=None):
+
+def iron_bar_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the iron bar harvest bubble if present.
 
     Args:

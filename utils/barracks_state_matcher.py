@@ -19,10 +19,13 @@ Templates:
 - yellow_soldier_barrack_4k.png - Yellow soldier for READY state
 - white_soldier_barrack_4k.png - White soldier for PENDING state
 """
+from __future__ import annotations
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 from enum import Enum
+from typing import Any
 
 from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE, BARRACKS_MATCH_THRESHOLD, BARRACKS_YELLOW_PIXEL_THRESHOLD
 from utils.template_matcher import match_template
@@ -42,14 +45,21 @@ class BarrackState(Enum):
 class BarracksStateMatcher:
     """Detects the state of all 4 barracks buildings."""
 
-    YELLOW_TEMPLATE = "yellow_soldier_barrack_4k.png"
+    YELLOW_TEMPLATES = [
+        "yellow_soldier_barrack_4k.png",
+        "yellow_soldier_barrack_v2_4k.png",
+        "yellow_soldier_barrack_v3_4k.png",
+        "yellow_soldier_barrack_v4_4k.png",
+        "yellow_soldier_barrack_v5_4k.png",
+        "yellow_soldier_barrack_v6_4k.png",
+    ]
     WHITE_TEMPLATE = "white_soldier_barrack_4k.png"
     STOPWATCH_TEMPLATE = "stopwatch_barrack_4k.png"
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass  # Templates are now loaded by template_matcher
 
-    def _count_yellow_pixels(self, roi_bgr):
+    def _count_yellow_pixels(self, roi_bgr: npt.NDArray[Any]) -> int:
         """
         Count yellow pixels in ROI using HSV color space.
 
@@ -60,9 +70,9 @@ class BarracksStateMatcher:
         lower_yellow = np.array([15, 100, 100])
         upper_yellow = np.array([45, 255, 255])
         mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
-        return np.count_nonzero(mask)
+        return int(np.count_nonzero(mask))
 
-    def get_barrack_matches(self, frame, barrack_index):
+    def get_barrack_matches(self, frame: npt.NDArray[Any], barrack_index: int) -> dict[str, tuple[bool, float]]:
         """
         Get template match results for a single barrack.
 
@@ -85,9 +95,16 @@ class BarracksStateMatcher:
             threshold=MATCH_THRESHOLD
         )
 
-        yellow_found, yellow_score, _ = match_template(frame, self.YELLOW_TEMPLATE, search_region=(x, y, tw, th),
-            threshold=MATCH_THRESHOLD
-        )
+        # Check ALL yellow variants, keep best (lowest) score
+        yellow_found = False
+        yellow_score = 1.0
+        for yellow_template in self.YELLOW_TEMPLATES:
+            found, score, _ = match_template(frame, yellow_template, search_region=(x, y, tw, th),
+                threshold=MATCH_THRESHOLD
+            )
+            if score < yellow_score:
+                yellow_score = score
+                yellow_found = found or yellow_found  # True if ANY passes threshold
 
         white_found, white_score, _ = match_template(frame, self.WHITE_TEMPLATE, search_region=(x, y, tw, th),
             threshold=MATCH_THRESHOLD
@@ -99,7 +116,7 @@ class BarracksStateMatcher:
             'white': (white_found, white_score)
         }
 
-    def get_barrack_scores(self, frame, barrack_index):
+    def get_barrack_scores(self, frame: npt.NDArray[Any], barrack_index: int) -> dict[str, float]:
         """
         Get all template scores for a single barrack (for debugging/display).
 
@@ -113,7 +130,7 @@ class BarracksStateMatcher:
             'white': matches['white'][1]
         }
 
-    def get_barrack_state(self, frame, barrack_index, frame_gray=None):
+    def get_barrack_state(self, frame: npt.NDArray[Any], barrack_index: int, frame_gray: Any = None) -> tuple[BarrackState, float]:
         """
         Get the state of a single barrack.
 
@@ -166,21 +183,21 @@ class BarracksStateMatcher:
         else:
             return BarrackState.PENDING, white_score
 
-    def get_all_states(self, frame):
+    def get_all_states(self, frame: npt.NDArray[Any]) -> list[tuple[BarrackState, float]]:
         """Get the state of all 4 barracks."""
         return [self.get_barrack_state(frame, i) for i in range(4)]
 
-    def get_states_summary(self, frame):
+    def get_states_summary(self, frame: npt.NDArray[Any]) -> dict[str, int]:
         """Get a summary of all barrack states."""
         states = self.get_all_states(frame)
-        summary = {'ready': 0, 'pending': 0, 'training': 0, 'unknown': 0}
+        summary: dict[str, int] = {'ready': 0, 'pending': 0, 'training': 0, 'unknown': 0}
 
         for state, score in states:
             summary[state.value] += 1
 
         return summary
 
-    def format_states(self, frame):
+    def format_states(self, frame: npt.NDArray[Any]) -> str:
         """Format barrack states as a human-readable string."""
         states = self.get_all_states(frame)
         parts = []
@@ -195,7 +212,7 @@ class BarracksStateMatcher:
 
         return " ".join(parts)
 
-    def format_states_detailed(self, frame):
+    def format_states_detailed(self, frame: npt.NDArray[Any]) -> str:
         """Format barrack states with all template scores for debugging."""
         parts = []
         for i in range(4):
@@ -215,26 +232,26 @@ class BarracksStateMatcher:
 
 
 # Singleton instance
-_matcher = None
+_matcher: BarracksStateMatcher | None = None
 
 
-def get_matcher():
+def get_matcher() -> BarracksStateMatcher:
     global _matcher
     if _matcher is None:
         _matcher = BarracksStateMatcher()
     return _matcher
 
 
-def check_barracks_states(frame):
+def check_barracks_states(frame: npt.NDArray[Any]) -> list[tuple[BarrackState, float]]:
     """Convenience function to check all barrack states."""
     return get_matcher().get_all_states(frame)
 
 
-def format_barracks_states(frame):
+def format_barracks_states(frame: npt.NDArray[Any]) -> str:
     """Convenience function to get formatted barrack states string."""
     return get_matcher().format_states(frame)
 
 
-def format_barracks_states_detailed(frame):
+def format_barracks_states_detailed(frame: npt.NDArray[Any]) -> str:
     """Convenience function to get detailed barrack states with all scores."""
     return get_matcher().format_states_detailed(frame)

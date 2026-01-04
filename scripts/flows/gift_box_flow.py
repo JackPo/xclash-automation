@@ -15,10 +15,17 @@ Sequence:
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 """
+from __future__ import annotations
+
 import sys
 import time
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -48,13 +55,13 @@ from config import BACK_BUTTON_CLICK
 GIFT_BOX_THRESHOLD = 0.06
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [GIFT_BOX] {msg}")
 
 
-def gift_box_flow(adb, win=None, debug: bool = False) -> bool:
+def gift_box_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: bool = False) -> bool:
     """
     Execute the gift box claim flow.
 

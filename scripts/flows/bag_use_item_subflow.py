@@ -16,6 +16,9 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
@@ -23,6 +26,10 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 import numpy as np
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Fixed positions (4K resolution)
 # Use button can be at different Y positions depending on dialog type
@@ -47,7 +54,7 @@ _slider_template = None
 _bag_tab_template = None
 
 
-def _load_template(name: str) -> np.ndarray:
+def _load_template(name: str) -> npt.NDArray[Any]:
     """Load a template image in grayscale."""
     path = TEMPLATES_DIR / name
     template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
@@ -56,7 +63,9 @@ def _load_template(name: str) -> np.ndarray:
     return template
 
 
-def _get_templates():
+def _get_templates() -> tuple[
+    npt.NDArray[Any], npt.NDArray[Any], npt.NDArray[Any], npt.NDArray[Any]
+]:
     """Load and cache templates."""
     global _use_template, _plus_template, _slider_template, _bag_tab_template
     if _use_template is None:
@@ -67,8 +76,11 @@ def _get_templates():
     return _use_template, _plus_template, _slider_template, _bag_tab_template
 
 
-def _verify_bag_screen(frame_gray: np.ndarray, bag_tab_template: np.ndarray,
-                       threshold: float = BAG_HEADER_THRESHOLD) -> tuple[bool, float]:
+def _verify_bag_screen(
+    frame_gray: npt.NDArray[Any],
+    bag_tab_template: npt.NDArray[Any],
+    threshold: float = BAG_HEADER_THRESHOLD,
+) -> tuple[bool, float]:
     """Check if the Bag header is visible."""
     x, y, w, h = BAG_TAB_REGION
     roi = frame_gray[y:y+h, x:x+w]
@@ -77,8 +89,11 @@ def _verify_bag_screen(frame_gray: np.ndarray, bag_tab_template: np.ndarray,
     return min_val <= threshold, min_val
 
 
-def _find_use_button(frame_gray: np.ndarray, template: np.ndarray,
-                     threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
+def _find_use_button(
+    frame_gray: npt.NDArray[Any],
+    template: npt.NDArray[Any],
+    threshold: float = DIALOG_THRESHOLD,
+) -> tuple[tuple[int, int] | None, float]:
     """
     Find Use button in the search region.
 
@@ -101,8 +116,11 @@ def _find_use_button(frame_gray: np.ndarray, template: np.ndarray,
     return None, min_val
 
 
-def _find_plus_button(frame_gray: np.ndarray, plus_template: np.ndarray,
-                      threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
+def _find_plus_button(
+    frame_gray: npt.NDArray[Any],
+    plus_template: npt.NDArray[Any],
+    threshold: float = DIALOG_THRESHOLD,
+) -> tuple[tuple[int, int] | None, float]:
     """Find plus button using full image search."""
     ph, pw = plus_template.shape
     result = cv2.matchTemplate(frame_gray, plus_template, cv2.TM_SQDIFF_NORMED)
@@ -115,8 +133,12 @@ def _find_plus_button(frame_gray: np.ndarray, plus_template: np.ndarray,
     return None, min_val
 
 
-def _find_slider(frame_gray: np.ndarray, slider_template: np.ndarray, plus_y: int,
-                 threshold: float = DIALOG_THRESHOLD) -> tuple[tuple[int, int] | None, float]:
+def _find_slider(
+    frame_gray: npt.NDArray[Any],
+    slider_template: npt.NDArray[Any],
+    plus_y: int,
+    threshold: float = DIALOG_THRESHOLD,
+) -> tuple[tuple[int, int] | None, float]:
     """
     Find slider circle, using plus button Y as reference for correct Y position.
 
@@ -148,7 +170,9 @@ def _find_slider(frame_gray: np.ndarray, slider_template: np.ndarray, plus_y: in
     return None, min_val
 
 
-def use_item_subflow(adb, win, debug: bool = False) -> bool:
+def use_item_subflow(
+    adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False
+) -> bool:
     """
     Handle the use dialog: verify, drag slider, click use, click back.
 

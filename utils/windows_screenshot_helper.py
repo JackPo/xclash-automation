@@ -7,12 +7,17 @@ and scales to 4K resolution for compatibility with existing template matching.
 Performance: ~50ms vs ~2700ms for ADB screencap
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import win32gui
 import win32ui
 import ctypes
 from ctypes import windll
 from PIL import Image
 import numpy as np
+import numpy.typing as npt
 import cv2
 
 
@@ -33,23 +38,23 @@ class WindowsScreenshotHelper:
     TARGET_WINDOW_WIDTH = 1822
     TARGET_WINDOW_HEIGHT = 1040
 
-    def __init__(self, window_title="BlueStacks App Player"):
+    def __init__(self, window_title: str = "BlueStacks App Player") -> None:
         """Initialize the screenshot helper.
 
         Args:
             window_title: Title of the BlueStacks window to capture
         """
         self.window_title = window_title
-        self.hwnd = None
+        self.hwnd: int | None = None
         self._find_window()
 
-    def _find_window(self):
+    def _find_window(self) -> None:
         """Find the BlueStacks window handle."""
         self.hwnd = win32gui.FindWindow(None, self.window_title)
         if not self.hwnd:
             raise RuntimeError(f"Could not find window: {self.window_title}")
 
-    def ensure_window_size(self):
+    def ensure_window_size(self) -> None:
         """Resize BlueStacks window to target size for consistent scaling."""
         import win32con
         left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
@@ -58,7 +63,7 @@ class WindowsScreenshotHelper:
                                   self.TARGET_WINDOW_WIDTH, self.TARGET_WINDOW_HEIGHT,
                                   win32con.SWP_NOZORDER)
 
-    def capture_window(self, max_retries=3):
+    def capture_window(self, max_retries: int = 3) -> Image.Image:
         """Capture window content using PrintWindow API.
 
         Args:
@@ -123,8 +128,10 @@ class WindowsScreenshotHelper:
                     time.sleep(0.2)  # Brief delay before retry
                     continue
                 raise RuntimeError(f"PrintWindow failed after {max_retries} attempts: {e}")
+        # This should never be reached due to the raise in the loop, but mypy needs it
+        raise RuntimeError(f"PrintWindow failed after {max_retries} attempts")
 
-    def remove_borders(self, img):
+    def remove_borders(self, img: Image.Image) -> Image.Image:
         """Remove BlueStacks window borders from captured image.
 
         Args:
@@ -141,7 +148,7 @@ class WindowsScreenshotHelper:
             height - self.BOTTOM_BORDER
         ))
 
-    def scale_to_4k(self, img):
+    def scale_to_4k(self, img: Image.Image) -> Image.Image:
         """Scale image to 4K resolution for template matching.
 
         Args:
@@ -150,9 +157,9 @@ class WindowsScreenshotHelper:
         Returns:
             PIL.Image: Scaled to 3840x2160
         """
-        return img.resize((self.TARGET_WIDTH, self.TARGET_HEIGHT), Image.LANCZOS)
+        return img.resize((self.TARGET_WIDTH, self.TARGET_HEIGHT), Image.Resampling.LANCZOS)
 
-    def get_screenshot_cv2(self):
+    def get_screenshot_cv2(self) -> npt.NDArray[Any]:
         """Get a 4K screenshot as cv2 numpy array (compatible with template matching).
 
         This is the main method to use for template matching pipelines.
@@ -173,16 +180,19 @@ class WindowsScreenshotHelper:
         scaled_img = self.scale_to_4k(cropped_img)
 
         # Convert PIL RGB to cv2 BGR
-        img_array = np.array(scaled_img)
-        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        img_array: npt.NDArray[Any] = np.array(scaled_img)
+        img_bgr: npt.NDArray[Any] = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
         return img_bgr
 
-    def save_screenshot(self, output_path):
+    def save_screenshot(self, output_path: str) -> str:
         """Capture and save a 4K screenshot.
 
         Args:
             output_path: Path to save the screenshot
+
+        Returns:
+            str: The output path where the screenshot was saved
         """
         img_bgr = self.get_screenshot_cv2()
         cv2.imwrite(output_path, img_bgr)

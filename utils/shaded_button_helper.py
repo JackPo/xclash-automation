@@ -8,10 +8,19 @@ Two levels of shading:
 
 Clicking it repeatedly dismisses popups until the button returns to normal.
 """
+from __future__ import annotations
+
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
 import cv2
 import numpy as np
-import time
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 BASE_DIR = Path(__file__).resolve().parent.parent / "templates" / "ground_truth"
 
@@ -29,7 +38,7 @@ SHADED_TEMPLATES = [
 ]
 
 
-def is_button_shaded(frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
+def is_button_shaded(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
     """
     Check if World/Town button is shaded (indicates popups blocking).
 
@@ -53,7 +62,7 @@ def is_button_shaded(frame: np.ndarray, debug: bool = False) -> tuple[bool, floa
 
         template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
         if template is None:
-            continue
+            continue  # type: ignore[unreachable]
 
         result = cv2.matchTemplate(roi_gray, template, cv2.TM_SQDIFF_NORMED)
         score = cv2.minMaxLoc(result)[0]
@@ -76,7 +85,7 @@ def is_button_shaded(frame: np.ndarray, debug: bool = False) -> tuple[bool, floa
     return is_shaded, best_score
 
 
-def dismiss_popups(adb, win, max_clicks: int = 10, debug: bool = False) -> bool:
+def dismiss_popups(adb: ADBHelper, win: WindowsScreenshotHelper, max_clicks: int = 10, debug: bool = False) -> bool:
     """
     Click shaded button repeatedly until popups are dismissed.
 

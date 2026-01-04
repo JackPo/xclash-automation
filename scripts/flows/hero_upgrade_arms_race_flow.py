@@ -21,8 +21,11 @@ Templates:
 - Upgrade unavailable: templates/ground_truth/upgrade_button_unavailable_4k.png
 """
 
+from __future__ import annotations
+
 import time
 import logging
+from typing import TYPE_CHECKING, TypedDict
 
 from config import ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -31,6 +34,16 @@ from utils.upgrade_button_matcher import UpgradeButtonMatcher
 from utils.return_to_base_view import return_to_base_view
 from utils.ocr_client import OCRClient
 from utils.arms_race import get_event_metadata
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+
+
+class EnhanceHeroProgress(TypedDict):
+    """Return type for check_enhance_hero_progress."""
+    success: bool
+    current_points: int | None
+    chest3_reached: bool
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +66,10 @@ def _get_chest3_threshold() -> int:
     chest3 = meta.get("chest3")
     if chest3 is None:
         return 12000  # Default fallback if metadata not collected
-    return chest3
+    return int(chest3)
 
-def _press_hardware_back(adb):
+
+def _press_hardware_back(adb: ADBHelper) -> None:
     """Press Android hardware back button to close panels that don't have visible back buttons."""
     try:
         adb._run_adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK'])
@@ -64,18 +78,16 @@ def _press_hardware_back(adb):
         logger.warning(f"Hardware back failed: {e}")
 
 
-def check_enhance_hero_progress(adb, win) -> dict:
+def check_enhance_hero_progress(
+    adb: ADBHelper, win: WindowsScreenshotHelper
+) -> EnhanceHeroProgress:
     """
     Open Events panel and check current Enhance Hero points.
 
     Returns:
-        {
-            "success": bool,
-            "current_points": int or None,
-            "chest3_reached": bool,
-        }
+        EnhanceHeroProgress dict with success, current_points, chest3_reached
     """
-    result = {
+    result: EnhanceHeroProgress = {
         "success": False,
         "current_points": None,
         "chest3_reached": False,
@@ -95,7 +107,7 @@ def check_enhance_hero_progress(adb, win) -> dict:
         for i in range(3):
             frame = win.get_screenshot_cv2()
             if frame is None:
-                continue
+                continue  # type: ignore[unreachable]
 
             x, y, w, h = CURRENT_POINTS_REGION
             roi = frame[y:y+h, x:x+w]
@@ -140,7 +152,9 @@ def check_enhance_hero_progress(adb, win) -> dict:
     return result
 
 
-def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
+def hero_upgrade_arms_race_flow(
+    adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None
+) -> bool:
     """
     Smart Hero Upgrade Arms Race flow:
     1. Check current points from Events panel
@@ -185,7 +199,7 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
     logger.info("Step 3: Scanning hero grid for red dots...")
     frame = win.get_screenshot_cv2()
     if frame is None:
-        logger.error("Failed to get screenshot")
+        logger.error("Failed to get screenshot")  # type: ignore[unreachable]
         return False
 
     tiles_with_dots = detect_tiles_with_red_dots(frame, debug=True)
@@ -216,7 +230,7 @@ def hero_upgrade_arms_race_flow(adb, screenshot_helper=None):
         # Take screenshot and check upgrade button
         frame = win.get_screenshot_cv2()
         if frame is None:
-            logger.error("Failed to get screenshot")
+            logger.error("Failed to get screenshot")  # type: ignore[unreachable]
             click_back(adb)
             time.sleep(0.5)
             continue

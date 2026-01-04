@@ -1,6 +1,6 @@
 # Kingdom Titles Reference
 
-Royal City kingdom titles provide buffs when applied. Access via marked Royal City location.
+Royal City kingdom titles provide buffs when applied. Access requires a marked Royal City location (star icon visible).
 
 ## Standard Titles
 
@@ -45,6 +45,8 @@ Pre-condition: At marked Royal City (star icon with ! visible)
 4. Click desired title row → Poll for title detail header
 5. Click Apply (1914, 1844)
 6. Return to base view
+
+Flow implementation: `scripts/flows/title_management_flow.py`
 ```
 
 ## Templates
@@ -91,3 +93,6 @@ Applies a specific title. Requires being at marked Royal City with star icon vis
 ## JSON Data
 
 Full structured data: `data/kingdom_titles.json`
+
+## Related docs
+- `README.md` for the documentation index

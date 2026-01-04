@@ -12,18 +12,21 @@ Templates:
 - Trigger: templates/ground_truth/use_button_4k.png (271x118 at ~2149,1381)
 - Click position: center (2284, 1440)
 """
+from __future__ import annotations
 
-from pathlib import Path
 import time
-import cv2
+from typing import TYPE_CHECKING, Any
 
-from config import STAMINA_REGION, STAMINA_USE_BUTTON, BACK_BUTTON_CLICK
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+import numpy.typing as npt
+
+from config import STAMINA_REGION, STAMINA_USE_BUTTON
+from utils.template_matcher import match_template
 from utils.ui_helpers import click_back
 from .back_from_chat_flow import back_from_chat_flow
 
-# Template for Use button detection
-USE_BUTTON_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "use_button_4k.png"
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Click position from config
 USE_BUTTON_X = STAMINA_USE_BUTTON['click'][0]
@@ -36,11 +39,17 @@ STAMINA_DISPLAY_Y = STAMINA_REGION[1] + STAMINA_REGION[3] // 2
 # Matching threshold using TM_SQDIFF_NORMED (lower is better, 0 = perfect)
 MATCH_THRESHOLD = 0.05
 
-# Search region from config
-SEARCH_REGION = STAMINA_USE_BUTTON['search_region']
+# Search region from config - cast to proper type for mypy
+_raw_region = STAMINA_USE_BUTTON['search_region']
+SEARCH_REGION: tuple[int, int, int, int] = (
+    _raw_region[0], _raw_region[1], _raw_region[2], _raw_region[3]
+)
 
 
-def stamina_use_flow(adb, screenshot_helper=None):
+def stamina_use_flow(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None
+) -> bool:
     """
     Open stamina popup and click the Use button if present.
 
@@ -51,7 +60,11 @@ def stamina_use_flow(adb, screenshot_helper=None):
     Returns:
         True if Use button was found and clicked, False otherwise
     """
-    win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
+    if screenshot_helper is None:
+        from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinHelper
+        win: WindowsScreenshotHelper = WinHelper()
+    else:
+        win = screenshot_helper
 
     # Step 1: Click on stamina display to open popup
     print(f"    [STAMINA-USE] Step 1: Opening stamina popup (clicking {STAMINA_DISPLAY_X}, {STAMINA_DISPLAY_Y})")
@@ -64,33 +77,16 @@ def stamina_use_flow(adb, screenshot_helper=None):
     print("    [STAMINA-USE] Step 2: Checking for Use button...")
     frame = win.get_screenshot_cv2()
 
-    if frame is None:
-        print("    [STAMINA-USE] Failed to get screenshot")
-        back_from_chat_flow(adb, win)
-        return False
-
-    # Load template
-    template = cv2.imread(str(USE_BUTTON_TEMPLATE))
-    if template is None:
-        print(f"    [STAMINA-USE] Template not found: {USE_BUTTON_TEMPLATE}")
-        back_from_chat_flow(adb, win)
-        return False
-
-    # Extract search region
-    rx, ry, rw, rh = SEARCH_REGION
-    roi = frame[ry:ry+rh, rx:rx+rw]
-
-    # Convert to grayscale
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-    # Template match using TM_SQDIFF_NORMED (lower = better match)
-    result = cv2.matchTemplate(roi_gray, template_gray, cv2.TM_SQDIFF_NORMED)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+    # Search for Use button in search region
+    found, min_val, _ = match_template(
+        frame, "use_button_4k.png",
+        search_region=SEARCH_REGION,
+        threshold=MATCH_THRESHOLD
+    )
 
     print(f"    [STAMINA-USE] Match score: {min_val:.4f} (threshold: {MATCH_THRESHOLD})")
 
-    if min_val > MATCH_THRESHOLD:
+    if not found:
         print("    [STAMINA-USE] Use button not found (no recovery items available)")
         # Close popup
         click_back(adb)  # Click back button to close stamina popup
@@ -113,7 +109,7 @@ def stamina_use_flow(adb, screenshot_helper=None):
     return True
 
 
-def check_use_button(frame):
+def check_use_button(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
     Check if Use button is present in the given frame.
 
@@ -123,20 +119,9 @@ def check_use_button(frame):
     Returns:
         (is_present, score) tuple
     """
-    template = cv2.imread(str(USE_BUTTON_TEMPLATE))
-    if template is None:
-        return False, 1.0
-
-    # Extract search region
-    rx, ry, rw, rh = SEARCH_REGION
-    roi = frame[ry:ry+rh, rx:rx+rw]
-
-    # Convert to grayscale
-    roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-    # Template match
-    result = cv2.matchTemplate(roi_gray, template_gray, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-
-    return min_val <= MATCH_THRESHOLD, min_val
+    found, score, _ = match_template(
+        frame, "use_button_4k.png",
+        search_region=SEARCH_REGION,
+        threshold=MATCH_THRESHOLD
+    )
+    return found, score

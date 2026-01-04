@@ -16,15 +16,20 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
 
 import cv2
-import numpy as np
+import numpy.typing as npt
 
 from scripts.flows.bag_use_item_subflow import use_item_subflow
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Fixed positions (4K resolution)
 BAG_BUTTON_REGION = (3679, 1596, 72, 77)
@@ -48,7 +53,7 @@ CHEST_TEMPLATES = [
 ]
 
 
-def _load_template(name: str) -> np.ndarray:
+def _load_template(name: str) -> npt.NDArray[Any]:
     """Load a template image in grayscale."""
     path = TEMPLATES_DIR / name
     template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
@@ -57,9 +62,9 @@ def _load_template(name: str) -> np.ndarray:
     return template
 
 
-def _load_chest_templates() -> list[tuple[str, np.ndarray]]:
+def _load_chest_templates() -> list[tuple[str, npt.NDArray[Any]]]:
     """Load all chest templates, skip missing ones."""
-    templates = []
+    templates: list[tuple[str, npt.NDArray[Any]]] = []
     for name in CHEST_TEMPLATES:
         path = TEMPLATES_DIR / name
         template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
@@ -68,8 +73,12 @@ def _load_chest_templates() -> list[tuple[str, np.ndarray]]:
     return templates
 
 
-def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
-                            region: tuple, threshold: float = VERIFICATION_THRESHOLD) -> tuple[bool, float]:
+def _verify_at_fixed_region(
+    frame_gray: npt.NDArray[Any],
+    template: npt.NDArray[Any],
+    region: tuple[int, int, int, int],
+    threshold: float = VERIFICATION_THRESHOLD,
+) -> tuple[bool, float]:
     """Verify template is present at fixed region."""
     x, y, w, h = region
     roi = frame_gray[y:y+h, x:x+w]
@@ -78,17 +87,20 @@ def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
     return min_val <= threshold, min_val
 
 
-def _find_first_chest(frame_gray: np.ndarray, chest_templates: list[tuple[str, np.ndarray]],
-                      debug: bool = False) -> tuple[tuple[int, int] | None, float, str | None]:
+def _find_first_chest(
+    frame_gray: npt.NDArray[Any],
+    chest_templates: list[tuple[str, npt.NDArray[Any]]],
+    debug: bool = False,
+) -> tuple[tuple[int, int] | None, float, str | None]:
     """
     Find the first (best matching) chest in the frame using multiple templates.
 
     Returns:
         ((center_x, center_y), score, template_name) or (None, best_score, None) if not found
     """
-    best_match = None
+    best_match: tuple[int, int] | None = None
     best_score = 1.0
-    best_template_name = None
+    best_template_name: str | None = None
 
     for name, template in chest_templates:
         h, w = template.shape
@@ -109,7 +121,12 @@ def _find_first_chest(frame_gray: np.ndarray, chest_templates: list[tuple[str, n
     return best_match, best_score, best_template_name
 
 
-def bag_hero_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> int:
+def bag_hero_flow(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper | None = None,
+    debug: bool = False,
+    open_bag: bool = True,
+) -> int:
     """
     Execute the bag hero flow to claim all treasure chests.
 

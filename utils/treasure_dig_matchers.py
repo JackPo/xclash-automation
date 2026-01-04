@@ -12,8 +12,13 @@ Templates and coordinates (4K resolution):
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
-from typing import Optional, Tuple
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 from utils.template_matcher import match_template
 
@@ -31,10 +36,10 @@ class TreasureDiggingMarkerMatcher:
     TEMPLATE_NAME = "treasure_digging_marker_4k.png"
     DEFAULT_THRESHOLD = 0.15
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         if frame is None or frame.size == 0:
             return False, 1.0
 
@@ -44,7 +49,7 @@ class TreasureDiggingMarkerMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
 
 
@@ -61,10 +66,10 @@ class GatherButtonMatcher:
     TEMPLATE_NAME = "gather_button_4k.png"
     DEFAULT_THRESHOLD = 0.1
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         if frame is None or frame.size == 0:
             return False, 1.0
 
@@ -74,7 +79,7 @@ class GatherButtonMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
 
 
@@ -91,10 +96,10 @@ class MarchButtonMatcher:
     TEMPLATE_NAME = "march_button_4k.png"
     DEFAULT_THRESHOLD = 0.1
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         if frame is None or frame.size == 0:
             return False, 1.0
 
@@ -104,7 +109,7 @@ class MarchButtonMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
 
 
@@ -124,11 +129,10 @@ class ZzSleepIconMatcher:
     TEMPLATE_NAME = "zz_icon_template_4k.png"
     DEFAULT_THRESHOLD = 0.1
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
-        """Check if Zz icon is present at fixed location."""
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         if frame is None or frame.size == 0:
             return False, 1.0
 
@@ -138,13 +142,7 @@ class ZzSleepIconMatcher:
 
         return is_present, score
 
-    def find_rightmost_zz(self, frame: np.ndarray) -> Optional[Tuple[int, int]]:
-        """
-        Search for all Zz icons in the march prompt area and return rightmost one.
-
-        Returns:
-            (x, y) click position of rightmost Zz icon, or None if not found
-        """
+    def find_rightmost_zz(self, frame: npt.NDArray[Any]) -> tuple[int, int] | None:
         if frame is None or frame.size == 0:
             return None
 
@@ -160,17 +158,10 @@ class ZzSleepIconMatcher:
 
         return None
 
-    def click(self, adb_helper) -> None:
-        """Click at the fixed Zz icon position."""
+    def click(self, adb_helper: ADBHelper) -> None:
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)
 
-    def click_rightmost(self, adb_helper, frame: np.ndarray) -> bool:
-        """
-        Find and click the rightmost Zz icon in the march prompt.
-
-        Returns:
-            True if clicked, False if no Zz icon found
-        """
+    def click_rightmost(self, adb_helper: ADBHelper, frame: npt.NDArray[Any]) -> bool:
         pos = self.find_rightmost_zz(frame)
         if pos:
             adb_helper.tap(pos[0], pos[1])
@@ -191,10 +182,10 @@ class TreasureReadyCircleMatcher:
     TEMPLATE_NAME = "treasure_ready_circle_4k.png"
     DEFAULT_THRESHOLD = 0.15
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         if frame is None or frame.size == 0:
             return False, 1.0
 
@@ -204,5 +195,5 @@ class TreasureReadyCircleMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)

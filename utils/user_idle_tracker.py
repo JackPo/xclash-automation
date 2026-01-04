@@ -10,6 +10,8 @@ Solution: Simple system-wide idle tracking that filters daemon actions.
 - When daemon is about to click, it calls mark_daemon_action()
 - Any system idle resets in the next 5 seconds are ignored (daemon caused them)
 """
+from __future__ import annotations
+
 import ctypes
 import time
 
@@ -23,8 +25,8 @@ def _get_system_idle_seconds() -> float:
     lii = LASTINPUTINFO()
     lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
     ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
-    millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
-    return millis / 1000.0
+    millis: int = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+    return float(millis) / 1000.0
 
 
 class UserIdleTracker:
@@ -45,12 +47,12 @@ class UserIdleTracker:
     # If system_idle is below this, user JUST provided input
     ACTIVE_INPUT_THRESHOLD = 1.0  # seconds
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._last_user_activity = time.time()
         self._last_daemon_action = 0.0  # Never clicked yet
         self._prev_system_idle = 0.0
 
-    def mark_daemon_action(self):
+    def mark_daemon_action(self) -> None:
         """
         Call BEFORE the daemon performs a click/action.
 
@@ -59,7 +61,7 @@ class UserIdleTracker:
         """
         self._last_daemon_action = time.time()
 
-    def update(self):
+    def update(self) -> None:
         """
         Update user idle tracking based on system input.
 
@@ -109,7 +111,7 @@ def get_user_idle_tracker() -> UserIdleTracker:
     return _tracker
 
 
-def mark_daemon_action():
+def mark_daemon_action() -> None:
     """Convenience function: mark that daemon is about to click."""
     get_user_idle_tracker().mark_daemon_action()
 

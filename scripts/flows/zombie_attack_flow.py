@@ -16,10 +16,26 @@ Sequence:
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 """
+from __future__ import annotations
+
 import sys
 import time
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypedDict
+
+import numpy.typing as npt
+
+
+class ZombieCardConfig(TypedDict):
+    """Type definition for zombie card configuration."""
+    template: str
+    pos: tuple[int, int]
+    click: tuple[int, int]
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -28,7 +44,7 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.windows_screenshot_helper import WindowsScreenshotHelper  # noqa: F401 (runtime import)
 from utils.view_state_detector import detect_view, go_to_world, ViewState
 from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
@@ -56,7 +72,7 @@ ZOMBIE_TAB_THRESHOLD = 0.06
 # All cards are 340x375 (aligned via B&W correlation + manual centering)
 # Panel is cropped at (1340, 900), cards at y=250 in panel
 ZOMBIE_CARD_SIZE = (340, 375)
-ZOMBIE_CARDS = {
+ZOMBIE_CARDS: dict[str, ZombieCardConfig] = {
     'iron_mine': {
         'template': 'zombie_iron_mine_card_4k.png',
         'pos': (1387, 1150),   # panel x=47 + 1340
@@ -101,28 +117,37 @@ MAX_POLL_ATTEMPTS = 10
 POLL_INTERVAL = 0.3
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging."""
     return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [ZOMBIE_ATTACK] {msg}")
 
 
-def _verify_template(frame, template_name: str, threshold: float = None,
-                     search_region: tuple = None) -> tuple:
+def _verify_template(
+    frame: npt.NDArray[Any],
+    template_name: str,
+    threshold: float | None = None,
+    search_region: tuple[int, int, int, int] | None = None
+) -> tuple[bool, float, tuple[int, int] | None]:
     """Verify a template is visible in the frame."""
     return match_template(frame, template_name, search_region=search_region, threshold=threshold)
 
 
-def _poll_for_template(win, template_name: str, threshold: float = None,
-                       search_region: tuple = None, max_attempts: int = MAX_POLL_ATTEMPTS,
-                       interval: float = POLL_INTERVAL) -> tuple:
+def _poll_for_template(
+    win: WindowsScreenshotHelper,
+    template_name: str,
+    threshold: float | None = None,
+    search_region: tuple[int, int, int, int] | None = None,
+    max_attempts: int = MAX_POLL_ATTEMPTS,
+    interval: float = POLL_INTERVAL
+) -> tuple[bool, float, tuple[int, int] | None, npt.NDArray[Any] | None]:
     """Poll for a template to appear with timeout."""
-    frame = None
+    frame: npt.NDArray[Any] | None = None
     score = 1.0
     for attempt in range(max_attempts):
         frame = win.get_screenshot_cv2()
@@ -136,7 +161,7 @@ def _poll_for_template(win, template_name: str, threshold: float = None,
     return False, score, None, frame
 
 
-def zombie_attack_flow(adb, zombie_type: str = 'iron_mine', plus_clicks: int = 5) -> bool:
+def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clicks: int = 5) -> bool:
     """
     Execute the zombie attack flow.
 

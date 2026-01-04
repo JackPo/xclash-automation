@@ -1,18 +1,22 @@
+from __future__ import annotations
+
 import win32gui
 import win32con
 import win32api
 import time
 import sys
 
-def find_bluestacks_window():
+
+def find_bluestacks_window() -> int | None:
     """Find BlueStacks window"""
-    def callback(hwnd, windows):
+    windows: list[tuple[int, str]] = []
+
+    def callback(hwnd: int, windows: list[tuple[int, str]]) -> None:
         if win32gui.IsWindowVisible(hwnd):
             title = win32gui.GetWindowText(hwnd)
             if "BlueStacks" in title:
                 windows.append((hwnd, title))
 
-    windows = []
     win32gui.EnumWindows(callback, windows)
 
     if windows:
@@ -20,7 +24,8 @@ def find_bluestacks_window():
         return windows[0][0]
     return None
 
-def send_arrow(direction):
+
+def send_arrow(direction: str) -> None:
     """Send arrow key to BlueStacks by focusing window and using keybd_event"""
     hwnd = find_bluestacks_window()
     if not hwnd:

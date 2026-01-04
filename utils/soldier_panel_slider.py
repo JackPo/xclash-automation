@@ -8,32 +8,39 @@ Used by:
 
 All coordinates are for 4K resolution (3840x2160).
 """
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import cv2
-from pathlib import Path
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 # Slider constants (4K resolution)
-SLIDER_Y = 1170
-SLIDER_MIN_X = 1600  # Circle center at MIN (leftmost)
-SLIDER_MAX_X = 2132  # Circle center at MAX (rightmost)
+SLIDER_Y = 1444  # Y coordinate of slider track
+SLIDER_MIN_X = 1570  # Left edge of track (after minus button)
+SLIDER_MAX_X = 2154  # Right edge of track (before plus button) - CLICK HERE FOR MAX
 
 # Search region for slider circle template matching
-SEARCH_Y_START = 1100
-SEARCH_Y_END = 1250
-SEARCH_X_START = 1580  # Exclude minus button area (at x=1526)
-SEARCH_X_END = 2200    # Slightly past SLIDER_MAX_X (2132)
+SEARCH_Y_START = 1400
+SEARCH_Y_END = 1500
+SEARCH_X_START = 1570  # Left edge of track
+SEARCH_X_END = 2154    # Right edge of track
 
-# Plus/Minus buttons
-PLUS_BUTTON = (2207, 1179)
-MINUS_BUTTON = (1526, 1177)
+# Plus/Minus buttons (center positions)
+PLUS_BUTTON = (2208, 1444)
+MINUS_BUTTON = (1525, 1444)
 
 # Template path
 TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "ground_truth" / "slider_circle_4k.png"
 
-_template_cache = None
+_template_cache: npt.NDArray[Any] | None = None
 
 
-def _get_template():
+def _get_template() -> npt.NDArray[Any] | None:
     """Load and cache the slider circle template."""
     global _template_cache
     if _template_cache is None:
@@ -41,58 +48,88 @@ def _get_template():
     return _template_cache
 
 
-def find_slider_circle(frame):
-    """Find slider circle position using template matching.
+def find_slider_circle(frame: npt.NDArray[Any]) -> tuple[int | None, int | None, float]:
+    """Find slider circle position using full-frame template matching.
 
     Args:
         frame: BGR screenshot (numpy array)
 
     Returns:
-        (x, score) tuple where x is the circle center X coordinate,
-        or (None, score) if not found (score > 0.1)
+        (x, y, score) tuple where x,y is the circle center,
+        or (None, None, score) if not found (score > 0.1)
     """
     template = _get_template()
     if template is None:
-        return None, 1.0
+        return None, None, 1.0
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
-    search_region = gray[SEARCH_Y_START:SEARCH_Y_END, SEARCH_X_START:SEARCH_X_END]
 
-    result = cv2.matchTemplate(search_region, template, cv2.TM_SQDIFF_NORMED)
+    # Full frame search to find slider at any Y position
+    result = cv2.matchTemplate(gray, template, cv2.TM_SQDIFF_NORMED)
     min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
     if min_val < 0.1:
         h, w = template.shape[:2]
-        x = SEARCH_X_START + min_loc[0] + w // 2
-        return x, min_val
-    return None, min_val
+        x = min_loc[0] + w // 2
+        y = min_loc[1] + h // 2
+        return x, y, min_val
+    return None, None, min_val
 
 
-def drag_slider_to_max(adb, frame, debug=False):
-    """Find slider and drag to maximum position.
+def find_plus_button(frame: npt.NDArray[Any]) -> tuple[int | None, int | None, float]:
+    """Find plus button position using template matching.
+
+    Returns:
+        (x, y, score) tuple where x,y is the button center,
+        or (None, None, score) if not found
+    """
+    template_path = Path(__file__).parent.parent / "templates" / "ground_truth" / "hospital_plus_button_4k.png"
+    template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        return None, None, 1.0  # type: ignore[unreachable]
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+    result = cv2.matchTemplate(gray, template, cv2.TM_SQDIFF_NORMED)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+
+    if min_val < 0.1:
+        h, w = template.shape[:2]
+        x = min_loc[0] + w // 2
+        y = min_loc[1] + h // 2
+        return x, y, min_val
+    return None, None, min_val
+
+
+def drag_slider_to_max(adb: ADBHelper, frame: npt.NDArray[Any], debug: bool = False) -> bool:
+    """Find plus button and click on rightmost edge of slider track.
 
     Args:
         adb: ADBHelper instance
-        frame: BGR screenshot (numpy array)
+        frame: BGR screenshot (required to find plus button Y position)
         debug: Enable debug logging
 
     Returns:
         bool: True if successful
     """
-    circle_x, score = find_slider_circle(frame)
-    if circle_x is None:
+    # Find plus button to get correct Y position (different screens have different Y)
+    plus_x, plus_y, score = find_plus_button(frame)
+
+    if plus_x is None or plus_y is None:
         if debug:
-            print(f"  ERROR: Slider not found (score={score:.4f})")
+            print(f"  ERROR: Plus button not found (score={score:.4f})")
         return False
 
-    if debug:
-        print(f"  Slider at x={circle_x}, dragging to max ({SLIDER_MAX_X})...")
+    # Track right edge is 54 pixels left of plus button center
+    track_right_x = plus_x - 54
 
-    adb.swipe(circle_x, SLIDER_Y, SLIDER_MAX_X, SLIDER_Y, duration=500)
+    if debug:
+        print(f"  Plus button at ({plus_x}, {plus_y}), clicking track right edge ({track_right_x}, {plus_y})...")
+
+    adb.tap(track_right_x, plus_y)
     return True
 
 
-def drag_slider_to_position(adb, frame, target_x, debug=False):
+def drag_slider_to_position(adb: ADBHelper, frame: npt.NDArray[Any], target_x: int, debug: bool = False) -> bool:
     """Find slider and drag to a specific X position.
 
     Args:
@@ -104,20 +141,20 @@ def drag_slider_to_position(adb, frame, target_x, debug=False):
     Returns:
         bool: True if successful
     """
-    circle_x, score = find_slider_circle(frame)
-    if circle_x is None:
+    circle_x, circle_y, score = find_slider_circle(frame)
+    if circle_x is None or circle_y is None:
         if debug:
             print(f"  ERROR: Slider not found (score={score:.4f})")
         return False
 
     if debug:
-        print(f"  Slider at x={circle_x}, dragging to {target_x}...")
+        print(f"  Slider at ({circle_x}, {circle_y}), dragging to ({target_x}, {circle_y})...")
 
-    adb.swipe(circle_x, SLIDER_Y, target_x, SLIDER_Y, duration=500)
+    adb.swipe(circle_x, circle_y, target_x, circle_y, duration=500)
     return True
 
 
-def calculate_slider_position(ratio):
+def calculate_slider_position(ratio: float) -> int:
     """Calculate slider X position for a given ratio (0.0 to 1.0).
 
     Args:

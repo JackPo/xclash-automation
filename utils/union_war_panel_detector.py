@@ -8,9 +8,14 @@ Checks for:
 2. Team Intelligence tab being selected (vs Solo Intelligence)
 """
 
-import numpy as np
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
 
 
 class UnionWarPanelDetector:
@@ -33,11 +38,11 @@ class UnionWarPanelDetector:
     HEADING_TEMPLATE = "union_war_heading_4k.png"
     TAB_TEMPLATE = "team_intelligence_tab_4k.png"
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize detector."""
         pass  # Templates loaded by template_matcher
 
-    def is_union_war_panel(self, frame: np.ndarray) -> tuple[bool, float]:
+    def is_union_war_panel(self, frame: npt.NDArray[Any]) -> tuple[bool, float]:
         """
         Check if Union War heading is present at top of screen.
 
@@ -50,7 +55,7 @@ class UnionWarPanelDetector:
 
         return found, score
 
-    def is_team_intelligence_tab(self, frame: np.ndarray) -> tuple[bool, float]:
+    def is_team_intelligence_tab(self, frame: npt.NDArray[Any]) -> tuple[bool, float]:
         """
         Check if Team Intelligence tab is selected (highlighted).
 
@@ -63,7 +68,7 @@ class UnionWarPanelDetector:
 
         return found, score
 
-    def validate_panel_state(self, frame: np.ndarray) -> tuple[bool, str, dict]:
+    def validate_panel_state(self, frame: npt.NDArray[Any]) -> tuple[bool, str, dict[str, Any]]:
         """
         Validate complete panel state (heading + tab).
 

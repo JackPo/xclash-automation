@@ -5,8 +5,12 @@ This dialog appears when the user opens the game on mobile, disconnecting BlueSt
 When detected, the daemon should wait 5 minutes before clicking Confirm to give
 the user time to manage things on mobile.
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
 
@@ -18,7 +22,7 @@ CONFIRM_BUTTON_CLICK = (1912, 1289)  # Center of Confirm button
 THRESHOLD = 0.05
 
 
-def is_disconnection_dialog_visible(frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
+def is_disconnection_dialog_visible(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
     """
     Check if the disconnection dialog is visible.
 

@@ -1,0 +1,40 @@
+# =============================================================================
+# xclash Dependencies
+# =============================================================================
+
+# Core dependencies
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Windows API (for screenshots, input simulation)
+pywin32>=306
+
+# AI/ML (for OCR with Qwen2.5-VL)
+transformers>=4.35.0
+torch>=2.0.0
+bitsandbytes>=0.41.0
+accelerate>=0.24.0
+qwen-vl-utils>=0.0.2
+
+# WebSocket server (for daemon control)
+websockets>=12.0
+
+# Input tracking
+pynput>=1.7.6
+
+# =============================================================================
+# Development Dependencies
+# =============================================================================
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+freezegun>=1.2.0  # For time mocking in tests
+
+# Type checking
+mypy>=1.7.0
+
+# Pre-commit hooks
+pre-commit>=3.6.0

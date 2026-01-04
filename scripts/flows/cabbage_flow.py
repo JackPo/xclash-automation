@@ -1,17 +1,23 @@
 """
 Cabbage harvest flow - clicks the cabbage bubble.
 """
-import time
+from __future__ import annotations
+
 import sys
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.cabbage_matcher import CabbageMatcher
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
-def cabbage_flow(adb, win=None):
+def cabbage_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the cabbage bubble if present.
 
     Args:

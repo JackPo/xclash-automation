@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Any, TypedDict, cast
+
+import numpy.typing as npt
 
 from config import STAMINA_REGION, ZOMBIE_MODE_CONFIG
 from utils.arms_race_panel_helper import (
@@ -34,19 +36,50 @@ from utils.claude_cli_helper import get_stamina_decision
 from utils.ocr_client import OCRClient
 from utils.return_to_base_view import return_to_base_view
 
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.scheduler import DaemonScheduler
+
 logger = logging.getLogger(__name__)
 
 
-def get_current_stamina(frame, ocr_client: OCRClient = None) -> int:
-    """Extract current stamina from HUD."""
-    if ocr_client is None:
-        ocr_client = OCRClient()
+class HourMarkResult(TypedDict):
+    """Result from run_hour_mark_phase."""
 
-    stamina = ocr_client.extract_number(frame, STAMINA_REGION)
+    success: bool
+    rallies_needed: int
+    stamina_claimed: int
+    decision: dict[str, Any] | None
+    current_points: int | None
+    zombie_mode: str
+
+
+class QuickProgressResult(TypedDict):
+    """Result from check_progress_quick."""
+
+    success: bool
+    current_points: int | None
+    rallies_needed: int | None
+    chest3_reached: bool
+
+
+def get_current_stamina(
+    frame: npt.NDArray[Any], ocr_client: OCRClient | None = None
+) -> int:
+    """Extract current stamina from HUD."""
+    client = ocr_client if ocr_client is not None else OCRClient()
+
+    stamina = client.extract_number(frame, STAMINA_REGION)
     return stamina or 0
 
 
-def run_hour_mark_phase(adb, win, debug: bool = False, scheduler=None) -> dict:
+def run_hour_mark_phase(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+    scheduler: DaemonScheduler | None = None,
+) -> HourMarkResult:
     """
     Phase 1: Hour mark check and initial stamina claim.
 
@@ -59,23 +92,17 @@ def run_hour_mark_phase(adb, win, debug: bool = False, scheduler=None) -> dict:
         scheduler: Optional Scheduler instance to get zombie mode
 
     Returns:
-        {
-            "success": bool,
-            "rallies_needed": int,
-            "stamina_claimed": int,
-            "decision": dict,
-            "current_points": int | None,
-            "zombie_mode": str
-        }
+        HourMarkResult with success, rallies_needed, stamina_claimed, decision,
+        current_points, and zombie_mode.
     """
     # Get zombie mode from scheduler
     zombie_mode = "elite"
     if scheduler:
         zombie_mode, _ = scheduler.get_zombie_mode()
     mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-    stamina_per_action = mode_config["stamina"]
+    stamina_per_action = cast(int, mode_config["stamina"])
 
-    result = {
+    result: HourMarkResult = {
         "success": False,
         "rallies_needed": 0,
         "stamina_claimed": 0,
@@ -190,7 +217,12 @@ def run_hour_mark_phase(adb, win, debug: bool = False, scheduler=None) -> dict:
     return result
 
 
-def run_last_6_minutes_phase(adb, win, debug: bool = False, scheduler=None) -> dict:
+def run_last_6_minutes_phase(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+    scheduler: DaemonScheduler | None = None,
+) -> HourMarkResult:
     """
     Phase 2: Last 6 minutes re-check and final stamina claim.
 
@@ -203,16 +235,17 @@ def run_last_6_minutes_phase(adb, win, debug: bool = False, scheduler=None) -> d
         debug: Enable debug logging
         scheduler: Optional Scheduler instance to get zombie mode
 
-    Returns same structure as hour_mark_phase.
+    Returns:
+        HourMarkResult with same structure as hour_mark_phase.
     """
     # Get zombie mode from scheduler
     zombie_mode = "elite"
     if scheduler:
         zombie_mode, _ = scheduler.get_zombie_mode()
     mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-    stamina_per_action = mode_config["stamina"]
+    stamina_per_action = cast(int, mode_config["stamina"])
 
-    result = {
+    result: HourMarkResult = {
         "success": False,
         "rallies_needed": 0,
         "stamina_claimed": 0,
@@ -328,25 +361,25 @@ def run_last_6_minutes_phase(adb, win, debug: bool = False, scheduler=None) -> d
     return result
 
 
-def check_progress_quick(adb, win, debug: bool = False) -> dict:
+def check_progress_quick(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+) -> QuickProgressResult:
     """
     Quick progress check for continuous monitoring.
 
     Just checks Arms Race points without full stamina inventory.
 
     Returns:
-        {
-            "success": bool,
-            "current_points": int | None,
-            "rallies_needed": int | None,
-            "chest3_reached": bool
-        }
+        QuickProgressResult with success, current_points, rallies_needed,
+        and chest3_reached.
     """
-    result = {
+    result: QuickProgressResult = {
         "success": False,
         "current_points": None,
         "rallies_needed": None,
-        "chest3_reached": False
+        "chest3_reached": False,
     }
 
     try:
@@ -400,18 +433,18 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "--hour-mark":
             print("Running hour mark phase...")
-            result = run_hour_mark_phase(adb, win, debug=True)
-            print(f"\nResult: {result}")
+            hour_result = run_hour_mark_phase(adb, win, debug=True)
+            print(f"\nResult: {hour_result}")
 
         elif sys.argv[1] == "--last-6":
             print("Running last 6 minutes phase...")
-            result = run_last_6_minutes_phase(adb, win, debug=True)
-            print(f"\nResult: {result}")
+            last6_result = run_last_6_minutes_phase(adb, win, debug=True)
+            print(f"\nResult: {last6_result}")
 
         elif sys.argv[1] == "--quick":
             print("Running quick progress check...")
-            result = check_progress_quick(adb, win, debug=True)
-            print(f"\nResult: {result}")
+            quick_result = check_progress_quick(adb, win, debug=True)
+            print(f"\nResult: {quick_result}")
     else:
         print("Usage:")
         print("  python beast_training_flow.py --hour-mark  # Run hour mark phase")

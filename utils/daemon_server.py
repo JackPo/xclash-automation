@@ -9,22 +9,31 @@ Protocol: JSON messages
 - Server -> Client: {"type": "response", "cmd": "run_flow", "success": true, "data": {...}}
 - Server -> Client: {"type": "event", "event": "flow_started", "data": {"flow": "tavern_quest"}}
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import threading
 import time
 from datetime import datetime
-from typing import Set, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from scripts.icon_daemon import IconDaemon
+    from websockets.legacy.server import WebSocketServerProtocol
+
+_websockets_available = False
+websockets: Any = None
+ws_serve: Any = None
 
 try:
-    import websockets
-    from websockets.server import serve
+    import websockets as _ws
+    from websockets.server import serve as _serve
+    websockets = _ws
+    ws_serve = _serve
+    _websockets_available = True
 except ImportError:
-    websockets = None
+    pass
 
 DEFAULT_PORT = 9876
 logger = logging.getLogger("DaemonServer")
@@ -39,7 +48,7 @@ class DaemonWebSocketServer:
     Events can be broadcast from the daemon thread to all connected clients.
     """
 
-    def __init__(self, daemon: "IconDaemon", port: int = DEFAULT_PORT):
+    def __init__(self, daemon: Any, port: int = DEFAULT_PORT) -> None:
         """
         Initialize the WebSocket server.
 
@@ -47,24 +56,24 @@ class DaemonWebSocketServer:
             daemon: The IconDaemon instance to control
             port: Port to listen on (default 9876)
         """
-        if websockets is None:
+        if not _websockets_available:
             raise ImportError("websockets library required: pip install websockets")
 
         self.daemon = daemon
         self.port = port
-        self.clients: Set = set()
+        self.clients: set[WebSocketServerProtocol] = set()
         self.loop: asyncio.AbstractEventLoop | None = None
         self.thread: threading.Thread | None = None
         self.running = False
 
-    def start(self):
+    def start(self) -> None:
         """Start WebSocket server in background thread."""
         self.running = True
         self.thread = threading.Thread(target=self._run_server, daemon=True, name="DaemonWS")
         self.thread.start()
         logger.info(f"WebSocket server starting on ws://localhost:{self.port}")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the WebSocket server."""
         self.running = False
         if self.loop:
@@ -73,7 +82,7 @@ class DaemonWebSocketServer:
             self.thread.join(timeout=2.0)
         logger.info("WebSocket server stopped")
 
-    def _run_server(self):
+    def _run_server(self) -> None:
         """Run async event loop in dedicated thread."""
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
@@ -84,10 +93,12 @@ class DaemonWebSocketServer:
         finally:
             self.loop.close()
 
-    async def _serve(self):
+    async def _serve(self) -> None:
         """Main server coroutine."""
+        if ws_serve is None:
+            return
         try:
-            async with serve(self._handle_client, "127.0.0.1", self.port):
+            async with ws_serve(self._handle_client, "127.0.0.1", self.port):
                 logger.info(f"WebSocket server listening on ws://127.0.0.1:{self.port}")
                 # Run until stopped
                 while self.running:
@@ -95,7 +106,7 @@ class DaemonWebSocketServer:
         except OSError as e:
             logger.error(f"Failed to start WebSocket server: {e}")
 
-    async def _handle_client(self, websocket):
+    async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
         """Handle a single WebSocket connection."""
         self.clients.add(websocket)
         client_count = len(self.clients)
@@ -104,20 +115,21 @@ class DaemonWebSocketServer:
         try:
             async for message in websocket:
                 try:
-                    response = self._process_message(message)
+                    response = self._process_message(str(message))
                     await websocket.send(json.dumps(response))
                 except Exception as e:
-                    error_response = {"type": "response", "success": False, "error": str(e)}
+                    error_response: dict[str, Any] = {"type": "response", "success": False, "error": str(e)}
                     await websocket.send(json.dumps(error_response))
-        except websockets.ConnectionClosed:
-            pass
         except Exception as e:
-            logger.error(f"Client handler error: {e}")
+            if websockets is not None and isinstance(e, websockets.ConnectionClosed):
+                pass
+            else:
+                logger.error(f"Client handler error: {e}")
         finally:
             self.clients.discard(websocket)
             logger.info(f"Client disconnected ({len(self.clients)} total)")
 
-    def _process_message(self, message: str) -> dict:
+    def _process_message(self, message: str) -> dict[str, Any]:
         """
         Process incoming message and return response.
 
@@ -127,9 +139,9 @@ class DaemonWebSocketServer:
         Returns:
             Response dict with {type, cmd, success, data/error}
         """
-        data = json.loads(message)
-        cmd = data.get("cmd")
-        args = data.get("args", {})
+        data: dict[str, Any] = json.loads(message)
+        cmd: str | None = data.get("cmd")
+        args: dict[str, Any] = data.get("args", {})
 
         # Command dispatch table
         handlers = {
@@ -165,6 +177,8 @@ class DaemonWebSocketServer:
             "get_stamina_inventory": self._cmd_get_stamina_inventory,
         }
 
+        if cmd is None:
+            return {"type": "response", "cmd": cmd, "success": False, "error": "Missing 'cmd' field"}
         handler = handlers.get(cmd)
         if handler:
             try:
@@ -176,7 +190,7 @@ class DaemonWebSocketServer:
         else:
             return {"type": "response", "cmd": cmd, "success": False, "error": f"Unknown command: {cmd}"}
 
-    def broadcast(self, event: str, data: dict):
+    def broadcast(self, event: str, data: dict[str, Any]) -> None:
         """
         Push event to all connected clients (called from daemon thread).
 
@@ -197,7 +211,7 @@ class DaemonWebSocketServer:
         # Schedule broadcast in the server's event loop
         asyncio.run_coroutine_threadsafe(self._broadcast_async(message), self.loop)
 
-    async def _broadcast_async(self, message: str):
+    async def _broadcast_async(self, message: str) -> None:
         """Async broadcast to all clients."""
         if not self.clients:
             return
@@ -212,18 +226,20 @@ class DaemonWebSocketServer:
     # Command Handlers
     # =========================================================================
 
-    def _cmd_run_flow(self, args: dict) -> dict:
+    def _cmd_run_flow(self, args: dict[str, Any]) -> dict[str, Any]:
         """Trigger a specific flow."""
         flow_name = args.get("flow")
         if not flow_name:
             raise ValueError("Missing 'flow' argument")
-        return self.daemon.trigger_flow(flow_name)
+        result: dict[str, Any] = self.daemon.trigger_flow(flow_name)
+        return result
 
-    def _cmd_status(self, args: dict) -> dict:
+    def _cmd_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current daemon status."""
-        return self.daemon.get_status()
+        result: dict[str, Any] = self.daemon.get_status()
+        return result
 
-    def _cmd_list_flows(self, args: dict) -> dict:
+    def _cmd_list_flows(self, args: dict[str, Any]) -> dict[str, Any]:
         """List available flows."""
         flows = self.daemon.get_available_flows()
         return {
@@ -233,33 +249,35 @@ class DaemonWebSocketServer:
             ]
         }
 
-    def _cmd_get_state(self, args: dict) -> dict:
+    def _cmd_get_state(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get full daemon state."""
-        return self.daemon.scheduler.get_daemon_state()
+        result: dict[str, Any] = self.daemon.scheduler.get_daemon_state()
+        return result
 
-    def _cmd_set_config(self, args: dict) -> dict:
+    def _cmd_set_config(self, args: dict[str, Any]) -> dict[str, Any]:
         """Dynamically update a config value."""
         key = args.get("key")
         value = args.get("value")
         if not key:
             raise ValueError("Missing 'key' argument")
-        return self.daemon.set_config(key, value)
+        result: dict[str, Any] = self.daemon.set_config(key, value)
+        return result
 
-    def _cmd_pause(self, args: dict) -> dict:
+    def _cmd_pause(self, args: dict[str, Any]) -> dict[str, Any]:
         """Pause daemon main loop."""
         self.daemon.paused = True
         self.daemon.scheduler.update_daemon_state(paused=True)
         self.broadcast("paused", {"paused": True})
         return {"paused": True}
 
-    def _cmd_resume(self, args: dict) -> dict:
+    def _cmd_resume(self, args: dict[str, Any]) -> dict[str, Any]:
         """Resume daemon main loop."""
         self.daemon.paused = False
         self.daemon.scheduler.update_daemon_state(paused=False)
         self.broadcast("resumed", {"paused": False})
         return {"paused": False}
 
-    def _cmd_ping(self, args: dict) -> dict:
+    def _cmd_ping(self, args: dict[str, Any]) -> dict[str, Any]:
         """Health check."""
         return {
             "pong": True,
@@ -267,14 +285,17 @@ class DaemonWebSocketServer:
             "clients": len(self.clients),
         }
 
-    def _cmd_save_state(self, args: dict) -> dict:
+    def _cmd_save_state(self, args: dict[str, Any]) -> dict[str, Any]:
         """Force save daemon state now."""
         self.daemon._save_runtime_state()
         return {"saved": True}
 
-    def _cmd_read_stamina(self, args: dict) -> dict:
+    def _cmd_read_stamina(self, args: dict[str, Any]) -> dict[str, Any]:
         """Read current stamina from screen (fresh OCR)."""
         from utils.view_state_detector import detect_view, ViewState
+
+        if self.daemon.windows_helper is None or self.daemon.ocr_client is None:
+            raise RuntimeError("Daemon not initialized")
 
         frame = self.daemon.windows_helper.get_screenshot_cv2()
 
@@ -300,20 +321,26 @@ class DaemonWebSocketServer:
             "valid": stamina is not None and 0 <= stamina <= 200
         }
 
-    def _cmd_return_to_base(self, args: dict) -> dict:
+    def _cmd_return_to_base(self, args: dict[str, Any]) -> dict[str, Any]:
         """Navigate back to TOWN/WORLD view."""
         from utils.return_to_base_view import return_to_base_view
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
 
         success = return_to_base_view(
             self.daemon.adb,
             self.daemon.windows_helper,
-            debug=args.get("debug", False)
+            debug=bool(args.get("debug", False))
         )
         return {"success": success}
 
-    def _cmd_get_view(self, args: dict) -> dict:
+    def _cmd_get_view(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current view state."""
         from utils.view_state_detector import detect_view
+
+        if self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
 
         frame = self.daemon.windows_helper.get_screenshot_cv2()
         view_state, score = detect_view(frame)
@@ -327,18 +354,18 @@ class DaemonWebSocketServer:
     # Rally Target Commands
     # =========================================================================
 
-    def _cmd_set_rally_count(self, args: dict) -> dict:
+    def _cmd_set_rally_count(self, args: dict[str, Any]) -> dict[str, Any]:
         """Set the current rally count (e.g., 'I did 5 manually')."""
-        count = args.get("count")
-        if count is None:
+        count_val = args.get("count")
+        if count_val is None:
             raise ValueError("Missing 'count' argument")
-        count = int(count)
+        count = int(count_val)
 
         self.daemon.scheduler.update_arms_race_state(beast_training_rally_count=count)
         self.daemon.beast_training_rally_count = count  # Update daemon's in-memory count
 
         arms_race = self.daemon.scheduler.get_arms_race_state()
-        target = arms_race.get("beast_training_target_rallies")
+        target: int | None = arms_race.get("beast_training_target_rallies")
 
         return {
             "rally_count": count,
@@ -346,12 +373,12 @@ class DaemonWebSocketServer:
             "remaining": (target - count) if target else None
         }
 
-    def _cmd_set_rally_target(self, args: dict) -> dict:
+    def _cmd_set_rally_target(self, args: dict[str, Any]) -> dict[str, Any]:
         """Set rally target for current or next Beast Training block."""
-        target = args.get("target")
-        if target is None:
+        target_val = args.get("target")
+        if target_val is None:
             raise ValueError("Missing 'target' argument")
-        target = int(target)
+        target = int(target_val)
 
         next_block = args.get("next", False)
 
@@ -361,7 +388,7 @@ class DaemonWebSocketServer:
         else:
             self.daemon.scheduler.update_arms_race_state(beast_training_target_rallies=target)
             arms_race = self.daemon.scheduler.get_arms_race_state()
-            count = arms_race.get("beast_training_rally_count", 0)
+            count: int = arms_race.get("beast_training_rally_count", 0)
             return {
                 "target": target,
                 "block": "current",
@@ -369,15 +396,15 @@ class DaemonWebSocketServer:
                 "remaining": target - count
             }
 
-    def _cmd_add_rallies(self, args: dict) -> dict:
+    def _cmd_add_rallies(self, args: dict[str, Any]) -> dict[str, Any]:
         """Add N more rallies to current target (target = current_count + N)."""
-        count = args.get("count")
-        if count is None:
+        count_val = args.get("count")
+        if count_val is None:
             raise ValueError("Missing 'count' argument")
-        count = int(count)
+        count = int(count_val)
 
         arms_race = self.daemon.scheduler.get_arms_race_state()
-        current_count = arms_race.get("beast_training_rally_count", 0)
+        current_count: int = arms_race.get("beast_training_rally_count", 0)
         new_target = current_count + count
 
         self.daemon.scheduler.update_arms_race_state(beast_training_target_rallies=new_target)
@@ -389,7 +416,7 @@ class DaemonWebSocketServer:
             "remaining": count
         }
 
-    def _cmd_get_rally_status(self, args: dict) -> dict:
+    def _cmd_get_rally_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current Arms Race status with real points from game UI.
 
         Returns what actually matters: points needed, rallies needed, stamina needed,
@@ -401,22 +428,25 @@ class DaemonWebSocketServer:
         from scripts.flows.beast_training_flow import check_progress_quick
         from utils.stamina_popup_helper import get_inventory_snapshot
 
+        if self.daemon.adb is None or self.daemon.windows_helper is None or self.daemon.ocr_client is None:
+            raise RuntimeError("Daemon not initialized")
+
         arms_race_status = get_arms_race_status()
 
         # Get zombie mode for stamina/points calculations
         zombie_mode, zombie_expires = self.daemon.scheduler.get_zombie_mode()
-        mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-        stamina_per_rally = mode_config["stamina"]
-        points_per_rally = mode_config.get("points", 2000)
+        mode_config: dict[str, Any] = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+        stamina_per_rally: int = mode_config["stamina"]
+        points_per_rally: int = mode_config.get("points", 2000)
 
         event_remaining_mins = int(arms_race_status["time_remaining"].total_seconds() / 60)
         is_beast_training = arms_race_status["current"] == "Mystic Beast Training"
 
         # Check the game for current points
-        current_points = None
+        current_points: int | None = None
         chest3_target = 30000
-        points_remaining = None
-        rallies_needed = None
+        points_remaining: int | None = None
+        rallies_needed: int | None = None
 
         if is_beast_training:
             try:
@@ -542,17 +572,20 @@ class DaemonWebSocketServer:
     # Title Commands
     # =========================================================================
 
-    def _cmd_apply_title(self, args: dict) -> dict:
+    def _cmd_apply_title(self, args: dict[str, Any]) -> dict[str, Any]:
         """Apply a kingdom title. Requires being at marked Royal City."""
         from scripts.flows.go_to_mark_flow import go_to_mark_flow
         from scripts.flows.title_management_flow import title_management_flow, TITLE_DATA
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
 
         title_name = args.get("title")
         if not title_name:
             raise ValueError("Missing 'title' argument. Use list_titles to see available titles.")
 
         # Validate title exists
-        titles = TITLE_DATA.get("titles", {})
+        titles: dict[str, Any] = TITLE_DATA.get("titles", {})
         if title_name not in titles:
             raise ValueError(f"Unknown title: {title_name}. Available: {list(titles.keys())}")
 
@@ -562,14 +595,14 @@ class DaemonWebSocketServer:
 
         try:
             # Step 1: Go to marked Royal City
-            logger.info(f"Navigating to marked Royal City...")
-            go_success = go_to_mark_flow(self.daemon.adb, debug=False)
+            logger.info("Navigating to marked Royal City...")
+            go_success: bool = go_to_mark_flow(self.daemon.adb, debug=False)
             if not go_success:
                 return {"success": False, "error": "Failed to navigate to marked Royal City"}
 
             # Step 2: Apply the title
             logger.info(f"Applying title: {title_name}")
-            result = title_management_flow(
+            flow_result: bool = title_management_flow(
                 self.daemon.adb,
                 title_name,
                 screenshot_helper=self.daemon.windows_helper,
@@ -577,9 +610,9 @@ class DaemonWebSocketServer:
                 return_to_base=True
             )
 
-            title_info = titles[title_name]
+            title_info: dict[str, Any] = titles[title_name]
             return {
-                "success": result,
+                "success": flow_result,
                 "title": title_name,
                 "display_name": title_info.get("display_name"),
                 "buffs": title_info.get("buffs", [])
@@ -589,11 +622,11 @@ class DaemonWebSocketServer:
             self.daemon.critical_flow_active = False
             self.daemon.critical_flow_name = None
 
-    def _cmd_list_titles(self, args: dict) -> dict:
+    def _cmd_list_titles(self, args: dict[str, Any]) -> dict[str, Any]:
         """List available kingdom titles."""
         from scripts.flows.title_management_flow import TITLE_DATA
 
-        titles = TITLE_DATA.get("titles", {})
+        titles: dict[str, Any] = TITLE_DATA.get("titles", {})
         return {
             "titles": [
                 {
@@ -609,24 +642,24 @@ class DaemonWebSocketServer:
     # Zombie Mode Commands
     # =========================================================================
 
-    def _cmd_set_zombie_mode(self, args: dict) -> dict:
+    def _cmd_set_zombie_mode(self, args: dict[str, Any]) -> dict[str, Any]:
         """Set zombie mode for Beast Training (gold/food/iron_mine instead of elite)."""
         from config import ZOMBIE_MODE_CONFIG
 
         mode = args.get("mode", "gold")
-        hours = args.get("hours", 24)
+        hours_val = args.get("hours", 24)
 
         if mode not in ZOMBIE_MODE_CONFIG:
             valid_modes = list(ZOMBIE_MODE_CONFIG.keys())
             raise ValueError(f"Invalid mode: {mode}. Valid modes: {valid_modes}")
 
         try:
-            hours = float(hours)
+            hours = float(hours_val)
         except (TypeError, ValueError):
-            raise ValueError(f"Invalid hours value: {hours}")
+            raise ValueError(f"Invalid hours value: {hours_val}")
 
         expires = self.daemon.scheduler.set_zombie_mode(mode, hours)
-        mode_config = ZOMBIE_MODE_CONFIG[mode]
+        mode_config: dict[str, Any] = ZOMBIE_MODE_CONFIG[mode]
 
         return {
             "mode": mode,
@@ -636,15 +669,15 @@ class DaemonWebSocketServer:
             "points_per_action": mode_config["points"],
         }
 
-    def _cmd_get_zombie_mode(self, args: dict) -> dict:
+    def _cmd_get_zombie_mode(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current zombie mode and expiry."""
         from config import ZOMBIE_MODE_CONFIG
-        from datetime import datetime, timezone
+        from datetime import timezone
 
         mode, expires = self.daemon.scheduler.get_zombie_mode()
-        mode_config = ZOMBIE_MODE_CONFIG.get(mode, ZOMBIE_MODE_CONFIG["elite"])
+        mode_config: dict[str, Any] = ZOMBIE_MODE_CONFIG.get(mode, ZOMBIE_MODE_CONFIG["elite"])
 
-        result = {
+        result: dict[str, Any] = {
             "mode": mode,
             "stamina_per_action": mode_config["stamina"],
             "points_per_action": mode_config["points"],
@@ -658,7 +691,7 @@ class DaemonWebSocketServer:
 
         return result
 
-    def _cmd_clear_zombie_mode(self, args: dict) -> dict:
+    def _cmd_clear_zombie_mode(self, args: dict[str, Any]) -> dict[str, Any]:
         """Clear zombie mode, revert to elite."""
         self.daemon.scheduler.clear_zombie_mode()
         return {
@@ -670,7 +703,7 @@ class DaemonWebSocketServer:
     # Parameterized Flow Commands
     # =========================================================================
 
-    def _cmd_run_zombie_attack(self, args: dict) -> dict:
+    def _cmd_run_zombie_attack(self, args: dict[str, Any]) -> dict[str, Any]:
         """
         Run zombie attack flow with custom parameters.
 
@@ -683,8 +716,11 @@ class DaemonWebSocketServer:
         """
         from scripts.flows.zombie_attack_flow import zombie_attack_flow
 
-        zombie_type = args.get("zombie_type", "gold")
-        plus_clicks = args.get("plus_clicks", 5)
+        if self.daemon.adb is None:
+            raise RuntimeError("Daemon not initialized")
+
+        zombie_type: str = args.get("zombie_type", "gold")
+        plus_clicks_val = args.get("plus_clicks", 5)
 
         # Validate zombie_type
         valid_types = ["gold", "food", "iron_mine"]
@@ -692,9 +728,9 @@ class DaemonWebSocketServer:
             raise ValueError(f"Invalid zombie_type: {zombie_type}. Valid: {valid_types}")
 
         try:
-            plus_clicks = int(plus_clicks)
+            plus_clicks = int(plus_clicks_val)
         except (TypeError, ValueError):
-            raise ValueError(f"Invalid plus_clicks value: {plus_clicks}")
+            raise ValueError(f"Invalid plus_clicks value: {plus_clicks_val}")
 
         logger.info(f"Running zombie_attack_flow(zombie_type={zombie_type}, plus_clicks={plus_clicks})")
 
@@ -704,7 +740,7 @@ class DaemonWebSocketServer:
         self.daemon.active_flows.add(flow_name)
 
         try:
-            result = zombie_attack_flow(
+            flow_result: bool = zombie_attack_flow(
                 self.daemon.adb,
                 zombie_type=zombie_type,
                 plus_clicks=plus_clicks
@@ -713,7 +749,7 @@ class DaemonWebSocketServer:
                 "success": True,
                 "zombie_type": zombie_type,
                 "plus_clicks": plus_clicks,
-                "result": result
+                "result": flow_result
             }
         except Exception as e:
             logger.error(f"zombie_attack_flow failed: {e}")
@@ -726,7 +762,7 @@ class DaemonWebSocketServer:
         finally:
             self.daemon.active_flows.discard(flow_name)
 
-    def _cmd_faction_trial(self, args: dict) -> dict:
+    def _cmd_faction_trial(self, args: dict[str, Any]) -> dict[str, Any]:
         """
         Run the faction trials flow.
 
@@ -735,6 +771,9 @@ class DaemonWebSocketServer:
         """
         from scripts.flows.faction_trials_flow import faction_trials_flow
 
+        if self.daemon.adb is None:
+            raise RuntimeError("Daemon not initialized")
+
         logger.info("Running faction_trials_flow")
 
         # Mark as flow to prevent daemon interference
@@ -742,7 +781,7 @@ class DaemonWebSocketServer:
         self.daemon.active_flows.add(flow_name)
 
         try:
-            battles = faction_trials_flow(self.daemon.adb)
+            battles: int = faction_trials_flow(self.daemon.adb)
             return {
                 "success": True,
                 "battles_completed": battles
@@ -760,7 +799,7 @@ class DaemonWebSocketServer:
     # Stamina Commands
     # =========================================================================
 
-    def _cmd_use_stamina(self, args: dict) -> dict:
+    def _cmd_use_stamina(self, args: dict[str, Any]) -> dict[str, Any]:
         """
         Use stamina items to replenish stamina.
 
@@ -782,13 +821,16 @@ class DaemonWebSocketServer:
             get_owned_counts
         )
 
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
+
         claim_free = args.get("claim_free_50", False)
-        use_10 = args.get("use_10_count", 0)
-        use_50 = args.get("use_50_count", 0)
+        use_10_val = args.get("use_10_count", 0)
+        use_50_val = args.get("use_50_count", 0)
 
         try:
-            use_10 = int(use_10)
-            use_50 = int(use_50)
+            use_10 = int(use_10_val)
+            use_50 = int(use_50_val)
         except (TypeError, ValueError):
             raise ValueError("use_10_count and use_50_count must be integers")
 
@@ -802,7 +844,7 @@ class DaemonWebSocketServer:
         owned_before = get_owned_counts(frame)
         cooldown_before = get_cooldown_seconds(frame)
 
-        result = {
+        result: dict[str, Any] = {
             "claimed_free_50": False,
             "used_10": 0,
             "used_50": 0,
@@ -845,13 +887,16 @@ class DaemonWebSocketServer:
 
         return result
 
-    def _cmd_get_stamina_inventory(self, args: dict) -> dict:
+    def _cmd_get_stamina_inventory(self, args: dict[str, Any]) -> dict[str, Any]:
         """
         Get current stamina inventory without using any items.
 
         Returns owned counts and free 50 cooldown status.
         """
         from utils.stamina_popup_helper import get_inventory_snapshot
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
 
         inventory = get_inventory_snapshot(self.daemon.adb, self.daemon.windows_helper)
 

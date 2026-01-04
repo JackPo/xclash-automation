@@ -13,14 +13,14 @@ Usage:
     adb = ADBHelper()
     adb.take_screenshot("screenshot.png")
 """
+from __future__ import annotations
 
 import subprocess
 import time
 import sys
 import argparse
 from pathlib import Path
-from PIL import Image
-import io
+from typing import Callable
 
 
 class ADBHelper:
@@ -36,7 +36,7 @@ class ADBHelper:
 
     ADB_PATH = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
 
-    def __init__(self, auto_connect=True, on_action=None):
+    def __init__(self, auto_connect: bool = True, on_action: Callable[[], None] | None = None) -> None:
         """
         Initialize ADB helper.
 
@@ -45,13 +45,13 @@ class ADBHelper:
             on_action: Optional callback to invoke before each tap/swipe action.
                        Used by UserIdleTracker to track daemon actions.
         """
-        self.device = None
+        self.device: str | None = None
         self._on_action = on_action
 
         if auto_connect:
             self.ensure_connected()
 
-    def _run_adb(self, args, capture_output=True, check=False):
+    def _run_adb(self, args: list[str], capture_output: bool = True, check: bool = False) -> tuple[bool, str, str]:
         """
         Execute ADB command.
 
@@ -63,7 +63,7 @@ class ADBHelper:
         Returns:
             Tuple of (success, stdout, stderr)
         """
-        cmd = [self.ADB_PATH]
+        cmd: list[str] = [self.ADB_PATH]
         if self.device:
             cmd.extend(["-s", self.device])
         cmd.extend(args)
@@ -78,12 +78,14 @@ class ADBHelper:
                 )
                 return True, result.stdout, result.stderr
             else:
-                result = subprocess.run(cmd, check=check)
-                return result.returncode == 0, "", ""
+                run_result = subprocess.run(cmd, check=check)
+                return run_result.returncode == 0, "", ""
         except subprocess.CalledProcessError as e:
-            return False, e.stdout if hasattr(e, 'stdout') else "", e.stderr if hasattr(e, 'stderr') else str(e)
+            stdout = e.stdout if hasattr(e, 'stdout') and e.stdout else ""
+            stderr = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+            return False, stdout, stderr
 
-    def find_device(self):
+    def find_device(self) -> str | None:
         """
         Find active BlueStacks device.
 
@@ -122,7 +124,7 @@ class ADBHelper:
 
         return None
 
-    def ensure_connected(self):
+    def ensure_connected(self) -> bool:
         """
         Ensure ADB connection is active. Reconnects if needed.
 
@@ -142,7 +144,7 @@ class ADBHelper:
 
         return False
 
-    def take_screenshot(self, output_path):
+    def take_screenshot(self, output_path: str | Path) -> str:
         """
         Capture screenshot from device.
 
@@ -164,7 +166,8 @@ class ADBHelper:
 
         # Capture screenshot using exec-out (direct binary to stdout)
         # This avoids creating temp files on the device
-        cmd = [self.ADB_PATH, "-s", self.device, "exec-out", "screencap", "-p"]
+        device_str = self.device if self.device else ""
+        cmd = [self.ADB_PATH, "-s", device_str, "exec-out", "screencap", "-p"]
 
         try:
             result = subprocess.run(
@@ -185,7 +188,7 @@ class ADBHelper:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Screenshot capture failed: {e.stderr.decode() if e.stderr else str(e)}")
 
-    def tap(self, x, y):
+    def tap(self, x: int, y: int) -> None:
         """
         Tap at screen coordinates.
 
@@ -202,7 +205,7 @@ class ADBHelper:
 
         self._run_adb(["shell", "input", "tap", str(x), str(y)])
 
-    def swipe(self, x1, y1, x2, y2, duration=300):
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> None:
         """
         Swipe gesture.
 
@@ -223,7 +226,7 @@ class ADBHelper:
             str(x1), str(y1), str(x2), str(y2), str(duration)
         ])
 
-    def get_screen_size(self):
+    def get_screen_size(self) -> tuple[int, int] | None:
         """
         Get current screen resolution.
 
@@ -248,7 +251,7 @@ class ADBHelper:
         return None
 
 
-def main():
+def main() -> None:
     """Command-line interface."""
     parser = argparse.ArgumentParser(
         description="ADB Helper - Screenshot and device management utility"

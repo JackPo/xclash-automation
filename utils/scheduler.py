@@ -53,7 +53,7 @@ class DaemonScheduler:
 
     SCHEDULE_FILE = Path(__file__).parent.parent / "data" / "daemon_schedule.json"
 
-    def __init__(self, config_overrides: dict = None):
+    def __init__(self, config_overrides: dict[str, Any] | None = None) -> None:
         """
         Initialize scheduler, loading state from file.
 
@@ -212,7 +212,7 @@ class DaemonScheduler:
                 pass
         return result
 
-    def get_flow_config(self, flow_name: str) -> dict | None:
+    def get_flow_config(self, flow_name: str) -> dict[str, Any] | None:
         """Get the configuration for a flow (public accessor)."""
         return self._get_flow_config(flow_name)
 
@@ -248,7 +248,7 @@ class DaemonScheduler:
         """
         # Deduplicate
         sorted_completions = sorted(completions)
-        deduped = []
+        deduped: list[datetime] = []
 
         for dt in sorted_completions:
             is_duplicate = False
@@ -387,9 +387,7 @@ class DaemonScheduler:
         Returns:
             datetime of next server reset
         """
-        import pytz
-        utc = pytz.UTC
-        now = datetime.now(utc)
+        now = datetime.now(timezone.utc)
         reset_hour = 2  # 02:00 UTC
 
         # Calculate next reset
@@ -404,7 +402,7 @@ class DaemonScheduler:
     # Arms Race Tracking
     # =========================================================================
 
-    def get_arms_race_state(self) -> dict:
+    def get_arms_race_state(self) -> dict[str, Any]:
         """
         Get current Arms Race block state.
 
@@ -412,9 +410,10 @@ class DaemonScheduler:
             Dict with keys: current_block_start, beast_training_rallies,
             beast_training_uses, enhance_hero_done, union_boss_mode_until
         """
-        return self.schedule.get("arms_race", {}).copy()
+        result = self.schedule.get("arms_race", {})
+        return dict(result) if result else {}
 
-    def update_arms_race_state(self, **kwargs) -> None:
+    def update_arms_race_state(self, **kwargs: Any) -> None:
         """
         Update Arms Race block state.
 
@@ -547,16 +546,17 @@ class DaemonScheduler:
     # Daemon Runtime State
     # =========================================================================
 
-    def get_daemon_state(self) -> dict:
+    def get_daemon_state(self) -> dict[str, Any]:
         """
         Get all daemon runtime state.
 
         Returns:
             Dict with all persisted daemon state (stamina_history, barracks_state, etc.)
         """
-        return self.schedule.get("daemon_state", {}).copy()
+        result = self.schedule.get("daemon_state", {})
+        return dict(result) if result else {}
 
-    def update_daemon_state(self, **kwargs) -> None:
+    def update_daemon_state(self, **kwargs: Any) -> None:
         """
         Update daemon runtime state.
 
@@ -613,21 +613,21 @@ class DaemonScheduler:
             raise
 
     @staticmethod
-    def _json_serialize(obj):
+    def _json_serialize(obj: Any) -> str:
         """Custom JSON serializer for objects not serializable by default."""
         from enum import Enum
         if isinstance(obj, Enum):
             return obj.name
         if hasattr(obj, 'isoformat'):  # datetime
-            return obj.isoformat()
+            return obj.isoformat()  # type: ignore[no-any-return]
         raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
-    def _load_or_create(self) -> dict:
+    def _load_or_create(self) -> dict[str, Any]:
         """Load schedule from file or create new."""
         if self.SCHEDULE_FILE.exists():
             try:
                 with open(self.SCHEDULE_FILE, 'r') as f:
-                    data = json.load(f)
+                    data: dict[str, Any] = json.load(f)
                 logger.info(f"Loaded schedule from {self.SCHEDULE_FILE}")
                 return data
             except (json.JSONDecodeError, IOError) as e:
@@ -635,7 +635,7 @@ class DaemonScheduler:
 
         return self._create_empty_schedule()
 
-    def _create_empty_schedule(self) -> dict:
+    def _create_empty_schedule(self) -> dict[str, Any]:
         """Create empty schedule structure."""
         return {
             "version": 1,
@@ -666,12 +666,13 @@ class DaemonScheduler:
             self.schedule["history_date"] = today
             self.save()
 
-    def _get_flow_config(self, flow_name: str) -> dict | None:
+    def _get_flow_config(self, flow_name: str) -> dict[str, Any] | None:
         """Get flow configuration (overrides take precedence)."""
         if flow_name in self.config_overrides:
-            return self.config_overrides[flow_name]
+            result = self.config_overrides[flow_name]
+            return dict(result) if result else None
         if flow_name in FLOW_CONFIGS:
-            return FLOW_CONFIGS[flow_name]
+            return dict(FLOW_CONFIGS[flow_name])
         return None
 
     # =========================================================================
@@ -725,7 +726,7 @@ class DaemonScheduler:
 _scheduler_instance: DaemonScheduler | None = None
 
 
-def get_scheduler(config_overrides: dict = None) -> DaemonScheduler:
+def get_scheduler(config_overrides: dict[str, Any] | None = None) -> DaemonScheduler:
     """Get or create the singleton scheduler instance."""
     global _scheduler_instance
     if _scheduler_instance is None:

@@ -16,10 +16,16 @@ Flow:
 
 Supports DATA GATHERING MODE to collect monster samples for OCR tuning.
 """
+from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
+
+import numpy.typing as npt
+
 import cv2
+import numpy as np
 
 from utils.adb_helper import ADBHelper
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -36,13 +42,21 @@ from utils.debug_screenshot import save_debug_screenshot
 FLOW_NAME = "rally_join"
 
 # Import config values
+# Type aliases for config values
+MonsterConfig = dict[str, Any]
+EventConfig = dict[str, Any]
+
 try:
     from config import (
-        RALLY_MONSTERS,
-        RALLY_DATA_GATHERING_MODE,
-        RALLY_IGNORE_DAILY_LIMIT,
-        RALLY_IGNORE_DAILY_LIMIT_EVENTS,
+        RALLY_MONSTERS as _RALLY_MONSTERS,
+        RALLY_DATA_GATHERING_MODE as _RALLY_DATA_GATHERING_MODE,
+        RALLY_IGNORE_DAILY_LIMIT as _RALLY_IGNORE_DAILY_LIMIT,
+        RALLY_IGNORE_DAILY_LIMIT_EVENTS as _RALLY_IGNORE_DAILY_LIMIT_EVENTS,
     )
+    RALLY_MONSTERS: list[MonsterConfig] = _RALLY_MONSTERS
+    RALLY_DATA_GATHERING_MODE: bool = _RALLY_DATA_GATHERING_MODE
+    RALLY_IGNORE_DAILY_LIMIT: bool = _RALLY_IGNORE_DAILY_LIMIT
+    RALLY_IGNORE_DAILY_LIMIT_EVENTS: list[EventConfig] = _RALLY_IGNORE_DAILY_LIMIT_EVENTS
 except ImportError:
     # Fallback defaults if config not updated yet
     RALLY_MONSTERS = [{"name": "Zombie Overlord", "auto_join": True, "max_level": 130, "has_level": True}]
@@ -113,7 +127,12 @@ CANCEL_CLICK = (1670, 1291)  # center click position
 CONFIRM_CLICK = (2150, 1291)  # center click position (same Y as Cancel)
 
 
-def _verify_button_at_region(frame, template, region, threshold=0.05):
+def _verify_button_at_region(
+    frame: npt.NDArray[Any],
+    template: npt.NDArray[Any],
+    region: tuple[int, int, int, int],
+    threshold: float = 0.05,
+) -> tuple[bool, float]:
     """
     Verify a button exists at a fixed region.
 
@@ -134,10 +153,18 @@ def _verify_button_at_region(frame, template, region, threshold=0.05):
 
     result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
     min_val, _, _, _ = cv2.minMaxLoc(result)
-    return min_val <= threshold, min_val
+    return min_val <= threshold, float(min_val)
 
 
-def _poll_for_button(win, template, region, click_pos, name, timeout=3.0, threshold=0.05):
+def _poll_for_button(
+    win: WindowsScreenshotHelper,
+    template: npt.NDArray[Any],
+    region: tuple[int, int, int, int],
+    click_pos: tuple[int, int],
+    name: str,
+    timeout: float = 3.0,
+    threshold: float = 0.05,
+) -> tuple[bool, npt.NDArray[Any]]:
     """
     Poll for a button at fixed region, click when found.
 
@@ -153,6 +180,7 @@ def _poll_for_button(win, template, region, click_pos, name, timeout=3.0, thresh
     Returns:
         (success, frame) - success=True if button found, frame is last screenshot
     """
+    frame = win.get_screenshot_cv2()
     start_time = time.time()
     while time.time() - start_time < timeout:
         frame = win.get_screenshot_cv2()
@@ -168,7 +196,10 @@ def _poll_for_button(win, template, region, click_pos, name, timeout=3.0, thresh
     return False, frame
 
 
-def _wait_for_team_up_panel(win, timeout=5.0):
+def _wait_for_team_up_panel(
+    win: WindowsScreenshotHelper,
+    timeout: float = 5.0,
+) -> npt.NDArray[Any] | None:
     """
     Wait for Team Up panel to fully load by detecting the Team Up button at fixed region.
 
@@ -179,7 +210,7 @@ def _wait_for_team_up_panel(win, timeout=5.0):
     Returns:
         frame: Screenshot with panel loaded, or None if timeout
     """
-    template = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
+    template: npt.NDArray[Any] | None = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
     if template is None:
         print("[RALLY-JOIN] WARNING: team_up_button_4k.png not found")
         return None
@@ -200,7 +231,10 @@ def _wait_for_team_up_panel(win, timeout=5.0):
     return None
 
 
-def _check_daily_limit_dialog(win, timeout=2.0) -> bool:
+def _check_daily_limit_dialog(
+    win: WindowsScreenshotHelper,
+    timeout: float = 2.0,
+) -> bool:
     """
     Poll for daily rally limit dialog after clicking Team Up.
 
@@ -211,7 +245,7 @@ def _check_daily_limit_dialog(win, timeout=2.0) -> bool:
     Returns:
         True if dialog detected (need to cancel), False if no dialog
     """
-    template = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
+    template: npt.NDArray[Any] | None = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
     if template is None:
         print("[RALLY-JOIN] WARNING: daily_rally_rewards_dialog_4k.png not found")
         return False
@@ -231,7 +265,7 @@ def _check_daily_limit_dialog(win, timeout=2.0) -> bool:
     return False
 
 
-def _get_monster_config(monster_name: str) -> dict | None:
+def _get_monster_config(monster_name: str) -> dict[str, Any] | None:
     """
     Get monster config by name from RALLY_MONSTERS.
 
@@ -247,7 +281,7 @@ def _get_monster_config(monster_name: str) -> dict | None:
     return None
 
 
-def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
+def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, Any]:
     """
     Main rally joining flow.
 
@@ -403,7 +437,7 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     # Step 6: Click Team Up button (poll for it at fixed region)
     print("[RALLY-JOIN] Step 6: Clicking Team Up button")
 
-    team_up_template = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
+    team_up_template: npt.NDArray[Any] | None = cv2.imread(str(TEAM_UP_TEMPLATE_PATH))
     if team_up_template is None:
         print("[RALLY-JOIN] WARNING: team_up_button_4k.png not found, aborting")
         _cleanup_and_exit(adb, win, back_button_matcher)
@@ -433,7 +467,7 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
             print(f"[RALLY-JOIN]   Daily limit reached for {monster_name}!")
 
             # Poll for Cancel button at fixed region (2s timeout)
-            cancel_template = cv2.imread(str(CANCEL_BUTTON_TEMPLATE_PATH))
+            cancel_template: npt.NDArray[Any] | None = cv2.imread(str(CANCEL_BUTTON_TEMPLATE_PATH))
             if cancel_template is not None:
                 found, frame = _poll_for_button(win, cancel_template, CANCEL_REGION,
                                                 CANCEL_CLICK, "Cancel button", timeout=2.0, threshold=0.1)
@@ -448,16 +482,17 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
             time.sleep(0.5)
 
             # Mark monster as exhausted for today (only if track_daily_limit is True)
-            monster_config = _get_monster_config(monster_name)
-            if monster_config and monster_config.get('track_daily_limit', True):
-                from utils.scheduler import get_scheduler, DaemonScheduler
-                scheduler = get_scheduler()
-                limit_name = f"rally_{monster_name.lower().replace(' ', '_')}"
-                reset_time = DaemonScheduler.get_next_server_reset()
-                scheduler.mark_exhausted(limit_name, reset_time)
-                print(f"[RALLY-JOIN]   Marked {monster_name} as exhausted until {reset_time}")
-            else:
-                print(f"[RALLY-JOIN]   {monster_name} has track_daily_limit=False, not marking exhausted")
+            if monster_name is not None:
+                monster_config = _get_monster_config(monster_name)
+                if monster_config and monster_config.get('track_daily_limit', True):
+                    from utils.scheduler import get_scheduler, DaemonScheduler
+                    scheduler = get_scheduler()
+                    limit_name = f"rally_{monster_name.lower().replace(' ', '_')}"
+                    reset_time = DaemonScheduler.get_next_server_reset()
+                    scheduler.mark_exhausted(limit_name, reset_time)
+                    print(f"[RALLY-JOIN]   Marked {monster_name} as exhausted until {reset_time}")
+                else:
+                    print(f"[RALLY-JOIN]   {monster_name} has track_daily_limit=False, not marking exhausted")
 
             # Cleanup and exit
             _cleanup_and_exit(adb, win, back_button_matcher)
@@ -475,7 +510,11 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict:
     return {'success': True, 'monster_name': monster_name}
 
 
-def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_matcher: BackButtonMatcher):
+def _cleanup_and_exit(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    back_button_matcher: BackButtonMatcher,
+) -> None:
     """
     Dismiss floating panels and return to base view.
 
@@ -486,7 +525,7 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
     """
     # Check for daily limit dialog that may have appeared late
     # This dialog can appear with server delay AFTER the main check in Step 6b
-    daily_limit_template = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
+    daily_limit_template: npt.NDArray[Any] | None = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
     if daily_limit_template is not None:
         frame = win.get_screenshot_cv2()
         result = cv2.matchTemplate(frame, daily_limit_template, cv2.TM_SQDIFF_NORMED)
@@ -506,7 +545,7 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
     return_to_base_view(adb, win, debug=False)
 
 
-def _save_debug_screenshot(frame, label: str):
+def _save_debug_screenshot(frame: npt.NDArray[Any], label: str) -> None:
     """
     Save debug screenshot with timestamp and label.
 

@@ -4,9 +4,10 @@ Arms Race schedule calculator.
 Uses the exact schedule table provided by the user.
 Day 1 starts Wednesday Dec 3, 2025 at 6PM PT (Dec 4, 2025 02:00 UTC).
 """
+from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any
+from typing import Any
 
 # Exact schedule from user (42 events total)
 # Format: (day, utc_hour, activity_name)
@@ -74,7 +75,7 @@ REFERENCE_TIME = datetime(2025, 12, 4, 2, 0, 0, tzinfo=timezone.utc)
 EVENT_HOURS = 4
 
 
-def get_arms_race_status(now: datetime = None) -> Dict[str, Any]:
+def get_arms_race_status(now: datetime | None = None) -> dict[str, Any]:
     """Get the current Arms Race status using the exact lookup table."""
     if now is None:
         now = datetime.now(timezone.utc)
@@ -127,7 +128,7 @@ def format_timedelta(td: timedelta) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def print_status(status: Dict[str, Any] = None):
+def print_status(status: dict[str, Any] | None = None) -> None:
     """Print the current Arms Race status."""
     if status is None:
         status = get_arms_race_status()
@@ -191,9 +192,10 @@ ARMS_RACE_EVENTS = {
 }
 
 
-def get_event_metadata(event_name: str) -> dict:
+def get_event_metadata(event_name: str) -> dict[str, Any]:
     """Get metadata for an event including chest thresholds."""
-    return ARMS_RACE_EVENTS.get(event_name, {})
+    result = ARMS_RACE_EVENTS.get(event_name, {})
+    return result if isinstance(result, dict) else {}
 
 
 def get_chest3_target(event_name: str) -> int | None:
@@ -208,7 +210,7 @@ def is_event_data_complete(event_name: str) -> bool:
     return meta.get("chest3") is not None
 
 
-def get_time_until_event(event_name: str, now: datetime = None) -> timedelta | None:
+def get_time_until_event(event_name: str, now: datetime | None = None) -> timedelta | None:
     """
     Get time until next occurrence of specified Arms Race event.
 
@@ -242,7 +244,8 @@ def get_time_until_event(event_name: str, now: datetime = None) -> timedelta | N
             if activity == event_name:
                 # Found it
                 events_away = offset
-                return status['time_remaining'] + timedelta(hours=(events_away - 1) * EVENT_HOURS)
+                time_remaining: timedelta = status['time_remaining']
+                return time_remaining + timedelta(hours=(events_away - 1) * EVENT_HOURS)
 
         return None
 
@@ -250,17 +253,17 @@ def get_time_until_event(event_name: str, now: datetime = None) -> timedelta | N
         return None
 
 
-def get_time_until_soldier_training(now: datetime = None) -> timedelta | None:
+def get_time_until_soldier_training(now: datetime | None = None) -> timedelta | None:
     """Get time until next Soldier Training event. Alias for get_time_until_event()."""
     return get_time_until_event("Soldier Training", now)
 
 
-def get_time_until_beast_training(now: datetime = None) -> timedelta | None:
+def get_time_until_beast_training(now: datetime | None = None) -> timedelta | None:
     """Get time until next Mystic Beast Training event. Alias for get_time_until_event()."""
     return get_time_until_event("Mystic Beast Training", now)
 
 
-def get_time_until_vs_promotion_day(vs_days: list[int], now: datetime = None) -> timedelta | None:
+def get_time_until_vs_promotion_day(vs_days: list[int], now: datetime | None = None) -> timedelta | None:
     """
     Get time until next VS Soldier Promotion Day starts.
 
@@ -318,7 +321,7 @@ def get_time_until_vs_promotion_day(vs_days: list[int], now: datetime = None) ->
         return None
 
 
-def get_time_until_soldier_promotion_opportunity(vs_days: list[int] = None, now: datetime = None) -> timedelta | None:
+def get_time_until_soldier_promotion_opportunity(vs_days: list[int] | None = None, now: datetime | None = None) -> timedelta | None:
     """
     Get time until next opportunity to promote soldiers.
 

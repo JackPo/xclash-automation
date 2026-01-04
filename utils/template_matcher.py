@@ -28,22 +28,28 @@ Usage:
         print("Will use masked matching")
 """
 
+from __future__ import annotations
+
 import cv2
 import numpy as np
+import numpy.typing as npt
 from pathlib import Path
-from typing import Tuple, Optional
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
 
+# Type alias for numpy arrays (using Any for cv2 compatibility)
+from typing import Any
+NDArray = npt.NDArray[Any]
+
 # Caches for loaded templates and masks (COLOR by default)
-_templates_color = {}
-_templates_gray = {}
-_masks = {}
-_mask_exists = {}  # Cache for mask existence checks
+_templates_color: dict[str, NDArray | None] = {}
+_templates_gray: dict[str, NDArray | None] = {}
+_masks: dict[str, NDArray | None] = {}
+_mask_exists: dict[str, bool] = {}  # Cache for mask existence checks
 
 # Default thresholds
 DEFAULT_SQDIFF_THRESHOLD = 0.1   # Max score for TM_SQDIFF_NORMED (lower=better)
-DEFAULT_CCORR_THRESHOLD = 0.95   # Min score for TM_CCORR_NORMED with mask (higher=better)
+DEFAULT_CCORR_THRESHOLD = 0.90   # Min score for TM_CCORR_NORMED with mask (higher=better)
 
 
 def _get_mask_name(template_name: str) -> str:
@@ -63,26 +69,28 @@ def _get_mask_name(template_name: str) -> str:
         return template_name.replace(".png", "_mask.png")
 
 
-def _load_template(name: str, grayscale: bool = False) -> Optional[np.ndarray]:
+def _load_template(name: str, grayscale: bool = False) -> NDArray | None:
     """Load template with caching. COLOR by default."""
     cache = _templates_gray if grayscale else _templates_color
     if name not in cache:
         path = TEMPLATE_DIR / name
         if path.exists():
             flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
-            cache[name] = cv2.imread(str(path), flag)
+            img = cv2.imread(str(path), flag)
+            cache[name] = img if img is not None else None
         else:
             cache[name] = None
     return cache[name]
 
 
-def _load_mask(template_name: str) -> Optional[np.ndarray]:
+def _load_mask(template_name: str) -> NDArray | None:
     """Load mask for template if it exists, with caching."""
     if template_name not in _masks:
         mask_name = _get_mask_name(template_name)
         path = TEMPLATE_DIR / mask_name
         if path.exists():
-            _masks[template_name] = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            _masks[template_name] = img if img is not None else None
             _mask_exists[template_name] = True
         else:
             _masks[template_name] = None
@@ -105,7 +113,7 @@ def has_mask(template_name: str) -> bool:
     return _mask_exists.get(template_name, False)
 
 
-def get_mask_path(template_name: str) -> Optional[Path]:
+def get_mask_path(template_name: str) -> Path:
     """
     Get the expected mask path for a template.
 
@@ -120,12 +128,12 @@ def get_mask_path(template_name: str) -> Optional[Path]:
 
 
 def match_template(
-    frame: np.ndarray,
+    frame: NDArray,
     template_name: str,
-    search_region: Optional[Tuple[int, int, int, int]] = None,
-    threshold: Optional[float] = None,
+    search_region: tuple[int, int, int, int] | None = None,
+    threshold: float | None = None,
     grayscale: bool = False
-) -> Tuple[bool, float, Optional[Tuple[int, int]]]:
+) -> tuple[bool, float, tuple[int, int] | None]:
     """
     Match template in frame with automatic mask detection.
 
@@ -194,6 +202,9 @@ def match_template(
             search_area_gray = search_area
             template_gray = template
 
+        if template_gray is None:
+            return False, 1.0, None
+
         # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
         result = cv2.matchTemplate(search_area_gray, template_gray, cv2.TM_CCORR_NORMED, mask=mask)
         _, max_val, _, max_loc = cv2.minMaxLoc(result)
@@ -213,7 +224,7 @@ def match_template(
         return found, min_val, location
 
 
-def clear_cache():
+def clear_cache() -> None:
     """Clear template and mask caches. Useful for testing or reloading."""
     _templates_color.clear()
     _templates_gray.clear()

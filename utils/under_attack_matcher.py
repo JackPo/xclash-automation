@@ -7,6 +7,11 @@ when another player is attacking your city.
 Template: crossed_swords_icon_4k.png (122x107)
 Position: (3664, 1233)
 """
+from __future__ import annotations
+
+from typing import Any
+
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
 
@@ -18,7 +23,7 @@ UNDER_ATTACK_THRESHOLD = 0.08  # TM_SQDIFF_NORMED - lower is better
 TEMPLATE_NAME = "crossed_swords_icon_4k.png"
 
 
-def is_under_attack(frame, debug: bool = False) -> tuple[bool, float]:
+def is_under_attack(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
     """
     Check if the player is currently under attack.
 

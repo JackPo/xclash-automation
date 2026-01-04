@@ -5,8 +5,12 @@ Uses template_matcher for fixed-location detection.
 Position: (2065, 1648), Size: 181x54
 Click position: (2157, 1697) - center of full button
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
 
@@ -25,10 +29,10 @@ class PromoteButtonMatcher:
 
     TEMPLATE_NAME = "promote_text_4k.png"
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None):
         self.threshold = threshold if threshold is not None else THRESHOLD
 
-    def is_present(self, frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
         """
         Check if Promote button is visible at fixed location.
 
@@ -70,7 +74,7 @@ def get_matcher() -> PromoteButtonMatcher:
     return _matcher
 
 
-def is_promote_visible(frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
+def is_promote_visible(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
     """Check if Promote button is visible."""
     return get_matcher().is_present(frame, debug=debug)
 

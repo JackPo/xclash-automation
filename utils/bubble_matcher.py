@@ -20,9 +20,15 @@ Usage:
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 # Mapping of config keys to their bubble config and template names
@@ -101,7 +107,7 @@ class BubbleMatcher:
         self.threshold = threshold
         self.name = name
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         """
         Check if bubble is present at FIXED location.
 
@@ -121,12 +127,12 @@ class BubbleMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED bubble center position."""
         adb_helper.tap(self.click_x, self.click_y)
 
 
-def create_bubble_matcher(config_key: str, threshold: float = None) -> BubbleMatcher:
+def create_bubble_matcher(config_key: str, threshold: float | None = None) -> BubbleMatcher:
     """
     Factory function to create a BubbleMatcher from a config key.
 
@@ -148,21 +154,25 @@ def create_bubble_matcher(config_key: str, threshold: float = None) -> BubbleMat
 
     # Import the config dynamically
     import config as config_module
-    bubble_config = getattr(config_module, cfg['config_import'])
-    thresholds = getattr(config_module, 'THRESHOLDS', {})
+    bubble_config: dict[str, Any] = getattr(config_module, str(cfg['config_import']))
+    thresholds: dict[str, float] = getattr(config_module, 'THRESHOLDS', {})
 
     # Get region and click from bubble config
-    region = bubble_config['region']
-    click_pos = bubble_config['click']
+    region: tuple[int, int, int, int] = bubble_config['region']
+    click_pos: tuple[int, int] = bubble_config['click']
 
     # Get threshold (parameter > config > default)
+    final_threshold: float
     if threshold is None:
-        threshold = thresholds.get(cfg['threshold_key'], cfg['default_threshold'])
+        default = cfg['default_threshold']
+        final_threshold = thresholds.get(str(cfg['threshold_key']), float(default) if isinstance(default, (int, float)) else 0.06)
+    else:
+        final_threshold = threshold
 
     return BubbleMatcher(
         region=region,
         click_pos=click_pos,
-        template_name=cfg['template'],
-        threshold=threshold,
+        template_name=str(cfg['template']),
+        threshold=final_threshold,
         name=config_key
     )

@@ -11,9 +11,11 @@ Usage:
     if pos:
         adb.tap(*pos)  # Clicks on grass, dismissing floating panel
 """
+from __future__ import annotations
 
 import numpy as np
-from typing import Optional, Tuple
+import numpy.typing as npt
+from typing import Any
 
 from utils.template_matcher import match_template
 
@@ -34,10 +36,10 @@ class SafeGrassMatcher:
 
     TEMPLATE_NAME = "safe_grass_tile_4k.png"
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else MATCH_THRESHOLD
 
-    def find_grass(self, frame: np.ndarray, debug: bool = False) -> Optional[Tuple[int, int]]:
+    def find_grass(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[int, int] | None:
         """
         Find a safe grass tile in the frame.
 
@@ -99,7 +101,7 @@ def get_matcher() -> SafeGrassMatcher:
     return _matcher
 
 
-def find_safe_grass(frame: np.ndarray, debug: bool = False) -> Optional[Tuple[int, int]]:
+def find_safe_grass(frame: npt.NDArray[Any], debug: bool = False) -> tuple[int, int] | None:
     """
     Convenience function to find safe grass tile.
 

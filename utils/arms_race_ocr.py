@@ -11,10 +11,14 @@ All coordinates are for 4K resolution (3840x2160).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # OCR region coordinates (4K resolution)
 # Format: (x, y, width, height)
@@ -28,13 +32,13 @@ CHEST3_REGION = (2119, 1054, 346, 92)
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
 
 
-def extract_region(frame: np.ndarray, region: tuple[int, int, int, int]) -> np.ndarray:
+def extract_region(frame: npt.NDArray[Any], region: tuple[int, int, int, int]) -> npt.NDArray[Any]:
     """Extract a region from the frame."""
     x, y, w, h = region
     return frame[y:y+h, x:x+w]
 
 
-def ocr_number_from_region(frame: np.ndarray, region: tuple[int, int, int, int]) -> int | None:
+def ocr_number_from_region(frame: npt.NDArray[Any], region: tuple[int, int, int, int]) -> int | None:
     """Extract a number from a specific region using OCR."""
     from utils.ocr_client import OCRClient
 
@@ -46,12 +50,12 @@ def ocr_number_from_region(frame: np.ndarray, region: tuple[int, int, int, int])
     return ocr.extract_number(roi)
 
 
-def get_current_points(frame: np.ndarray) -> int | None:
+def get_current_points(frame: npt.NDArray[Any]) -> int | None:
     """Get the player's current points from the Arms Race panel (single frame)."""
     return ocr_number_from_region(frame, CURRENT_POINTS_REGION)
 
 
-def get_current_points_verified(win, retries: int = 3) -> int | None:
+def get_current_points_verified(win: WindowsScreenshotHelper, retries: int = 3) -> int | None:
     """
     Get the player's current points with triple verification.
 
@@ -91,7 +95,7 @@ def get_current_points_verified(win, retries: int = 3) -> int | None:
     return None
 
 
-def get_chest_thresholds(frame: np.ndarray) -> dict[str, int | None]:
+def get_chest_thresholds(frame: npt.NDArray[Any]) -> dict[str, int | None]:
     """Get all three chest thresholds from the Arms Race panel."""
     return {
         "chest1": ocr_number_from_region(frame, CHEST1_REGION),
@@ -100,7 +104,7 @@ def get_chest_thresholds(frame: np.ndarray) -> dict[str, int | None]:
     }
 
 
-def get_all_scores(frame: np.ndarray) -> dict[str, int | None]:
+def get_all_scores(frame: npt.NDArray[Any]) -> dict[str, int | None]:
     """Get current points and all chest thresholds."""
     thresholds = get_chest_thresholds(frame)
     return {
@@ -109,7 +113,7 @@ def get_all_scores(frame: np.ndarray) -> dict[str, int | None]:
     }
 
 
-def detect_active_event(frame: np.ndarray) -> tuple[str | None, float]:
+def detect_active_event(frame: npt.NDArray[Any]) -> tuple[str | None, float]:
     """
     Detect which Arms Race event is active by matching title templates.
 
@@ -133,8 +137,10 @@ def detect_active_event(frame: np.ndarray) -> tuple[str | None, float]:
     best_score = 1.0
 
     for event_name, metadata in ARMS_RACE_EVENTS.items():
+        if not isinstance(metadata, dict):
+            continue
         template_name = metadata.get("header_template")
-        if not template_name:
+        if not template_name or not isinstance(template_name, str):
             continue
 
         template_path = TEMPLATE_DIR / template_name
@@ -143,7 +149,7 @@ def detect_active_event(frame: np.ndarray) -> tuple[str | None, float]:
 
         template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
         if template is None:
-            continue
+            continue  # type: ignore[unreachable]
 
         # Resize template if needed (should be same size ideally)
         if template.shape != title_gray.shape:
@@ -163,7 +169,7 @@ def detect_active_event(frame: np.ndarray) -> tuple[str | None, float]:
     return best_event, best_score
 
 
-def is_arms_race_panel_open(frame: np.ndarray, threshold: float = 0.1) -> bool:
+def is_arms_race_panel_open(frame: npt.NDArray[Any], threshold: float = 0.1) -> bool:
     """
     Check if the Arms Race panel is currently open.
 
@@ -176,7 +182,7 @@ def is_arms_race_panel_open(frame: np.ndarray, threshold: float = 0.1) -> bool:
 
     template = cv2.imread(str(active_template_path))
     if template is None:
-        return False
+        return False  # type: ignore[unreachable]
 
     # Arms Race icon position
     ICON_X, ICON_Y = 1512, 1935

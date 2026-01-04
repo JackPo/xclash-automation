@@ -19,11 +19,16 @@ NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 Templates are captured with Windows screenshots - ADB has different pixel values.
 Each step verifies the expected UI element is present before clicking.
 """
+from __future__ import annotations
+
 import sys
 import time
 import logging
 from pathlib import Path
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -32,13 +37,19 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, go_to_world, ViewState
 from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
-from utils.template_matcher import match_template, has_mask
+from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
 from config import ELITE_ZOMBIE_PLUS_CLICKS
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+# Type alias for numpy arrays
+NDArray = npt.NDArray[Any]
 
 # Setup logger
 logger = logging.getLogger("elite_zombie_flow")
@@ -88,19 +99,23 @@ KLASS_THRESHOLD = 0.1
 UNKNOWN_EVENTS_DIR = Path(__file__).parent.parent.parent / "templates" / "unknown_events"
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: NDArray, name: str) -> str:
     """Save screenshot for debugging. Returns path."""
     return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [ELITE_ZOMBIE] {msg}")
 
 
-def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESHOLD,
-                     search_region: tuple = None) -> tuple:
+def _verify_template(
+    frame: NDArray,
+    template_name: str,
+    threshold: float | None = None,
+    search_region: tuple[int, int, int, int] | None = None
+) -> tuple[bool, float, tuple[int, int] | None]:
     """
     Verify a template is visible in the frame.
 
@@ -118,16 +133,21 @@ def _verify_template(frame, template_name: str, threshold: float = VERIFY_THRESH
     return match_template(frame, template_name, search_region=search_region, threshold=threshold)
 
 
-def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESHOLD,
-                       search_region: tuple = None, max_attempts: int = MAX_POLL_ATTEMPTS,
-                       interval: float = POLL_INTERVAL) -> tuple:
+def _poll_for_template(
+    win: WindowsScreenshotHelper,
+    template_name: str,
+    threshold: float | None = None,
+    search_region: tuple[int, int, int, int] | None = None,
+    max_attempts: int = MAX_POLL_ATTEMPTS,
+    interval: float = POLL_INTERVAL
+) -> tuple[bool, float, tuple[int, int] | None, NDArray]:
     """
     Poll for a template to appear with timeout.
 
     Args:
         win: WindowsScreenshotHelper
         template_name: Name of template file
-        threshold: Max score for match
+        threshold: Score threshold (None = use auto-detected default based on mask)
         search_region: Optional region to limit search
         max_attempts: Max polling attempts
         interval: Seconds between attempts
@@ -135,6 +155,8 @@ def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESH
     Returns:
         (found: bool, score: float, location: tuple or None, frame: np.array)
     """
+    frame: NDArray = win.get_screenshot_cv2()
+    score: float = 1.0
     for attempt in range(max_attempts):
         frame = win.get_screenshot_cv2()
         found, score, location = _verify_template(frame, template_name, threshold, search_region)
@@ -147,7 +169,7 @@ def _poll_for_template(win, template_name: str, threshold: float = VERIFY_THRESH
     return False, score, None, frame
 
 
-def _is_klass_event(frame) -> bool:
+def _is_klass_event(frame: NDArray) -> bool:
     """Check if Klass Rally Assault is active."""
     found, score, _ = _verify_template(
         frame, "klass_events_box_4k.png",
@@ -163,7 +185,7 @@ def _is_klass_event(frame) -> bool:
     return False
 
 
-def _save_unknown_panel(frame):
+def _save_unknown_panel(frame: NDArray) -> None:
     """Save panel screenshot from FIXED location."""
     UNKNOWN_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -177,7 +199,7 @@ def _save_unknown_panel(frame):
     _log(f"  Saved unknown panel to {path}")
 
 
-def elite_zombie_flow(adb) -> bool:
+def elite_zombie_flow(adb: ADBHelper) -> bool:
     """
     Execute the elite zombie rally flow with template verification at each step.
 
@@ -187,10 +209,13 @@ def elite_zombie_flow(adb) -> bool:
     Returns:
         bool: True if flow completed successfully, False otherwise
     """
+    # Import at runtime to avoid circular imports
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper as WSHelper
+
     flow_start = time.time()
     _log("=== ELITE ZOMBIE FLOW START ===")
 
-    win = WindowsScreenshotHelper()
+    win = WSHelper()
 
     try:
         # Step 0: Ensure we're in WORLD view
@@ -308,14 +333,20 @@ def elite_zombie_flow(adb) -> bool:
             return False
 
         _log(f"  Search button at {loc} (score={score:.4f}), clicking...")
+        assert loc is not None  # Guaranteed by found == True check above
         adb.tap(*loc)  # Click detected location of rally_search_button
 
+        # Wait for search to complete and camera to pan to zombie
+        time.sleep(SEARCH_RESULT_DELAY)
+
         # Poll for rally button to appear (proves search completed and zombie found)
+        # Search in CENTER of screen where zombie appears, not right side where flags are
         _log("  Waiting for search results...")
         found, score, loc, frame = _poll_for_template(
             win, "rally_button_4k.png",
-            threshold=RALLY_BUTTON_THRESHOLD,
-            search_region=(1700, 1500, 500, 400),
+            # rally_button has mask - uses default CCORR threshold 0.90
+            # Search region centered on screen where zombie appears
+            search_region=(1500, 1000, 800, 800),
             max_attempts=15  # Give extra time for search
         )
         if frame is not None:
@@ -327,6 +358,7 @@ def elite_zombie_flow(adb) -> bool:
 
         # Step 5: Click rally button (use detected location)
         _log(f"Step 5: Rally button at {loc} (score={score:.4f}), clicking...")
+        assert loc is not None  # Guaranteed by found == True check above
         adb.tap(*loc)
 
         # Poll for Team Up button to appear (proves rally screen loaded)
@@ -388,11 +420,13 @@ def elite_zombie_flow(adb) -> bool:
         if not found:
             _log(f"  WARNING: Team Up button not confirmed (score={score:.4f})")
             # Use fixed coords as fallback
-            loc = TEAM_UP_BUTTON_CLICK
+            tap_loc = TEAM_UP_BUTTON_CLICK
         else:
             _log(f"  Team Up button at {loc} (score={score:.4f})")
+            assert loc is not None  # Guaranteed when found == True
+            tap_loc = loc
 
-        adb.tap(*loc)
+        adb.tap(*tap_loc)
         time.sleep(CLICK_DELAY)
 
         frame = win.get_screenshot_cv2()

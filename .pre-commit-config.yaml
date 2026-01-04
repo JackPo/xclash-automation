@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy type check (core utils)
+        entry: mypy
+        language: system
+        types: [python]
+        # Check core typed files - expand as more files are typed
+        args: [
+          --config-file=pyproject.toml,
+          --explicit-package-bases,
+          config.py,
+          utils/stamina_reader.py,
+          utils/rally_exhaustion_tracker.py,
+          utils/special_events.py,
+          utils/idle_detector.py,
+          utils/arms_race.py,
+          utils/scheduler.py,
+          utils/template_matcher.py,
+          utils/adb_helper.py,
+        ]
+        pass_filenames: false
+        always_run: true
+
+      - id: pytest-fast
+        name: pytest (fast tests only)
+        entry: pytest
+        language: system
+        types: [python]
+        args: [tests/, -x, --tb=short, -q, --ignore=tests/e2e, -m, "not slow and not e2e"]
+        pass_filenames: false
+        always_run: true

@@ -21,9 +21,12 @@ Detection logic:
 NOTE: Yellow soldier faces vary based on which soldier type was trained!
 Multiple yellow soldier templates are loaded to match all variants.
 """
+from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 from enum import Enum
+from typing import Any
 
 from config import (
     HOSPITAL_ICON_POSITION,
@@ -58,13 +61,13 @@ class HospitalStateMatcher:
         "yellow_soldier_barrack_v6_4k.png",
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.icon_x, self.icon_y = HOSPITAL_ICON_POSITION
         self.icon_w, self.icon_h = HOSPITAL_ICON_SIZE
         self.click_x, self.click_y = HOSPITAL_CLICK_POSITION
         self.threshold = HOSPITAL_MATCH_THRESHOLD
 
-    def get_scores(self, frame: np.ndarray) -> dict[str, float]:
+    def get_scores(self, frame: npt.NDArray[Any]) -> dict[str, float]:
         """
         Get all template scores for the hospital position.
 
@@ -102,7 +105,7 @@ class HospitalStateMatcher:
 
         return scores
 
-    def get_state(self, frame: np.ndarray, debug: bool = False) -> tuple[HospitalState, float]:
+    def get_state(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[HospitalState, float]:
         """
         Get the current state of the hospital.
 
@@ -150,7 +153,7 @@ class HospitalStateMatcher:
         """Return the click position for the hospital."""
         return (self.click_x, self.click_y)
 
-    def format_state(self, frame: np.ndarray) -> str:
+    def format_state(self, frame: npt.NDArray[Any]) -> str:
         """Format hospital state as a short string for logging."""
         state, score = self.get_state(frame)
         state_char = {
@@ -163,7 +166,7 @@ class HospitalStateMatcher:
         }.get(state, "?")
         return f"H:{state_char}"
 
-    def format_state_detailed(self, frame: np.ndarray) -> str:
+    def format_state_detailed(self, frame: npt.NDArray[Any]) -> str:
         """Format hospital state with all scores for debugging."""
         scores = self.get_scores(frame)
         state, _ = self.get_state(frame)
@@ -190,16 +193,16 @@ def get_matcher() -> HospitalStateMatcher:
     return _matcher
 
 
-def check_hospital_state(frame: np.ndarray, debug: bool = False) -> tuple[HospitalState, float]:
+def check_hospital_state(frame: npt.NDArray[Any], debug: bool = False) -> tuple[HospitalState, float]:
     """Convenience function to check hospital state."""
     return get_matcher().get_state(frame, debug=debug)
 
 
-def format_hospital_state(frame: np.ndarray) -> str:
+def format_hospital_state(frame: npt.NDArray[Any]) -> str:
     """Convenience function to get formatted hospital state string."""
     return get_matcher().format_state(frame)
 
 
-def format_hospital_state_detailed(frame: np.ndarray) -> str:
+def format_hospital_state_detailed(frame: npt.NDArray[Any]) -> str:
     """Convenience function to get detailed hospital state with scores."""
     return get_matcher().format_state_detailed(frame)

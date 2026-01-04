@@ -12,11 +12,15 @@ Sequence:
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 """
+from __future__ import annotations
+
 import sys
 import time
 import logging
 from pathlib import Path
-from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -28,6 +32,9 @@ import cv2
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
 from utils.debug_screenshot import save_debug_screenshot
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 # Setup logger
 logger = logging.getLogger("afk_rewards_flow")
@@ -44,18 +51,18 @@ CLICK_DELAY = 1.0  # Delay between claim clicks
 MAX_CLAIM_ATTEMPTS = 3  # Maximum claim button clicks
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging. Returns path."""
     return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [AFK_REWARDS] {msg}")
 
 
-def afk_rewards_flow(adb) -> bool:
+def afk_rewards_flow(adb: ADBHelper) -> bool:
     """
     Execute the AFK rewards claim flow.
 
@@ -70,14 +77,20 @@ def afk_rewards_flow(adb) -> bool:
 
     win = WindowsScreenshotHelper()
 
+    # VERIFY we're in TOWN view before clicking
+    frame = win.get_screenshot_cv2()
+    view_state, view_score = detect_view(frame)
+    if view_state != ViewState.TOWN:
+        _log(f"NOT in TOWN view (state={view_state.value}), aborting")
+        return False
+
     # Step 1: Click on AFK rewards chest
     _log(f"Step 1: Clicking AFK rewards chest at {AFK_CHEST_CLICK}")
     adb.tap(*AFK_CHEST_CLICK)
     time.sleep(1.5)  # Wait for dialog to open
 
     frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "01_after_chest_click")
+    _save_debug_screenshot(frame, "01_after_chest_click")
 
     # Step 2: Click Claim button until back in TOWN view
     _log("Step 2: Clicking Claim button until back in TOWN view")
@@ -90,9 +103,6 @@ def afk_rewards_flow(adb) -> bool:
 
         # Check if we're back in TOWN view
         frame = win.get_screenshot_cv2()
-        if frame is None:
-            continue
-
         _save_debug_screenshot(frame, f"02_claim_attempt_{attempt}")
 
         view_state, view_score = detect_view(frame)

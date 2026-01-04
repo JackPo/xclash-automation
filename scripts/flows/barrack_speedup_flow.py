@@ -19,11 +19,16 @@ Usage:
     python scripts/flows/barrack_speedup_flow.py --barrack 2
 """
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import numpy.typing as npt
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
@@ -53,7 +58,14 @@ POLL_TIMEOUT = 3.0
 POLL_INTERVAL = 0.3
 
 
-def _poll_for_template_fixed(win, template_name, pos, size, timeout=POLL_TIMEOUT, debug=False):
+def _poll_for_template_fixed(
+    win: WindowsScreenshotHelper,
+    template_name: str,
+    pos: tuple[int, int],
+    size: tuple[int, int],
+    timeout: float = POLL_TIMEOUT,
+    debug: bool = False
+) -> tuple[bool, float, tuple[int, int] | None, npt.NDArray[Any] | None]:
     """Poll until template matches at fixed position or timeout."""
     start = time.time()
     last_score = 1.0
@@ -71,7 +83,13 @@ def _poll_for_template_fixed(win, template_name, pos, size, timeout=POLL_TIMEOUT
     return False, last_score, None, None
 
 
-def _poll_for_template_region(win, template_name, search_region, timeout=POLL_TIMEOUT, debug=False):
+def _poll_for_template_region(
+    win: WindowsScreenshotHelper,
+    template_name: str,
+    search_region: tuple[int, int, int, int],
+    timeout: float = POLL_TIMEOUT,
+    debug: bool = False
+) -> tuple[bool, float, tuple[int, int] | None, npt.NDArray[Any] | None]:
     """Poll until template matches in search region or timeout."""
     start = time.time()
     last_score = 1.0
@@ -89,7 +107,10 @@ def _poll_for_template_region(win, template_name, search_region, timeout=POLL_TI
     return False, last_score, None, None
 
 
-def find_training_barrack(frame, debug=False):
+def find_training_barrack(
+    frame: npt.NDArray[Any],
+    debug: bool = False
+) -> tuple[int | None, tuple[int, int] | None]:
     """Find the first barrack that is in TRAINING state.
 
     Returns:
@@ -112,7 +133,12 @@ def find_training_barrack(frame, debug=False):
     return None, None
 
 
-def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=False):
+def barrack_speedup_flow(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None,
+    barrack_index: int | None = None,
+    debug: bool = False
+) -> bool:
     """
     Speed up a barrack that is currently training.
 
@@ -142,10 +168,11 @@ def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=
                 print(f"    Using specified barrack {barrack_index + 1} at {click_pos}")
         else:
             # Find first TRAINING barrack
-            idx, click_pos = find_training_barrack(frame, debug=debug)
-            if idx is None:
+            idx, found_click_pos = find_training_barrack(frame, debug=debug)
+            if idx is None or found_click_pos is None:
                 print("  ERROR: No TRAINING barrack found")
                 return False
+            click_pos = found_click_pos
 
         # Step 2: Click barrack bubble
         if debug:
@@ -155,7 +182,7 @@ def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=
         # Step 3: POLL/VERIFY soldier_training_header at FIXED position
         if debug:
             print("  Step 3: Verifying Soldier Training header...")
-        found, score, _, frame = _poll_for_template_fixed(
+        found, score, _, poll_frame = _poll_for_template_fixed(
             win, "soldier_training_header_4k.png",
             SOLDIER_TRAINING_HEADER_POS, SOLDIER_TRAINING_HEADER_SIZE,
             debug=debug
@@ -167,7 +194,7 @@ def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=
         # Step 4: POLL/VERIFY speedup_button at FIXED position (needs time to render)
         if debug:
             print("  Step 4: Polling for Speedup button...")
-        found, score, _, frame = _poll_for_template_fixed(
+        found, score, _, poll_frame = _poll_for_template_fixed(
             win, "speedup_button_4k.png",
             SPEEDUP_BUTTON_POS, SPEEDUP_BUTTON_SIZE,
             debug=debug
@@ -184,12 +211,12 @@ def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=
         # Step 6: POLL for speed_up_header (vertical search)
         if debug:
             print("  Step 6: Polling for Speed Up header...")
-        found, score, pos, frame = _poll_for_template_region(
+        found, score, _, poll_frame = _poll_for_template_region(
             win, "speed_up_header_4k.png",
             SPEED_UP_HEADER_SEARCH_REGION,
             debug=debug
         )
-        if not found:
+        if not found or poll_frame is None:
             print("  ERROR: Speed Up header not found")
             return False
 
@@ -197,11 +224,11 @@ def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=
         if debug:
             print("  Step 7: Finding Quick Speedup button...")
         found, score, quick_pos = match_template(
-            frame, "quick_speedup_button_4k.png",
+            poll_frame, "quick_speedup_button_4k.png",
             search_region=QUICK_SPEEDUP_SEARCH_REGION,
             threshold=THRESHOLD
         )
-        if not found:
+        if not found or quick_pos is None:
             print(f"  ERROR: Quick Speedup button not found (score={score:.4f})")
             return False
         if debug:
@@ -216,7 +243,7 @@ def barrack_speedup_flow(adb, screenshot_helper=None, barrack_index=None, debug=
         # Step 9: VERIFY confirm_button at FIXED position
         if debug:
             print("  Step 9: Verifying Confirm button...")
-        found, score, _, frame = _poll_for_template_fixed(
+        found, score, _, poll_frame = _poll_for_template_fixed(
             win, "confirm_button_4k.png",
             CONFIRM_BUTTON_POS, CONFIRM_BUTTON_SIZE,
             debug=debug

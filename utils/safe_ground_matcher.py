@@ -3,11 +3,13 @@ Safe Ground Matcher - Finds clickable ground tiles to dismiss popups.
 
 Uses COLOR matching (not grayscale) to distinguish gray stone from tan popups.
 """
+from __future__ import annotations
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any
 
 # Search region - center area of screen where ground tiles are visible
 SEARCH_REGION = (500, 400, 2800, 1800)  # (x, y, width, height)
@@ -19,10 +21,10 @@ MATCH_THRESHOLD = 0.02
 TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "ground_truth" / "safe_ground_tile_4k.png"
 
 # Cached template (BGR color)
-_template = None
+_template: npt.NDArray[Any] | None = None
 
 
-def _load_template():
+def _load_template() -> npt.NDArray[Any] | None:
     """Load template in COLOR (BGR), not grayscale."""
     global _template
     if _template is None:
@@ -30,7 +32,7 @@ def _load_template():
     return _template
 
 
-def find_safe_ground(frame: np.ndarray, debug: bool = False) -> Optional[Tuple[int, int]]:
+def find_safe_ground(frame: npt.NDArray[Any], debug: bool = False) -> tuple[int, int] | None:
     """
     Find safe ground tile using COLOR matching.
 
@@ -85,10 +87,10 @@ def find_safe_ground(frame: np.ndarray, debug: bool = False) -> Optional[Tuple[i
 class SafeGroundMatcher:
     """Wrapper class for compatibility."""
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else MATCH_THRESHOLD
 
-    def find_ground(self, frame: np.ndarray, debug: bool = False) -> Optional[Tuple[int, int]]:
+    def find_ground(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[int, int] | None:
         return find_safe_ground(frame, debug=debug)
 
 

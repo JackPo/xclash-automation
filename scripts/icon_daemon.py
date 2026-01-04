@@ -33,6 +33,7 @@ Press Ctrl+C to stop.
 Usage:
     python icon_daemon.py [--interval SECONDS] [--debug]
 """
+from __future__ import annotations
 
 import sys
 import time
@@ -41,7 +42,9 @@ import threading
 import logging
 import importlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
+from typing import TYPE_CHECKING, Any, Callable
+
 import pytz
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -143,8 +146,11 @@ from config import (
 )
 
 from dataclasses import dataclass
-from typing import Callable, Optional, List
 from enum import IntEnum
+
+if TYPE_CHECKING:
+    from utils.daemon_server import DaemonWebSocketServer
+    from utils.barracks_state_matcher import BarrackState
 
 
 class FlowPriority(IntEnum):
@@ -169,7 +175,7 @@ class FlowCandidate:
     Collected during detection phase, executed in execution phase.
     """
     name: str
-    flow_func: Callable
+    flow_func: Callable[..., Any]
     priority: FlowPriority
     critical: bool = False
     reason: str = ""  # Why this flow was triggered (for logging)
@@ -181,7 +187,54 @@ class IconDaemon:
     Daemon that detects icons and triggers non-blocking flows.
     """
 
-    def __init__(self, interval: float = None, debug: bool = False):
+    # Type annotations for instance attributes
+    interval: float
+    debug: bool
+    adb: ADBHelper | None
+    windows_helper: WindowsScreenshotHelper | None
+    ocr_client: OCRClient | None
+    STAMINA_REGION: tuple[int, int, int, int]
+    OCR_HEALTH_CHECK_INTERVAL: int
+    last_ocr_health_check: float
+    ocr_consecutive_failures: int
+    handshake_matcher: HandshakeIconMatcher | None
+    treasure_matcher: TreasureMapMatcher | None
+    corn_matcher: CornHarvestMatcher | None
+    gold_matcher: GoldCoinMatcher | None
+    harvest_box_matcher: HarvestBoxMatcher | None
+    iron_matcher: IronBarMatcher | None
+    gem_matcher: GemMatcher | None
+    cabbage_matcher: CabbageMatcher | None
+    equipment_enhancement_matcher: EquipmentEnhancementMatcher | None
+    hospital_matcher: HospitalStateMatcher | None
+    back_button_matcher: BackButtonMatcher | None
+    dog_house_matcher: DogHouseMatcher | None
+    afk_rewards_matcher: AfkRewardsMatcher | None
+    barracks_matcher: BarracksStateMatcher | None
+    rally_march_matcher: RallyMarchButtonMatcher | None
+    active_flows: set[str]
+    flow_lock: threading.Lock
+    critical_flow_active: bool
+    critical_flow_name: str | None
+    command_server: DaemonWebSocketServer | None
+    paused: bool
+    vs_chest_triggered: set[int]
+    vs_chest_last_day: int | None
+    scheduled_triggers: list[dict[str, Any]]
+    barracks_state_history: list[list[BarrackState]]
+    hospital_state_history: list[HospitalState]
+    tavern_scheduled_triggered_date: date | None
+    enhance_hero_last_block_start: datetime | None
+    arms_race_progress_check_block: datetime | None
+    beast_training_current_block: datetime | None
+    beast_training_pre_claim_block: datetime | None
+    unknown_state_start: float | None
+    unknown_state_left_time: float | None
+    unknown_first_recovery_time: float | None
+    disconnection_dialog_detected_time: float | None
+    continuous_idle_start: float | None
+
+    def __init__(self, interval: float | None = None, debug: bool = False) -> None:
         from config import DAEMON_INTERVAL
         self.interval = interval if interval is not None else DAEMON_INTERVAL
         self.debug = debug
@@ -194,7 +247,7 @@ class IconDaemon:
 
         # OCR server health check - verify every 5 minutes, restart if down
         self.OCR_HEALTH_CHECK_INTERVAL = 300  # 5 minutes
-        self.last_ocr_health_check = 0
+        self.last_ocr_health_check = 0.0
         self.ocr_consecutive_failures = 0  # Track consecutive OCR failures
 
         # Matchers
@@ -212,9 +265,10 @@ class IconDaemon:
         self.dog_house_matcher = None
         self.afk_rewards_matcher = None
         self.barracks_matcher = None
+        self.rally_march_matcher = None
 
         # Track active flows to prevent re-triggering
-        self.active_flows = set()
+        self.active_flows: set[str] = set()
         self.flow_lock = threading.Lock()
 
         # Critical flow protection - blocks all other daemon actions
@@ -251,9 +305,9 @@ class IconDaemon:
         self.TAVERN_QUEST_COOLDOWN = TAVERN_SCAN_COOLDOWN
 
         # VS Day 7 chest surprise - trigger bag flow at 10, 5, 1 min remaining
-        self.VS_CHEST_CHECKPOINTS = [10, 5, 1]  # Minutes before day ends
-        self.vs_chest_triggered = set()  # Track which checkpoints we've hit
-        self.vs_chest_last_day = None  # Reset tracking when day changes
+        self.VS_CHEST_CHECKPOINTS: list[int] = [10, 5, 1]  # Minutes before day ends
+        self.vs_chest_triggered: set[int] = set()  # Track which checkpoints we've hit
+        self.vs_chest_last_day: int | None = None  # Reset tracking when day changes
 
         # Union technology cooldown - once per hour
         self.last_union_technology_time = 0
@@ -282,30 +336,30 @@ class IconDaemon:
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
 
         # UNKNOWN state recovery tracking (from config)
-        self.unknown_state_start = None  # When we first entered UNKNOWN state
-        self.unknown_state_left_time = None  # When we left UNKNOWN (for hysteresis)
+        self.unknown_state_start: float | None = None  # When we first entered UNKNOWN state
+        self.unknown_state_left_time: float | None = None  # When we left UNKNOWN (for hysteresis)
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
         self.UNKNOWN_HYSTERESIS = 10  # Seconds out of UNKNOWN before resetting timer
 
         # UNKNOWN recovery loop detection - force restart if recovery keeps cycling
         self.unknown_recovery_count = 0  # How many times recovery ran
-        self.unknown_first_recovery_time = None  # When first recovery started
+        self.unknown_first_recovery_time: float | None = None  # When first recovery started
         self.UNKNOWN_LOOP_TIMEOUT = UNKNOWN_LOOP_TIMEOUT  # 8 min from config
 
         # Disconnection dialog tracking (user playing on mobile)
-        self.disconnection_dialog_detected_time = None  # When we first saw the dialog
+        self.disconnection_dialog_detected_time: float | None = None  # When we first saw the dialog
 
         # Resolution check (proactive, not just on recovery)
         self.RESOLUTION_CHECK_INTERVAL = RESOLUTION_CHECK_INTERVAL
         self.EXPECTED_RESOLUTION = EXPECTED_RESOLUTION
 
         # Scheduled triggers (old mechanism - kept for future use)
-        self.scheduled_triggers = []  # Empty - no scheduled triggers
-        self.continuous_idle_start = None  # Track when continuous idle began
+        self.scheduled_triggers: list[dict[str, Any]] = []  # Empty - no scheduled triggers
+        self.continuous_idle_start: float | None = None  # Track when continuous idle began
 
         # Tavern quest scheduled trigger at 10:30 PM Pacific
         # Triggers immediately when time is reached, ignoring cooldown/idle
-        self.tavern_scheduled_triggered_date = None  # Track which date we've triggered
+        self.tavern_scheduled_triggered_date: date | None = None  # Track which date we've triggered
 
         # Arms Race event tracking (values from config)
         # Beast Training: Mystic Beast last N minutes, stamina threshold, cooldown between rallies
@@ -313,9 +367,9 @@ class IconDaemon:
         self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = ARMS_RACE_BEAST_TRAINING_LAST_MINUTES
         self.BEAST_TRAINING_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD
         self.BEAST_TRAINING_RALLY_COOLDOWN = ARMS_RACE_BEAST_TRAINING_COOLDOWN
-        self.beast_training_last_rally = 0
-        self.beast_training_rally_count = 0  # Track total rallies in current Beast Training block
-        self.beast_training_current_block = None  # Track which block we're in
+        self.beast_training_last_rally: float = 0
+        self.beast_training_rally_count: int = 0  # Track total rallies in current Beast Training block
+        self.beast_training_current_block: datetime | None = None  # Track which block we're in
         self.STAMINA_CLAIM_THRESHOLD = ARMS_RACE_STAMINA_CLAIM_THRESHOLD  # Claim when stamina < this
 
         # Use Button tracking (for stamina recovery items during Beast Training)
@@ -325,21 +379,21 @@ class IconDaemon:
         self.BEAST_TRAINING_MAX_RALLIES = ARMS_RACE_BEAST_TRAINING_MAX_RALLIES  # Don't use if rallies >= 15
         self.BEAST_TRAINING_USE_STAMINA_THRESHOLD = ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD  # Use when < 20
         self.BEAST_TRAINING_USE_LAST_MINUTES = ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES  # 3rd+ uses only in last N min
-        self.beast_training_use_count = 0  # Track Use button clicks per block
-        self.beast_training_last_use_time = 0  # Track cooldown between uses
-        self.beast_training_claim_attempted = False  # Track if we tried to claim this iteration
+        self.beast_training_use_count: int = 0  # Track Use button clicks per block
+        self.beast_training_last_use_time: float = 0  # Track cooldown between uses
+        self.beast_training_claim_attempted: bool = False  # Track if we tried to claim this iteration
 
         # Smart Beast Training flow phases use scheduler-based tracking (beast_training_hour_mark_block, beast_training_last_6_block)
-        self.beast_training_last_progress_check = 0  # Timestamp of last progress check
+        self.beast_training_last_progress_check: float = 0  # Timestamp of last progress check
 
         # Enhance Hero: last N minutes of Enhance Hero, runs once per block
         self.ARMS_RACE_ENHANCE_HERO_ENABLED = ARMS_RACE_ENHANCE_HERO_ENABLED
         self.ENHANCE_HERO_LAST_MINUTES = ARMS_RACE_ENHANCE_HERO_LAST_MINUTES
-        self.enhance_hero_last_block_start = None  # Track which block we triggered for
+        self.enhance_hero_last_block_start: datetime | None = None  # Track which block we triggered for
 
         # Generic Arms Race progress check: log points for ALL events in last 10 min
         self.ARMS_RACE_PROGRESS_CHECK_MINUTES = 10  # Check in last N minutes
-        self.arms_race_progress_check_block = None  # Track which block we checked
+        self.arms_race_progress_check_block: datetime | None = None  # Track which block we checked
 
         # Soldier Training: when idle 5+ min, any barrack PENDING during Soldier Training event
         # CONTINUOUSLY checks and upgrades PENDING barracks (no block limitation)
@@ -347,7 +401,7 @@ class IconDaemon:
 
         # Pre-Beast Training: claim stamina + block elite rallies N minutes before event
         self.BEAST_TRAINING_PRE_EVENT_MINUTES = ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES
-        self.beast_training_pre_claim_block = None  # Track which upcoming block we've pre-claimed for
+        self.beast_training_pre_claim_block: datetime | None = None  # Track which upcoming block we've pre-claimed for
 
         # VS Event overrides - soldier promotions all day on specific days
         self.VS_SOLDIER_PROMOTION_DAYS = VS_SOLDIER_PROMOTION_DAYS
@@ -357,12 +411,12 @@ class IconDaemon:
         # Example: PPPPPP???? (6P + 4?) = 60% P = PASS
         # Example: PPPPP????? (5P + 5?) = 50% P = FAIL
         # Example: PPPPRRR??? (mixed P and R) = FAIL
-        self.barracks_state_history = [[], [], [], []]  # Per-barrack state history
+        self.barracks_state_history: list[list[Any]] = [[], [], [], []]  # Per-barrack state history
         self.BARRACKS_CONSECUTIVE_REQUIRED = 10
         self.BARRACKS_MIN_LETTER_RATIO = 0.6  # 60% must be a specific letter
 
         # Hospital state history - same pattern as barracks
-        self.hospital_state_history = []  # List of HospitalState values
+        self.hospital_state_history: list[HospitalState] = []  # List of HospitalState values
         self.HOSPITAL_CONSECUTIVE_REQUIRED = HOSPITAL_CONSECUTIVE_REQUIRED
 
         # Setup logging
@@ -393,7 +447,7 @@ class IconDaemon:
         # State persistence tracking
         self.state_save_interval = 60  # Save state every N iterations (~3 min at 3s interval)
 
-    def _verify_templates(self):
+    def _verify_templates(self) -> None:
         """
         Verify all required templates exist before startup.
         Raises FileNotFoundError if any template is missing.
@@ -452,7 +506,7 @@ class IconDaemon:
 
         print(f"  OK - All {len(required_templates)} templates verified")
 
-    def initialize(self):
+    def initialize(self) -> None:
         """Initialize all components."""
         self.logger.info("Initializing icon daemon...")
         self.logger.info(f"Log file: {self.log_file}")
@@ -532,8 +586,8 @@ class IconDaemon:
         print(f"  Rally march button matcher: rally_march_button_small_4k.png (threshold={self.rally_march_matcher.threshold})")
 
         # Rally joining tracking
-        self.last_rally_march_click = 0  # Timestamp of last march button click
-        self.union_boss_mode_until = 0   # Timestamp when Union Boss mode expires (faster rally joining)
+        self.last_rally_march_click: float = 0  # Timestamp of last march button click
+        self.union_boss_mode_until: float = 0   # Timestamp when Union Boss mode expires (faster rally joining)
 
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
@@ -588,7 +642,7 @@ class IconDaemon:
                 return False
         return True
 
-    def _execute_best_flow(self, candidates: List[FlowCandidate], iteration: int) -> Optional[str]:
+    def _execute_best_flow(self, candidates: list[FlowCandidate], iteration: int) -> str | None:
         """
         From a list of flow candidates, select and execute the highest priority one.
 
@@ -634,7 +688,7 @@ class IconDaemon:
             return best.name
         return None
 
-    def _run_flow(self, flow_name: str, flow_func, critical: bool = False):
+    def _run_flow(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False) -> bool:
         """
         Run a flow in a thread-safe way.
 
@@ -643,7 +697,7 @@ class IconDaemon:
             flow_func: Function to execute (takes adb as argument)
             critical: If True, blocks all other daemon actions during execution
         """
-        def wrapper():
+        def wrapper() -> None:
             try:
                 # Mark as critical if requested
                 if critical:
@@ -692,7 +746,7 @@ class IconDaemon:
         thread.start()
         return True
 
-    def _check_ocr_server_health(self):
+    def _check_ocr_server_health(self) -> bool:
         """Check if OCR server is healthy, restart if necessary.
 
         Called periodically and on consecutive OCR failures.
@@ -716,8 +770,9 @@ class IconDaemon:
                 return False
         return True
 
-    def _switch_to_town(self):
+    def _switch_to_town(self) -> None:
         """Switch to town view using view_state_detector."""
+        assert self.adb is not None
         success = go_to_town(self.adb, debug=False)
         if success:
             self.logger.info("IDLE SWITCH: Successfully switched to TOWN view")
@@ -727,6 +782,8 @@ class IconDaemon:
     def _is_xclash_in_foreground(self) -> bool:
         """Check if xclash (com.xman.na.gp) is the foreground app."""
         import subprocess
+        assert self.adb is not None
+        assert self.adb.device is not None
         try:
             result = subprocess.run(
                 [self.adb.ADB_PATH, '-s', self.adb.device, 'shell',
@@ -738,11 +795,13 @@ class IconDaemon:
             self.logger.error(f"Failed to check foreground app: {e}")
             return False
 
-    def _force_app_restart(self):
+    def _force_app_restart(self) -> None:
         """Force stop and restart xclash app when stuck in UNKNOWN loop."""
         import subprocess
         from pathlib import Path
 
+        assert self.adb is not None
+        assert self.adb.device is not None
         self.logger.info("FORCING APP RESTART due to UNKNOWN recovery loop...")
 
         # Force stop the app
@@ -795,6 +854,9 @@ class IconDaemon:
         if iteration > 0 and iteration % self.RESOLUTION_CHECK_INTERVAL != 0:
             return True  # Not time to check yet
 
+        assert self.windows_helper is not None
+        assert self.adb is not None
+
         try:
             import cv2
 
@@ -807,8 +869,8 @@ class IconDaemon:
             template_4k = cv2.imread('templates/ground_truth/world_button_4k.png')
             template_lowres = cv2.imread('templates/ground_truth/world_button_lowres_4k.png')
 
-            if template_4k is None or template_lowres is None:
-                self.logger.warning(f"[{iteration}] Resolution check: missing templates, falling back to wm size")
+            if template_4k is None or template_lowres is None:  # noqa: E501
+                self.logger.warning(f"[{iteration}] Resolution check: missing templates, falling back to wm size")  # type: ignore[unreachable]
                 return self._check_resolution_fallback(iteration)
 
             # Compare against both (SQDIFF - lower is better)
@@ -856,6 +918,7 @@ class IconDaemon:
 
     def _check_resolution_fallback(self, iteration: int) -> bool:
         """Fallback resolution check using wm size."""
+        assert self.adb is not None
         current_res = _get_current_resolution(self.adb)
         if current_res == self.EXPECTED_RESOLUTION:
             return True
@@ -866,7 +929,7 @@ class IconDaemon:
         new_res = _get_current_resolution(self.adb)
         return new_res == self.EXPECTED_RESOLUTION
 
-    def _validate_barrack_state(self, barrack_index: int) -> tuple:
+    def _validate_barrack_state(self, barrack_index: int) -> tuple[bool, Any | None, float]:
         """
         Validate barracks state history for a single barrack.
 
@@ -931,7 +994,7 @@ class IconDaemon:
     # WebSocket API Methods (called by daemon_server.py)
     # =========================================================================
 
-    def _load_runtime_state(self):
+    def _load_runtime_state(self) -> None:
         """Load runtime state from scheduler on startup for resumability."""
         from utils.barracks_state_matcher import BarrackState
         from utils.hospital_state_matcher import HospitalState
@@ -968,7 +1031,7 @@ class IconDaemon:
 
         self.logger.info(f"STARTUP: Loaded daemon state (paused={self.paused}, stamina_history={len(self.stamina_reader.history)} readings)")
 
-    def _save_runtime_state(self):
+    def _save_runtime_state(self) -> None:
         """Save runtime state to scheduler (called periodically + on shutdown)."""
         # Convert enum values to strings for JSON serialization
         barracks_history_serializable = [
@@ -993,7 +1056,7 @@ class IconDaemon:
             paused=self.paused,
         )
 
-    def trigger_flow(self, flow_name: str) -> dict:
+    def trigger_flow(self, flow_name: str) -> dict[str, Any]:
         """
         API: Trigger a specific flow immediately and wait for result.
 
@@ -1033,7 +1096,7 @@ class IconDaemon:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
         return get_user_idle_seconds() >= self.IDLE_THRESHOLD
 
-    def _run_flow_sync(self, flow_name: str, flow_func, critical: bool = False) -> dict:
+    def _run_flow_sync(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False) -> dict[str, Any]:
         """
         Run a flow synchronously (blocking) and return its result.
 
@@ -1083,7 +1146,7 @@ class IconDaemon:
                     self.critical_flow_active = False
                     self.critical_flow_name = None
 
-    def reload_flows(self):
+    def reload_flows(self) -> None:
         """
         Hot-reload all flow modules for live code updates.
 
@@ -1133,7 +1196,7 @@ class IconDaemon:
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
 
-    def get_available_flows(self) -> dict:
+    def get_available_flows(self) -> dict[str, tuple[Callable[..., Any], bool]]:
         """
         Return dict of flow_name -> (flow_func, is_critical).
 
@@ -1162,10 +1225,10 @@ class IconDaemon:
             "gift_box": (gift_box_flow, True),
             "stamina_claim": (stamina_claim_flow, False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
-            "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),
+            "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),  # type: ignore[arg-type]
         }
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """
         API: Get current daemon status.
 
@@ -1186,7 +1249,7 @@ class IconDaemon:
             "server_port": DAEMON_SERVER_PORT,
         }
 
-    def set_config(self, key: str, value) -> dict:
+    def set_config(self, key: str, value: Any) -> dict[str, Any]:
         """
         API: Dynamically update a config value.
 
@@ -1208,7 +1271,7 @@ class IconDaemon:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def run(self):
+    def run(self) -> None:
         """Main detection loop."""
         self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
         self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World")
@@ -1218,6 +1281,26 @@ class IconDaemon:
         # Check resolution immediately on startup
         self._check_resolution(0)
 
+        # Assert all required components are initialized (set by initialize())
+        assert self.adb is not None, "ADBHelper not initialized"
+        assert self.windows_helper is not None, "WindowsScreenshotHelper not initialized"
+        assert self.ocr_client is not None, "OCRClient not initialized"
+        assert self.handshake_matcher is not None, "HandshakeIconMatcher not initialized"
+        assert self.treasure_matcher is not None, "TreasureMapMatcher not initialized"
+        assert self.corn_matcher is not None, "CornHarvestMatcher not initialized"
+        assert self.gold_matcher is not None, "GoldCoinMatcher not initialized"
+        assert self.harvest_box_matcher is not None, "HarvestBoxMatcher not initialized"
+        assert self.iron_matcher is not None, "IronBarMatcher not initialized"
+        assert self.gem_matcher is not None, "GemMatcher not initialized"
+        assert self.cabbage_matcher is not None, "CabbageMatcher not initialized"
+        assert self.equipment_enhancement_matcher is not None, "EquipmentEnhancementMatcher not initialized"
+        assert self.hospital_matcher is not None, "HospitalStateMatcher not initialized"
+        assert self.back_button_matcher is not None, "BackButtonMatcher not initialized"
+        assert self.dog_house_matcher is not None, "DogHouseMatcher not initialized"
+        assert self.afk_rewards_matcher is not None, "AfkRewardsMatcher not initialized"
+        assert self.barracks_matcher is not None, "BarracksStateMatcher not initialized"
+        assert self.rally_march_matcher is not None, "RallyMarchButtonMatcher not initialized"
+
         iteration = 0
         while True:
             iteration += 1
@@ -1225,7 +1308,7 @@ class IconDaemon:
             try:
                 # Initialize stamina tracking for this iteration (set properly at line ~1802)
                 stamina_confirmed = False
-                confirmed_stamina = None
+                confirmed_stamina: int | None = None
 
                 # Check if paused via API
                 if self.paused:
@@ -1259,7 +1342,7 @@ class IconDaemon:
                 # At the end of detection, _execute_best_flow() picks ONE to run.
                 # This prevents flows from stepping on each other.
                 # =================================================================
-                flow_candidates: List[FlowCandidate] = []
+                flow_candidates: list[FlowCandidate] = []
 
                 # Check IMMEDIATE action icons FIRST (before slow OCR)
                 handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
@@ -1317,7 +1400,7 @@ class IconDaemon:
                     march_present = march_match is not None
                     march_score = march_match[2] if march_match else 1.0
 
-                    if march_present:
+                    if march_present and march_match is not None:
                         march_x, march_y, _ = march_match
                         # Check prerequisites: TOWN or WORLD view, idle, cooldown
                         view_state, _ = detect_view(frame)
@@ -1402,27 +1485,27 @@ class IconDaemon:
                 afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
                 # Get view state using view_state_detector
                 view_state_enum, view_score = detect_view(frame)
-                view_state = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
+                view_state_str = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
                 back_present, back_score = self.back_button_matcher.is_present(frame)
 
                 # DEBUG: Capture screenshot when view is CHAT or UNKNOWN (problematic states)
-                if view_state in ("CHAT", "UNKNOWN"):
-                    get_daemon_debug().capture(frame, iteration, view_state, "view_problem")
+                if view_state_enum in (ViewState.CHAT, ViewState.UNKNOWN):
+                    get_daemon_debug().capture(frame, iteration, view_state_str, "view_problem")
 
                 # DEBUG: Periodic baseline capture (every 50 iterations)
                 if iteration % 50 == 0:
-                    get_daemon_debug().capture(frame, iteration, view_state, "baseline")
+                    get_daemon_debug().capture(frame, iteration, view_state_str, "baseline")
 
                 # Reset UNKNOWN recovery loop counters when we're genuinely out of UNKNOWN
                 # This only resets when detect_view returns TOWN/WORLD, not when return_to_base_view says "success"
-                if view_state in ("TOWN", "WORLD") and self.unknown_recovery_count > 0:
-                    self.logger.debug(f"[{iteration}] UNKNOWN loop counters reset (view={view_state})")
+                if view_state_enum in (ViewState.TOWN, ViewState.WORLD) and self.unknown_recovery_count > 0:
+                    self.logger.debug(f"[{iteration}] UNKNOWN loop counters reset (view={view_state_str})")
                     self.unknown_recovery_count = 0
                     self.unknown_first_recovery_time = None
 
                 # For backwards compatibility with flow checks
-                world_present = (view_state == "TOWN")
-                town_present = (view_state == "WORLD")
+                world_present = (view_state_enum == ViewState.TOWN)
+                town_present = (view_state_enum == ViewState.WORLD)
 
                 # Get idle time (filtered - ignores daemon clicks and BlueStacks noise)
                 idle_secs = get_user_idle_seconds()
@@ -1450,7 +1533,7 @@ class IconDaemon:
                 # This allows history to build up BEFORE idle threshold is met
                 is_soldier_event_active = arms_race_event == "Soldier Training"
                 is_vs_promo_day = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                if view_state == "TOWN" and (is_soldier_event_active or is_vs_promo_day):
+                if view_state_enum == ViewState.TOWN and (is_soldier_event_active or is_vs_promo_day):
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     for i, (state, _) in enumerate(states):
@@ -1473,7 +1556,7 @@ class IconDaemon:
                 time_elapsed_secs = arms_race['time_elapsed'].total_seconds()
                 if (effective_idle_secs >= 300 and  # 5+ min idle
                     time_elapsed_secs < 900 and  # First 15 min of block
-                    view_state == "TOWN" and
+                    view_state_enum == ViewState.TOWN and
                     should_collect_event_data(arms_race_event)):
                     self.logger.info(f"[{iteration}] ARMS RACE DATA: Collecting missing data for {arms_race_event}...")
                     try:
@@ -1496,7 +1579,7 @@ class IconDaemon:
                 }.get(hospital_state, "?")
 
                 # Log status line with view state, stamina, barracks, and arms race
-                self.logger.info(f"[{iteration}] {pacific_time} [{view_state}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator}{special_events_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} Hosp:{hospital_state_char}({hospital_score:.3f}) AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
+                self.logger.info(f"[{iteration}] {pacific_time} [{view_state_str}] Stamina:{stamina_str} idle:{idle_str} AR:{arms_race_event[:3]}({arms_race_remaining_mins}m){vs_indicator}{special_events_indicator} Barracks:[{barracks_state_str}] H:{handshake_score:.3f} T:{treasure_score:.3f} C:{corn_score:.3f} G:{gold_score:.3f} HB:{harvest_score:.3f} I:{iron_score:.3f} Gem:{gem_score:.3f} Cab:{cabbage_score:.3f} Eq:{equip_score:.3f} Hosp:{hospital_state_char}({hospital_score:.3f}) AFK:{afk_score:.3f} V:{view_score:.3f} B:{back_score:.3f}")
 
                 # Log detailed barracks scores (s=stopwatch, y=yellow, w=white)
                 # Only log when barracks has UNKNOWN or PENDING state (to avoid noise)
@@ -1517,6 +1600,7 @@ class IconDaemon:
                     arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES and
                     stamina_confirmed and
+                    confirmed_stamina is not None and
                     confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD):
                     beast_training_priority = True
                     self.logger.debug(f"[{iteration}] BEAST TRAINING PRIORITY: Skipping harvest flows (stamina={confirmed_stamina}, event_remaining={arms_race_remaining_mins}min)")
@@ -1606,12 +1690,12 @@ class IconDaemon:
                         # HELP_READY: Just click to request ally help (simple action, not a flow)
                         if help_ready_count >= min_required:
                             # Create a simple click flow
-                            def help_ready_flow(adb, x=hospital_click_x, y=hospital_click_y):
+                            def _help_ready_flow(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
                                 mark_daemon_action()
                                 adb.tap(x, y)
                             flow_candidates.append(FlowCandidate(
                                 name="hospital_help",
-                                flow_func=help_ready_flow,
+                                flow_func=_help_ready_flow,
                                 priority=FlowPriority.HIGH,
                                 reason=f"HELP_READY {help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
                             ))
@@ -1619,14 +1703,14 @@ class IconDaemon:
                         # HEALING: Click to open panel, run healing flow
                         elif healing_count >= min_required:
                             # Create wrapper that clicks, waits, then runs healing_flow
-                            def healing_wrapper(adb, x=hospital_click_x, y=hospital_click_y):
+                            def _healing_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
                                 mark_daemon_action()
                                 adb.tap(x, y)
                                 time.sleep(2.5)  # Wait for panel to fully open
                                 healing_flow(adb)
                             flow_candidates.append(FlowCandidate(
                                 name="healing",
-                                flow_func=healing_wrapper,
+                                flow_func=_healing_wrapper,
                                 priority=FlowPriority.HIGH,
                                 reason=f"HEALING {healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
                             ))
@@ -1634,14 +1718,14 @@ class IconDaemon:
                         # SOLDIERS_WOUNDED: Click to open panel, run healing flow
                         elif wounded_count >= min_required:
                             # Create wrapper that clicks, waits, then runs healing_flow
-                            def wounded_wrapper(adb, x=hospital_click_x, y=hospital_click_y):
+                            def _wounded_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
                                 mark_daemon_action()
                                 adb.tap(x, y)
                                 time.sleep(2.5)  # Wait for panel to fully open
                                 healing_flow(adb)
                             flow_candidates.append(FlowCandidate(
                                 name="healing",
-                                flow_func=wounded_wrapper,
+                                flow_func=_wounded_wrapper,
                                 priority=FlowPriority.HIGH,
                                 reason=f"WOUNDED {wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
                             ))
@@ -1674,7 +1758,7 @@ class IconDaemon:
                 # =================================================================
 
                 # Track UNKNOWN state duration (with hysteresis to prevent flicker resets)
-                if view_state == "UNKNOWN":
+                if view_state_enum == ViewState.UNKNOWN:
                     # Back in UNKNOWN - reset the "left" timer
                     self.unknown_state_left_time = None
                     if self.unknown_state_start is None:
@@ -1686,7 +1770,7 @@ class IconDaemon:
                         if self.unknown_state_left_time is None:
                             # Just left UNKNOWN, start hysteresis timer
                             self.unknown_state_left_time = time.time()
-                            self.logger.debug(f"[{iteration}] Left UNKNOWN state (now {view_state}), starting hysteresis...")
+                            self.logger.debug(f"[{iteration}] Left UNKNOWN state (now {view_state_str}), starting hysteresis...")
                         else:
                             # Check if we've been out long enough to reset
                             time_out = time.time() - self.unknown_state_left_time
@@ -1703,7 +1787,7 @@ class IconDaemon:
                 # 4. Check for safe ground → click to dismiss floating panel
                 # 5. If stuck 180s+, run full return_to_base_view
                 # CRITICAL: Skip recovery if ANY flow is active - flows control their own UI
-                if view_state == "UNKNOWN" and not self.active_flows:
+                if view_state_enum == ViewState.UNKNOWN and not self.active_flows:
                     if self.unknown_state_start is not None:
                         unknown_duration = time.time() - self.unknown_state_start
 
@@ -1729,9 +1813,9 @@ class IconDaemon:
                                 continue
                             else:
                                 # Still waiting, skip normal recovery
-                                remaining = DISCONNECTION_WAIT_SECONDS - wait_elapsed
+                                wait_remaining: float = DISCONNECTION_WAIT_SECONDS - wait_elapsed
                                 if iteration % 10 == 0:  # Log every 10 iterations
-                                    self.logger.debug(f"[{iteration}] DISCONNECTION DIALOG: Waiting... {remaining:.0f}s remaining")
+                                    self.logger.debug(f"[{iteration}] DISCONNECTION DIALOG: Waiting... {wait_remaining:.0f}s remaining")
                                 continue
                         else:
                             # No disconnection dialog, reset timer if it was set
@@ -1824,7 +1908,7 @@ class IconDaemon:
 
                             self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY (attempt {self.unknown_recovery_count}): In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
                             # DEBUG: Capture screenshot before recovery
-                            get_daemon_debug().capture(frame, iteration, view_state, "recovery", f"attempt_{self.unknown_recovery_count}")
+                            get_daemon_debug().capture(frame, iteration, view_state_str, "recovery", f"attempt_{self.unknown_recovery_count}")
                             success = return_to_base_view(self.adb, self.windows_helper, debug=True)
                             if success:
                                 self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY: Successfully reached base view")
@@ -1845,10 +1929,10 @@ class IconDaemon:
                         self.idle_iteration_count = 0  # Reset counter
 
                         # Not in town - navigate there (handles CHAT, WORLD)
-                        if view_state != "TOWN" and view_state != "UNKNOWN":
-                            self.logger.info(f"[{iteration}] IDLE RETURN: In {view_state}, navigating to TOWN...")
+                        if view_state_enum != ViewState.TOWN and view_state_enum != ViewState.UNKNOWN:
+                            self.logger.info(f"[{iteration}] IDLE RETURN: In {view_state_str}, navigating to TOWN...")
                             self._switch_to_town()
-                        elif view_state == "TOWN":
+                        elif view_state_enum == ViewState.TOWN:
                             # In TOWN - check if dog house is aligned
                             is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
                             if not is_aligned:
@@ -1883,10 +1967,10 @@ class IconDaemon:
                 # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
                 # Uses scheduler's pre_beast_stamina_claim flow config (idle_required=20s, lower than IDLE_THRESHOLD)
                 # REQUIRES: TOWN or WORLD view (need to see stamina area)
-                if in_pre_beast_window and view_state not in ("TOWN", "WORLD"):
-                    self.logger.warning(f"[{iteration}] PRE-BEAST STAMINA: {minutes_until_beast:.1f}min until event but view={view_state} - cannot detect red dot!")
-                    get_daemon_debug().capture(frame, iteration, view_state, "pre_beast_blocked", f"{minutes_until_beast:.0f}min")
-                if in_pre_beast_window and view_state in ("TOWN", "WORLD") and self.scheduler.is_flow_ready("pre_beast_stamina_claim", idle_seconds=effective_idle_secs):
+                if in_pre_beast_window and view_state_enum not in (ViewState.TOWN, ViewState.WORLD):
+                    self.logger.warning(f"[{iteration}] PRE-BEAST STAMINA: {minutes_until_beast:.1f}min until event but view={view_state_str} - cannot detect red dot!")
+                    get_daemon_debug().capture(frame, iteration, view_state_str, "pre_beast_blocked", f"{minutes_until_beast:.0f}min")
+                if in_pre_beast_window and view_state_enum in (ViewState.TOWN, ViewState.WORLD) and self.scheduler.is_flow_ready("pre_beast_stamina_claim", idle_seconds=effective_idle_secs):
                     # Calculate which upcoming block this is for
                     upcoming_beast_block = arms_race['block_end']  # Next block starts when current ends
 
@@ -1907,21 +1991,34 @@ class IconDaemon:
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until event, but no red dot ({red_count} pixels)")
 
-                # Elite zombie rally - stamina >= 118 and idle 5+ min
+                # Zombie rally/attack - stamina >= threshold and idle 5+ min
+                # Respects zombie_mode setting (elite=20 stamina, gold/food/iron_mine=10 stamina)
                 # BLOCKED: if Beast Training starts in < 6 minutes (preserve stamina for event)
-                elite_rally_blocked = in_pre_beast_window
-                elite_zombie_triggered = False
-                if stamina_confirmed and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and effective_idle_secs >= self.IDLE_THRESHOLD:
-                    if elite_rally_blocked:
-                        self.logger.info(f"[{iteration}] ELITE ZOMBIE: BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
+                zombie_rally_blocked = in_pre_beast_window
+                zombie_rally_triggered = False
+                # Get zombie mode
+                standalone_zombie_mode, _ = self.scheduler.get_zombie_mode()
+                standalone_mode_config = ZOMBIE_MODE_CONFIG.get(standalone_zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
+                if stamina_confirmed and confirmed_stamina is not None and confirmed_stamina >= self.ELITE_ZOMBIE_STAMINA_THRESHOLD and effective_idle_secs >= self.IDLE_THRESHOLD:
+                    if zombie_rally_blocked:
+                        self.logger.info(f"[{iteration}] ZOMBIE ({standalone_zombie_mode.upper()}): BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
                     else:
-                        elite_zombie_triggered = True
+                        zombie_rally_triggered = True
+                        # Select appropriate flow based on mode
+                        if standalone_mode_config["flow"] == "elite_zombie":
+                            standalone_flow_func = elite_zombie_flow
+                            standalone_flow_name = "elite_zombie"
+                        else:
+                            zt = standalone_mode_config.get("zombie_type", "gold")
+                            pc = standalone_mode_config.get("plus_clicks", 10)
+                            standalone_flow_func = lambda adb, _zt=zt, _pc=pc: zombie_attack_flow(adb, zombie_type=_zt, plus_clicks=_pc)
+                            standalone_flow_name = f"zombie_attack_{zt}"
                         flow_candidates.append(FlowCandidate(
-                            name="elite_zombie",
-                            flow_func=elite_zombie_flow,
+                            name=standalone_flow_name,
+                            flow_func=standalone_flow_func,
                             priority=FlowPriority.URGENT,
                             critical=True,
-                            reason=f"stamina={confirmed_stamina}, idle={idle_str}"
+                            reason=f"stamina={confirmed_stamina}, mode={standalone_zombie_mode}, idle={idle_str}"
                         ))
 
                 # =================================================================
@@ -2067,6 +2164,7 @@ class IconDaemon:
                     # Highest priority within beast training (get free stamina first)
                     beast_claim_candidate = False
                     if (stamina_confirmed and
+                        confirmed_stamina is not None and
                         confirmed_stamina < self.STAMINA_CLAIM_THRESHOLD):
                         # Check for red notification dot (indicates free claim available)
                         has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
@@ -2086,18 +2184,21 @@ class IconDaemon:
                     # Get current zombie mode (may be "elite", "gold", "food", or "iron_mine")
                     zombie_mode, zombie_expires = self.scheduler.get_zombie_mode()
                     mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-                    stamina_threshold = mode_config["stamina"]
+                    raw_stamina = mode_config.get("stamina", 20)
+                    stamina_threshold = int(raw_stamina) if isinstance(raw_stamina, (int, float, str)) else 20
 
                     rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
                     beast_rally_candidate = False
                     if (not beast_claim_candidate and
                         stamina_confirmed and
+                        confirmed_stamina is not None and
                         confirmed_stamina >= stamina_threshold and
                         rally_cooldown_ok and
                         self.beast_training_rally_count < rally_target):
                         # Create wrapper based on zombie mode
+                        beast_rally_wrapper: Callable[[Any], Any]
                         if zombie_mode == "elite":
-                            def beast_rally_wrapper(adb):
+                            def _elite_rally_wrapper(adb: Any) -> Any:
                                 import config
                                 original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
                                 config.ELITE_ZOMBIE_PLUS_CLICKS = 0
@@ -2105,12 +2206,15 @@ class IconDaemon:
                                     return elite_zombie_flow(adb)
                                 finally:
                                     config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
+                            beast_rally_wrapper = _elite_rally_wrapper
                         else:
                             # Zombie attack mode (gold/food/iron_mine)
-                            zombie_type = mode_config.get("zombie_type", "gold")
-                            plus_clicks = mode_config.get("plus_clicks", 5)
-                            def beast_rally_wrapper(adb, zt=zombie_type, pc=plus_clicks):
+                            zombie_type = str(mode_config.get("zombie_type", "gold"))
+                            raw_plus = mode_config.get("plus_clicks", 5)
+                            plus_clicks = int(raw_plus) if isinstance(raw_plus, (int, float, str)) else 5
+                            def _zombie_attack_wrapper(adb: Any, zt: str = zombie_type, pc: int = plus_clicks) -> Any:
                                 return zombie_attack_flow(adb, zombie_type=zt, plus_clicks=pc)
+                            beast_rally_wrapper = _zombie_attack_wrapper
 
                         beast_rally_candidate = True
                         remaining = rally_target - self.beast_training_rally_count - 1  # -1 because we're about to do one
@@ -2135,6 +2239,7 @@ class IconDaemon:
                         self.BEAST_TRAINING_USE_ENABLED and
                         effective_idle_secs >= self.IDLE_THRESHOLD and
                         stamina_confirmed and
+                        confirmed_stamina is not None and
                         confirmed_stamina < stamina_threshold and
                         self.beast_training_rally_count < rally_target and
                         self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
@@ -2369,7 +2474,7 @@ class IconDaemon:
                                     lambda adb, idx=idx: soldier_upgrade_flow(adb, barrack_index=idx, debug=True),
                                     critical=True
                                 )
-                                success = flow_result.get("success") and flow_result.get("result", False)
+                                success = bool(flow_result.get("success")) and bool(flow_result.get("result", False))
                                 if not flow_result.get("success") and flow_result.get("error"):
                                     self.logger.warning(f"[{iteration}] SOLDIER: Upgrade blocked: {flow_result.get('error')}")
                                 if success:
@@ -2585,9 +2690,9 @@ class IconDaemon:
                         self.logger.info(f"[{iteration}] Scheduled trigger {scheduled_trigger_candidate['name']} marked for {now_pacific.date()}")
 
                 # Log view state for debugging
-                if view_state == "TOWN":
+                if view_state_enum == ViewState.TOWN:
                     self.logger.info(f"[{iteration}] View: TOWN (world button visible, score={view_score:.4f})")
-                elif view_state == "WORLD":
+                elif view_state_enum == ViewState.WORLD:
                     self.logger.info(f"[{iteration}] View: WORLD (town button visible, score={view_score:.4f})")
 
             except Exception as e:
@@ -2655,7 +2760,7 @@ def acquire_daemon_lock() -> bool:
     return True
 
 
-def release_daemon_lock():
+def release_daemon_lock() -> None:
     """Release the daemon lock by removing PID file."""
     try:
         if PID_FILE.exists():
@@ -2664,7 +2769,7 @@ def release_daemon_lock():
         pass
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Icon auto-clicker daemon"
     )
@@ -2714,14 +2819,19 @@ def main():
 
     # Tee stdout to both console and file
     import io
+    from typing import TextIO
+
     class Tee:
-        def __init__(self, *files):
+        def __init__(self, *files: TextIO) -> None:
             self.files = files
-        def write(self, data):
+
+        def write(self, data: str) -> int:
             for f in self.files:
                 f.write(data)
                 f.flush()
-        def flush(self):
+            return len(data)
+
+        def flush(self) -> None:
             for f in self.files:
                 f.flush()
 

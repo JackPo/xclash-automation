@@ -12,16 +12,21 @@ Usage:
     python scripts/flows/hospital_healing_flow.py [--max-seconds 3600]
 """
 
+from __future__ import annotations
+
 import sys
 import time
 import argparse
 import cv2
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.adb_helper import ADBHelper
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 from utils.ocr_client import OCRClient
 from utils.return_to_base_view import return_to_base_view
 from utils.hospital_panel_helper import (
@@ -39,7 +44,12 @@ from utils.hospital_panel_helper import (
 )
 
 
-def hospital_healing_flow(adb=None, win=None, max_heal_seconds=3600, debug=True):
+def hospital_healing_flow(
+    adb: ADBHelper | None = None,
+    win: WindowsScreenshotHelper | None = None,
+    max_heal_seconds: int = 3600,
+    debug: bool = True,
+) -> bool:
     """
     Heal soldiers in batches of up to max_heal_seconds.
 
@@ -56,6 +66,10 @@ def hospital_healing_flow(adb=None, win=None, max_heal_seconds=3600, debug=True)
     Returns:
         bool: True if healing was initiated
     """
+    # Import here to avoid circular imports at runtime
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     if adb is None:
         adb = ADBHelper()
     if win is None:
@@ -72,7 +86,7 @@ def hospital_healing_flow(adb=None, win=None, max_heal_seconds=3600, debug=True)
     header_template_path = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "hospital_header_4k.png"
     header_template = cv2.imread(str(header_template_path), cv2.IMREAD_GRAYSCALE)
     if header_template is None:
-        print("  WARNING: Could not load hospital_header_4k.png - skipping verification")
+        print("  WARNING: Could not load hospital_header_4k.png - skipping verification")  # type: ignore[unreachable]
     else:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         result = cv2.matchTemplate(gray, header_template, cv2.TM_SQDIFF_NORMED)
@@ -93,33 +107,43 @@ def hospital_healing_flow(adb=None, win=None, max_heal_seconds=3600, debug=True)
 
     print(f"  Found {len(buttons)} soldier rows")
 
-    # Step 2: Scroll through panel and reset ALL sliders to zero
-    # Hospital panel can have more rows than visible - must scroll to find all
-    print("\nStep 2: Scrolling through panel to reset ALL sliders to zero...")
+    # Step 2: Reset ALL sliders to zero
+    # Only scroll if 3+ rows visible (indicates more rows may be below)
+    print("\nStep 2: Resetting all sliders to zero...")
 
     rows_reset = 0
-    for scroll_num in range(5):  # Max 5 scrolls to cover all rows
-        frame = win.get_screenshot_cv2()
-        visible_buttons = find_plus_buttons(frame, debug=False)
+    if len(buttons) >= 3:
+        # Multiple rows visible - need to scroll through panel to find all
+        print(f"  {len(buttons)} rows visible - scrolling to find all rows")
+        for scroll_num in range(5):  # Max 5 scrolls to cover all rows
+            frame = win.get_screenshot_cv2()
+            visible_buttons = find_plus_buttons(frame, debug=False)
 
-        if not visible_buttons:
-            break
+            if not visible_buttons:
+                break
 
-        for plus_x, plus_y, _ in visible_buttons:
+            for plus_x, plus_y, _ in visible_buttons:
+                drag_slider_to_min(adb, frame, plus_x, plus_y, debug=False)
+                rows_reset += 1
+                time.sleep(0.3)
+                frame = win.get_screenshot_cv2()  # Refresh after each drag
+
+            # Scroll down to find more rows
+            scroll_panel_down(adb, debug=False)
+            time.sleep(0.5)
+    else:
+        # Few rows (1-2) - all content visible, just reset directly
+        print(f"  {len(buttons)} rows visible - all content on screen, no scrolling needed")
+        for plus_x, plus_y, _ in buttons:
             drag_slider_to_min(adb, frame, plus_x, plus_y, debug=False)
             rows_reset += 1
             time.sleep(0.3)
             frame = win.get_screenshot_cv2()  # Refresh after each drag
 
-        # Scroll down to find more rows
-        scroll_panel_down(adb, debug=False)
-        time.sleep(0.5)
+    print(f"  Reset {rows_reset} slider positions")
 
-    print(f"  Reset {rows_reset} slider positions across all scrolls")
-
-    # After scrolling down to reset, we're already at/near bottom
-    # Just refresh to get current visible buttons
-    time.sleep(0.5)
+    # Refresh to get current visible buttons
+    time.sleep(0.3)
 
     # Step 3: Check initial healing time (should be 0 or very small)
     frame = win.get_screenshot_cv2()
@@ -232,7 +256,7 @@ def hospital_healing_flow(adb=None, win=None, max_heal_seconds=3600, debug=True)
     return True
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Hospital Healing Flow")
     parser.add_argument("--max-seconds", type=int, default=3600,
                         help="Maximum healing time per batch (default: 3600 = 1 hour)")

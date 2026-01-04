@@ -13,11 +13,19 @@ Templates:
 - Open button: templates/ground_truth/open_button_4k.png (242x99 at 1797,1205)
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 import time
-import cv2
+from typing import TYPE_CHECKING, Any, cast
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+import cv2
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
 from .back_from_chat_flow import back_from_chat_flow
 
 # Template for the dialog box (moves vertically)
@@ -34,7 +42,10 @@ OPEN_BUTTON_X = 1918
 OPEN_BUTTON_Y = 1254
 
 
-def harvest_box_flow(adb, screenshot_helper=None):
+def harvest_box_flow(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None,
+) -> bool:
     """
     Complete harvest box flow: icon -> surprise box -> open -> back.
 
@@ -45,6 +56,8 @@ def harvest_box_flow(adb, screenshot_helper=None):
     Returns:
         True if successful, False otherwise
     """
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper as WSHelper
+
     # Step 1: Click the harvest box icon
     print(f"    [HARVEST] Step 1: Clicking icon at ({HARVEST_ICON_CLICK_X}, {HARVEST_ICON_CLICK_Y})")
     adb.tap(HARVEST_ICON_CLICK_X, HARVEST_ICON_CLICK_Y)
@@ -54,15 +67,11 @@ def harvest_box_flow(adb, screenshot_helper=None):
 
     # Step 3: Find and click the surprise box dialog
     # ALWAYS use Windows screenshot - never ADB (different pixel values, won't match templates)
-    win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
+    win = screenshot_helper if screenshot_helper else WSHelper()
     frame = win.get_screenshot_cv2()
 
-    if frame is None:
-        print("    [HARVEST] Failed to get screenshot")
-        return False
-
-    # Load template
-    template = cv2.imread(str(SURPRISE_BOX_TEMPLATE))
+    # Load template (cast needed because cv2.imread can return None at runtime)
+    template = cast(npt.NDArray[Any] | None, cv2.imread(str(SURPRISE_BOX_TEMPLATE)))
     if template is None:
         print(f"    [HARVEST] Template not found: {SURPRISE_BOX_TEMPLATE}")
         return False

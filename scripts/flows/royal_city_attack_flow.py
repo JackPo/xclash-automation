@@ -7,11 +7,14 @@ Usage:
     python scripts/flows/royal_city_attack_flow.py
 """
 
+from __future__ import annotations
+
 import sys
 import time
 import json
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -21,11 +24,14 @@ from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import go_to_world
 from scripts.flows.go_to_mark_flow import go_to_mark_flow
 
+if TYPE_CHECKING:
+    pass
+
 CALIBRATION_DIR = Path(__file__).parent.parent.parent / "calibration"
 SCREENSHOTS_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "royal_city_attack"
 
 
-def detect_with_gemini(screenshot_path: str, prompt: str) -> dict | None:
+def detect_with_gemini(screenshot_path: str, prompt: str) -> dict[str, int] | None:
     """Use Gemini to detect an object in screenshot. Returns {x, y, width, height} or None."""
     result = subprocess.run(
         ["python", str(CALIBRATION_DIR / "detect_object.py"), screenshot_path, prompt, "--json"],
@@ -44,7 +50,8 @@ def detect_with_gemini(screenshot_path: str, prompt: str) -> dict | None:
         # Find the JSON part (after any debug output)
         for line in output.split('\n'):
             if line.startswith('{'):
-                return json.loads(line)
+                parsed: dict[str, Any] = json.loads(line)
+                return parsed
     except json.JSONDecodeError as e:
         print(f"    Failed to parse Gemini output: {e}")
         print(f"    Raw output: {result.stdout}")
@@ -52,7 +59,7 @@ def detect_with_gemini(screenshot_path: str, prompt: str) -> dict | None:
     return None
 
 
-def save_screenshot(win, name: str) -> str:
+def save_screenshot(win: WindowsScreenshotHelper, name: str) -> str:
     """Save screenshot and return path."""
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     path = SCREENSHOTS_DIR / f"{name}.png"
@@ -63,7 +70,7 @@ def save_screenshot(win, name: str) -> str:
     return str(path)
 
 
-def click_center(adb, bbox: dict):
+def click_center(adb: ADBHelper, bbox: dict[str, int]) -> None:
     """Click center of bounding box."""
     x = bbox['x'] + bbox['width'] // 2
     y = bbox['y'] + bbox['height'] // 2
@@ -71,7 +78,11 @@ def click_center(adb, bbox: dict):
     adb.tap(x, y)
 
 
-def royal_city_attack_flow(adb, win=None, debug=True):
+def royal_city_attack_flow(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper | None = None,
+    debug: bool = True,
+) -> bool:
     """
     Navigate to Royal City and attack or reinforce it.
 

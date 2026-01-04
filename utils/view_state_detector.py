@@ -14,11 +14,19 @@ Navigation paths:
 - WORLD -> TOWN: click (3720, 2040) - center of Town button
 - CHAT -> exit: click back button at (1407, 2055), then re-detect
 """
+from __future__ import annotations
+
 from enum import Enum
-import numpy as np
 import time
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 class ViewState(Enum):
@@ -48,14 +56,12 @@ THRESHOLD = 0.05  # For TM_SQDIFF_NORMED (lower = better match)
 CHAT_THRESHOLD = 0.05  # For chat header detection
 
 
-def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, float]:
+def detect_view(frame: npt.NDArray[Any], debug: bool = False) -> tuple[ViewState, float]:
     """
     Detect view state by comparing corner to templates.
 
     Returns (ViewState, best_score)
     """
-    if frame is None:
-        return ViewState.UNKNOWN, 1.0
 
     # Templates to check for main view
     templates = [
@@ -95,7 +101,7 @@ def detect_view(frame: np.ndarray, debug: bool = False) -> tuple[ViewState, floa
     return ViewState.UNKNOWN, 1.0
 
 
-def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = False) -> bool:
+def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug: bool = False) -> bool:
     """
     Navigate from current view to target view.
 
@@ -196,17 +202,17 @@ def navigate_to(adb, target: ViewState, max_attempts: int = 5, debug: bool = Fal
     return False
 
 
-def go_to_town(adb, debug: bool = False) -> bool:
+def go_to_town(adb: ADBHelper, debug: bool = False) -> bool:
     """Navigate to TOWN view."""
     return navigate_to(adb, ViewState.TOWN, debug=debug)
 
 
-def go_to_world(adb, debug: bool = False) -> bool:
+def go_to_world(adb: ADBHelper, debug: bool = False) -> bool:
     """Navigate to WORLD view."""
     return navigate_to(adb, ViewState.WORLD, debug=debug)
 
 
-def exit_chat(adb, debug: bool = False) -> ViewState:
+def exit_chat(adb: ADBHelper, debug: bool = False) -> ViewState:
     """
     Exit CHAT view by clicking back button until we're in TOWN or WORLD.
 

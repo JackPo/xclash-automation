@@ -3,10 +3,15 @@ Hero Tile Detector - Red dot detection for Fing Hero tiles.
 
 Uses red pixel counting to detect notification dots in hero tiles.
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
-from pathlib import Path
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
 
 # Hero grid layout (4K resolution)
 # 3 rows x 4 columns grid that appears after clicking Fing Hero button
@@ -30,7 +35,7 @@ RED_PIXEL_THRESHOLD = 50  # Minimum red pixels to consider dot present
 ROI_SIZE = 40  # Upper-right region size to check
 
 
-def has_red_dot(tile_img: np.ndarray) -> tuple[bool, int]:
+def has_red_dot(tile_img: npt.NDArray[Any]) -> tuple[bool, int]:
     """
     Check if a hero tile has a red notification dot.
 
@@ -54,7 +59,7 @@ def has_red_dot(tile_img: np.ndarray) -> tuple[bool, int]:
     return red_count >= RED_PIXEL_THRESHOLD, red_count
 
 
-def extract_tile(frame: np.ndarray, tile_name: str) -> np.ndarray:
+def extract_tile(frame: npt.NDArray[Any], tile_name: str) -> npt.NDArray[Any]:
     """
     Extract a hero tile region from a full screenshot.
 
@@ -71,7 +76,7 @@ def extract_tile(frame: np.ndarray, tile_name: str) -> np.ndarray:
     return frame[y:y+h, x:x+w]
 
 
-def detect_tiles_with_red_dots(frame: np.ndarray, debug: bool = False) -> list[dict]:
+def detect_tiles_with_red_dots(frame: npt.NDArray[Any], debug: bool = False) -> list[dict[str, Any]]:
     """
     Scan all hero tiles and find those with red notification dots.
 

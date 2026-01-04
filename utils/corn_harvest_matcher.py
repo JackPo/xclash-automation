@@ -6,10 +6,16 @@ Coordinates loaded from config.CORN_BUBBLE - override in config_local.py for you
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import numpy.typing as npt
 
 from config import CORN_BUBBLE, THRESHOLDS
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 class CornHarvestMatcher:
@@ -28,7 +34,7 @@ class CornHarvestMatcher:
     TEMPLATE_NAME = "corn_harvest_bubble_4k.png"
     DEFAULT_THRESHOLD = THRESHOLDS.get('corn', 0.06)
 
-    def __init__(self, threshold: float = None, debug_dir=None) -> None:
+    def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         """
         Initialize corn harvest bubble detector.
 
@@ -38,7 +44,7 @@ class CornHarvestMatcher:
         """
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         """
         Check if corn harvest bubble is present at FIXED location.
 
@@ -58,6 +64,6 @@ class CornHarvestMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED corn bubble center position."""
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)

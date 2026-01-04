@@ -4,9 +4,12 @@ Rally March Button Matcher - Detects red flag march button in TOWN/WORLD view.
 The march button appears as an overlay notification when a teammate starts a rally.
 Uses template_matcher for Y-axis search at fixed X coordinate.
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
-from typing import Optional, Tuple
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
 
@@ -26,10 +29,10 @@ class RallyMarchButtonMatcher:
     TEMPLATE_NAME = "rally_march_button_small_4k.png"
     DEFAULT_THRESHOLD = 0.05
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def find_march_button(self, frame: np.ndarray) -> Optional[Tuple[int, int, float]]:
+    def find_march_button(self, frame: npt.NDArray[Any]) -> tuple[int, int, float] | None:
         """
         Search Y-axis at fixed X for march button.
 
@@ -65,7 +68,7 @@ class RallyMarchButtonMatcher:
 
         return None
 
-    def is_present(self, frame: np.ndarray) -> Tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any]) -> tuple[bool, float]:
         """
         Check if march button is present on screen.
 
@@ -81,7 +84,7 @@ class RallyMarchButtonMatcher:
             return True, score
         return False, 1.0
 
-    def get_click_position(self, march_x: int, march_y: int) -> Tuple[int, int]:
+    def get_click_position(self, march_x: int, march_y: int) -> tuple[int, int]:
         """
         Calculate click position for march button.
 

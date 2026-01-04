@@ -14,9 +14,14 @@ Sequence (repeated up to 20 times):
 Run manually:
     python scripts/flows/faction_trials_flow.py
 """
+from __future__ import annotations
+
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
@@ -25,8 +30,10 @@ if str(_script_dir) not in sys.path:
 import cv2
 import numpy as np
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.adb_helper import ADBHelper
+if TYPE_CHECKING:
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.adb_helper import ADBHelper
+
 from utils.return_to_base_view import return_to_base_view
 
 # Fixed positions (4K resolution)
@@ -48,7 +55,7 @@ TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_trut
 THRESHOLD = 0.1
 
 
-def _load_template(name: str) -> np.ndarray | None:
+def _load_template(name: str) -> npt.NDArray[Any] | None:
     """Load template image in grayscale."""
     path = TEMPLATES_DIR / name
     if not path.exists():
@@ -57,8 +64,12 @@ def _load_template(name: str) -> np.ndarray | None:
     return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
 
 
-def _check_at_region(frame_gray: np.ndarray, template: np.ndarray,
-                     region: tuple, threshold: float = THRESHOLD) -> tuple[bool, float]:
+def _check_at_region(
+    frame_gray: npt.NDArray[Any],
+    template: npt.NDArray[Any],
+    region: tuple[int, int, int, int],
+    threshold: float = THRESHOLD,
+) -> tuple[bool, float]:
     """Check if template is present at fixed region."""
     x, y, w, h = region
     roi = frame_gray[y:y+h, x:x+w]
@@ -73,7 +84,12 @@ def _check_at_region(frame_gray: np.ndarray, template: np.ndarray,
     return min_val <= threshold, min_val
 
 
-def faction_trials_flow(adb=None, win=None, max_iterations: int = 20, debug: bool = True) -> int:
+def faction_trials_flow(
+    adb: ADBHelper | None = None,
+    win: WindowsScreenshotHelper | None = None,
+    max_iterations: int = 20,
+    debug: bool = True,
+) -> int:
     """
     Execute faction trials flow.
 
@@ -87,16 +103,18 @@ def faction_trials_flow(adb=None, win=None, max_iterations: int = 20, debug: boo
         Number of battles completed
     """
     if adb is None:
-        adb = ADBHelper()
+        from utils.adb_helper import ADBHelper as ADBHelperClass
+        adb = ADBHelperClass()
     if win is None:
-        win = WindowsScreenshotHelper()
+        from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinScreenshotClass
+        win = WinScreenshotClass()
 
     # Load templates
     challenge_template = _load_template("challenge_button_4k.png")
     deploy_template = _load_template("deploy_button_4k.png")
     camcorder_template = _load_template("camcorder_icon_4k.png")
 
-    if any(t is None for t in [challenge_template, deploy_template, camcorder_template]):
+    if challenge_template is None or deploy_template is None or camcorder_template is None:
         print("ERROR: Missing templates")
         return 0
 
@@ -181,13 +199,16 @@ def faction_trials_flow(adb=None, win=None, max_iterations: int = 20, debug: boo
 if __name__ == "__main__":
     import argparse
 
+    from utils.adb_helper import ADBHelper as ADBHelperClass
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinScreenshotClass
+
     parser = argparse.ArgumentParser(description="Faction Trials Flow - Manual faction trials battles")
     parser.add_argument("--max", type=int, default=20, help="Maximum battles (default 20)")
     parser.add_argument("--quiet", action="store_true", help="Disable debug output")
     args = parser.parse_args()
 
-    adb = ADBHelper()
-    win = WindowsScreenshotHelper()
+    adb_instance = ADBHelperClass()
+    win_instance = WinScreenshotClass()
 
-    count = faction_trials_flow(adb, win, max_iterations=args.max, debug=not args.quiet)
+    count = faction_trials_flow(adb_instance, win_instance, max_iterations=args.max, debug=not args.quiet)
     print(f"\nCompleted {count} battles")

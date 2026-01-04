@@ -10,10 +10,15 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 from utils.arms_race import ARMS_RACE_EVENTS, get_arms_race_status, is_event_data_complete
 from utils.arms_race_ocr import (
@@ -59,19 +64,20 @@ def should_collect_event_data(event_name: str) -> bool:
     return True
 
 
-def load_persisted_data() -> dict:
+def load_persisted_data() -> dict[str, Any]:
     """Load persisted event data from JSON."""
     if not EVENTS_JSON_PATH.exists():
         return {}
 
     try:
         with open(EVENTS_JSON_PATH, "r") as f:
-            return json.load(f)
+            result: dict[str, Any] = json.load(f)
+            return result
     except (json.JSONDecodeError, IOError):
         return {}
 
 
-def save_persisted_data(data: dict) -> bool:
+def save_persisted_data(data: dict[str, Any]) -> bool:
     """Save event data to JSON."""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,16 +89,18 @@ def save_persisted_data(data: dict) -> bool:
         return False
 
 
-def update_in_memory_data(event_name: str, chest1: int, chest2: int, chest3: int):
+def update_in_memory_data(event_name: str, chest1: int, chest2: int, chest3: int) -> None:
     """Update the in-memory ARMS_RACE_EVENTS dict."""
     if event_name in ARMS_RACE_EVENTS:
-        ARMS_RACE_EVENTS[event_name]["chest1"] = chest1
-        ARMS_RACE_EVENTS[event_name]["chest2"] = chest2
-        ARMS_RACE_EVENTS[event_name]["chest3"] = chest3
-        logger.info(f"Updated in-memory data for {event_name}: {chest1}/{chest2}/{chest3}")
+        event_data = ARMS_RACE_EVENTS[event_name]
+        if isinstance(event_data, dict):
+            event_data["chest1"] = chest1
+            event_data["chest2"] = chest2
+            event_data["chest3"] = chest3
+            logger.info(f"Updated in-memory data for {event_name}: {chest1}/{chest2}/{chest3}")
 
 
-def save_header_template(frame: np.ndarray, event_name: str) -> bool:
+def save_header_template(frame: npt.NDArray[Any], event_name: str) -> bool:
     """
     Extract and save the header template for an event.
 
@@ -115,7 +123,9 @@ def save_header_template(frame: np.ndarray, event_name: str) -> bool:
 
         # Update metadata
         if event_name in ARMS_RACE_EVENTS:
-            ARMS_RACE_EVENTS[event_name]["header_template"] = filename
+            event_data = ARMS_RACE_EVENTS[event_name]
+            if isinstance(event_data, dict):
+                event_data["header_template"] = filename
 
         return True
     except Exception as e:
@@ -123,7 +133,7 @@ def save_header_template(frame: np.ndarray, event_name: str) -> bool:
         return False
 
 
-def navigate_to_arms_race(adb, win, debug: bool = False) -> bool:
+def navigate_to_arms_race(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> bool:
     """
     Navigate to the Arms Race panel.
 
@@ -168,7 +178,12 @@ def navigate_to_arms_race(adb, win, debug: bool = False) -> bool:
     return False
 
 
-def collect_event_data(adb, win, expected_event: str = None, debug: bool = False) -> dict | None:
+def collect_event_data(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    expected_event: str | None = None,
+    debug: bool = False,
+) -> dict[str, Any] | None:
     """
     Navigate to Arms Race and extract event metadata via OCR.
 
@@ -262,7 +277,9 @@ def save_event_metadata(event_name: str, chest1: int, chest2: int, chest3: int) 
     return False
 
 
-def collect_and_save_current_event(adb, win, debug: bool = False) -> bool:
+def collect_and_save_current_event(
+    adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False
+) -> bool:
     """
     Collect data for the current event if missing.
 
@@ -302,7 +319,7 @@ def collect_and_save_current_event(adb, win, debug: bool = False) -> bool:
     )
 
 
-def load_persisted_into_memory():
+def load_persisted_into_memory() -> None:
     """
     Load persisted JSON data into the in-memory ARMS_RACE_EVENTS dict.
 
@@ -310,17 +327,21 @@ def load_persisted_into_memory():
     """
     data = load_persisted_data()
 
-    for event_name, event_data in data.items():
+    for event_name, persisted_event_data in data.items():
         if event_name in ARMS_RACE_EVENTS:
-            chest1 = event_data.get("chest1")
-            chest2 = event_data.get("chest2")
-            chest3 = event_data.get("chest3")
+            if not isinstance(persisted_event_data, dict):
+                continue
+            chest1 = persisted_event_data.get("chest1")
+            chest2 = persisted_event_data.get("chest2")
+            chest3 = persisted_event_data.get("chest3")
 
             if chest3 is not None:
-                ARMS_RACE_EVENTS[event_name]["chest1"] = chest1
-                ARMS_RACE_EVENTS[event_name]["chest2"] = chest2
-                ARMS_RACE_EVENTS[event_name]["chest3"] = chest3
-                logger.debug(f"Loaded persisted data for {event_name}: {chest1}/{chest2}/{chest3}")
+                in_memory_event_data = ARMS_RACE_EVENTS[event_name]
+                if isinstance(in_memory_event_data, dict):
+                    in_memory_event_data["chest1"] = chest1
+                    in_memory_event_data["chest2"] = chest2
+                    in_memory_event_data["chest3"] = chest3
+                    logger.debug(f"Loaded persisted data for {event_name}: {chest1}/{chest2}/{chest3}")
 
 
 def get_collection_status() -> dict[str, bool]:
@@ -344,7 +365,8 @@ if __name__ == "__main__":
     # Show status
     status = get_collection_status()
     for event_name, complete in status.items():
-        meta = ARMS_RACE_EVENTS.get(event_name, {})
+        meta_raw = ARMS_RACE_EVENTS.get(event_name, {})
+        meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
         if complete:
             print(f"[x] {event_name}: {meta.get('chest1')}/{meta.get('chest2')}/{meta.get('chest3')}")
         else:

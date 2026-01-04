@@ -19,14 +19,14 @@ Templates are captured with Windows screenshots - ADB has different pixel values
 
 DEBUG: This flow saves screenshots at every step to templates/debug/treasure_flow/
 """
+from __future__ import annotations
+
 import time
 import logging
-from pathlib import Path
-from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
-import cv2
+import numpy.typing as npt
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.treasure_chat_notification_matcher import TreasureChatNotificationMatcher
 from utils.treasure_dig_matchers import (
     TreasureDiggingMarkerMatcher,
@@ -37,6 +37,10 @@ from utils.treasure_dig_matchers import (
 from utils.back_button_matcher import BackButtonMatcher
 from utils.hero_selector import HeroSelector
 from utils.debug_screenshot import save_debug_screenshot
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Setup logger
 logger = logging.getLogger("treasure_map_flow")
@@ -57,18 +61,18 @@ MAX_MARCH_WAIT_SECONDS = 600  # 10 minutes max wait for march
 BACK_BUTTON_MAX_CLICKS = 5  # Max back button clicks to exit
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging. Returns path."""
     return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [FLOW] {msg}")
 
 
-def treasure_map_flow(adb):
+def treasure_map_flow(adb: ADBHelper) -> bool:
     """
     Handle full treasure hunting sequence.
 
@@ -78,6 +82,7 @@ def treasure_map_flow(adb):
     Returns:
         bool: True if treasure was collected, False otherwise
     """
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
     flow_start = time.time()
     _log(f"=== TREASURE FLOW START ===")
     _log(f"Clicking treasure map icon at ({CLICK_X}, {CLICK_Y})")
@@ -135,8 +140,10 @@ def treasure_map_flow(adb):
     return True
 
 
-def _wait_and_click_chat_notification(adb) -> bool:
+def _wait_and_click_chat_notification(adb: ADBHelper) -> bool:
     """Wait for chat notification and click Kingdom link. Scrolls up if not visible."""
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     notification_matcher = TreasureChatNotificationMatcher()
     win = WindowsScreenshotHelper()
 
@@ -152,11 +159,6 @@ def _wait_and_click_chat_notification(adb) -> bool:
 
     for attempt in range(MAX_ATTEMPTS + MAX_SCROLL_ATTEMPTS * CHECKS_BEFORE_SCROLL):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            _log(f"  Chat check {attempt+1}: Screenshot failed!")
-            time.sleep(CHECK_INTERVAL)
-            continue
 
         is_present, score, found_pos = notification_matcher.is_present(frame)
 
@@ -189,18 +191,15 @@ def _wait_and_click_chat_notification(adb) -> bool:
     return False
 
 
-def _wait_and_click_digging_marker(adb) -> bool:
+def _wait_and_click_digging_marker(adb: ADBHelper) -> bool:
     """Wait for treasure digging marker and click it."""
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     marker_matcher = TreasureDiggingMarkerMatcher()
     win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            _log(f"  Marker check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
-            time.sleep(CHECK_INTERVAL)
-            continue
 
         is_present, score = marker_matcher.is_present(frame)
 
@@ -221,18 +220,15 @@ def _wait_and_click_digging_marker(adb) -> bool:
     return False
 
 
-def _wait_and_click_gather(adb) -> bool:
+def _wait_and_click_gather(adb: ADBHelper) -> bool:
     """Wait for Gather button and click it."""
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     gather_matcher = GatherButtonMatcher()
     win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            _log(f"  Gather check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
-            time.sleep(CHECK_INTERVAL)
-            continue
 
         is_present, score = gather_matcher.is_present(frame)
 
@@ -253,19 +249,16 @@ def _wait_and_click_gather(adb) -> bool:
     return False
 
 
-def _select_character_and_march(adb) -> bool:
+def _select_character_and_march(adb: ADBHelper) -> bool:
     """Select rightmost character (prefer idle with Zz, but fallback to any) and click March."""
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     hero_selector = HeroSelector()
     march_matcher = MarchButtonMatcher()
     win = WindowsScreenshotHelper()
 
     for attempt in range(MAX_ATTEMPTS):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            _log(f"  March check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
-            time.sleep(CHECK_INTERVAL)
-            continue
 
         # First check if March button is visible (indicates we're on march screen)
         march_present, march_score = march_matcher.is_present(frame)
@@ -306,25 +299,24 @@ def _select_character_and_march(adb) -> bool:
     return False
 
 
-def _wait_and_collect_treasure(adb) -> bool:
+def _wait_and_collect_treasure(adb: ADBHelper) -> bool:
     """Wait for treasure to be ready and collect it, keep clicking until circle turns white."""
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     ready_matcher = TreasureReadyCircleMatcher()
     win = WindowsScreenshotHelper()
 
     start_time = time.time()
     check_count = 0
-    last_screenshot_time = 0
+    last_screenshot_time = 0.0
 
     _log(f"  Waiting up to {MAX_MARCH_WAIT_SECONDS}s for blue circle (threshold={ready_matcher.threshold})")
 
     # Phase 1: Wait for blue circle to appear
+    frame: npt.NDArray[Any] | None = None
     while (time.time() - start_time) < MAX_MARCH_WAIT_SECONDS:
         check_count += 1
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            time.sleep(MARCH_PROGRESS_CHECK_INTERVAL)
-            continue
 
         is_present, score = ready_matcher.is_present(frame)
         elapsed = int(time.time() - start_time)
@@ -351,10 +343,6 @@ def _wait_and_collect_treasure(adb) -> bool:
             for click_attempt in range(20):  # Increased from 10
                 frame = win.get_screenshot_cv2()
 
-                if frame is None:
-                    time.sleep(0.5)
-                    continue
-
                 still_blue, score = ready_matcher.is_present(frame)
                 _save_debug_screenshot(frame, f"13_collect_click_{click_attempt+1}_score{score:.3f}")
 
@@ -380,22 +368,21 @@ def _wait_and_collect_treasure(adb) -> bool:
 
         time.sleep(MARCH_PROGRESS_CHECK_INTERVAL)
 
-    _save_debug_screenshot(frame, f"15_TIMEOUT_after_{MAX_MARCH_WAIT_SECONDS}s")
+    if frame is not None:
+        _save_debug_screenshot(frame, f"15_TIMEOUT_after_{MAX_MARCH_WAIT_SECONDS}s")
     _log(f"  TIMEOUT waiting for treasure after {MAX_MARCH_WAIT_SECONDS}s")
     return False
 
 
-def _click_back_until_gone(adb) -> None:
+def _click_back_until_gone(adb: ADBHelper) -> None:
     """Click back button repeatedly until it's no longer visible."""
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     back_matcher = BackButtonMatcher()
     win = WindowsScreenshotHelper()
 
     for click_num in range(BACK_BUTTON_MAX_CLICKS):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            time.sleep(CHECK_INTERVAL)
-            continue
 
         is_present, score = back_matcher.is_present(frame)
         _save_debug_screenshot(frame, f"16_back_check_{click_num+1}_score{score:.3f}")
@@ -412,7 +399,7 @@ def _click_back_until_gone(adb) -> None:
     _log(f"  Back button still visible after {BACK_BUTTON_MAX_CLICKS} clicks")
 
 
-def _return_to_town(adb) -> bool:
+def _return_to_town(adb: ADBHelper) -> bool:
     """Switch to town view using view_state_detector."""
     from utils.view_state_detector import go_to_town
     return go_to_town(adb, debug=False)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -25,8 +26,13 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 
 from scripts.flows.bag_use_item_subflow import use_item_subflow
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Fixed positions (4K resolution)
 BAG_BUTTON_REGION = (3679, 1596, 72, 77)
@@ -45,7 +51,7 @@ VERIFICATION_THRESHOLD = 0.01
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
 
-def _load_template(name: str) -> np.ndarray:
+def _load_template(name: str) -> npt.NDArray[Any]:
     """Load a template image in grayscale."""
     path = TEMPLATES_DIR / name
     template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
@@ -54,8 +60,12 @@ def _load_template(name: str) -> np.ndarray:
     return template
 
 
-def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
-                            region: tuple, threshold: float = VERIFICATION_THRESHOLD) -> tuple[bool, float]:
+def _verify_at_fixed_region(
+    frame_gray: npt.NDArray[Any],
+    template: npt.NDArray[Any],
+    region: tuple[int, int, int, int],
+    threshold: float = VERIFICATION_THRESHOLD,
+) -> tuple[bool, float]:
     """
     Verify template is present at fixed region.
 
@@ -71,7 +81,10 @@ def _verify_at_fixed_region(frame_gray: np.ndarray, template: np.ndarray,
     return min_val <= threshold, min_val
 
 
-def _find_first_diamond(frame_gray: np.ndarray, template: np.ndarray) -> tuple[tuple[int, int] | None, float]:
+def _find_first_diamond(
+    frame_gray: npt.NDArray[Any],
+    template: npt.NDArray[Any],
+) -> tuple[tuple[int, int] | None, float]:
     """
     Find the first (best matching) diamond in the frame.
 
@@ -89,7 +102,12 @@ def _find_first_diamond(frame_gray: np.ndarray, template: np.ndarray) -> tuple[t
     return None, min_val
 
 
-def bag_resources_flow(adb, win=None, debug: bool = False, open_bag: bool = True) -> int:
+def bag_resources_flow(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper | None = None,
+    debug: bool = False,
+    open_bag: bool = True,
+) -> int:
     """
     Execute the bag resources flow to claim all diamonds.
 

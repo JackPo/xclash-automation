@@ -9,10 +9,19 @@ Pattern (same as soldier_panel_slider but with dynamic row detection):
 5. Swipe from (circle_x, slider_y) to (target_x, slider_y)
 """
 
+from __future__ import annotations
+
 import cv2
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Template paths - Hospital uses SCALED (0.8x) versions of button templates
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
@@ -49,25 +58,27 @@ SCROLL_TOP_Y = 700
 SCROLL_BOTTOM_Y = 1100
 
 # Template caches
-_slider_template = None
-_plus_template = None
+_slider_template: npt.NDArray[Any] | None = None
+_plus_template: npt.NDArray[Any] | None = None
 
 
-def _get_slider_template():
+def _get_slider_template() -> npt.NDArray[Any] | None:
     global _slider_template
     if _slider_template is None:
         _slider_template = cv2.imread(str(SLIDER_TEMPLATE_PATH), cv2.IMREAD_GRAYSCALE)
     return _slider_template
 
 
-def _get_plus_template():
+def _get_plus_template() -> npt.NDArray[Any] | None:
     global _plus_template
     if _plus_template is None:
         _plus_template = cv2.imread(str(PLUS_TEMPLATE_PATH), cv2.IMREAD_GRAYSCALE)
     return _plus_template
 
 
-def find_plus_buttons(frame, debug=False):
+def find_plus_buttons(
+    frame: npt.NDArray[Any], debug: bool = False
+) -> list[tuple[int, int, float]]:
     """
     Find all plus button positions in the hospital panel.
 
@@ -87,12 +98,12 @@ def find_plus_buttons(frame, debug=False):
     result = cv2.matchTemplate(search_region, plus_template, cv2.TM_SQDIFF_NORMED)
 
     threshold = 0.02  # Strict threshold to filter false positives
-    buttons = []
+    buttons: list[tuple[int, int, float]] = []
 
     # Scan for matches
     for y in range(result.shape[0]):
-        min_x = result[y].argmin()
-        min_val = result[y, min_x]
+        min_x = int(result[y].argmin())
+        min_val = float(result[y, min_x])
         if min_val < threshold:
             full_x = PANEL_X_START + min_x + w // 2
             full_y = PANEL_Y_START + y + h // 2
@@ -118,7 +129,9 @@ def find_plus_buttons(frame, debug=False):
     return buttons
 
 
-def find_slider_circle(frame, plus_x, plus_y, debug=False):
+def find_slider_circle(
+    frame: npt.NDArray[Any], plus_x: int, plus_y: int, debug: bool = False
+) -> tuple[int | None, float]:
     """
     Find slider circle X position for a row.
 
@@ -162,22 +175,28 @@ def find_slider_circle(frame, plus_x, plus_y, debug=False):
     return None, min_val
 
 
-def get_slider_y(plus_y):
+def get_slider_y(plus_y: int) -> int:
     """Get the slider Y coordinate for a row given its plus button Y."""
     return plus_y + SLIDER_Y_OFFSET
 
 
-def get_slider_min_x(plus_x):
+def get_slider_min_x(plus_x: int) -> int:
     """Get the slider minimum X (leftmost position) for a row."""
     return plus_x + MINUS_X_OFFSET + SLIDER_MIN_PADDING
 
 
-def get_slider_max_x(plus_x):
+def get_slider_max_x(plus_x: int) -> int:
     """Get the slider maximum X (rightmost position) for a row."""
     return plus_x - SLIDER_MAX_PADDING
 
 
-def drag_slider_to_min(adb, frame, plus_x, plus_y, debug=False):
+def drag_slider_to_min(
+    adb: ADBHelper,
+    frame: npt.NDArray[Any],
+    plus_x: int,
+    plus_y: int,
+    debug: bool = False,
+) -> bool:
     """
     Drag slider to minimum (leftmost) position.
 
@@ -205,7 +224,13 @@ def drag_slider_to_min(adb, frame, plus_x, plus_y, debug=False):
     return True
 
 
-def drag_slider_to_max(adb, frame, plus_x, plus_y, debug=False):
+def drag_slider_to_max(
+    adb: ADBHelper,
+    frame: npt.NDArray[Any],
+    plus_x: int,
+    plus_y: int,
+    debug: bool = False,
+) -> bool:
     """
     Drag slider to maximum (rightmost) position.
     """
@@ -225,7 +250,14 @@ def drag_slider_to_max(adb, frame, plus_x, plus_y, debug=False):
     return True
 
 
-def drag_slider_to_position(adb, frame, plus_x, plus_y, target_x, debug=False):
+def drag_slider_to_position(
+    adb: ADBHelper,
+    frame: npt.NDArray[Any],
+    plus_x: int,
+    plus_y: int,
+    target_x: int,
+    debug: bool = False,
+) -> bool:
     """
     Drag slider to a specific X position.
     """
@@ -244,7 +276,7 @@ def drag_slider_to_position(adb, frame, plus_x, plus_y, target_x, debug=False):
     return True
 
 
-def calculate_slider_x(plus_x, ratio):
+def calculate_slider_x(plus_x: int, ratio: float) -> int:
     """
     Calculate slider X position for a given ratio.
 
@@ -261,7 +293,12 @@ def calculate_slider_x(plus_x, ratio):
     return min_x + int(ratio * (max_x - min_x))
 
 
-def reset_all_sliders(adb, win, buttons, debug=False):
+def reset_all_sliders(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    buttons: list[tuple[int, int, float]],
+    debug: bool = False,
+) -> None:
     """
     Reset all sliders to minimum.
 
@@ -281,7 +318,8 @@ def reset_all_sliders(adb, win, buttons, debug=False):
 
 # === OCR and Healing Functions ===
 
-def parse_healing_time(text):
+
+def parse_healing_time(text: str | None) -> int:
     """Parse healing time text to total seconds."""
     if not text:
         return 0
@@ -297,19 +335,21 @@ def parse_healing_time(text):
 
     if text:
         time_parts = text.split(':')
-        time_parts = [int(p) for p in time_parts if p.isdigit()]
+        time_parts_int = [int(p) for p in time_parts if p.isdigit()]
 
-        if len(time_parts) == 3:
-            hours, minutes, seconds = time_parts
-        elif len(time_parts) == 2:
-            minutes, seconds = time_parts
-        elif len(time_parts) == 1:
-            seconds = time_parts[0]
+        if len(time_parts_int) == 3:
+            hours, minutes, seconds = time_parts_int
+        elif len(time_parts_int) == 2:
+            minutes, seconds = time_parts_int
+        elif len(time_parts_int) == 1:
+            seconds = time_parts_int[0]
 
     return days * 86400 + hours * 3600 + minutes * 60 + seconds
 
 
-def get_healing_time_seconds(frame, ocr_client, debug=False):
+def get_healing_time_seconds(
+    frame: npt.NDArray[Any], ocr_client: Any, debug: bool = False
+) -> int:
     """OCR the healing button and parse time to seconds."""
     x, y, w, h = HEALING_TIME_REGION
     roi = frame[y:y+h, x:x+w]
@@ -317,7 +357,7 @@ def get_healing_time_seconds(frame, ocr_client, debug=False):
     text = ocr_client.extract_text(roi)
 
     if debug:
-        safe_text = text.encode('ascii', 'replace').decode('ascii')
+        safe_text = (text or "").encode('ascii', 'replace').decode('ascii')
         print(f"  Healing OCR: '{safe_text}'")
 
     seconds = parse_healing_time(text)
@@ -331,7 +371,7 @@ def get_healing_time_seconds(frame, ocr_client, debug=False):
     return seconds
 
 
-def click_healing_button(adb, debug=False):
+def click_healing_button(adb: ADBHelper, debug: bool = False) -> None:
     """Click the Healing button."""
     x, y = HEALING_BUTTON_CLICK
     if debug:
@@ -339,7 +379,7 @@ def click_healing_button(adb, debug=False):
     adb.tap(x, y)
 
 
-def scroll_panel_down(adb, debug=False):
+def scroll_panel_down(adb: ADBHelper, debug: bool = False) -> None:
     """Scroll the hospital panel down."""
     if debug:
         print(f"  Scrolling panel down")

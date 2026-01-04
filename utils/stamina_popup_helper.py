@@ -7,10 +7,14 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Any
 
-import cv2
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +37,21 @@ ROW4_USE_BUTTON_CLICK = (2282, 1442)
 POPUP_CLOSE_CLICK = (500, 500)
 
 
-def open_stamina_popup(adb) -> None:
+def open_stamina_popup(adb: ADBHelper) -> None:
     """Click stamina display to open recovery popup."""
     logger.info(f"Opening stamina popup at {STAMINA_DISPLAY_CLICK}")
     adb.tap(*STAMINA_DISPLAY_CLICK)
     time.sleep(1.0)
 
 
-def close_stamina_popup(adb) -> None:
+def close_stamina_popup(adb: ADBHelper) -> None:
     """Close the popup by tapping blank space."""
     logger.info("Closing stamina popup")
     adb.tap(*POPUP_CLOSE_CLICK)
     time.sleep(0.5)
 
 
-def get_cooldown_seconds(frame: np.ndarray) -> int:
+def get_cooldown_seconds(frame: npt.NDArray[Any]) -> int:
     """
     OCR the cooldown timer and return seconds remaining.
 
@@ -82,7 +86,7 @@ def get_cooldown_seconds(frame: np.ndarray) -> int:
     return 0  # Assume ready if can't parse
 
 
-def get_owned_counts(frame: np.ndarray) -> dict:
+def get_owned_counts(frame: npt.NDArray[Any]) -> dict[str, int]:
     """
     OCR owned counts for 10 and 50 stamina items.
 
@@ -144,14 +148,14 @@ def get_owned_counts(frame: np.ndarray) -> dict:
     return result
 
 
-def claim_free_50(adb) -> None:
+def claim_free_50(adb: ADBHelper) -> None:
     """Click the free 50 stamina claim button."""
     logger.info(f"Claiming free 50 stamina at {ROW1_CLAIM_BUTTON_CLICK}")
     adb.tap(*ROW1_CLAIM_BUTTON_CLICK)
     time.sleep(0.5)
 
 
-def use_10_stamina(adb, count: int = 1) -> None:
+def use_10_stamina(adb: ADBHelper, count: int = 1) -> None:
     """Click Use button for 10 stamina item N times."""
     for i in range(count):
         logger.info(f"Using 10 stamina item ({i+1}/{count})")
@@ -159,7 +163,7 @@ def use_10_stamina(adb, count: int = 1) -> None:
         time.sleep(0.3)
 
 
-def use_50_stamina(adb, count: int = 1) -> None:
+def use_50_stamina(adb: ADBHelper, count: int = 1) -> None:
     """Click Use button for 50 stamina item N times."""
     for i in range(count):
         logger.info(f"Using 50 stamina item ({i+1}/{count})")
@@ -167,7 +171,7 @@ def use_50_stamina(adb, count: int = 1) -> None:
         time.sleep(0.3)
 
 
-def get_inventory_snapshot(adb, win) -> dict:
+def get_inventory_snapshot(adb: ADBHelper, win: WindowsScreenshotHelper) -> dict[str, int]:
     """
     Open popup, capture inventory state, close popup.
 
@@ -195,7 +199,7 @@ def get_inventory_snapshot(adb, win) -> dict:
     }
 
 
-def execute_claim_decision(adb, decision: dict) -> None:
+def execute_claim_decision(adb: ADBHelper, decision: dict[str, Any]) -> None:
     """
     Execute the claim decision from the stamina rule engine.
 

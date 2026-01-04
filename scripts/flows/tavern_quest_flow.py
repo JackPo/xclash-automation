@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
+from typing import TYPE_CHECKING, Any
 
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
@@ -27,11 +28,16 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 import time
 import logging
 
-from utils.adb_helper import ADBHelper
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.scheduler import DaemonScheduler
+    from utils.ocr_client import OCRClient
+
 from utils.return_to_base_view import return_to_base_view
 
 logger = logging.getLogger(__name__)
@@ -95,7 +101,7 @@ SCROLL_X = 1920        # Center X
 SCROLL_DURATION = 500  # ms - longer for smoother scroll
 
 
-def load_template_gray(path: str) -> np.ndarray:
+def load_template_gray(path: str) -> npt.NDArray[Any]:
     """Load template as grayscale."""
     template = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if template is None:
@@ -176,7 +182,7 @@ def _should_start_question_mark_quests() -> bool:
 # Schedule Helpers (delegating to unified scheduler)
 # =============================================================================
 
-def _get_scheduler():
+def _get_scheduler() -> DaemonScheduler:
     """Get the unified scheduler instance."""
     from utils.scheduler import get_scheduler
     return get_scheduler()
@@ -240,7 +246,7 @@ def parse_timer_string(timer_str: str) -> int | None:
     return None
 
 
-def find_quest_timers(frame: np.ndarray, frame_gray: np.ndarray, ocr=None) -> list[dict]:
+def find_quest_timers(frame: npt.NDArray[Any], frame_gray: npt.NDArray[Any], ocr: OCRClient | None = None) -> list[dict[str, Any]]:
     """
     Find all quest timers in the current view.
 
@@ -266,7 +272,7 @@ def find_quest_timers(frame: np.ndarray, frame_gray: np.ndarray, ocr=None) -> li
         matches.append((x, y, score))
 
     matches.sort(key=lambda m: m[2])
-    filtered = []
+    filtered: list[tuple[Any, Any, Any]] = []
     for x, y, score in matches:
         is_distinct = True
         for fx, fy, _ in filtered:
@@ -276,14 +282,14 @@ def find_quest_timers(frame: np.ndarray, frame_gray: np.ndarray, ocr=None) -> li
         if is_distinct:
             filtered.append((x, y, score))
 
-    timers = []
+    timers: list[dict[str, Any]] = []
     for clock_x, clock_y, _ in filtered:
         timer_x = clock_x + TIMER_OFFSET_X
         timer_y = clock_y
         timer_region = (timer_x, timer_y, TIMER_WIDTH, TIMER_HEIGHT)
 
-        timer_text = None
-        seconds = None
+        timer_text: str | None = None
+        seconds: int | None = None
 
         if ocr is not None:
             try:
@@ -305,7 +311,7 @@ def find_quest_timers(frame: np.ndarray, frame_gray: np.ndarray, ocr=None) -> li
     return timers
 
 
-def scan_quest_timers(frame: np.ndarray, ocr) -> list[datetime]:
+def scan_quest_timers(frame: npt.NDArray[Any], ocr: OCRClient) -> list[datetime]:
     """
     Scan tavern screen, OCR all timers, calculate completion times.
     Does NOT save - caller should accumulate and save once at the end.
@@ -331,7 +337,7 @@ def scan_quest_timers(frame: np.ndarray, ocr) -> list[datetime]:
     return completions
 
 
-def scan_and_schedule_quest_completions(frame: np.ndarray, ocr) -> list[datetime]:
+def scan_and_schedule_quest_completions(frame: npt.NDArray[Any], ocr: OCRClient) -> list[datetime]:
     """
     Scan tavern screen, OCR all timers, calculate completion times, and save.
     Use scan_quest_timers() if you need to accumulate across multiple screens.
@@ -348,7 +354,7 @@ def scan_and_schedule_quest_completions(frame: np.ndarray, ocr) -> list[datetime
     return completions
 
 
-def check_tab_active(frame_gray: np.ndarray, template: np.ndarray, region: tuple) -> tuple[bool, float]:
+def check_tab_active(frame_gray: npt.NDArray[Any], template: npt.NDArray[Any], region: tuple[int, int, int, int]) -> tuple[bool, float]:
     """Check if a tab is active by matching template in region."""
     x, y, w, h = region
     roi = frame_gray[y:y+h, x:x+w]
@@ -365,7 +371,7 @@ def check_tab_active(frame_gray: np.ndarray, template: np.ndarray, region: tuple
     return score < 0.02, score  # Active if score < 0.02
 
 
-def find_claim_buttons(frame_gray: np.ndarray, template: np.ndarray) -> list[tuple[int, int]]:
+def find_claim_buttons(frame_gray: npt.NDArray[Any], template: npt.NDArray[Any]) -> list[tuple[int, int]]:
     """
     Find all Claim buttons by scanning column (X: 2100-2500, full Y).
     Returns list of (x, y) click positions.
@@ -397,7 +403,7 @@ def find_claim_buttons(frame_gray: np.ndarray, template: np.ndarray) -> list[tup
     matches.sort(key=lambda m: m[1])
 
     # Non-maximum suppression - keep distinct Y positions (min spacing 100px)
-    filtered = []
+    filtered: list[tuple[int, int]] = []
     min_spacing = 100
 
     for full_x, full_y, score in matches:
@@ -414,7 +420,7 @@ def find_claim_buttons(frame_gray: np.ndarray, template: np.ndarray) -> list[tup
     return filtered
 
 
-def find_gold_scroll_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]:
+def find_gold_scroll_go_buttons(frame_gray: npt.NDArray[Any]) -> list[tuple[int, int]]:
     """
     Find Go buttons for quests that have Gold Scroll Lv4 rewards.
 
@@ -440,7 +446,7 @@ def find_gold_scroll_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]
 
     # Non-maximum suppression for scrolls (min spacing 100px)
     scrolls.sort(key=lambda s: s[2])  # Sort by score
-    filtered_scrolls = []
+    filtered_scrolls: list[tuple[Any, Any, Any]] = []
     for x, y, score in scrolls:
         is_distinct = True
         for fx, fy, _ in filtered_scrolls:
@@ -461,7 +467,7 @@ def find_gold_scroll_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]
     go_locations = np.where(go_result < GO_BUTTON_THRESHOLD)
 
     go_h, go_w = go_button_template.shape[:2]
-    go_buttons = []
+    go_buttons: list[tuple[int, int, Any]] = []
     for y, x in zip(go_locations[0], go_locations[1]):
         score = go_result[y, x]
         # Convert to full frame coords
@@ -471,25 +477,25 @@ def find_gold_scroll_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]
 
     # Non-maximum suppression for Go buttons
     go_buttons.sort(key=lambda g: g[2])
-    filtered_go = []
+    filtered_go_gold: list[tuple[int, int, Any]] = []
     for x, y, score in go_buttons:
         is_distinct = True
-        for fx, fy, _ in filtered_go:
+        for fx, fy, _ in filtered_go_gold:
             if abs(y - fy) < 80:
                 is_distinct = False
                 break
         if is_distinct:
-            filtered_go.append((x, y, score))
+            filtered_go_gold.append((x, y, score))
 
-    if not filtered_go:
+    if not filtered_go_gold:
         return []
 
-    logger.debug(f"Found {len(filtered_go)} Go buttons")
+    logger.debug(f"Found {len(filtered_go_gold)} Go buttons")
 
     # Match scrolls with Go buttons on same row (Y within tolerance)
-    matched_go_buttons = []
+    matched_go_buttons: list[tuple[int, int]] = []
     for scroll_x, scroll_y, _ in filtered_scrolls:
-        for go_x, go_y, _ in filtered_go:
+        for go_x, go_y, _ in filtered_go_gold:
             if abs(scroll_y - go_y) <= Y_TOLERANCE:
                 # Found a match! Add Go button click position
                 matched_go_buttons.append((go_x, go_y))
@@ -502,7 +508,7 @@ def find_gold_scroll_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]
     return matched_go_buttons
 
 
-def find_question_mark_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int]]:
+def find_question_mark_go_buttons(frame_gray: npt.NDArray[Any]) -> list[tuple[int, int]]:
     """
     Find Go buttons for quests that have question mark reward tiles.
 
@@ -533,7 +539,7 @@ def find_question_mark_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int
 
     # Non-maximum suppression for tiles (min spacing 100px)
     tiles.sort(key=lambda t: t[2])  # Sort by score
-    filtered_tiles = []
+    filtered_tiles: list[tuple[Any, Any, Any]] = []
     for x, y, score in tiles:
         is_distinct = True
         for fx, fy, _ in filtered_tiles:
@@ -554,48 +560,48 @@ def find_question_mark_go_buttons(frame_gray: np.ndarray) -> list[tuple[int, int
     go_locations = np.where(go_result < GO_BUTTON_THRESHOLD)
 
     go_h, go_w = go_button_template.shape[:2]
-    go_buttons = []
+    go_buttons_qmark: list[tuple[int, int, Any]] = []
     for y, x in zip(go_locations[0], go_locations[1]):
         score = go_result[y, x]
         # Convert to full frame coords
         full_x = GO_BUTTON_X_START + x + go_w // 2
         center_y = y + go_h // 2
-        go_buttons.append((full_x, center_y, score))
+        go_buttons_qmark.append((full_x, center_y, score))
 
     # Non-maximum suppression for Go buttons
-    go_buttons.sort(key=lambda g: g[2])
-    filtered_go = []
-    for x, y, score in go_buttons:
+    go_buttons_qmark.sort(key=lambda g: g[2])
+    filtered_go_qmark: list[tuple[int, int, Any]] = []
+    for x, y, score in go_buttons_qmark:
         is_distinct = True
-        for fx, fy, _ in filtered_go:
+        for fx, fy, _ in filtered_go_qmark:
             if abs(y - fy) < 80:
                 is_distinct = False
                 break
         if is_distinct:
-            filtered_go.append((x, y, score))
+            filtered_go_qmark.append((x, y, score))
 
-    if not filtered_go:
+    if not filtered_go_qmark:
         return []
 
-    logger.debug(f"Found {len(filtered_go)} Go buttons")
+    logger.debug(f"Found {len(filtered_go_qmark)} Go buttons")
 
     # Match tiles with Go buttons on same row (Y within tolerance)
-    matched_go_buttons = []
+    matched_go_buttons_qmark: list[tuple[int, int]] = []
     for tile_x, tile_y, _ in filtered_tiles:
-        for go_x, go_y, _ in filtered_go:
+        for go_x, go_y, _ in filtered_go_qmark:
             if abs(tile_y - go_y) <= Y_TOLERANCE:
                 # Found a match! Add Go button click position
-                matched_go_buttons.append((go_x, go_y))
+                matched_go_buttons_qmark.append((go_x, go_y))
                 logger.debug(f"Matched: Question mark Y={tile_y} with Go Y={go_y}")
                 break  # One Go per tile
 
     # Sort by Y position (top to bottom)
-    matched_go_buttons.sort(key=lambda b: b[1])
+    matched_go_buttons_qmark.sort(key=lambda b: b[1])
 
-    return matched_go_buttons
+    return matched_go_buttons_qmark
 
 
-def is_in_tavern(frame_gray: np.ndarray) -> tuple[bool, str]:
+def is_in_tavern(frame_gray: npt.NDArray[Any]) -> tuple[bool, str | None]:
     """
     Verify we're in Tavern by checking if either tab template matches.
     Returns (is_in_tavern, active_tab) where active_tab is 'my_quests', 'ally_quests', or None.
@@ -727,7 +733,7 @@ def handle_bounty_quest_dialog(adb: ADBHelper, win: WindowsScreenshotHelper, deb
 # Scheduled Claim Flow (pre-position and poll)
 # =============================================================================
 
-def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr, debug: bool = False) -> int:
+def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient, debug: bool = False) -> int:
     """
     Poll for Claim button every 0.5s. Clicks immediately when found.
 
@@ -778,7 +784,7 @@ def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr, deb
         time.sleep(CLAIM_POLL_INTERVAL)
 
 
-def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=None, debug: bool = False) -> dict:
+def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, ocr: OCRClient | None = None, debug: bool = False) -> dict[str, Any]:
     """
     DEPRECATED: Use run_tavern_quest_flow instead.
 
@@ -794,138 +800,7 @@ def tavern_quest_claim_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None,
     return run_tavern_quest_flow(adb, win, debug=debug)
 
 
-def tavern_scan_flow(adb: ADBHelper, win: WindowsScreenshotHelper = None, ocr=None, debug: bool = False) -> dict:
-    """
-    DEPRECATED: Use run_tavern_quest_flow instead, which now includes timer scanning.
-
-    This function is kept for backward compatibility but will be removed in a future version.
-    run_tavern_quest_flow now does everything this function does PLUS:
-    - Gold Scroll Go button clicking
-    - Question Mark Go button clicking
-    - Bounty Quest dialog handling
-    - Double-pass strategy
-
-    Original behavior:
-    1. Navigate to TOWN
-    2. Open tavern
-    3. Claim any completed quests (Claim buttons)
-    4. OCR all quest timers and update schedule
-    5. Return to base view
-
-    Args:
-        adb: ADBHelper instance
-        win: WindowsScreenshotHelper instance (optional)
-        ocr: OCR client instance (optional)
-        debug: Enable debug logging
-
-    Returns:
-        dict with 'claims' count and 'success' bool
-    """
-    logger.warning("tavern_scan_flow is DEPRECATED - use run_tavern_quest_flow instead")
-    if win is None:
-        win = WindowsScreenshotHelper()
-    if ocr is None:
-        from utils.ocr_client import OCRClient
-        ocr = OCRClient()
-
-    logger.info("=== TAVERN SCAN FLOW START ===")
-
-    # Step 1: Navigate to TOWN
-    from utils.view_state_detector import go_to_town
-    logger.info("Step 1: Navigating to TOWN view")
-    if not go_to_town(adb, debug=debug):
-        logger.warning("Failed to navigate to TOWN! Aborting.")
-        return {"claims": 0, "success": False}
-
-    # Step 2: Click tavern button
-    TAVERN_BUTTON_CLICK = (80, 1220)
-    logger.info(f"Step 2: Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
-    adb.tap(*TAVERN_BUTTON_CLICK)
-    time.sleep(1.5)
-
-    # Step 3: Verify we're in Tavern
-    frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    in_tavern, active_tab = is_in_tavern(frame_gray)
-    if not in_tavern:
-        logger.warning("Not in Tavern after clicking button! Aborting.")
-        return_to_base_view(adb, win, debug=debug)
-        return {"claims": 0, "success": False}
-
-    # Switch to My Quests if needed
-    if active_tab != "my_quests":
-        logger.info(f"Switching to My Quests tab (current: {active_tab})")
-        adb.tap(*MY_QUESTS_CLICK)
-        time.sleep(0.5)
-
-    # Step 4: Process claims and timers across all screens (scroll through list)
-    claim_template = load_template_gray(CLAIM_BUTTON_TEMPLATE)
-    total_claims = 0
-    all_completions = []
-    max_scroll_iterations = 3  # Scroll up to 3 times to cover full list
-
-    for scroll_iter in range(max_scroll_iterations + 1):  # +1 for initial screen
-        logger.info(f"Step 4.{scroll_iter + 1}: Processing screen {scroll_iter + 1}")
-
-        frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Process all Claim buttons on current screen
-        while True:
-            claim_buttons = find_claim_buttons(frame_gray, claim_template)
-            if not claim_buttons:
-                break
-
-            x, y = claim_buttons[0]
-            logger.info(f"Claiming completed quest at ({x}, {y})")
-            adb.tap(x, y)
-            total_claims += 1
-            time.sleep(0.5)  # Wait for rewards popup to appear
-
-            # Dismiss popup by polling until we see Tavern tabs again
-            logger.info("Waiting for popup to dismiss...")
-            if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
-                # Exited Tavern or couldn't dismiss - abort this screen
-                logger.warning("Could not return to Tavern after claim, aborting scan")
-                # Try to save what we have so far
-                if all_completions:
-                    save_quest_schedule(all_completions)
-                return_to_base_view(adb, win, debug=debug)
-                return {"claims": total_claims, "scheduled": len(all_completions), "success": False}
-
-            # Re-screenshot for next claim on same screen
-            frame = win.get_screenshot_cv2()
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Scan timers on current screen (don't save yet - accumulate first)
-        completions = scan_quest_timers(frame, ocr)
-        if completions:
-            all_completions.extend(completions)
-            logger.info(f"Found {len(completions)} timer(s) on screen {scroll_iter + 1}")
-
-        # Scroll down for next iteration (except on last iteration)
-        if scroll_iter < max_scroll_iterations:
-            logger.info(f"Scrolling down...")
-            # Slower scroll (500ms) + longer wait (1s) to let UI settle
-            adb.swipe(1920, 1500, 1920, 900, duration=500)
-            time.sleep(1.0)
-
-    # Save all completions at once - dedup logic in scheduler will merge duplicates
-    save_quest_schedule(all_completions)
-    # Get actual unique count from scheduler
-    unique_completions = load_quest_schedule()
-    logger.info(f"Step 5: Total claims: {total_claims}, Unique scheduled: {len(unique_completions)} (from {len(all_completions)} detected)")
-
-    # Step 6: Return to base view
-    logger.info("Returning to base view")
-    return_to_base_view(adb, win, debug=debug)
-
-    logger.info(f"=== TAVERN SCAN FLOW END === Claims: {total_claims}, Scheduled: {len(unique_completions)}")
-    return {"claims": total_claims, "scheduled": len(unique_completions), "success": True}
-
-
-def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr=None, debug: bool = False) -> dict:
+def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient | None = None, debug: bool = False) -> dict[str, Any]:
     """
     Claim ONE completed quest OR click Go for gold scroll quests.
 
@@ -949,14 +824,14 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr=None, d
     logger.info("Starting My Quests flow")
 
     # Load templates
-    my_quests_active_template = load_template_gray(MY_QUESTS_ACTIVE_TEMPLATE)
+    _my_quests_active_template = load_template_gray(MY_QUESTS_ACTIVE_TEMPLATE)
     claim_template = load_template_gray(CLAIM_BUTTON_TEMPLATE)
 
     total_claims = 0
     total_go_clicks = 0
     no_action_count = 0
     max_no_action = 2  # Stop after 2 consecutive scrolls with no actions
-    all_completions = []  # Accumulate timer completions for scheduler
+    all_completions: list[datetime] = []  # Accumulate timer completions for scheduler
 
     while no_action_count < max_no_action:
         # Take screenshot
@@ -1075,7 +950,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr=None, d
     return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
 
 
-def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = None, debug: bool = False) -> dict:
+def run_tavern_quest_flow(adb: ADBHelper | None = None, win: WindowsScreenshotHelper | None = None, debug: bool = False) -> dict[str, Any]:
     """
     Main tavern quest flow with double-pass strategy.
 
@@ -1088,10 +963,13 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
 
     Returns dict with claim counts and go clicks.
     """
+    from utils.adb_helper import ADBHelper as ADBHelperClass
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinSSHelper
+
     if adb is None:
-        adb = ADBHelper()
+        adb = ADBHelperClass()
     if win is None:
-        win = WindowsScreenshotHelper()
+        win = WinSSHelper()
 
     # Initialize OCR for timer scanning
     from utils.ocr_client import OCRClient
@@ -1099,14 +977,14 @@ def run_tavern_quest_flow(adb: ADBHelper = None, win: WindowsScreenshotHelper = 
 
     from utils.view_state_detector import go_to_town
 
-    results = {
+    results: dict[str, Any] = {
         "my_quests_claims": 0,
         "my_quests_go_clicks": 0,
         "ally_quests_claims": 0,
     }
 
     # Accumulate timer completions across all passes
-    all_completions = []
+    all_completions: list[datetime] = []
 
     TAVERN_BUTTON_CLICK = (80, 1220)
     MAX_PASSES = 2  # Run flow twice back-to-back

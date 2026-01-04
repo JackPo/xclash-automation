@@ -8,12 +8,12 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import Optional
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
 
-def get_stamina_decision(state: dict) -> dict:
+def get_stamina_decision(state: dict[str, Any]) -> dict[str, Any]:
     """
     Calculate optimal stamina item usage using deterministic rule engine.
 
@@ -42,7 +42,7 @@ def get_stamina_decision(state: dict) -> dict:
     return _fallback_decision(state)
 
 
-def _parse_json_response(text: str) -> dict | None:
+def _parse_json_response(text: str) -> dict[str, Any] | None:
     """
     Parse JSON from Claude response, handling various formats.
 
@@ -57,7 +57,7 @@ def _parse_json_response(text: str) -> dict | None:
     try:
         data = json.loads(text)
         if _validate_decision(data):
-            return data
+            return cast(dict[str, Any], data)
     except json.JSONDecodeError:
         pass
 
@@ -82,18 +82,17 @@ def _parse_json_response(text: str) -> dict | None:
             json_str = text[start:end]
             data = json.loads(json_str)
             if _validate_decision(data):
-                return data
+                return cast(dict[str, Any], data)
     except json.JSONDecodeError:
         pass
 
     return None
 
 
-def _validate_decision(data: dict) -> bool:
+def _validate_decision(data: object) -> bool:
     """Validate that the decision has required fields."""
     if not isinstance(data, dict):
         return False
-
     # Check for required fields (allow missing = default to False/0)
     return True  # Be lenient - fill in defaults in fallback
 
@@ -105,7 +104,7 @@ def calculate_optimal_stamina(
     free_ready: bool,
     free_cooldown_secs: int = 9999,
     time_remaining_mins: int = 60
-) -> tuple:
+) -> tuple[bool, int, int, str]:
     """
     Deterministic rule engine for optimal stamina item usage.
 
@@ -224,7 +223,7 @@ def calculate_optimal_stamina(
     return claim_free, use_10s, use_50s, reasoning
 
 
-def _fallback_decision(state: dict) -> dict:
+def _fallback_decision(state: dict[str, Any]) -> dict[str, Any]:
     """
     Fallback decision using deterministic rule engine.
 

@@ -8,25 +8,30 @@ Args:
     target_hours: float - target training time in hours (default 4.0)
     pack_resources: bool - whether to pack resources after (default True, NOT YET IMPLEMENTED)
 """
+from __future__ import annotations
 
 import sys
 import time
-import cv2
 from pathlib import Path
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.adb_helper import ADBHelper
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.ocr_client import OCRClient
 from utils.soldier_training_header_matcher import is_panel_open
 from utils.debug_screenshot import save_debug_screenshot
 from scripts.flows.soldier_training_flow import find_and_click_soldier_level
 from utils.soldier_panel_slider import (
-    find_slider_circle, SLIDER_Y, SLIDER_MIN_X, SLIDER_MAX_X,
-    PLUS_BUTTON, MINUS_BUTTON, calculate_slider_position
+    find_plus_button, drag_slider_to_max,
+    MINUS_BUTTON, calculate_slider_position
 )
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Train button time OCR
 TRAIN_BUTTON_POS = (1969, 1399)
@@ -40,14 +45,16 @@ MAX_FLOW_TIME = 60  # 60 seconds max for entire flow
 DISMISS_TAP = (500, 500)
 
 
-def _log(msg, debug=True):
+def _log(msg: str, debug: bool = True) -> None:
     """Print timestamped log message."""
     if debug:
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"[{timestamp}] [BARRACKS] {msg}", flush=True)
 
 
-def ocr_time(frame, ocr):
+def ocr_time(
+    frame: npt.NDArray[Any], ocr: OCRClient
+) -> tuple[int | None, str]:
     """OCR training time, return seconds and string."""
     x = TRAIN_BUTTON_POS[0] + TRAIN_TIME_REGION[0]
     y = TRAIN_BUTTON_POS[1] + TRAIN_TIME_REGION[1]
@@ -61,12 +68,18 @@ def ocr_time(frame, ocr):
         if len(parts) == 3:
             hr, mn, sc = int(parts[0]), int(parts[1]), int(parts[2])
             return hr * 3600 + mn * 60 + sc, time_str
-    except:
+    except Exception:
         pass
     return None, time_str
 
 
-def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resources=True, debug=False):
+def barracks_training_flow(
+    adb: ADBHelper,
+    soldier_level: int = 4,
+    target_hours: float = 4.0,
+    pack_resources: bool = True,
+    debug: bool = False,
+) -> bool:
     """
     Train soldiers at the barracks with configurable level and time.
 
@@ -82,9 +95,12 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
     Returns:
         bool: True if training started successfully
     """
+    # Import here to avoid circular import at module level
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
     flow_start = time.time()
 
-    def check_timeout():
+    def check_timeout() -> bool:
         elapsed = time.time() - flow_start
         if elapsed > MAX_FLOW_TIME:
             _log(f"TIMEOUT: Flow exceeded {MAX_FLOW_TIME}s (elapsed={elapsed:.1f}s)", debug)
@@ -134,16 +150,16 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         _log(f"Step 1 SUCCESS: Clicked Lv{soldier_level} tile", debug)
         time.sleep(0.8)
 
-        # Validation: Check slider is visible after clicking level tile
+        # Validation: Check plus button is visible (indicates slider panel is showing)
         _log("VALIDATION: Checking slider visibility after clicking tile...", debug)
 
         frame = win.get_screenshot_cv2()
-        circle_x, score = find_slider_circle(frame)
-        if circle_x is None:
+        plus_x, plus_y, score = find_plus_button(frame)
+        if plus_x is None or plus_y is None:
             _log(f"VALIDATION FAILED: Slider not visible after clicking Lv{soldier_level} (score={score:.4f})", debug)
             save_debug_screenshot(frame, "barracks", "FAIL_validation_no_slider")
             return False
-        _log(f"VALIDATION OK: Slider visible at X={circle_x} (score={score:.4f})", debug)
+        _log(f"VALIDATION OK: Slider visible, plus button at ({plus_x}, {plus_y}) (score={score:.4f})", debug)
 
         ocr = OCRClient()
 
@@ -153,15 +169,13 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         if check_timeout():
             return False
 
-        _log(f"  Swiping from X={circle_x} to X=2200", debug)
-        adb.swipe(circle_x, SLIDER_Y, 2200, SLIDER_Y, duration=500)
+        # Click on track right edge to set to max (uses detected plus button Y)
+        drag_slider_to_max(adb, frame, debug=debug)
         time.sleep(0.5)
 
         frame = win.get_screenshot_cv2()
-        max_x, max_score = find_slider_circle(frame)
         max_secs, max_str = ocr_time(frame, ocr)
 
-        _log(f"  MAX position: X={max_x} (score={max_score:.4f})", debug)
         _log(f"  MAX time OCR: {max_str!r} -> {max_secs}s", debug)
 
         if max_secs is None or max_secs == 0:
@@ -190,42 +204,17 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         if check_timeout():
             return False
 
-        # Iterative drag (max 5 attempts)
-        for drag_attempt in range(5):
-            if check_timeout():
-                return False
+        # Click directly on target position (slider will move there)
+        _log(f"  Clicking at target X={target_x} on track (Y={plus_y})", debug)
+        adb.tap(target_x, plus_y)
+        time.sleep(0.5)
 
-            frame = win.get_screenshot_cv2()
-            circle_x, circle_score = find_slider_circle(frame)
-
-            if circle_x is None:
-                _log(f"  [{drag_attempt+1}] WARNING: Circle not found (score={circle_score:.4f})", debug)
-                time.sleep(0.3)
-                continue
-
-            current_secs, current_str = ocr_time(frame, ocr)
-            if current_secs is None:
-                _log(f"  [{drag_attempt+1}] WARNING: OCR failed, raw={current_str!r}", debug)
-                time.sleep(0.3)
-                continue
-
+        # Check current time
+        frame = win.get_screenshot_cv2()
+        current_secs, current_str = ocr_time(frame, ocr)
+        if current_secs:
             diff = current_secs - target_seconds
-            _log(f"  [{drag_attempt+1}] X={circle_x}, time={current_str} ({current_secs}s), diff={diff}s ({diff/60:.1f}min)", debug)
-
-            # If under target, done with dragging
-            if diff < 0:
-                _log(f"  Under target by {-diff}s, moving to fine-tune", debug)
-                break
-
-            # If within 5 minutes, done with dragging
-            if abs(diff) <= 300:
-                _log(f"  Within 5min tolerance (diff={diff}s), moving to fine-tune", debug)
-                break
-
-            # Drag to target
-            _log(f"  Swiping from X={circle_x} to X={target_x}", debug)
-            adb.swipe(circle_x, SLIDER_Y, target_x, SLIDER_Y, duration=500)
-            time.sleep(0.5)
+            _log(f"  After click: time={current_str} ({current_secs}s), diff={diff}s ({diff/60:.1f}min)", debug)
 
         _log("Step 3 DONE: Coarse drag complete", debug)
 
@@ -256,10 +245,10 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
                 fine_tune_success = True
                 break
 
-            # Over target - click minus
+            # Over target - click minus (use detected plus_y for correct Y position)
             if i % 5 == 0:
-                _log(f"  [{i+1}] {current_str} ({current_secs}s) - over by {diff}s, clicking minus", debug)
-            adb.tap(MINUS_BUTTON[0], MINUS_BUTTON[1])
+                _log(f"  [{i+1}] {current_str} ({current_secs}s) - over by {diff}s, clicking minus at ({MINUS_BUTTON[0]}, {plus_y})", debug)
+            adb.tap(MINUS_BUTTON[0], plus_y)
             time.sleep(0.25)
 
         if fine_tune_success:
@@ -295,7 +284,7 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
         try:
             frame = win.get_screenshot_cv2()
             save_debug_screenshot(frame, "barracks", f"EXCEPTION_{type(e).__name__}")
-        except:
+        except Exception:
             pass
         return False
 
@@ -313,6 +302,8 @@ def barracks_training_flow(adb, soldier_level=4, target_hours=4.0, pack_resource
 
 
 if __name__ == "__main__":
+    from utils.adb_helper import ADBHelper
+
     adb = ADBHelper()
     success = barracks_training_flow(adb, soldier_level=4, target_hours=4.0, debug=True)
     print(f"\nResult: {'SUCCESS' if success else 'FAILED'}")

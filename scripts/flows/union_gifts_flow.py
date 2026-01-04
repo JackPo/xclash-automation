@@ -17,6 +17,8 @@ Sequence:
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 """
+from __future__ import annotations
+
 import sys
 import time
 import logging
@@ -28,8 +30,14 @@ _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
 
+from typing import TYPE_CHECKING, Any
+
 import cv2
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
@@ -62,7 +70,7 @@ BACK_BUTTON_HEIGHT = 111
 BACK_BUTTON_THRESHOLD = 0.95  # CCORR (has mask) - higher is better
 
 
-def _is_back_button_present(frame: np.ndarray) -> tuple[bool, float]:
+def _is_back_button_present(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """Check if back button is present at fixed location using template_matcher."""
     is_present, score, _ = match_template(
         frame, "back_button_union_4k.png",
@@ -77,18 +85,18 @@ SCREEN_TRANSITION_DELAY = 1.5  # Delay for screen transitions
 CLAIM_DELAY = 1.0  # Delay after claiming
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging. Returns path."""
     return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [UNION_GIFTS] {msg}")
 
 
-def union_gifts_flow(adb) -> bool:
+def union_gifts_flow(adb: ADBHelper) -> bool:
     """
     Execute the union gifts claim flow.
 

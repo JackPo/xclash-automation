@@ -18,16 +18,28 @@ Usage:
     )
     success = corn_flow(adb, win)
 """
-import time
+from __future__ import annotations
+
 import sys
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.bubble_matcher import BubbleMatcher
 
-def resource_bubble_flow(adb, matcher, name: str, win=None) -> bool:
+
+def resource_bubble_flow(
+    adb: ADBHelper,
+    matcher: BubbleMatcher,
+    name: str,
+    win: WindowsScreenshotHelper | None = None
+) -> bool:
     """
     Generic flow to click a resource bubble if present.
 
@@ -59,37 +71,37 @@ def resource_bubble_flow(adb, matcher, name: str, win=None) -> bool:
 # Convenience functions that maintain backward compatibility
 # These can be imported directly as drop-in replacements
 
-def corn_flow(adb, win=None) -> bool:
+def corn_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the corn harvest bubble if present."""
     from utils.bubble_matcher import create_bubble_matcher
     return resource_bubble_flow(adb, create_bubble_matcher('corn'), "CORN", win)
 
 
-def gold_flow(adb, win=None) -> bool:
+def gold_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the gold coin bubble if present."""
     from utils.bubble_matcher import create_bubble_matcher
     return resource_bubble_flow(adb, create_bubble_matcher('gold'), "GOLD", win)
 
 
-def iron_flow(adb, win=None) -> bool:
+def iron_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the iron bar bubble if present."""
     from utils.bubble_matcher import create_bubble_matcher
     return resource_bubble_flow(adb, create_bubble_matcher('iron'), "IRON", win)
 
 
-def gem_flow(adb, win=None) -> bool:
+def gem_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the gem bubble if present."""
     from utils.bubble_matcher import create_bubble_matcher
     return resource_bubble_flow(adb, create_bubble_matcher('gem'), "GEM", win)
 
 
-def cabbage_flow(adb, win=None) -> bool:
+def cabbage_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the cabbage bubble if present."""
     from utils.bubble_matcher import create_bubble_matcher
     return resource_bubble_flow(adb, create_bubble_matcher('cabbage'), "CABBAGE", win)
 
 
-def equipment_flow(adb, win=None) -> bool:
+def equipment_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the equipment enhancement bubble if present."""
     from utils.bubble_matcher import create_bubble_matcher
     return resource_bubble_flow(adb, create_bubble_matcher('equipment'), "EQUIPMENT", win)

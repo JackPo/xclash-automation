@@ -13,11 +13,17 @@ Usage:
     debug.capture(frame, iteration, view_state, "flow_start", "elite_zombie")
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
 import cv2
-import os
 import time
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
 
 # Base debug directory
 DEBUG_BASE = Path(__file__).parent.parent / "templates" / "debug"
@@ -31,7 +37,7 @@ CLEANUP_THRESHOLD_GB = 45
 CLEANUP_INTERVAL_SECONDS = 1800  # Check every 30 min
 
 
-def save_debug_screenshot(frame, flow_name: str, label: str) -> str:
+def save_debug_screenshot(frame: npt.NDArray[Any], flow_name: str, label: str) -> str:
     """
     Save debug screenshot with timestamp and label.
 
@@ -65,22 +71,29 @@ class DaemonDebugCapture:
     Captures selectively based on events (view changes, flows, errors).
     """
 
-    _instance = None
+    _instance: DaemonDebugCapture | None = None
+    _initialized: bool
+    base_dir: Path
+    daily_dir: Path
+    last_cleanup: float
+    last_view_state: str | None
+    capture_count: int
+    enabled: bool
 
-    def __new__(cls):
+    def __new__(cls) -> DaemonDebugCapture:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._initialized:
             return
 
         self._initialized = True
         self.base_dir = DAEMON_DEBUG_BASE
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.last_cleanup = 0
+        self.last_cleanup = 0.0
         self.last_view_state = None
         self.capture_count = 0
         self.enabled = True
@@ -88,7 +101,7 @@ class DaemonDebugCapture:
         # Create today's directory
         self._update_daily_dir()
 
-    def _update_daily_dir(self):
+    def _update_daily_dir(self) -> None:
         """Create/update daily subdirectory."""
         date_str = datetime.now().strftime("%Y-%m-%d")
         self.daily_dir = self.base_dir / date_str
@@ -104,7 +117,7 @@ class DaemonDebugCapture:
             pass
         return total / (1024 ** 3)
 
-    def _cleanup_old(self):
+    def _cleanup_old(self) -> None:
         """Remove oldest screenshots to stay within budget."""
         # Single scan: collect (path, mtime, size) for all files
         files_info = []
@@ -154,7 +167,7 @@ class DaemonDebugCapture:
 
     def capture(
         self,
-        frame,
+        frame: npt.NDArray[Any] | None,
         iteration: int,
         view_state: str,
         event: str,
@@ -205,7 +218,7 @@ class DaemonDebugCapture:
 
     def capture_if_view_changed(
         self,
-        frame,
+        frame: npt.NDArray[Any] | None,
         iteration: int,
         view_state: str
     ) -> str:

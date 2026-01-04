@@ -19,8 +19,8 @@ import os
 # API Keys (optional - only needed for development tools)
 # GOOGLE_API_KEY: Used by detect_object.py for Gemini-based template extraction
 # ANTHROPIC_API_KEY: Used for Claude OCR (experimental)
-GOOGLE_API_KEY = None
-ANTHROPIC_API_KEY = None
+GOOGLE_API_KEY: str | None = None
+ANTHROPIC_API_KEY: str | None = None
 
 # Daemon timing
 DAEMON_INTERVAL = 2.0              # Check interval (seconds)
@@ -446,11 +446,12 @@ RALLY_MONSTERS = [
 
 # Legacy dict for backward compatibility (auto-generated from RALLY_MONSTERS)
 # Only includes monsters with auto_join=True
-RALLY_JOIN_MONSTERS = {
-    monster["name"].lower(): monster["max_level"]
-    for monster in RALLY_MONSTERS
-    if monster.get("auto_join", True)
-}
+RALLY_JOIN_MONSTERS: dict[str, int] = {}
+for _monster in RALLY_MONSTERS:
+    if _monster.get("auto_join", True):
+        _name = str(_monster["name"]).lower()
+        _level = _monster["max_level"]
+        RALLY_JOIN_MONSTERS[_name] = int(_level) if isinstance(_level, (int, float)) else 0
 
 # Plus button detection (fixed X + Y search)
 RALLY_PLUS_BUTTON_X = 1902  # Fixed X coordinate (rightmost column, matches template detection)
@@ -472,9 +473,9 @@ RALLY_DATA_GATHERING_MODE = False  # Set to True to collect monster crops withou
 # =============================================================================
 
 # Rally monster name and level (auto-generated from RALLY_MONSTERS)
-def _generate_rally_monster_prompt():
+def _generate_rally_monster_prompt() -> str:
     """Generate OCR prompt with known monster names for fuzzy matching."""
-    monster_names = [m["name"] for m in RALLY_MONSTERS]
+    monster_names: list[str] = [str(m["name"]) for m in RALLY_MONSTERS]
     monster_list = ", ".join(monster_names)
 
     return (
@@ -509,7 +510,7 @@ OCR_PROMPT_TRAINING_TIME = (
 
 # Try to load from config_local.py first (for local development)
 try:
-    from config_local import *
+    from config_local import *  # noqa: F403  # type: ignore[import-untyped]
     print("Loaded config from config_local.py")
 except ImportError:
     # Fall back to environment variables for API keys (optional, for development only)

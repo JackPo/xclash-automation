@@ -12,14 +12,15 @@ Usage:
     python scripts/flows/marshall_speedup_all_flow.py --skip-marshall  # Skip title, just speedup
 """
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.adb_helper import ADBHelper
 from utils.template_matcher import match_template
 from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import go_to_town
@@ -27,7 +28,16 @@ from utils.barracks_state_matcher import check_barracks_states, BarrackState
 from scripts.flows.go_to_mark_flow import go_to_mark_flow
 from scripts.flows.title_management_flow import title_management_flow
 from scripts.flows.barrack_speedup_flow import barrack_speedup_flow
-from config import BARRACKS_POSITIONS, BARRACKS_TEMPLATE_SIZE
+
+if TYPE_CHECKING:
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.adb_helper import ADBHelper
+
+
+class MarshallSpeedupResult(TypedDict):
+    """Result type for marshall_speedup_all_flow."""
+    marshall_applied: bool
+    barracks_sped_up: int
 
 # Title active icon position (scroll icon in top-left when title is active)
 TITLE_ACTIVE_ICON_POS = (203, 216)
@@ -38,7 +48,7 @@ POLL_TIMEOUT = 5.0
 POLL_INTERVAL = 0.3
 
 
-def verify_title_active(win, debug=False):
+def verify_title_active(win: WindowsScreenshotHelper, debug: bool = False) -> bool:
     """Check if any title is currently active by looking for the scroll icon.
 
     Returns:
@@ -56,7 +66,9 @@ def verify_title_active(win, debug=False):
     return found
 
 
-def apply_marshall_and_verify(adb, win, debug=False):
+def apply_marshall_and_verify(
+    adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False
+) -> bool:
     """Apply Marshall title and verify it's active.
 
     Returns:
@@ -109,7 +121,9 @@ def apply_marshall_and_verify(adb, win, debug=False):
     return True
 
 
-def speedup_all_training_barracks(adb, win, debug=False):
+def speedup_all_training_barracks(
+    adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False
+) -> int:
     """Speed up all barracks that are currently in TRAINING state.
 
     Returns:
@@ -127,7 +141,7 @@ def speedup_all_training_barracks(adb, win, debug=False):
     frame = win.get_screenshot_cv2()
     states = check_barracks_states(frame)
 
-    training_barracks = []
+    training_barracks: list[int] = []
     for i, (state, score) in enumerate(states):
         if state == BarrackState.TRAINING:
             training_barracks.append(i)
@@ -163,7 +177,12 @@ def speedup_all_training_barracks(adb, win, debug=False):
     return speedup_count
 
 
-def marshall_speedup_all_flow(adb, screenshot_helper=None, skip_marshall=False, debug=False):
+def marshall_speedup_all_flow(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None,
+    skip_marshall: bool = False,
+    debug: bool = False,
+) -> MarshallSpeedupResult:
     """
     Apply Marshall title and speed up all training barracks.
 
@@ -176,8 +195,11 @@ def marshall_speedup_all_flow(adb, screenshot_helper=None, skip_marshall=False, 
     Returns:
         dict with 'marshall_applied', 'barracks_sped_up' counts
     """
-    win = screenshot_helper or WindowsScreenshotHelper()
-    result = {
+    # Import here to avoid circular imports at module level
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper as WSH
+
+    win = screenshot_helper or WSH()
+    result: MarshallSpeedupResult = {
         'marshall_applied': False,
         'barracks_sped_up': 0
     }

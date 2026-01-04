@@ -17,9 +17,15 @@ This matcher normalizes scores to a common 0-1 range where higher is always bett
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template, has_mask
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 class BackButtonMatcher:
@@ -40,12 +46,12 @@ class BackButtonMatcher:
     # Search in bottom half of screen where back buttons typically appear
     SEARCH_REGION = (0, 1080, 3840, 1080)  # x, y, w, h - bottom half
 
-    def __init__(self, threshold: float = None, debug_dir=None) -> None:
+    def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         # Don't enforce a single threshold - let template_matcher use method-appropriate defaults
         # SQDIFF uses 0.1, CCORR uses 0.90 by default
         self.threshold = threshold
 
-    def find(self, frame: np.ndarray) -> tuple[bool, float, tuple[int, int] | None, str | None]:
+    def find(self, frame: npt.NDArray[Any]) -> tuple[bool, float, tuple[int, int] | None, str | None]:
         """
         Search for back button in frame.
 
@@ -92,8 +98,8 @@ class BackButtonMatcher:
         found = best_normalized >= 0
         return found, best_raw_score, best_pos, best_template
 
-    def is_template_present(self, frame: np.ndarray, template_name: str,
-                            near_pos: tuple[int, int] = None,
+    def is_template_present(self, frame: npt.NDArray[Any], template_name: str,
+                            near_pos: tuple[int, int] | None = None,
                             tolerance: int = 30) -> bool:
         """
         Check if a SPECIFIC template is present, optionally near a position.
@@ -128,12 +134,12 @@ class BackButtonMatcher:
 
         return True
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         """Legacy API - returns (found, score) without position."""
         found, score, _, _ = self.find(frame)
         return found, score
 
-    def click(self, adb_helper, detected_pos: tuple = None) -> None:
+    def click(self, adb_helper: ADBHelper, detected_pos: tuple[int, int] | None = None) -> None:
         """Click back button at detected position, or fallback to fixed position.
 
         Args:

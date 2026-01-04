@@ -9,11 +9,22 @@ Flow:
 3. Drag slider to calculated position
 4. Validate with OCR and fine-tune with +/- buttons
 """
+from __future__ import annotations
 
 import time
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
-from pathlib import Path
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
+    from typing import Any
+
+    from utils.adb_helper import ADBHelper
+    from utils.ocr_client import OCRClient
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Fixed UI coordinates (4K resolution, from Gemini detection)
 # All coordinates are for the barracks training panel
@@ -36,7 +47,7 @@ MINUS_BUTTON_CENTER = (1526, 1177)
 # These are the circle center positions seen in screenshots
 SLIDER_Y = 1170  # Y center of slider (circle center Y)
 VISUAL_SLIDER_LEFT_X = 1600  # Circle center at MIN (leftmost) in screenshot
-VISUAL_SLIDER_RIGHT_X = 2133  # Circle center at MAX (rightmost) in screenshot
+VISUAL_SLIDER_RIGHT_X = 2207  # Drag to plus button position - slider will stop at physical limit
 VISUAL_SLIDER_WIDTH = VISUAL_SLIDER_RIGHT_X - VISUAL_SLIDER_LEFT_X  # 533 pixels
 
 # ADB to Visual coordinate calibration
@@ -120,7 +131,7 @@ def seconds_to_time_string(seconds: int) -> str:
     return f"{h}:{m:02d}:{s:02d}"
 
 
-def get_training_time_region(frame):
+def get_training_time_region(frame: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Extract the time region from train button for OCR.
 
     Args:
@@ -134,10 +145,13 @@ def get_training_time_region(frame):
     w = TRAIN_TIME_REGION[2]
     h = TRAIN_TIME_REGION[3]
 
-    return frame[y:y+h, x:x+w].copy()
+    result: npt.NDArray[Any] = frame[y:y+h, x:x+w].copy()
+    return result
 
 
-def get_training_time(frame, ocr, debug=False) -> int:
+def get_training_time(
+    frame: npt.NDArray[Any], ocr: OCRClient, debug: bool = False
+) -> int:
     """OCR the training time from the train button.
 
     Args:
@@ -204,7 +218,7 @@ def calculate_slider_position(target_seconds: int, full_seconds: int) -> int:
     return target_adb_x
 
 
-def find_slider_circle(frame, debug=False) -> int:
+def find_slider_circle(frame: npt.NDArray[Any], debug: bool = False) -> int:
     """Find current slider handle position using template matching.
 
     The slider handle is a circular knob that can be anywhere
@@ -220,15 +234,16 @@ def find_slider_circle(frame, debug=False) -> int:
     # Load slider circle template
     template_path = Path(__file__).parent.parent / "templates" / "ground_truth" / "slider_circle_4k.png"
 
+    fallback = (SLIDER_LEFT_X + SLIDER_RIGHT_X) // 2
+
     if not template_path.exists():
         if debug:
             print(f"  Slider template not found: {template_path}")
-        # Fallback: assume slider is in the middle
-        return (SLIDER_LEFT_X + SLIDER_RIGHT_X) // 2
+        return fallback
 
-    template = cv2.imread(str(template_path))
+    template: npt.NDArray[Any] | None = cv2.imread(str(template_path))
     if template is None:
-        return (SLIDER_LEFT_X + SLIDER_RIGHT_X) // 2
+        return fallback
 
     # Search in horizontal band around slider Y
     search_y_start = SLIDER_Y - 50
@@ -244,7 +259,7 @@ def find_slider_circle(frame, debug=False) -> int:
 
     # Template match
     result = cv2.matchTemplate(search_region, template, cv2.TM_SQDIFF_NORMED)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
     if debug:
         print(f"  Slider match score: {min_val:.4f}")
@@ -252,14 +267,15 @@ def find_slider_circle(frame, debug=False) -> int:
     if min_val < 0.1:  # Good match
         # Convert to full image coordinates
         template_h, template_w = template.shape[:2]
-        slider_x = search_x_start + min_loc[0] + template_w // 2
+        slider_x: int = search_x_start + min_loc[0] + template_w // 2
         return slider_x
 
-    # Fallback
-    return (SLIDER_LEFT_X + SLIDER_RIGHT_X) // 2
+    return fallback
 
 
-def drag_slider_to_position(adb, win, target_x: int, debug=False):
+def drag_slider_to_position(
+    adb: ADBHelper, win: WindowsScreenshotHelper, target_x: int, debug: bool = False
+) -> None:
     """Drag slider from current position to target X.
 
     CRITICAL: Must find the circle first via template matching, then drag FROM
@@ -292,7 +308,9 @@ def drag_slider_to_position(adb, win, target_x: int, debug=False):
     time.sleep(0.3)
 
 
-def set_training_quantity(adb, win, target_hours: float, debug=False) -> bool:
+def set_training_quantity(
+    adb: ADBHelper, win: WindowsScreenshotHelper, target_hours: float, debug: bool = False
+) -> bool:
     """Set soldier training quantity to achieve approximately target_hours of training.
 
     This function:

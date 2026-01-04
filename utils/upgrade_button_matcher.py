@@ -4,8 +4,12 @@ Upgrade Button Matcher - Detects available/unavailable upgrade buttons in hero d
 Uses template_matcher for search-based detection.
 Compares two templates to distinguish between green (available) and grayed (unavailable) upgrade buttons.
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
 
@@ -25,10 +29,10 @@ class UpgradeButtonMatcher:
     AVAILABLE_TEMPLATE = "upgrade_button_available_4k.png"
     UNAVAILABLE_TEMPLATE = "upgrade_button_unavailable_4k.png"
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None):
         self.threshold = threshold if threshold is not None else THRESHOLD
 
-    def check_upgrade_available(self, frame: np.ndarray, debug: bool = False) -> tuple[bool, float, float]:
+    def check_upgrade_available(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float, float]:
         """
         Check if upgrade button is available (green) or unavailable (grayed).
 

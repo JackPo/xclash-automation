@@ -18,16 +18,34 @@ Timer OCR:
 - Region: (2161, 693) size 246x99
 - Format: HH:MM:SS (e.g., "00:14:06" = 14 min 6 sec)
 """
+from __future__ import annotations
 
-from pathlib import Path
-import time
 import re
+import time
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-from config import STAMINA_REGION, STAMINA_CLAIM_BUTTON, BACK_BUTTON_CLICK
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+import numpy.typing as npt
+
+from config import STAMINA_REGION, STAMINA_CLAIM_BUTTON
 from utils.template_matcher import match_template
 from utils.ui_helpers import click_back
 from .back_from_chat_flow import back_from_chat_flow
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+
+class StaminaClaimResult(TypedDict):
+    """Result from stamina_claim_flow."""
+    claimed: bool
+    timer_seconds: int | None
+
+
+class ClaimStatusResult(TypedDict):
+    """Result from check_claim_status."""
+    claim_available: bool
+    timer_seconds: int | None
 
 # Click position from config
 CLAIM_BUTTON_X = STAMINA_CLAIM_BUTTON['click'][0]
@@ -40,15 +58,17 @@ STAMINA_DISPLAY_Y = STAMINA_REGION[1] + STAMINA_REGION[3] // 2
 # Matching threshold using TM_SQDIFF_NORMED (lower is better, 0 = perfect)
 MATCH_THRESHOLD = 0.05
 
-# Search region from config
-SEARCH_REGION = STAMINA_CLAIM_BUTTON['search_region']
+# Search region from config - typed as 4-tuple for match_template
+SEARCH_REGION: tuple[int, int, int, int] = cast(
+    tuple[int, int, int, int], STAMINA_CLAIM_BUTTON['search_region']
+)
 
 # Timer region - where countdown shows when Claim is not available
 # Detected via Gemini: (2161, 693) to (2407, 792), size 246x99
 TIMER_REGION = (2161, 693, 246, 99)  # x, y, w, h
 
 
-def _ocr_timer(frame) -> int | None:
+def _ocr_timer(frame: npt.NDArray[Any]) -> int | None:
     """
     OCR the countdown timer from the stamina popup.
 
@@ -77,15 +97,15 @@ def _ocr_timer(frame) -> int | None:
         text = text.strip()
 
         # Try HH:MM:SS
-        match = re.match(r'(\d{1,2}):(\d{2}):(\d{2})', text)
-        if match:
-            hours, minutes, seconds = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        time_match = re.match(r'(\d{1,2}):(\d{2}):(\d{2})', text)
+        if time_match:
+            hours, minutes, seconds = int(time_match.group(1)), int(time_match.group(2)), int(time_match.group(3))
             return hours * 3600 + minutes * 60 + seconds
 
         # Try MM:SS
-        match = re.match(r'(\d{1,2}):(\d{2})', text)
-        if match:
-            minutes, seconds = int(match.group(1)), int(match.group(2))
+        time_match = re.match(r'(\d{1,2}):(\d{2})', text)
+        if time_match:
+            minutes, seconds = int(time_match.group(1)), int(time_match.group(2))
             return minutes * 60 + seconds
 
         print(f"    [STAMINA-CLAIM] Timer OCR returned unparseable text: {text}")
@@ -96,7 +116,10 @@ def _ocr_timer(frame) -> int | None:
         return None
 
 
-def stamina_claim_flow(adb, screenshot_helper=None):
+def stamina_claim_flow(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None
+) -> StaminaClaimResult:
     """
     Open stamina popup and click the Claim button if present.
 
@@ -109,8 +132,12 @@ def stamina_claim_flow(adb, screenshot_helper=None):
             - claimed: bool - True if Claim was clicked
             - timer_seconds: int | None - Seconds until next claim (if not claimed)
     """
-    win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
-    result = {"claimed": False, "timer_seconds": None}
+    if screenshot_helper is None:
+        from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinHelper
+        win: WindowsScreenshotHelper = WinHelper()
+    else:
+        win = screenshot_helper
+    result: StaminaClaimResult = {"claimed": False, "timer_seconds": None}
 
     # Step 1: Click on stamina display to open popup
     print(f"    [STAMINA-CLAIM] Step 1: Opening stamina popup (clicking {STAMINA_DISPLAY_X}, {STAMINA_DISPLAY_Y})")
@@ -122,11 +149,6 @@ def stamina_claim_flow(adb, screenshot_helper=None):
     # Step 3: Take screenshot and check for Claim button
     print("    [STAMINA-CLAIM] Step 2: Checking for Claim button...")
     frame = win.get_screenshot_cv2()
-
-    if frame is None:
-        print("    [STAMINA-CLAIM] Failed to get screenshot")
-        back_from_chat_flow(adb, win)
-        return result
 
     # Search for Claim button in search region
     found, min_val, click_pos = match_template(
@@ -172,7 +194,7 @@ def stamina_claim_flow(adb, screenshot_helper=None):
     return result
 
 
-def check_claim_button(frame):
+def check_claim_button(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
     Check if Claim button is present in the given frame.
 
@@ -190,7 +212,10 @@ def check_claim_button(frame):
     return found, score
 
 
-def check_claim_status(adb, screenshot_helper=None) -> dict:
+def check_claim_status(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None
+) -> ClaimStatusResult:
     """
     Open popup, check if Claim is available, OCR timer if not, close popup.
 
@@ -205,17 +230,18 @@ def check_claim_status(adb, screenshot_helper=None) -> dict:
             - claim_available: bool
             - timer_seconds: int | None - seconds until next claim (if not available)
     """
-    win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
-    result = {"claim_available": False, "timer_seconds": None}
+    if screenshot_helper is None:
+        from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinHelper
+        win: WindowsScreenshotHelper = WinHelper()
+    else:
+        win = screenshot_helper
+    result: ClaimStatusResult = {"claim_available": False, "timer_seconds": None}
 
     # Open popup
     adb.tap(STAMINA_DISPLAY_X, STAMINA_DISPLAY_Y)
     time.sleep(0.5)
 
     frame = win.get_screenshot_cv2()
-    if frame is None:
-        back_from_chat_flow(adb, win)
-        return result
 
     # Check for Claim button
     is_present, score = check_claim_button(frame)
@@ -233,7 +259,10 @@ def check_claim_status(adb, screenshot_helper=None) -> dict:
     return result
 
 
-def get_timer_from_popup(adb, screenshot_helper=None) -> int | None:
+def get_timer_from_popup(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None
+) -> int | None:
     """
     Quick helper to just get the timer value.
 
@@ -241,4 +270,4 @@ def get_timer_from_popup(adb, screenshot_helper=None) -> int | None:
         Seconds until next claim, or None if claim is available or OCR failed
     """
     status = check_claim_status(adb, screenshot_helper)
-    return status.get("timer_seconds")
+    return status["timer_seconds"]

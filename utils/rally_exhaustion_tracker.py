@@ -25,7 +25,7 @@ def _get_current_day_start() -> datetime:
     return day_start
 
 
-def mark_exhausted(monster_name: str):
+def mark_exhausted(monster_name: str) -> None:
     """
     Mark a monster as exhausted (daily rally limit reached).
 
@@ -65,7 +65,7 @@ def is_exhausted(monster_name: str) -> bool:
     return True
 
 
-def get_exhausted_monsters() -> list:
+def get_exhausted_monsters() -> list[str]:
     """Get list of currently exhausted monster names."""
     day_start = _get_current_day_start()
     return [
@@ -74,7 +74,7 @@ def get_exhausted_monsters() -> list:
     ]
 
 
-def clear_all():
+def clear_all() -> None:
     """Clear all exhaustion tracking (for testing)."""
     _exhausted_monsters.clear()
     print("[EXHAUSTION] Cleared all exhaustion tracking")

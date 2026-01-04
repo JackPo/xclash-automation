@@ -1,17 +1,23 @@
 """
 Corn harvest flow - clicks the corn bubble.
 """
-import time
+from __future__ import annotations
+
 import sys
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.corn_harvest_matcher import CornHarvestMatcher
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
-def corn_harvest_flow(adb, win=None):
+def corn_harvest_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the corn harvest bubble if present.
 
     Args:

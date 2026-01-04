@@ -15,14 +15,18 @@ Flow:
 5. Click Apply
 6. (Optional) Return to base view
 """
+from __future__ import annotations
 
 import argparse
 import json
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import numpy.typing as npt
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
@@ -75,16 +79,25 @@ POLL_TIMEOUT = 5.0
 POLL_INTERVAL = 0.3
 
 
-def _poll_for_template(win, template_path, pos, size, timeout=POLL_TIMEOUT, debug=False):
+def _poll_for_template(
+    win: WindowsScreenshotHelper,
+    template_path: str | Path,
+    pos: tuple[int, int],
+    size: tuple[int, int],
+    timeout: float = POLL_TIMEOUT,
+    debug: bool = False
+) -> tuple[bool, npt.NDArray[Any] | None]:
     """Poll until template matches or timeout."""
     # Extract template name from path
     template_name = Path(template_path).name
+    # Combine pos (x, y) and size (w, h) into search_region
+    search_region = (*pos, *size)
 
     start = time.time()
     last_score = 1.0
     while time.time() - start < timeout:
         frame = win.get_screenshot_cv2()
-        matched, score, _ = match_template(frame, template_name, pos, size, threshold=THRESHOLD)
+        matched, score, _ = match_template(frame, template_name, search_region=search_region, threshold=THRESHOLD)
         last_score = score
         if matched:
             if debug:
@@ -96,7 +109,10 @@ def _poll_for_template(win, template_path, pos, size, timeout=POLL_TIMEOUT, debu
     return False, None
 
 
-def check_holding_status(frame, debug=False):
+def check_holding_status(
+    frame: npt.NDArray[Any],
+    debug: bool = False
+) -> tuple[str, int | None, int | None]:
     """
     Check title holding status. Three possible states:
     1. CAN_APPLY - Apply button visible, can apply for this title
@@ -113,19 +129,19 @@ def check_holding_status(frame, debug=False):
     # Check for "You're currently holding this title" text
     holding_this_matched, holding_this_score, _ = match_template(
         frame, "mark_currently_holding_title_4k.png",
-        HOLDING_TITLE_POS, HOLDING_TITLE_SIZE, threshold=THRESHOLD
+        search_region=(*HOLDING_TITLE_POS, *HOLDING_TITLE_SIZE), threshold=THRESHOLD
     )
 
     # Check for "You're currently serving as" text (holding different title)
     serving_as_matched, serving_as_score, _ = match_template(
         frame, "mark_currently_serving_as_4k.png",
-        SERVING_AS_POS, SERVING_AS_SIZE, threshold=THRESHOLD
+        search_region=(*SERVING_AS_POS, *SERVING_AS_SIZE), threshold=THRESHOLD
     )
 
     # Check if Apply button is visible
     apply_matched, apply_score, _ = match_template(
         frame, "mark_apply_button_4k.png",
-        APPLY_BUTTON_POS, APPLY_BUTTON_SIZE, threshold=THRESHOLD
+        search_region=(*APPLY_BUTTON_POS, *APPLY_BUTTON_SIZE), threshold=THRESHOLD
     )
 
     if debug:
@@ -177,7 +193,13 @@ def check_holding_status(frame, debug=False):
     return status, None, None
 
 
-def title_management_flow(adb, title_name, screenshot_helper=None, debug=False, return_to_base=True):
+def title_management_flow(
+    adb: ADBHelper,
+    title_name: str,
+    screenshot_helper: WindowsScreenshotHelper | None = None,
+    debug: bool = False,
+    return_to_base: bool = True
+) -> bool:
     """
     Apply a kingdom title at marked Royal City.
 
@@ -213,16 +235,17 @@ def title_management_flow(adb, title_name, screenshot_helper=None, debug=False, 
         if debug:
             print("  Step 1: Searching for star icon...")
         frame = win.get_screenshot_cv2()
-        found, score, star_pos = match_template(
+        found, score, detected_pos = match_template(
             frame, "mark_star_icon_4k.png",
             threshold=0.15  # Relaxed threshold for star icon
         )
-        if not found:
+        if not found or detected_pos is None:
             # Fallback to fixed position if template not found
             if debug:
                 print(f"    Star icon not found (score={score:.4f}), using fixed position {STAR_ICON_CLICK}")
             star_pos = STAR_ICON_CLICK
         else:
+            star_pos = detected_pos
             if debug:
                 print(f"    Star icon found at {star_pos} (score={score:.4f})")
         adb.tap(*star_pos)
@@ -338,7 +361,7 @@ def title_management_flow(adb, title_name, screenshot_helper=None, debug=False, 
                 print("  Staying on screen (--no-return)")
 
 
-def list_titles():
+def list_titles() -> None:
     """Print available titles."""
     print("\nAvailable Kingdom Titles:")
     print("-" * 60)

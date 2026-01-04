@@ -10,17 +10,21 @@ Handles ALL recovery scenarios:
 This is the ONE source of truth for recovery. Use it everywhere.
 """
 
+from __future__ import annotations
+
 import time
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import cv2
+import numpy as np
+import numpy.typing as npt
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.view_state_detector import detect_view, ViewState
 from utils.back_button_matcher import BackButtonMatcher
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
-import numpy as np
 
 # Import from centralized config
 from config import BACK_BUTTON_CLICK, EXPECTED_RESOLUTION
@@ -42,12 +46,11 @@ MAX_RECOVERY_ATTEMPTS = 30  # Attempts before restarting game
 _consecutive_restarts = 0
 
 # Cached templates
-_form_team_template = None
-_resource_bar_template = None
+_form_team_template: npt.NDArray[Any] | None = None
+_resource_bar_template: npt.NDArray[Any] | None = None
 
 
-def _load_templates():
-    """Load detection templates once."""
+def _load_templates() -> None:
     global _form_team_template, _resource_bar_template
     if _form_team_template is None and FORM_TEAM_TEMPLATE.exists():
         _form_team_template = cv2.imread(str(FORM_TEAM_TEMPLATE))
@@ -55,37 +58,37 @@ def _load_templates():
         _resource_bar_template = cv2.imread(str(RESOURCE_BAR_TEMPLATE))
 
 
-def _detect_troop_selected(frame) -> tuple[bool, float]:
-    """Detect if a troop is selected (Form Team button visible)."""
+def _detect_troop_selected(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:
     _load_templates()
     if _form_team_template is None or frame is None:
         return False, 1.0
 
-    # Search in bottom portion of screen
     search_region = frame[1900:2160, 1000:1700]
     result = cv2.matchTemplate(search_region, _form_team_template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+    min_val: float
+    min_val, _, _, _ = cv2.minMaxLoc(result)
     return min_val < 0.1, min_val
 
 
-def _detect_resource_bar(frame) -> tuple[bool, float]:
-    """Detect resource bar at top (indicates TOWN/WORLD view even if button hidden)."""
+def _detect_resource_bar(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:
     _load_templates()
     if _resource_bar_template is None or frame is None:
         return False, 1.0
 
-    # Search in top portion of screen
     search_region = frame[0:100, 0:600]
     result = cv2.matchTemplate(search_region, _resource_bar_template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+    min_val: float
+    min_val, _, _, _ = cv2.minMaxLoc(result)
     return min_val < 0.1, min_val
 
 
 def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
-    """Check if xclash (com.xman.na.gp) is the foreground app."""
     try:
+        device = adb.device
+        if device is None:
+            return False
         result = subprocess.run(
-            [adb.ADB_PATH, '-s', adb.device, 'shell',
+            [adb.ADB_PATH, '-s', device, 'shell',
              'dumpsys window | grep mFocusedApp'],
             capture_output=True, text=True, timeout=5
         )
@@ -94,15 +97,16 @@ def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
         return False
 
 
-def _get_current_resolution(adb: ADBHelper) -> str:
-    """Get current screen resolution from ADB."""
+def _get_current_resolution(adb: ADBHelper) -> str | None:
     try:
+        device = adb.device
+        if device is None:
+            return None
         result = subprocess.run(
-            [adb.ADB_PATH, '-s', adb.device, 'shell', 'wm', 'size'],
+            [adb.ADB_PATH, '-s', device, 'shell', 'wm', 'size'],
             capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
-            # Parse "Physical size: 1920x1080" or "Override size: 3840x2160"
             for line in result.stdout.split('\n'):
                 if 'size:' in line.lower():
                     parts = line.split(':')
@@ -115,8 +119,7 @@ def _get_current_resolution(adb: ADBHelper) -> str:
     return None
 
 
-def _run_setup_bluestacks(debug: bool = False):
-    """Run BlueStacks setup to ensure resolution is correct."""
+def _run_setup_bluestacks(debug: bool = False) -> None:
     if debug:
         print("    [RETURN] Running BlueStacks setup...")
     try:
@@ -131,12 +134,16 @@ def _run_setup_bluestacks(debug: bool = False):
     time.sleep(2)
 
 
-def _start_app(adb: ADBHelper, debug: bool = False):
-    """Force stop and start xclash, poll for UI load, dismiss startup popups."""
+def _start_app(adb: ADBHelper, debug: bool = False) -> None:
+    device = adb.device
+    if device is None:
+        if debug:
+            print("    [RETURN] No device found, cannot start app")
+        return
     if debug:
         print("    [RETURN] Force stopping xclash...")
     subprocess.run(
-        [adb.ADB_PATH, '-s', adb.device, 'shell',
+        [adb.ADB_PATH, '-s', device, 'shell',
          'am force-stop com.xman.na.gp'],
         capture_output=True, timeout=10
     )
@@ -145,7 +152,7 @@ def _start_app(adb: ADBHelper, debug: bool = False):
     if debug:
         print("    [RETURN] Starting xclash...")
     subprocess.run(
-        [adb.ADB_PATH, '-s', adb.device, 'shell',
+        [adb.ADB_PATH, '-s', device, 'shell',
          'am start -n com.xman.na.gp/com.q1.ext.Q1UnityActivity'],
         capture_output=True, timeout=10
     )
@@ -168,7 +175,7 @@ def _start_app(adb: ADBHelper, debug: bool = False):
 
         frame = win.get_screenshot_cv2()
         if frame is None:
-            continue
+            continue  # type: ignore[unreachable]
 
         # Check if shaded button is visible (game loaded with popups)
         shaded, shaded_score = is_button_shaded(frame)
@@ -198,23 +205,8 @@ def _start_app(adb: ADBHelper, debug: bool = False):
     dismiss_popups(adb, win, debug=debug)
 
 
-def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper = None,
+def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None,
                         debug: bool = False) -> bool:
-    """
-    THE recovery function. Handles everything:
-    - App not running → start it
-    - Resolution wrong → setup_bluestacks
-    - Stuck in menu → back button clicks
-    - Totally stuck → restart and retry
-
-    Args:
-        adb: ADBHelper instance
-        screenshot_helper: WindowsScreenshotHelper (optional, creates one if not provided)
-        debug: Print debug info
-
-    Returns:
-        True when successfully in TOWN/WORLD (keeps trying until success).
-    """
     global _consecutive_restarts  # Track restart count across recursive calls
 
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
@@ -257,7 +249,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         while back_clicks < MAX_BACK_CLICKS:
             frame = win.get_screenshot_cv2()
             if frame is None:
-                if debug:
+                if debug:  # type: ignore[unreachable]
                     print("    [RETURN] Failed to get screenshot")
                 break
 
@@ -282,7 +274,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     time.sleep(0.25)
                     poll_frame = win.get_screenshot_cv2()
                     if poll_frame is None:
-                        continue
+                        continue  # type: ignore[unreachable]
 
                     # Check if view changed to TOWN/WORLD
                     poll_state, poll_score = detect_view(poll_frame)
@@ -508,7 +500,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             print(f"    [RETURN] Back button present: {back_present} (score={back_score:.3f})")
             print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
         else:
-            print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying (no screenshot) ***")
+            print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying (no screenshot) ***")  # type: ignore[unreachable]
             print(f"    [RETURN] All {MAX_RECOVERY_ATTEMPTS} attempts exhausted")
     else:
         print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")

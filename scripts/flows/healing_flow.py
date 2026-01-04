@@ -7,17 +7,22 @@ Now uses hospital_healing_flow which supports multiple soldier rows
 and heals in 1-hour batches.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.adb_helper import ADBHelper
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from scripts.flows.hospital_healing_flow import hospital_healing_flow
 
 
-def healing_flow(adb, target_hours=1.0, debug=True):
+def healing_flow(adb: ADBHelper, target_hours: float = 1.0, debug: bool = True) -> bool:
     """
     Heal wounded soldiers at the hospital.
 

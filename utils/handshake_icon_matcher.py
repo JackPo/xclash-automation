@@ -15,11 +15,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import TYPE_CHECKING, Any, Tuple
 
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 @dataclass
@@ -54,7 +58,7 @@ class HandshakeIconMatcher:
     TEMPLATE_NAME = "handshake_icon_4k.png"
     DEFAULT_THRESHOLD = 0.04
 
-    def __init__(self, threshold: float = None, debug_dir=None) -> None:
+    def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         """
         Initialize handshake icon presence detector.
 
@@ -64,7 +68,7 @@ class HandshakeIconMatcher:
         """
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         """
         Check if handshake icon is present at FIXED location.
 
@@ -84,6 +88,6 @@ class HandshakeIconMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED handshake icon center position."""
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)

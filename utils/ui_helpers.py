@@ -9,12 +9,18 @@ These helpers wrap common tap operations to:
 Use these instead of hardcoding coordinates in flows.
 """
 
+from __future__ import annotations
+
 import time
+from typing import TYPE_CHECKING
 
 from config import BACK_BUTTON_CLICK, TOGGLE_BUTTON_CLICK
 
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
-def click_back(adb) -> None:
+
+def click_back(adb: ADBHelper) -> None:
     """
     Click the back button once.
 
@@ -32,7 +38,7 @@ def click_back(adb) -> None:
     adb.tap(*BACK_BUTTON_CLICK)
 
 
-def close_popup(adb, clicks: int = 1, delay: float = 0.3) -> None:
+def close_popup(adb: ADBHelper, clicks: int = 1, delay: float = 0.3) -> None:
     """
     Click back button N times with delay between clicks.
 
@@ -50,7 +56,7 @@ def close_popup(adb, clicks: int = 1, delay: float = 0.3) -> None:
             time.sleep(delay)
 
 
-def click_toggle(adb) -> None:
+def click_toggle(adb: ADBHelper) -> None:
     """
     Click the World/Town toggle button.
 

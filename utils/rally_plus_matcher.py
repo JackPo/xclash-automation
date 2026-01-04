@@ -3,9 +3,12 @@ Rally Plus Button Matcher - Detects join rally plus buttons.
 
 Uses template_matcher for full-frame search, then filters to slot 4 position.
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
-from typing import List, Tuple
+import numpy.typing as npt
 
 from config import RALLY_PLUS_BUTTON_X, RALLY_PLUS_BUTTON_THRESHOLD
 from utils.template_matcher import match_template
@@ -22,10 +25,10 @@ class RallyPlusMatcher:
     TEMPLATE_NAME = "rally_plus_button_4k.png"
     DEFAULT_THRESHOLD = RALLY_PLUS_BUTTON_THRESHOLD
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def find_all_plus_buttons(self, frame: np.ndarray) -> List[Tuple[int, int, float]]:
+    def find_all_plus_buttons(self, frame: npt.NDArray[Any]) -> list[tuple[int, int, float]]:
         """
         Search entire frame for plus buttons using template matching.
 
@@ -50,7 +53,7 @@ class RallyPlusMatcher:
         # Load template for full-frame search
         from pathlib import Path
         template_path = Path(__file__).parent.parent / "templates" / "ground_truth" / self.TEMPLATE_NAME
-        template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+        template: npt.NDArray[Any] | None = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
         if template is None:
             return []
 
@@ -82,7 +85,7 @@ class RallyPlusMatcher:
 
         return filtered_matches
 
-    def _filter_duplicates(self, matches: List[Tuple[int, int, float]]) -> List[Tuple[int, int, float]]:
+    def _filter_duplicates(self, matches: list[tuple[int, int, float]]) -> list[tuple[int, int, float]]:
         """
         Remove duplicate detections that are close together.
 
@@ -93,7 +96,7 @@ class RallyPlusMatcher:
 
         sorted_matches = sorted(matches, key=lambda m: m[1])
 
-        filtered = []
+        filtered: list[tuple[int, int, float]] = []
         MIN_DISTANCE = 50
 
         for match in sorted_matches:
@@ -112,7 +115,7 @@ class RallyPlusMatcher:
 
         return filtered
 
-    def get_click_position(self, plus_x: int, plus_y: int) -> Tuple[int, int]:
+    def get_click_position(self, plus_x: int, plus_y: int) -> tuple[int, int]:
         """
         Get click position for a plus button.
 

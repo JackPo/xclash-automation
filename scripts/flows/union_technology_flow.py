@@ -18,10 +18,15 @@ Sequence:
 
 NOTE: ALL detection uses WindowsScreenshotHelper (NOT ADB screenshots).
 """
+from __future__ import annotations
+
 import sys
 import time
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 # Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
@@ -30,6 +35,9 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 import numpy as np
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
@@ -69,7 +77,7 @@ CLICK_DELAY = 0.5
 SCREEN_TRANSITION_DELAY = 1.5
 LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
 
-def _is_on_technology_panel(frame: np.ndarray) -> tuple[bool, float]:
+def _is_on_technology_panel(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """Check if we're on the Union Technology panel by matching header."""
     found, score, _ = match_template(
         frame, "union_technology_header_4k.png",
@@ -79,7 +87,7 @@ def _is_on_technology_panel(frame: np.ndarray) -> tuple[bool, float]:
     return found, score
 
 
-def _is_donate_dialog_active(frame: np.ndarray) -> tuple[bool, float]:
+def _is_donate_dialog_active(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """Check if donate dialog shows ACTIVE (yellow) button - can donate."""
     found, score, _ = match_template(
         frame, "tech_donate_200_button_active_4k.png",
@@ -89,7 +97,7 @@ def _is_donate_dialog_active(frame: np.ndarray) -> tuple[bool, float]:
     return found, score
 
 
-def _is_donate_dialog_inactive(frame: np.ndarray) -> tuple[bool, float]:
+def _is_donate_dialog_inactive(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """Check if donate dialog shows INACTIVE (gray) button - nothing to donate."""
     found, score, _ = match_template(
         frame, "tech_donate_200_button_inactive_4k.png",
@@ -99,7 +107,7 @@ def _is_donate_dialog_inactive(frame: np.ndarray) -> tuple[bool, float]:
     return found, score
 
 
-def _find_thumbs_up_badge_topmost(frame: np.ndarray) -> tuple[int, int, float] | None:
+def _find_thumbs_up_badge_topmost(frame: npt.NDArray[Any]) -> tuple[int, int, float] | None:
     """Find the red thumbs up badge. Returns (center_x, center_y, score) or None."""
     found, score, loc = match_template(
         frame, "tech_donate_thumbs_up_4k.png",
@@ -112,19 +120,19 @@ def _find_thumbs_up_badge_topmost(frame: np.ndarray) -> tuple[int, int, float] |
     return (loc[0], loc[1], score)
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging. Returns path."""
     from utils.debug_screenshot import save_debug_screenshot
     return save_debug_screenshot(frame, "union_technology", name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [UNION_TECH] {msg}")
 
 
-def union_technology_flow(adb) -> bool:
+def union_technology_flow(adb: ADBHelper) -> bool:
     """
     Execute the union technology donation flow.
 

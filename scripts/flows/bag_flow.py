@@ -15,6 +15,13 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +68,7 @@ TAB_CLICK_POSITIONS = {
 }
 
 
-def detect_active_tab(frame: np.ndarray, debug: bool = False) -> str | None:
+def detect_active_tab(frame: npt.NDArray[Any], debug: bool = False) -> str | None:
     """
     Detect which bag tab is currently active by matching all active templates.
 
@@ -83,7 +90,7 @@ def detect_active_tab(frame: np.ndarray, debug: bool = False) -> str | None:
     return best_tab
 
 
-def switch_to_tab(adb, win, target_tab: str, debug: bool = False) -> bool:
+def switch_to_tab(adb: ADBHelper, win: WindowsScreenshotHelper, target_tab: str, debug: bool = False) -> bool:
     """
     Switch to the specified tab if not already there.
 
@@ -122,7 +129,7 @@ def switch_to_tab(adb, win, target_tab: str, debug: bool = False) -> bool:
         return False
 
 
-def bag_flow(adb, win=None, debug: bool = False) -> dict:
+def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: bool = False) -> dict[str, int]:
     """
     Execute the main bag flow - opens bag and runs all 3 subflows.
 

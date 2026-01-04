@@ -14,9 +14,29 @@ Zz Icon Slot Positions (4K resolution):
 Detection uses TM_SQDIFF_NORMED with threshold 0.1.
 """
 
+from __future__ import annotations
+
+from typing import Any, TypedDict
+
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+
+class SlotInfo(TypedDict):
+    id: int
+    pos: tuple[int, int]
+    size: tuple[int, int]
+    click: tuple[int, int]
+
+
+class SlotStatus(TypedDict):
+    id: int
+    pos: tuple[int, int]
+    click: tuple[int, int]
+    score: float
+    is_idle: bool
 
 
 class HeroSelector:
@@ -25,19 +45,16 @@ class HeroSelector:
     TEMPLATE_NAME = "zz_icon_template_4k.png"
     THRESHOLD = 0.1
 
-    # Fixed slot positions (x, y, w, h) and click centers
-    # Ordered from rightmost to leftmost for priority selection
-    SLOTS = [
-        {'id': 3, 'pos': (1946, 1851), 'size': (40, 36), 'click': (1966, 1869)},  # rightmost
-        {'id': 2, 'pos': (1697, 1851), 'size': (40, 36), 'click': (1717, 1869)},  # middle
-        {'id': 1, 'pos': (1447, 1851), 'size': (40, 36), 'click': (1467, 1869)},  # leftmost
+    SLOTS: list[SlotInfo] = [
+        {'id': 3, 'pos': (1946, 1851), 'size': (40, 36), 'click': (1966, 1869)},
+        {'id': 2, 'pos': (1697, 1851), 'size': (40, 36), 'click': (1717, 1869)},
+        {'id': 1, 'pos': (1447, 1851), 'size': (40, 36), 'click': (1467, 1869)},
     ]
 
-    def __init__(self):
-        """Initialize the hero selector."""
-        pass  # Templates loaded by template_matcher
+    def __init__(self) -> None:
+        pass
 
-    def check_slot_has_zz(self, frame: np.ndarray, slot: dict) -> tuple[bool, float]:
+    def check_slot_has_zz(self, frame: npt.NDArray[Any], slot: SlotInfo) -> tuple[bool, float]:
         """
         Check if a slot has Zz icon (hero is idle).
 
@@ -57,7 +74,7 @@ class HeroSelector:
 
         return found, score
 
-    def find_rightmost_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
+    def find_rightmost_idle(self, frame: npt.NDArray[Any], zz_mode: str = 'require') -> SlotInfo | None:
         """
         Find the rightmost hero based on Zz icon strategy.
         Used by: treasure_map_flow
@@ -74,27 +91,26 @@ class HeroSelector:
             Slot dict if found, None if no heroes available (only possible in 'require'/'avoid' mode)
         """
         if zz_mode == 'ignore':
-            return self.SLOTS[0]  # First element is rightmost
+            return self.SLOTS[0]
 
         if zz_mode == 'avoid':
-            # Find rightmost hero WITHOUT Zz (busy hero)
-            for slot in self.SLOTS:  # Already ordered rightmost first
-                is_idle, score = self.check_slot_has_zz(frame, slot)
-                if not is_idle:  # NO Zz = busy
+            for slot in self.SLOTS:
+                is_idle, _ = self.check_slot_has_zz(frame, slot)
+                if not is_idle:
                     return slot
-            return None  # All heroes have Zz (all idle)
+            return None
 
-        for slot in self.SLOTS:  # Already ordered rightmost first
-            is_idle, score = self.check_slot_has_zz(frame, slot)
+        for slot in self.SLOTS:
+            is_idle, _ = self.check_slot_has_zz(frame, slot)
             if is_idle:
                 return slot
 
         if zz_mode == 'require':
             return None
-        else:  # zz_mode == 'prefer'
+        else:
             return self.SLOTS[0]
 
-    def find_leftmost_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
+    def find_leftmost_idle(self, frame: npt.NDArray[Any], zz_mode: str = 'require') -> SlotInfo | None:
         """
         Find the leftmost hero based on Zz icon strategy.
         Used by: elite_zombie_flow, rally_join_flow
@@ -110,19 +126,19 @@ class HeroSelector:
             Slot dict if found, None if no heroes available (only possible in 'require' mode)
         """
         if zz_mode == 'ignore':
-            return self.SLOTS[-1]  # Last element is leftmost
+            return self.SLOTS[-1]
 
-        for slot in reversed(self.SLOTS):  # Reversed = leftmost first
-            is_idle, score = self.check_slot_has_zz(frame, slot)
+        for slot in reversed(self.SLOTS):
+            is_idle, _ = self.check_slot_has_zz(frame, slot)
             if is_idle:
                 return slot
 
         if zz_mode == 'require':
             return None
-        else:  # zz_mode == 'prefer'
+        else:
             return self.SLOTS[-1]
 
-    def find_any_idle(self, frame: np.ndarray, zz_mode: str = 'require') -> dict | None:
+    def find_any_idle(self, frame: npt.NDArray[Any], zz_mode: str = 'require') -> SlotInfo | None:
         """
         Find ANY idle hero (first one with Zz icon found, no position preference).
         Used by: rally_join_flow during Union Boss mode
@@ -137,21 +153,21 @@ class HeroSelector:
         if zz_mode == 'ignore':
             return self.SLOTS[0]
 
-        for slot in self.SLOTS:  # Checks 3, 2, 1
-            is_idle, score = self.check_slot_has_zz(frame, slot)
+        for slot in self.SLOTS:
+            is_idle, _ = self.check_slot_has_zz(frame, slot)
             if is_idle:
                 return slot
 
         if zz_mode == 'require':
             return None
-        else:  # prefer
+        else:
             return self.SLOTS[0]
 
-    def get_all_slot_status(self, frame: np.ndarray) -> list[dict]:
+    def get_all_slot_status(self, frame: npt.NDArray[Any]) -> list[SlotStatus]:
         """
         Get status of all slots (for debugging).
         """
-        results = []
+        results: list[SlotStatus] = []
         for slot in self.SLOTS:
             is_idle, score = self.check_slot_has_zz(frame, slot)
             results.append({
@@ -164,7 +180,7 @@ class HeroSelector:
         return results
 
 
-def find_rightmost_zz(frame: np.ndarray) -> int | None:
+def find_rightmost_zz(frame: npt.NDArray[Any]) -> int | None:
     """
     Convenience function to find rightmost idle hero slot.
 

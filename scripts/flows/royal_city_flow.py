@@ -10,23 +10,27 @@ Assumes Royal City panel is already open (Attack/Rally/Scout buttons visible).
 Use go_to_mark_flow first to navigate to the city.
 """
 
+from __future__ import annotations
+
 import sys
 import time
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import cv2
-import numpy as np
+import numpy.typing as npt
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.adb_helper import ADBHelper
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
 from utils.hero_selector import HeroSelector
 from utils.debug_screenshot import save_debug_screenshot
 from config import ROYAL_CITY_BUTTON_OFFSETS, ROYAL_CITY_BUTTON_SIZE
+
+if TYPE_CHECKING:
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
+    from utils.adb_helper import ADBHelper
 
 logger = logging.getLogger("royal_city_flow")
 
@@ -49,13 +53,13 @@ CLICK_DELAY = 0.5
 SCREEN_TRANSITION_DELAY = 1.5
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     logger.info(msg)
     print(f"    [ROYAL_CITY] {msg}")
 
 
-def _find_attack_button(frame) -> tuple:
-    """Find Attack button using template matching. Returns (found, center_x, center_y)."""
+def _find_attack_button(frame: npt.NDArray[Any]) -> tuple[bool, int, int, float]:
+    """Find Attack button using template matching. Returns (found, center_x, center_y, score)."""
     found, score, loc = match_template(
         frame, ATTACK_TEMPLATE,
         search_region=BUTTON_SEARCH_REGION,
@@ -67,7 +71,7 @@ def _find_attack_button(frame) -> tuple:
     return False, 0, 0, score
 
 
-def _find_button_by_offset(attack_pos: tuple, button_name: str) -> tuple:
+def _find_button_by_offset(attack_pos: tuple[int, int], button_name: str) -> tuple[int, int] | None:
     """Calculate button position from Attack position using known offsets."""
     offset = ROYAL_CITY_BUTTON_OFFSETS.get(button_name)
     if not offset:
@@ -78,7 +82,7 @@ def _find_button_by_offset(attack_pos: tuple, button_name: str) -> tuple:
     return (x, y)
 
 
-def _is_city_unoccupied(frame) -> bool:
+def _is_city_unoccupied(frame: npt.NDArray[Any]) -> bool:
     """Check if Royal City is unoccupied (can't apply titles)."""
     found, score, _ = match_template(
         frame, UNOCCUPIED_TEMPLATE,
@@ -88,7 +92,7 @@ def _is_city_unoccupied(frame) -> bool:
     return found
 
 
-def _select_rightmost_idle_hero(adb, win) -> bool:
+def _select_rightmost_idle_hero(adb: ADBHelper, win: WindowsScreenshotHelper) -> bool:
     """Select the rightmost idle hero. Returns True if successful."""
     hero_selector = HeroSelector()
     frame = win.get_screenshot_cv2()
@@ -107,7 +111,7 @@ def _select_rightmost_idle_hero(adb, win) -> bool:
         return True
 
 
-def _click_march_button(adb, win) -> bool:
+def _click_march_button(adb: ADBHelper, win: WindowsScreenshotHelper) -> bool:
     """Find and click the March button. Returns True if successful."""
     frame = win.get_screenshot_cv2()
 
@@ -130,7 +134,12 @@ def _click_march_button(adb, win) -> bool:
         return True
 
 
-def royal_city_flow(adb, action: str = "scout", win=None, debug=True) -> bool:
+def royal_city_flow(
+    adb: ADBHelper,
+    action: str = "scout",
+    win: WindowsScreenshotHelper | None = None,
+    debug: bool = True
+) -> bool:
     """
     Execute Royal City action (attack, rally, or scout).
 
@@ -146,12 +155,14 @@ def royal_city_flow(adb, action: str = "scout", win=None, debug=True) -> bool:
     Returns:
         bool: True if successful
     """
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper as WSH
+
     action = action.lower()
     if action not in ("attack", "rally", "scout"):
         _log(f"ERROR: Invalid action '{action}'. Use attack, rally, or scout.")
         return False
 
-    win = win or WindowsScreenshotHelper()
+    win = win or WSH()
     _log(f"=== ROYAL CITY {action.upper()} FLOW ===")
 
     try:
@@ -167,7 +178,7 @@ def royal_city_flow(adb, action: str = "scout", win=None, debug=True) -> bool:
             search_region=(1400, 600, 1100, 1000),  # Center area
             threshold=0.15  # TM_SQDIFF_NORMED - lower is better
         )
-        if not found:
+        if not found or loc is None:
             _log(f"ERROR: Star not found (score={score:.4f})")
             return False
 
@@ -207,6 +218,7 @@ def royal_city_flow(adb, action: str = "scout", win=None, debug=True) -> bool:
         # Step 3: Find and click target button via template match
         w, h = ROYAL_CITY_BUTTON_SIZE
 
+        click_pos: tuple[int, int]
         if action == "attack":
             # Already have Attack position from above
             click_pos = (attack_x, attack_y)
@@ -217,18 +229,18 @@ def royal_city_flow(adb, action: str = "scout", win=None, debug=True) -> bool:
                 search_region=BUTTON_SEARCH_REGION,
                 threshold=0.90
             )
-            if not found:
+            if not found or loc is None:
                 _log(f"ERROR: Rally button not found (score={score:.4f})")
                 return False
             click_pos = loc  # match_template returns CENTER already
             _log(f"Step 3: Rally at center {click_pos}, score={score:.4f}")
-        elif action == "scout":
+        else:  # scout
             found, score, loc = match_template(
                 frame, SCOUT_TEMPLATE,
                 search_region=BUTTON_SEARCH_REGION,
                 threshold=0.90
             )
-            if not found:
+            if not found or loc is None:
                 _log(f"ERROR: Scout button not found (score={score:.4f})")
                 return False
             click_pos = loc  # match_template returns CENTER already

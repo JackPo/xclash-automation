@@ -13,9 +13,15 @@ Usage:
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 class TreasureMapMatcher:
@@ -39,7 +45,7 @@ class TreasureMapMatcher:
     TEMPLATE_NAME = "treasure_map_4k.png"
     DEFAULT_THRESHOLD = 0.05
 
-    def __init__(self, threshold: float = None, debug_dir=None) -> None:
+    def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         """
         Initialize treasure map icon presence detector.
 
@@ -49,7 +55,7 @@ class TreasureMapMatcher:
         """
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         """
         Check if treasure map icon is present at FIXED location.
 
@@ -69,6 +75,6 @@ class TreasureMapMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED treasure map icon center position."""
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)

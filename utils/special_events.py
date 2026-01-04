@@ -6,17 +6,19 @@ Each event has: name, start, end, and optional properties like ignore_rally_limi
 
 Server resets at 02:00 UTC - end date means active until next day 02:00 UTC.
 """
+from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Any
 
-try:
-    from config import SPECIAL_EVENTS
-except ImportError:
-    SPECIAL_EVENTS = []
+# Import SPECIAL_EVENTS from config (may be empty list)
+from config import SPECIAL_EVENTS as _SPECIAL_EVENTS
+
+# Re-export for type checking - this is the actual list used
+SPECIAL_EVENTS: list[dict[str, Any]] = _SPECIAL_EVENTS
 
 
-def get_active_events(now: Optional[datetime] = None) -> list[dict]:
+def get_active_events(now: datetime | None = None) -> list[dict[str, Any]]:
     """
     Get list of currently active special events.
 
@@ -29,10 +31,12 @@ def get_active_events(now: Optional[datetime] = None) -> list[dict]:
     if now is None:
         now = datetime.now(timezone.utc)
 
-    active = []
+    active: list[dict[str, Any]] = []
     for event in SPECIAL_EVENTS:
-        start_date = datetime.strptime(event["start"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_date = datetime.strptime(event["end"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        start_str: str = str(event["start"])
+        end_str: str = str(event["end"])
+        start_date = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
         # Event starts at 02:00 UTC on start date
         event_start = start_date.replace(hour=2, minute=0, second=0)
@@ -45,7 +49,7 @@ def get_active_events(now: Optional[datetime] = None) -> list[dict]:
     return active
 
 
-def is_event_active(event_name: str, now: Optional[datetime] = None) -> bool:
+def is_event_active(event_name: str, now: datetime | None = None) -> bool:
     """
     Check if a specific event is currently active.
 
@@ -60,7 +64,7 @@ def is_event_active(event_name: str, now: Optional[datetime] = None) -> bool:
     return any(e["name"].lower() == event_name.lower() for e in active)
 
 
-def get_active_event_names(now: Optional[datetime] = None) -> list[str]:
+def get_active_event_names(now: datetime | None = None) -> list[str]:
     """
     Get list of active event names (for logging).
 
@@ -73,7 +77,7 @@ def get_active_event_names(now: Optional[datetime] = None) -> list[str]:
     return [e["name"] for e in get_active_events(now)]
 
 
-def get_active_events_short(now: Optional[datetime] = None) -> str:
+def get_active_events_short(now: datetime | None = None) -> str:
     """
     Get short string of active events for daemon log.
 

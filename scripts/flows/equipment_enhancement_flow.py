@@ -1,17 +1,23 @@
 """
 Equipment enhancement flow - clicks the crossed swords bubble.
 """
-import time
+from __future__ import annotations
+
 import sys
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.equipment_enhancement_matcher import EquipmentEnhancementMatcher
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
-def equipment_enhancement_flow(adb, win=None):
+def equipment_enhancement_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
     """Click the equipment enhancement bubble if present.
 
     Args:

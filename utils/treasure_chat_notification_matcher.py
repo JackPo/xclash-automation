@@ -12,10 +12,15 @@ SPECS (4K resolution):
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
-from typing import Optional, Tuple
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 class TreasureChatNotificationMatcher:
@@ -35,10 +40,10 @@ class TreasureChatNotificationMatcher:
     TEMPLATE_NAME = "treasure_chat_notification_4k.png"
     DEFAULT_THRESHOLD = 0.1
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> Tuple[bool, float, Optional[Tuple[int, int]]]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float, tuple[int, int] | None]:
         """
         Check if treasure chat notification banner is present.
 
@@ -64,7 +69,7 @@ class TreasureChatNotificationMatcher:
 
         return found, score, location if found else None
 
-    def get_click_position(self, found_position: Tuple[int, int]) -> Tuple[int, int]:
+    def get_click_position(self, found_position: tuple[int, int]) -> tuple[int, int]:
         """
         Calculate click position for Kingdom link based on found banner center.
 
@@ -78,7 +83,7 @@ class TreasureChatNotificationMatcher:
         click_y = found_position[1] + self.CLICK_OFFSET_Y
         return click_x, click_y
 
-    def click(self, adb_helper, found_position: Tuple[int, int]) -> None:
+    def click(self, adb_helper: ADBHelper, found_position: tuple[int, int]) -> None:
         """
         Click on the Kingdom link at the calculated position.
 
@@ -89,7 +94,7 @@ class TreasureChatNotificationMatcher:
         click_x, click_y = self.get_click_position(found_position)
         adb_helper.tap(click_x, click_y)
 
-    def detect_and_click(self, frame: np.ndarray, adb_helper, save_debug: bool = False) -> Tuple[bool, float]:
+    def detect_and_click(self, frame: npt.NDArray[Any], adb_helper: ADBHelper, save_debug: bool = False) -> tuple[bool, float]:
         """
         Convenience method: detect banner and click Kingdom link if found.
 

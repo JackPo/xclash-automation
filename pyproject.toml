@@ -1,0 +1,110 @@
+[project]
+name = "xclash"
+version = "1.0.0"
+description = "Clash of Clans automation for BlueStacks"
+requires-python = ">=3.12"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+explicit_package_bases = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+show_error_codes = true
+plugins = []
+
+# Exclude test files and deprecated code
+exclude = [
+    "deprecated/",
+    "scripts/one_off/",
+    "tools/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2",
+    "cv2.*",
+    "numpy",
+    "numpy.*",
+    "win32gui",
+    "win32con",
+    "win32api",
+    "win32ui",
+    "PIL",
+    "PIL.*",
+    "websockets",
+    "websockets.*",
+    "transformers",
+    "transformers.*",
+    "torch",
+    "torch.*",
+    "bitsandbytes",
+    "bitsandbytes.*",
+    "accelerate",
+    "accelerate.*",
+    "qwen_vl_utils",
+    "qwen_vl_utils.*",
+    "pynput",
+    "pynput.*",
+    "ctypes",
+    "ctypes.*",
+    "pytz",
+    "pytz.*",
+    "flows",
+    "flows.*",
+    "scripts.flows.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "e2e: end-to-end tests requiring real device",
+    "slow: slow running tests",
+]
+
+[tool.coverage.run]
+source = ["utils", "scripts"]
+omit = [
+    "*/__pycache__/*",
+    "*/test_*",
+    "scripts/one_off/*",
+    "deprecated/*",
+    # Hardware-dependent modules (require real device/GPU)
+    "utils/qwen_ocr.py",
+    "utils/windows_screenshot_helper.py",
+    "utils/adb_helper.py",
+    "utils/daemon_server.py",
+    "utils/idle_detector.py",
+    "utils/user_idle_tracker.py",
+    "utils/send_arrow_proper.py",
+    "utils/send_zoom.py",
+    # Complex OCR/training modules
+    "utils/ocr_client.py",
+    "utils/training_slider_helper.py",
+    "utils/minimap_navigator.py",
+    "utils/hospital_panel_helper.py",
+    "utils/replenish_all_helper.py",
+]
+
+[tool.coverage.report]
+fail_under = 50
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

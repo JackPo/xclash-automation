@@ -1,18 +1,4 @@
-"""
-OCR Client - Drop-in replacement for QwenOCR that talks to the OCR server.
-
-Usage:
-    from utils.ocr_client import OCRClient
-
-    ocr = OCRClient()  # Connects to server at localhost:5123
-    text = ocr.extract_text(image)  # numpy array or PIL Image
-    number = ocr.extract_number(image, region=(x, y, w, h))
-
-The client will auto-start the OCR server if not running.
-
-Start the server manually with:
-    python services/ocr_server.py
-"""
+from __future__ import annotations
 
 import io
 import json
@@ -22,54 +8,39 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from PIL import Image
 
-# Server config
+if TYPE_CHECKING:
+    import numpy.typing as npt
+
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 5123
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 
-# Connection timeout (must be long enough for 4-bit quantized model on GTX 1080)
 TIMEOUT = 120
 
-# Retry cooldown - allow retry after this many seconds
-RETRY_COOLDOWN = 300  # 5 minutes
+RETRY_COOLDOWN = 300
 
-# Health check caching to reduce /health flood
-HEALTH_CHECK_TTL = 30  # seconds
+HEALTH_CHECK_TTL = 30
 
-# Server startup config
-SERVER_STARTUP_TIMEOUT = 120  # Wait up to 2 minutes for server to start
-SERVER_STARTUP_CHECK_INTERVAL = 2  # Check every 2 seconds
+SERVER_STARTUP_TIMEOUT = 120
+SERVER_STARTUP_CHECK_INTERVAL = 2
 
-# Path to OCR server script
 _OCR_SERVER_SCRIPT = Path(__file__).parent.parent / "services" / "ocr_server.py"
 
-# Path to OCR server log file
 _OCR_SERVER_LOG = Path(__file__).parent.parent / "logs" / "ocr_server.log"
 
-# Global server process handle
-_server_process = None
-_server_log_file = None  # Keep file handle open to prevent closure
+_server_process: subprocess.Popen[bytes] | None = None
+_server_log_file: Any = None
 
 
 def kill_ocr_servers() -> int:
-    """
-    Kill all existing OCR server processes.
-
-    Returns:
-        int: Number of processes killed
-    """
-    import subprocess
-
     killed = 0
 
-    # Find all python processes running ocr_server.py
     try:
-        # Use wmic to find python processes with ocr_server.py in command line
         result = subprocess.run(
             ['wmic', 'process', 'where',
              "commandline like '%ocr_server.py%' and name like '%python%'",
@@ -77,9 +48,8 @@ def kill_ocr_servers() -> int:
             capture_output=True, text=True, timeout=10
         )
 
-        # Parse PIDs from output (format: "ProcessId\n1234\n5678\n")
         lines = result.stdout.strip().split('\n')
-        for line in lines[1:]:  # Skip header
+        for line in lines[1:]:
             line = line.strip()
             if line and line.isdigit():
                 pid = int(line)
@@ -93,56 +63,40 @@ def kill_ocr_servers() -> int:
 
     if killed > 0:
         print(f"  Killed {killed} OCR server process(es)")
-        time.sleep(1)  # Wait for processes to die
+        time.sleep(1)
 
     return killed
 
 
 def start_ocr_server() -> bool:
-    """
-    Start the OCR server in a background process.
-
-    Kills any existing OCR server processes first to prevent accumulation.
-
-    Returns:
-        bool: True if server started successfully, False otherwise
-    """
     global _server_process, _server_log_file
 
     if not _OCR_SERVER_SCRIPT.exists():
         print(f"ERROR: OCR server script not found: {_OCR_SERVER_SCRIPT}")
         return False
 
-    # Kill existing OCR servers first to prevent accumulation
     kill_ocr_servers()
 
     print(f"Starting OCR server ({_OCR_SERVER_SCRIPT})...")
     print("  This may take 30-60 seconds to load the model...")
 
     try:
-        # Ensure logs directory exists
         _OCR_SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
 
-        # Open log file for OCR server output
-        # CRITICAL: Do NOT use subprocess.PIPE - it causes buffer deadlock on Windows!
-        # If stdout buffer fills (~64KB) and parent doesn't read, child blocks on print()
         _server_log_file = open(_OCR_SERVER_LOG, 'a', buffering=1)
         print(f"  OCR server output will be logged to: {_OCR_SERVER_LOG}")
 
-        # Start server as background process
-        # Use CREATE_NEW_PROCESS_GROUP on Windows to prevent CTRL+C from killing it
-        kwargs = {}
+        creationflags = 0
         if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
         _server_process = subprocess.Popen(
             [sys.executable, str(_OCR_SERVER_SCRIPT)],
             stdout=_server_log_file,
             stderr=subprocess.STDOUT,
-            **kwargs
+            creationflags=creationflags
         )
 
-        # Wait for server to become available
         start_time = time.time()
         while time.time() - start_time < SERVER_STARTUP_TIMEOUT:
             if OCRClient.check_server(force=True):
@@ -159,15 +113,6 @@ def start_ocr_server() -> bool:
 
 
 def ensure_ocr_server(auto_start: bool = True) -> bool:
-    """
-    Ensure OCR server is running, optionally starting it if not.
-
-    Args:
-        auto_start: If True, start the server if it's not running
-
-    Returns:
-        bool: True if server is available (running or started), False otherwise
-    """
     if OCRClient.check_server():
         return True
 
@@ -178,26 +123,18 @@ def ensure_ocr_server(auto_start: bool = True) -> bool:
 
 
 class OCRClient:
-    """OCR client that talks to the OCR server."""
 
     _server_checked = False
     _server_available = False
     _last_health_check = 0.0
     _auto_start_attempted = False
-    _last_start_attempt = 0.0  # Timestamp of last start attempt
+    _last_start_attempt = 0.0
 
-    def __init__(self, auto_start: bool = True):
-        """
-        Initialize OCR client.
-
-        Args:
-            auto_start: If True, automatically start the server if not running
-        """
+    def __init__(self, auto_start: bool = True) -> None:
         self._auto_start = auto_start
 
     @classmethod
     def check_server(cls, force: bool = False) -> bool:
-        """Check if server is available. Returns True if server is up."""
         now = time.time()
         if not force and cls._server_checked and (now - cls._last_health_check) < HEALTH_CHECK_TTL:
             return cls._server_available
@@ -216,20 +153,10 @@ class OCRClient:
             return False
 
     @classmethod
-    def require_server(cls, auto_start: bool = True):
-        """
-        Require server to be running.
-
-        Args:
-            auto_start: If True, attempt to start the server if not running
-
-        Raises:
-            RuntimeError: If server is not running and couldn't be started
-        """
+    def require_server(cls, auto_start: bool = True) -> None:
         if cls.check_server():
             return
 
-        # Allow retry after RETRY_COOLDOWN seconds
         now = time.time()
         can_retry = not cls._auto_start_attempted or (now - cls._last_start_attempt) >= RETRY_COOLDOWN
 
@@ -244,17 +171,13 @@ class OCRClient:
             "Try manually: python services/ocr_server.py"
         )
 
-    def _ensure_server(self):
-        """Ensure server is available, starting it if needed."""
-        # Check if server is up
+    def _ensure_server(self) -> None:
         if OCRClient.check_server():
             return
 
-        # Allow retry after RETRY_COOLDOWN seconds
         now = time.time()
         can_retry = not OCRClient._auto_start_attempted or (now - OCRClient._last_start_attempt) >= RETRY_COOLDOWN
 
-        # Try to start if auto_start enabled
         if self._auto_start and can_retry:
             OCRClient._auto_start_attempted = True
             OCRClient._last_start_attempt = now
@@ -266,40 +189,43 @@ class OCRClient:
             "Start it with: python services/ocr_server.py"
         )
 
-    def _image_to_bytes(self, image, region=None) -> bytes:
-        """Convert image to PNG bytes."""
-        # Convert numpy to PIL
+    def _image_to_bytes(
+        self,
+        image: npt.NDArray[Any] | Image.Image,
+        region: tuple[int, int, int, int] | None = None
+    ) -> bytes:
+        pil_image: Image.Image
         if isinstance(image, np.ndarray):
             if len(image.shape) == 3 and image.shape[2] == 3:
-                # BGR to RGB
-                image = Image.fromarray(image[:, :, ::-1])
+                pil_image = Image.fromarray(image[:, :, ::-1])
             else:
-                image = Image.fromarray(image)
+                pil_image = Image.fromarray(image)
+        else:
+            pil_image = image
 
-        # Crop if region specified
         if region is not None:
             x, y, w, h = region
-            image = image.crop((x, y, x + w, y + h))
+            pil_image = pil_image.crop((x, y, x + w, y + h))
 
-        # Convert to bytes
         buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
+        pil_image.save(buffer, format="PNG")
         return buffer.getvalue()
 
-    def _post_multipart(self, endpoint: str, image_bytes: bytes, fields: dict = None) -> dict:
-        """Post multipart form data to server."""
+    def _post_multipart(
+        self,
+        endpoint: str,
+        image_bytes: bytes,
+        fields: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         boundary = b"----OCRClientBoundary"
 
-        # Build body
         body = b""
 
-        # Add image
         body += b"--" + boundary + b"\r\n"
         body += b'Content-Disposition: form-data; name="image"; filename="image.png"\r\n'
         body += b"Content-Type: image/png\r\n\r\n"
         body += image_bytes + b"\r\n"
 
-        # Add other fields
         if fields:
             for name, value in fields.items():
                 if value is not None:
@@ -312,7 +238,6 @@ class OCRClient:
 
         body += b"--" + boundary + b"--\r\n"
 
-        # Send request
         req = urllib.request.Request(
             f"{SERVER_URL}{endpoint}",
             data=body,
@@ -324,7 +249,8 @@ class OCRClient:
 
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-                return json.loads(resp.read())
+                result: dict[str, Any] = json.loads(resp.read())
+                return result
         except urllib.error.URLError as e:
             return {"error": f"URL error: {e}", "text": None}
         except urllib.error.HTTPError as e:
@@ -332,133 +258,114 @@ class OCRClient:
         except Exception as e:
             return {"error": str(e), "text": None}
 
-    def extract_text(self, image, region: Tuple[int, int, int, int] = None,
-                     prompt: str = None) -> str:
-        """
-        Extract text from image.
-
-        Args:
-            image: numpy array (BGR) or PIL Image
-            region: Optional (x, y, w, h) to crop before OCR
-            prompt: Custom prompt for extraction
-
-        Returns:
-            str: Extracted text
-        """
+    def extract_text(
+        self,
+        image: npt.NDArray[Any] | Image.Image,
+        region: tuple[int, int, int, int] | None = None,
+        prompt: str | None = None
+    ) -> str:
         self._ensure_server()
         image_bytes = self._image_to_bytes(image, region)
-        fields = {"prompt": prompt} if prompt else {}
+        fields: dict[str, Any] = {"prompt": prompt} if prompt else {}
         result = self._post_multipart("/ocr", image_bytes, fields)
-        return result.get("text", "")
+        text = result.get("text", "")
+        return str(text) if text else ""
 
-    def extract_number(self, image, region: Tuple[int, int, int, int] = None) -> int | None:
-        """
-        Extract number from image.
-
-        Args:
-            image: numpy array or PIL Image
-            region: Optional (x, y, w, h) to crop
-
-        Returns:
-            int or None if no number found
-        """
+    def extract_number(
+        self,
+        image: npt.NDArray[Any] | Image.Image,
+        region: tuple[int, int, int, int] | None = None
+    ) -> int | None:
         self._ensure_server()
         image_bytes = self._image_to_bytes(image, region)
         result = self._post_multipart("/ocr/number", image_bytes)
-        return result.get("number")
+        number = result.get("number")
+        if number is None:
+            return None
+        return int(number)
 
-    def extract_json(self, image, region: Tuple[int, int, int, int] = None,
-                     prompt: str = None) -> dict | None:
-        """
-        Extract structured JSON data from image.
-
-        Args:
-            image: numpy array (BGR) or PIL Image
-            region: Optional (x, y, w, h) to crop before OCR
-            prompt: Custom prompt for extraction (should request JSON output)
-
-        Returns:
-            dict: Parsed JSON object, or None if parsing fails
-        """
-        import json
-
+    def extract_json(
+        self,
+        image: npt.NDArray[Any] | Image.Image,
+        region: tuple[int, int, int, int] | None = None,
+        prompt: str | None = None
+    ) -> dict[str, Any] | None:
         text = self.extract_text(image, region=region, prompt=prompt)
 
-        # Try to extract JSON from response
-        # Qwen might wrap JSON in markdown code blocks
         text = text.strip()
 
-        # Remove markdown code fences if present
         if text.startswith("```json"):
-            text = text[7:]  # Remove ```json
+            text = text[7:]
         elif text.startswith("```"):
-            text = text[3:]  # Remove ```
+            text = text[3:]
 
         if text.endswith("```"):
-            text = text[:-3]  # Remove trailing ```
+            text = text[:-3]
 
         text = text.strip()
 
         try:
-            return json.loads(text)
+            parsed: dict[str, Any] = json.loads(text)
+            return parsed
         except json.JSONDecodeError as e:
             print(f"[OCR-CLIENT] Failed to parse JSON: {e}")
             print(f"[OCR-CLIENT] Raw response: {text!r}")
             return None
 
 
-# Convenience functions (drop-in replacement for qwen_ocr functions)
-_client = None
+_client: OCRClient | None = None
 
 
 def get_ocr_client() -> OCRClient:
-    """Get or create shared OCR client."""
     global _client
     if _client is None:
         _client = OCRClient()
     return _client
 
 
-def ocr_extract_text(image, region=None, prompt=None) -> str:
-    """Extract text from image using OCR server."""
+def ocr_extract_text(
+    image: npt.NDArray[Any] | Image.Image,
+    region: tuple[int, int, int, int] | None = None,
+    prompt: str | None = None
+) -> str:
     return get_ocr_client().extract_text(image, region, prompt)
 
 
-def ocr_extract_number(image, region=None) -> int | None:
-    """Extract number from image using OCR server."""
+def ocr_extract_number(
+    image: npt.NDArray[Any] | Image.Image,
+    region: tuple[int, int, int, int] | None = None
+) -> int | None:
     return get_ocr_client().extract_number(image, region)
 
 
-# For backwards compatibility with QwenOCR class
 class QwenOCR(OCRClient):
-    """Alias for OCRClient for backwards compatibility."""
     pass
 
 
 if __name__ == "__main__":
-    import sys
     import cv2
 
-    # Test the client
-    print("Testing OCR Client...")
+    def _main() -> int:
+        print("Testing OCR Client...")
 
-    client = OCRClient()
+        client = OCRClient()
 
-    if OCRClient.check_server():
+        if not OCRClient.check_server():
+            print("Server not running!")
+            return 1
         print("Server is running!")
-    else:
-        print("Server not running!")
-        sys.exit(1)
 
-    if len(sys.argv) > 1:
+        if len(sys.argv) <= 1:
+            return 0
+
         image_path = sys.argv[1]
         image = cv2.imread(image_path)
 
         if image is None:
-            print(f"Failed to load: {image_path}")
-            sys.exit(1)
+            print(f"Failed to load: {image_path}")  # type: ignore[unreachable]
+            return 1
 
-        region = None
+        region: tuple[int, int, int, int] | None = None
         if len(sys.argv) >= 6:
             region = (int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
             print(f"Region: {region}")
@@ -470,3 +377,6 @@ if __name__ == "__main__":
         print("\n--- Number extraction ---")
         number = client.extract_number(image, region)
         print(f"Number: {number}")
+        return 0
+
+    sys.exit(_main())

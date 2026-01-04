@@ -20,8 +20,8 @@ def get_idle_seconds() -> float:
     lii = LASTINPUTINFO()
     lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
     ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
-    millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
-    return millis / 1000.0
+    millis: int = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+    return float(millis) / 1000.0
 
 
 def format_idle_time(seconds: float) -> str:

@@ -16,7 +16,11 @@ Usage:
 from __future__ import annotations
 
 import numpy as np
-from typing import Optional, Tuple
+import numpy.typing as npt
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 from utils.template_matcher import match_template
 
@@ -35,10 +39,10 @@ class EventsIconMatcher:
     TEMPLATE_NAME = "events_icon_4k.png"
     DEFAULT_THRESHOLD = 0.05
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def find(self, frame: np.ndarray) -> Tuple[bool, float, Optional[Tuple[int, int]]]:
+    def find(self, frame: npt.NDArray[Any]) -> tuple[bool, float, tuple[int, int] | None]:
         """
         Find events icon by scanning vertically on right side.
 
@@ -57,7 +61,7 @@ class EventsIconMatcher:
 
         return found, score, location if found else None
 
-    def click(self, adb_helper, frame: np.ndarray) -> bool:
+    def click(self, adb_helper: ADBHelper, frame: npt.NDArray[Any]) -> bool:
         """Find and click the events icon."""
         found, score, click_pos = self.find(frame)
         if found and click_pos:

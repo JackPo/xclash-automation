@@ -19,12 +19,18 @@ Templates:
 - confirm_button_4k.png - click (1912, 1289)
 """
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 # Template paths
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -49,7 +55,12 @@ CONFIRM_BUTTON_CLICK = (1912, 1289)
 THRESHOLD = 0.05
 
 
-def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=False):
+def soldier_speedup_flow(
+    adb: ADBHelper,
+    barrack_click_pos: tuple[int, int],
+    screenshot_helper: WindowsScreenshotHelper | None = None,
+    debug: bool = False,
+) -> bool:
     """
     Speed up soldier training at a barrack.
 
@@ -121,7 +132,7 @@ def soldier_speedup_flow(adb, barrack_click_pos, screenshot_helper=None, debug=F
         if debug:
             print(f"    Quick Speedup: {quick_ok} ({quick_score:.4f}, y={quick_y})")
 
-        if not quick_ok:
+        if not quick_ok or quick_loc is None:
             print("  ERROR: Quick Speedup button not found")
             return False
 

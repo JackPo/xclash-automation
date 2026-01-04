@@ -11,12 +11,19 @@ Templates:
 Click position: (1407, 2055) - center of back button
 """
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Import from centralized config
 from config import BACK_BUTTON_CLICK
@@ -41,14 +48,18 @@ TEMPLATE_LIGHT = BASE_DIR / "templates" / "ground_truth" / "back_button_light_4k
 THRESHOLD = 0.7  # TM_CCOEFF_NORMED - higher is better
 
 
-def _load_templates():
+def _load_templates() -> tuple[npt.NDArray[Any] | None, npt.NDArray[Any] | None]:
     """Load both back button templates."""
     dark = cv2.imread(str(TEMPLATE_DARK), cv2.IMREAD_GRAYSCALE)
     light = cv2.imread(str(TEMPLATE_LIGHT), cv2.IMREAD_GRAYSCALE)
     return dark, light
 
 
-def _find_back_button(frame, template_dark, template_light):
+def _find_back_button(
+    frame: npt.NDArray[Any],
+    template_dark: npt.NDArray[Any] | None,
+    template_light: npt.NDArray[Any] | None,
+) -> tuple[bool, str | None, float]:
     """
     Search for either back button variant in the frame.
 
@@ -63,8 +74,8 @@ def _find_back_button(frame, template_dark, template_light):
     else:
         roi_gray = roi
 
-    best_score = 0
-    best_variant = None
+    best_score: float = 0.0
+    best_variant: str | None = None
 
     # Try dark template
     if template_dark is not None:
@@ -86,7 +97,11 @@ def _find_back_button(frame, template_dark, template_light):
     return found, best_variant, best_score
 
 
-def back_from_chat_flow(adb, screenshot_helper=None, max_clicks=5):
+def back_from_chat_flow(
+    adb: ADBHelper,
+    screenshot_helper: WindowsScreenshotHelper | None = None,
+    max_clicks: int = 5,
+) -> int:
     """
     Close chat dialogs by clicking back button until it's gone.
 

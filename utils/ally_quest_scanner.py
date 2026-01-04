@@ -13,13 +13,21 @@ Strategy: Template match Assist button or timer clock icon (fixed X position),
 then calculate color box and stars positions relative to the match.
 """
 
+from __future__ import annotations
+
 import cv2
-import numpy as np
-import time
 import logging
-from pathlib import Path
+import time
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +72,14 @@ class AllyQuest:
     player_name: str
     color: str  # "gold" (in progress) or "purple" (available)
     stars: int
-    timer_seconds: Optional[int]  # None if has Assist button
+    timer_seconds: int | None  # None if has Assist button
     entry_y: int  # Y position in current screen
     raw_timer: str  # Raw timer text or "assist"
 
 
-def load_templates():
+def load_templates() -> dict[str, npt.NDArray[Any]]:
     """Load all templates for ally quest scanning."""
-    templates = {}
+    templates: dict[str, npt.NDArray[Any]] = {}
 
     template_files = {
         "assist": "assist_button_ally_4k.png",
@@ -83,7 +91,7 @@ def load_templates():
 
     for name, filename in template_files.items():
         path = TEMPLATES_DIR / filename
-        template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        template: npt.NDArray[Any] | None = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         if template is not None:
             templates[name] = template
         else:
@@ -92,13 +100,17 @@ def load_templates():
     return templates
 
 
-def find_all_buttons(frame_gray: np.ndarray, assist_template: np.ndarray,
-                     clock_template: np.ndarray, threshold: float = 0.02) -> list[dict]:
+def find_all_buttons(
+    frame_gray: npt.NDArray[Any],
+    assist_template: npt.NDArray[Any] | None,
+    clock_template: npt.NDArray[Any] | None,
+    threshold: float = 0.02,
+) -> list[dict[str, Any]]:
     """
     Find all Assist buttons and timer clocks in the frame.
     Returns list of {x, y, type} where type is 'assist' or 'timer'.
     """
-    buttons = []
+    buttons: list[dict[str, Any]] = []
 
     # Search in the right side of the quest list
     roi = frame_gray[SEARCH_Y_START:SEARCH_Y_END, SEARCH_X_START:SEARCH_X_END]
@@ -108,21 +120,21 @@ def find_all_buttons(frame_gray: np.ndarray, assist_template: np.ndarray,
         result = cv2.matchTemplate(roi, assist_template, cv2.TM_SQDIFF_NORMED)
         locations = np.where(result <= threshold)
         for pt in zip(*locations[::-1]):
-            x = pt[0] + SEARCH_X_START
-            y = pt[1] + SEARCH_Y_START
-            buttons.append({"x": x, "y": y, "type": "assist", "score": result[pt[1], pt[0]]})
+            x = int(pt[0]) + SEARCH_X_START
+            y = int(pt[1]) + SEARCH_Y_START
+            buttons.append({"x": x, "y": y, "type": "assist", "score": float(result[pt[1], pt[0]])})
 
     # Find timer clocks
     if clock_template is not None:
         result = cv2.matchTemplate(roi, clock_template, cv2.TM_SQDIFF_NORMED)
         locations = np.where(result <= threshold)
         for pt in zip(*locations[::-1]):
-            x = pt[0] + SEARCH_X_START
-            y = pt[1] + SEARCH_Y_START
-            buttons.append({"x": x, "y": y, "type": "timer", "score": result[pt[1], pt[0]]})
+            x = int(pt[0]) + SEARCH_X_START
+            y = int(pt[1]) + SEARCH_Y_START
+            buttons.append({"x": x, "y": y, "type": "timer", "score": float(result[pt[1], pt[0]])})
 
     # Remove duplicates (buttons within 50 pixels of each other)
-    filtered = []
+    filtered: list[dict[str, Any]] = []
     for btn in sorted(buttons, key=lambda b: b["score"]):
         is_dup = False
         for existing in filtered:
@@ -135,7 +147,7 @@ def find_all_buttons(frame_gray: np.ndarray, assist_template: np.ndarray,
     return sorted(filtered, key=lambda b: b["y"])
 
 
-def detect_quest_color(frame_bgr: np.ndarray, button_x: int, button_y: int) -> str:
+def detect_quest_color(frame_bgr: npt.NDArray[Any], button_x: int, button_y: int) -> str:
     """Detect if quest is gold (timer) or purple (assist available) based on button position."""
     # Color box is to the upper-left of the button
     x1 = button_x + COLOR_BOX_OFFSET_X
@@ -169,8 +181,13 @@ def detect_quest_color(frame_bgr: np.ndarray, button_x: int, button_y: int) -> s
         return "unknown"
 
 
-def count_stars(frame_gray: np.ndarray, button_x: int, button_y: int,
-                star_template: np.ndarray, threshold: float = 0.08) -> int:
+def count_stars(
+    frame_gray: npt.NDArray[Any],
+    button_x: int,
+    button_y: int,
+    star_template: npt.NDArray[Any] | None,
+    threshold: float = 0.08,
+) -> int:
     """Count number of yellow stars using template matching."""
     x1 = button_x + STARS_OFFSET_X
     y1 = button_y + STARS_OFFSET_Y
@@ -195,7 +212,7 @@ def count_stars(frame_gray: np.ndarray, button_x: int, button_y: int,
     matches = list(zip(*locations[::-1]))
 
     # Remove duplicates (stars are ~40px apart)
-    unique = []
+    unique: list[tuple[Any, ...]] = []
     for m in sorted(matches, key=lambda p: p[0]):
         if not unique or abs(m[0] - unique[-1][0]) > 30:
             unique.append(m)
@@ -203,7 +220,7 @@ def count_stars(frame_gray: np.ndarray, button_x: int, button_y: int,
     return min(5, len(unique))
 
 
-def extract_entry_signature(frame_gray: np.ndarray, button_y: int) -> bytes:
+def extract_entry_signature(frame_gray: npt.NDArray[Any], button_y: int) -> bytes:
     """Extract a signature from entry for duplicate detection."""
     # Use the player avatar area (left side of entry, same row as button)
     x1 = 1350
@@ -222,13 +239,18 @@ def extract_entry_signature(frame_gray: np.ndarray, button_y: int) -> bytes:
     return small.tobytes()
 
 
-def scan_visible_entries(frame: np.ndarray, frame_gray: np.ndarray,
-                         templates: dict) -> list[dict]:
+def scan_visible_entries(
+    frame: npt.NDArray[Any],
+    frame_gray: npt.NDArray[Any],
+    templates: dict[str, npt.NDArray[Any]],
+) -> list[dict[str, Any]]:
     """Scan all visible entries on current screen using template matching."""
-    entries = []
+    entries: list[dict[str, Any]] = []
 
     # Find all buttons/timers
-    buttons = find_all_buttons(frame_gray, templates.get("assist"), templates.get("clock"))
+    buttons = find_all_buttons(
+        frame_gray, templates.get("assist"), templates.get("clock")
+    )
 
     for i, btn in enumerate(buttons):
         color = detect_quest_color(frame, btn["x"], btn["y"])
@@ -250,7 +272,12 @@ def scan_visible_entries(frame: np.ndarray, frame_gray: np.ndarray,
     return entries
 
 
-def scan_all_ally_quests(adb, win, max_scrolls: int = 10, debug: bool = False) -> list[dict]:
+def scan_all_ally_quests(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    max_scrolls: int = 10,
+    debug: bool = False,
+) -> list[dict[str, Any]]:
     """
     Scroll through all ally quests and collect info.
 
@@ -266,8 +293,8 @@ def scan_all_ally_quests(adb, win, max_scrolls: int = 10, debug: bool = False) -
     # Load templates
     templates = load_templates()
 
-    all_quests = []
-    seen_signatures = set()
+    all_quests: list[dict[str, Any]] = []
+    seen_signatures: set[bytes] = set()
     consecutive_no_new = 0
 
     for scroll_iter in range(max_scrolls + 1):
@@ -312,9 +339,11 @@ def scan_all_ally_quests(adb, win, max_scrolls: int = 10, debug: bool = False) -
     return all_quests
 
 
-def find_snipe_targets(quests: list[dict], min_stars: int = 4) -> list[dict]:
+def find_snipe_targets(
+    quests: list[dict[str, Any]], min_stars: int = 4
+) -> list[dict[str, Any]]:
     """Find high-value quests with timers that are worth sniping."""
-    targets = []
+    targets: list[dict[str, Any]] = []
 
     for quest in quests:
         # Look for gold (timer) quests with high stars

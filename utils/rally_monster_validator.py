@@ -7,11 +7,18 @@ monster name and level, validates against configuration rules.
 Supports DATA GATHERING MODE to collect monster samples for OCR tuning.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
 import cv2
+import numpy.typing as npt
 import re
-from typing import Tuple, Optional
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from utils.ocr_client import OCRClient
 
 
 class RallyMonsterValidator:
@@ -25,8 +32,8 @@ class RallyMonsterValidator:
     MONSTER_WIDTH = 290
     MONSTER_HEIGHT = 363
 
-    def __init__(self, ocr_client, monsters_config: list, data_gathering_mode: bool = False,
-                 ignore_daily_limit: bool = False):
+    def __init__(self, ocr_client: OCRClient, monsters_config: list[dict[str, Any]], data_gathering_mode: bool = False,
+                 ignore_daily_limit: bool = False) -> None:
         """
         Initialize validator.
 
@@ -55,7 +62,7 @@ class RallyMonsterValidator:
             print(f"  Matched monsters -> {self.matched_dir}")
             print(f"  Unknown monsters -> {self.unknown_dir}")
 
-    def get_monster_region(self, plus_x: int, plus_y: int) -> Tuple[int, int, int, int]:
+    def get_monster_region(self, plus_x: int, plus_y: int) -> tuple[int, int, int, int]:
         """
         Calculate monster icon region from plus button position.
 
@@ -70,7 +77,7 @@ class RallyMonsterValidator:
         monster_y = plus_y + self.MONSTER_OFFSET_Y
         return monster_x, monster_y, self.MONSTER_WIDTH, self.MONSTER_HEIGHT
 
-    def validate_monster(self, frame, plus_x: int, plus_y: int, rally_index: int = 0) -> Tuple[bool, Optional[str], Optional[int], str]:
+    def validate_monster(self, frame: npt.NDArray[Any], plus_x: int, plus_y: int, rally_index: int = 0) -> tuple[bool, str | None, int | None, str]:
         """
         OCR and validate monster at position.
 
@@ -151,7 +158,7 @@ class RallyMonsterValidator:
 
         return should_join, monster_name, level, raw_text
 
-    def _parse_monster_text(self, raw_text: str) -> Tuple[Optional[str], Optional[int]]:
+    def _parse_monster_text(self, raw_text: str) -> tuple[str | None, int | None]:
         """
         Parse monster name and level from OCR text.
 
@@ -202,7 +209,7 @@ class RallyMonsterValidator:
 
         return monster_name, level
 
-    def _should_join_rally(self, monster_name: str, level: int) -> Tuple[bool, bool]:
+    def _should_join_rally(self, monster_name: str, level: int) -> tuple[bool, bool]:
         """
         Check if monster matches configuration rules.
 
@@ -249,8 +256,8 @@ class RallyMonsterValidator:
         # No match found - UNKNOWN monster
         return False, False
 
-    def _save_monster_sample(self, monster_crop, rally_index: int, plus_x: int, plus_y: int,
-                              monster_name: str, level: int, subfolder: str):
+    def _save_monster_sample(self, monster_crop: npt.NDArray[Any], rally_index: int, plus_x: int, plus_y: int,
+                              monster_name: str, level: int, subfolder: str) -> None:
         """
         Save monster crop to data_gathering/matched/ or data_gathering/unknown/
 

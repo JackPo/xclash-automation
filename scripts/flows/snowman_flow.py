@@ -12,18 +12,22 @@ NOTE: Claim bubble step is a placeholder - template will be added later.
 
 DEBUG: This flow saves screenshots at every step to templates/debug/snowman_flow/
 """
-import time
+from __future__ import annotations
+
 import logging
-from pathlib import Path
-from datetime import datetime
+import time
+from typing import TYPE_CHECKING, Any
 
-import cv2
+import numpy.typing as npt
 
-from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.debug_screenshot import save_debug_screenshot
+from utils.return_to_base_view import return_to_base_view
 from utils.snowman_chat_matcher import SnowmanChatMatcher
 from utils.snowman_matcher import SnowmanMatcher
-from utils.return_to_base_view import return_to_base_view
-from utils.debug_screenshot import save_debug_screenshot
+from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 # Setup logger
 logger = logging.getLogger("snowman_flow")
@@ -38,18 +42,18 @@ MAX_ATTEMPTS = 15
 NAV_WAIT_SECONDS = 3.0  # Wait for map navigation after clicking chat
 
 
-def _save_debug_screenshot(frame, name: str) -> str:
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging. Returns path."""
     return save_debug_screenshot(frame, FLOW_NAME, name)
 
 
-def _log(msg: str):
+def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
     print(f"    [SNOWMAN] {msg}")
 
 
-def snowman_flow(adb):
+def snowman_flow(adb: ADBHelper) -> bool:
     """
     Handle full snowman prize claiming sequence.
 
@@ -90,8 +94,7 @@ def snowman_flow(adb):
 
     # Take debug screenshot after clicking
     frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "03_after_snowman_click")
+    _save_debug_screenshot(frame, "03_after_snowman_click")
 
     # Step 4: Return to base view
     _log("Step 4: Returning to base view...")
@@ -102,18 +105,12 @@ def snowman_flow(adb):
     return True
 
 
-def _wait_and_click_chat_message(adb, win) -> bool:
+def _wait_and_click_chat_message(adb: ADBHelper, win: WindowsScreenshotHelper) -> bool:
     """Wait for 'Snowman Party' chat message and click it."""
     chat_matcher = SnowmanChatMatcher()
 
     for attempt in range(MAX_ATTEMPTS):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            _log(f"  Chat check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
-            time.sleep(CHECK_INTERVAL)
-            continue
-
         is_present, score, found_pos = chat_matcher.is_present(frame)
 
         _save_debug_screenshot(frame, f"01_chat_check_{attempt+1}_score{score:.3f}")
@@ -121,7 +118,8 @@ def _wait_and_click_chat_message(adb, win) -> bool:
 
         if is_present and found_pos:
             _save_debug_screenshot(frame, f"01_chat_FOUND_score{score:.3f}")
-            click_x, click_y = chat_matcher.get_click_position(found_pos)
+            # found_pos is already the center of the message
+            click_x, click_y = found_pos
             _log(f"  Chat message FOUND at {found_pos}, clicking at ({click_x}, {click_y})")
             adb.tap(click_x, click_y)
             return True
@@ -132,18 +130,14 @@ def _wait_and_click_chat_message(adb, win) -> bool:
     return False
 
 
-def _wait_for_snowman(adb, win):
+def _wait_for_snowman(
+    adb: ADBHelper, win: WindowsScreenshotHelper
+) -> tuple[int, int] | None:
     """Wait for snowman to appear on screen after navigation."""
     snowman_matcher = SnowmanMatcher()
 
     for attempt in range(MAX_ATTEMPTS):
         frame = win.get_screenshot_cv2()
-
-        if frame is None:
-            _log(f"  Snowman check {attempt+1}/{MAX_ATTEMPTS}: Screenshot failed!")
-            time.sleep(CHECK_INTERVAL)
-            continue
-
         is_present, score, found_pos = snowman_matcher.is_present(frame)
 
         _save_debug_screenshot(frame, f"02_snowman_check_{attempt+1}_score{score:.3f}")
@@ -161,7 +155,7 @@ def _wait_for_snowman(adb, win):
 
 
 # Placeholder for future claim bubble detection
-def _wait_and_click_claim_bubble(adb, win) -> bool:
+def _wait_and_click_claim_bubble(adb: ADBHelper, win: WindowsScreenshotHelper) -> bool:
     """
     Wait for claim bubble above snowman and click it.
 

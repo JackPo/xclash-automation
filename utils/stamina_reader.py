@@ -29,7 +29,7 @@ class StaminaReader:
     REQUIRED_READINGS = 3
     MAX_VARIANCE = 10  # Max allowed difference between min/max
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.history: list[int] = []
 
     def add_reading(self, stamina: int | None) -> tuple[bool, int | None]:
@@ -70,7 +70,7 @@ class StaminaReader:
         confirmed = Counter(self.history).most_common(1)[0][0]
         return True, confirmed
 
-    def reset(self):
+    def reset(self) -> None:
         """Clear history after triggering action."""
         self.history = []
 

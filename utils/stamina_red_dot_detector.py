@@ -7,8 +7,13 @@ the stamina region itself.
 
 Uses red pixel counting in a specific region above and to the right of the stamina number.
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
+
 from config import STAMINA_REGION
 
 # Red pixel detection thresholds
@@ -21,7 +26,7 @@ RED_DOT_OFFSET_X = 101  # Pixels to the right of stamina region start
 RED_DOT_OFFSET_Y = 20   # Pixels down from stamina region start
 
 
-def has_stamina_red_dot(frame: np.ndarray, debug: bool = False) -> tuple[bool, int]:
+def has_stamina_red_dot(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, int]:
     """
     Check if stamina button has a red notification dot.
 

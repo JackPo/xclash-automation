@@ -4,8 +4,12 @@ Dog House Matcher - Configurable town view anchor detection.
 Used to verify the town view is in the correct position before harvesting resources.
 Coordinates loaded from config - override in config_local.py for your town layout.
 """
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from config import DOG_HOUSE_POSITION, DOG_HOUSE_SIZE, THRESHOLDS
 from utils.template_matcher import match_template
@@ -20,7 +24,7 @@ class DogHouseMatcher:
     TEMPLATE_NAME = "dog_house_4k.png"
     DEFAULT_THRESHOLD = THRESHOLDS.get('dog_house', 0.1)
 
-    def __init__(self, threshold: float = None, debug_dir=None):
+    def __init__(self, threshold: float | None = None, debug_dir: Any = None):
         """
         Initialize the dog house matcher.
 
@@ -30,7 +34,7 @@ class DogHouseMatcher:
         """
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_aligned(self, frame: np.ndarray) -> tuple[bool, float]:
+    def is_aligned(self, frame: npt.NDArray[Any]) -> tuple[bool, float]:
         """
         Check if the town view is properly aligned (dog house at expected position).
 
@@ -50,7 +54,7 @@ class DogHouseMatcher:
         return is_aligned, score
 
 
-def is_town_aligned(frame: np.ndarray) -> bool:
+def is_town_aligned(frame: npt.NDArray[Any]) -> bool:
     """
     Quick check if town view is properly aligned.
 

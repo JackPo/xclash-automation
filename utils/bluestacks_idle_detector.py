@@ -9,6 +9,8 @@ This means:
 - Clicking in BlueStacks DOES reset BlueStacks idle time
 """
 
+from __future__ import annotations
+
 import ctypes
 import time
 import win32gui
@@ -18,32 +20,35 @@ class LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_ulong)]
 
 
+_detector: BlueStacksIdleDetector | None = None
+
+
 class BlueStacksIdleDetector:
     """Track idle time specifically for BlueStacks window interactions."""
 
     BLUESTACKS_TITLE = "BlueStacks App Player"
     INPUT_FRESHNESS_THRESHOLD = 2.0  # seconds - input within this time = "active"
 
-    def __init__(self):
-        self._last_bluestacks_interaction = time.time()
-        self._bluestacks_hwnd = None
+    def __init__(self) -> None:
+        self._last_bluestacks_interaction: float = time.time()
+        self._bluestacks_hwnd: int | None = None
         self._find_bluestacks_window()
 
-    def _find_bluestacks_window(self):
+    def _find_bluestacks_window(self) -> None:
         """Find BlueStacks window handle."""
         self._bluestacks_hwnd = win32gui.FindWindow(None, self.BLUESTACKS_TITLE)
 
     def _get_foreground_hwnd(self) -> int:
         """Get handle of current foreground window."""
-        return ctypes.windll.user32.GetForegroundWindow()
+        return int(ctypes.windll.user32.GetForegroundWindow())
 
     def _get_system_idle_seconds(self) -> float:
         """Get system-wide idle time (same as existing idle_detector)."""
         lii = LASTINPUTINFO()
         lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
         ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
-        millis = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
-        return millis / 1000.0
+        millis: int = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+        return float(millis) / 1000.0
 
     def _is_bluestacks_foreground(self) -> bool:
         """Check if BlueStacks is the current foreground window."""
@@ -54,7 +59,7 @@ class BlueStacksIdleDetector:
         foreground = self._get_foreground_hwnd()
         return foreground == self._bluestacks_hwnd
 
-    def update(self):
+    def update(self) -> None:
         """
         Call every daemon iteration to track BlueStacks interactions.
 
@@ -76,10 +81,6 @@ class BlueStacksIdleDetector:
     def is_bluestacks_foreground(self) -> bool:
         """Public method to check if BlueStacks is currently in foreground."""
         return self._is_bluestacks_foreground()
-
-
-# Singleton instance
-_detector = None
 
 
 def get_bluestacks_idle_detector() -> BlueStacksIdleDetector:

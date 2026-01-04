@@ -5,9 +5,15 @@ Uses template_matcher for fixed-position detection at (2100, 1540).
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import numpy.typing as npt
 
 from utils.template_matcher import match_template
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 
 
 class HarvestBoxMatcher:
@@ -30,11 +36,11 @@ class HarvestBoxMatcher:
     TEMPLATE_NAME = "harvest_box_4k.png"
     DEFAULT_THRESHOLD = 0.1
 
-    def __init__(self, threshold: float = None, debug_dir=None) -> None:
+    def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         # debug_dir ignored - kept for backward compatibility
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
 
-    def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
         if frame is None or frame.size == 0:
             return False, 1.0
 
@@ -44,5 +50,5 @@ class HarvestBoxMatcher:
 
         return is_present, score
 
-    def click(self, adb_helper) -> None:
+    def click(self, adb_helper: ADBHelper) -> None:
         adb_helper.tap(self.CLICK_X, self.CLICK_Y)

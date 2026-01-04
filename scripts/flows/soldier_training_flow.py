@@ -11,16 +11,25 @@ Flow:
 Scroll mechanism: Hold-drag left on leftmost visible tile to scroll right.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import time
+from typing import TYPE_CHECKING, Any
+
 import cv2
 import numpy as np
+import numpy.typing as npt
 
 from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS, SOLDIER_TRAINING_DEFAULT_LEVEL
 from utils.return_to_base_view import return_to_base_view
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
+    from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 # Template paths for panel verification (absolute paths from project root)
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -38,7 +47,7 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 # BARRACKS_CLICK_OFFSETS imported from config
 
 
-def is_soldier_training_panel_open(frame) -> tuple[bool, float]:
+def is_soldier_training_panel_open(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
     Check if the Soldier Training panel is open by matching header template.
 
@@ -47,23 +56,23 @@ def is_soldier_training_panel_open(frame) -> tuple[bool, float]:
     """
     template = cv2.imread(SOLDIER_TRAINING_HEADER_TEMPLATE, cv2.IMREAD_GRAYSCALE)
     if template is None:
-        return False, 1.0
+        return False, 1.0  # type: ignore[unreachable]
 
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    frame_gray: npt.NDArray[Any] = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     x, y, w, h = HEADER_REGION
-    roi = frame_gray[y:y+h, x:x+w]
+    roi: npt.NDArray[Any] = frame_gray[y:y+h, x:x+w]
 
     # Resize template if needed
     if roi.shape != template.shape:
         template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
 
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    score = result[0, 0]
+    result: npt.NDArray[Any] = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
+    score: float = float(result[0, 0])
 
     return score < 0.02, score
 
 
-def is_train_button_visible(frame) -> tuple[bool, float]:
+def is_train_button_visible(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
     Check if the Train button is visible by matching template.
 
@@ -72,23 +81,25 @@ def is_train_button_visible(frame) -> tuple[bool, float]:
     """
     template = cv2.imread(TRAIN_BUTTON_TEMPLATE, cv2.IMREAD_GRAYSCALE)
     if template is None:
-        return False, 1.0
+        return False, 1.0  # type: ignore[unreachable]
 
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    frame_gray: npt.NDArray[Any] = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     x, y, w, h = TRAIN_BUTTON_REGION
-    roi = frame_gray[y:y+h, x:x+w]
+    roi: npt.NDArray[Any] = frame_gray[y:y+h, x:x+w]
 
     # Resize template if needed
     if roi.shape != template.shape:
         template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
 
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    score = result[0, 0]
+    result: npt.NDArray[Any] = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
+    score: float = float(result[0, 0])
 
     return score < 0.02, score
 
 
-def wait_for_panel_open(win, timeout=3.0, debug=False) -> bool:
+def wait_for_panel_open(
+    win: WindowsScreenshotHelper, timeout: float = 3.0, debug: bool = False
+) -> bool:
     """
     Poll for Soldier Training panel to open.
 
@@ -107,13 +118,15 @@ def wait_for_panel_open(win, timeout=3.0, debug=False) -> bool:
     return False
 
 
-def get_barrack_click_position(barrack_index):
+def get_barrack_click_position(barrack_index: int) -> tuple[int, int]:
     """Get the click position for a barrack's bubble."""
     x, y = BARRACKS_POSITIONS[barrack_index]
     return (x + BARRACKS_CLICK_OFFSETS[0], y + BARRACKS_CLICK_OFFSETS[1])
 
 
-def collect_ready_soldiers(adb, win, debug=False):
+def collect_ready_soldiers(
+    adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False
+) -> int:
     """
     Click all READY (yellow) barracks to collect soldiers.
 
@@ -142,7 +155,9 @@ def collect_ready_soldiers(adb, win, debug=False):
     return collected
 
 
-def scroll_soldier_panel_left(adb, rightmost_tile_center, debug=False):
+def scroll_soldier_panel_left(
+    adb: ADBHelper, rightmost_tile_center: tuple[int, int], debug: bool = False
+) -> None:
     """
     Scroll the soldier panel to the LEFT (to see lower level soldiers) by dragging right.
 
@@ -164,7 +179,9 @@ def scroll_soldier_panel_left(adb, rightmost_tile_center, debug=False):
     time.sleep(0.8)  # Wait for scroll animation to settle
 
 
-def scroll_soldier_panel_right(adb, leftmost_tile_center, debug=False):
+def scroll_soldier_panel_right(
+    adb: ADBHelper, leftmost_tile_center: tuple[int, int], debug: bool = False
+) -> None:
     """
     Scroll the soldier panel to the RIGHT (to see higher level soldiers) by dragging left.
 
@@ -186,7 +203,13 @@ def scroll_soldier_panel_right(adb, leftmost_tile_center, debug=False):
     time.sleep(0.8)  # Wait for scroll animation to settle
 
 
-def find_and_click_soldier_level(adb, win, target_level, max_scrolls=10, debug=False):
+def find_and_click_soldier_level(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    target_level: int,
+    max_scrolls: int = 10,
+    debug: bool = False,
+) -> bool:
     """
     Find and click a specific soldier level tile, scrolling if necessary.
 
@@ -276,7 +299,13 @@ def find_and_click_soldier_level(adb, win, target_level, max_scrolls=10, debug=F
     return False
 
 
-def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=False):
+def train_soldier_at_barrack(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    barrack_index: int,
+    target_level: int | None = None,
+    debug: bool = False,
+) -> bool:
     """
     Open training panel at a barrack and select a soldier level to train.
 
@@ -351,28 +380,6 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     if success:
         time.sleep(0.5)  # Wait for selection
 
-        # Check for resource replenishment
-        from utils.replenish_all_helper import ReplenishAllHelper
-        replenish_helper = ReplenishAllHelper()
-
-        frame = win.get_screenshot_cv2()
-        if replenish_helper.find_replenish_button(frame):
-            if debug:
-                print(f"  Replenish button detected - handling shortage...")
-
-            replenish_helper.handle_replenish_flow(adb, win, debug=debug)
-
-            # Re-click the soldier level after replenishing
-            if debug:
-                print(f"  Re-clicking Lv{target_level} after replenishment...")
-
-            success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
-            if not success:
-                if debug:
-                    print(f"  Failed to find Lv{target_level} after replenishment")
-                return False
-            time.sleep(0.5)
-
         # VERIFY: Train button should be visible now
         frame = win.get_screenshot_cv2()
         train_visible, train_score = is_train_button_visible(frame)
@@ -385,6 +392,28 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
                 print(f"  Clicking Train button at {TRAIN_BUTTON_CLICK}")
             adb.tap(*TRAIN_BUTTON_CLICK)
             time.sleep(0.5)
+
+            # Check for resource replenishment AFTER clicking Train
+            from utils.replenish_all_helper import ReplenishAllHelper
+            replenish_helper = ReplenishAllHelper()
+
+            if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
+                # After replenish, re-click soldier level and Train again
+                if debug:
+                    print(f"  Re-clicking Lv{target_level} after replenishment...")
+
+                success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
+                if not success:
+                    if debug:
+                        print(f"  Failed to find Lv{target_level} after replenishment")
+                    return False
+                time.sleep(0.5)
+
+                # Click Train button again
+                if debug:
+                    print(f"  Clicking Train button again at {TRAIN_BUTTON_CLICK}")
+                adb.tap(*TRAIN_BUTTON_CLICK)
+                time.sleep(0.5)
 
             if debug:
                 print(f"  Started training Lv{target_level} soldiers at barrack {barrack_index+1}")
@@ -400,7 +429,9 @@ def train_soldier_at_barrack(adb, win, barrack_index, target_level=None, debug=F
     return success
 
 
-def soldier_training_flow(adb, target_level=None, debug=False):
+def soldier_training_flow(
+    adb: ADBHelper, target_level: int | None = None, debug: bool = False
+) -> dict[str, int]:
     """
     Main soldier training flow - handles all barracks.
 

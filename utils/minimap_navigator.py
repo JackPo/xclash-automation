@@ -19,11 +19,14 @@ Usage:
 """
 
 from __future__ import annotations
+
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple, Optional
-import json
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 
 @dataclass
@@ -48,12 +51,12 @@ class CalibrationCleaner:
     from arrow delta calibration.
     """
 
-    def __init__(self, calibration_file: Path | str):
+    def __init__(self, calibration_file: Path | str) -> None:
         self.calibration_file = Path(calibration_file)
-        self.raw_data = None
-        self.clean_data: Dict[int, ZoomLevelData] = {}
+        self.raw_data: dict[str, Any] | None = None
+        self.clean_data: dict[int, ZoomLevelData] = {}
 
-    def load_calibration(self) -> Dict[int, ZoomLevelData]:
+    def load_calibration(self) -> dict[int, ZoomLevelData]:
         """Load and clean calibration data."""
         with open(self.calibration_file, 'r') as f:
             self.raw_data = json.load(f)
@@ -64,7 +67,7 @@ class CalibrationCleaner:
 
         return self.clean_data
 
-    def _clean_level_data(self, level_data: dict) -> ZoomLevelData:
+    def _clean_level_data(self, level_data: dict[str, Any]) -> ZoomLevelData:
         """Clean data for a single zoom level."""
         viewport = level_data['viewport']
         arrow_deltas = level_data['arrow_deltas']
@@ -80,7 +83,7 @@ class CalibrationCleaner:
         )
 
     @staticmethod
-    def _filter_outliers_iqr(values: list, threshold: float = 1.5) -> list:
+    def _filter_outliers_iqr(values: list[float], threshold: float = 1.5) -> list[float]:
         """
         Filter outliers using Interquartile Range (IQR) method.
 
@@ -117,7 +120,7 @@ class MinimapNavigator:
 
     MINIMAP_SIZE = 426  # Minimap is 426×426 pixels at 4K (square)
 
-    def __init__(self, calibration_file: Optional[Path | str] = None):
+    def __init__(self, calibration_file: Path | str | None = None) -> None:
         """
         Initialize navigator with calibration data.
 
@@ -143,9 +146,9 @@ class MinimapNavigator:
     def calculate_movement(
         self,
         zoom_level: int,
-        current_pos: Tuple[int, int],
-        target_pos: Tuple[int, int]
-    ) -> Dict[str, int]:
+        current_pos: tuple[int, int],
+        target_pos: tuple[int, int]
+    ) -> dict[str, int]:
         """
         Calculate arrow key movements needed to reach target position.
 
@@ -229,7 +232,7 @@ class MinimapNavigator:
 
         return closest_level
 
-    def _validate_position(self, x: int, y: int, name: str = "position"):
+    def _validate_position(self, x: int, y: int, name: str = "position") -> None:
         """Validate that position is within minimap bounds."""
         if not (0 <= x <= self.MINIMAP_SIZE):
             raise ValueError(f"{name} x={x} out of bounds (0-{self.MINIMAP_SIZE})")
@@ -246,7 +249,7 @@ class MinimapNavigator:
         """Get list of all available zoom levels."""
         return sorted(self.calibration_data.keys())
 
-    def detect_zoom_level(self, viewport_area: int, tolerance: int = 10) -> Optional[int]:
+    def detect_zoom_level(self, viewport_area: int, tolerance: int = 10) -> int | None:
         """
         Detect current zoom level from viewport area.
 
@@ -276,7 +279,7 @@ class MinimapNavigator:
         current_area: int,
         target_area: int,
         tolerance: int = 10
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """
         Calculate how many zoom in/out steps needed to reach target area.
 
@@ -329,7 +332,7 @@ class MinimapNavigator:
             }
 
 
-def main():
+def main() -> None:
     """Demo/test of minimap navigator."""
     nav = MinimapNavigator()
 

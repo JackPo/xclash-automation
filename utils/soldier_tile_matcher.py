@@ -9,9 +9,11 @@ Uses template_matcher for search-based detection.
 Templates: half_soldier_lv3_4k.png through half_soldier_lv8_4k.png (78x148 pixels)
 Uses HALF templates (top half only) to avoid overlapping detections.
 """
+from __future__ import annotations
 
 import numpy as np
-from typing import Optional, Dict, Tuple
+import numpy.typing as npt
+from typing import Any
 
 from utils.template_matcher import match_template
 
@@ -34,14 +36,14 @@ MATCH_THRESHOLD = 0.02
 class SoldierTileMatcher:
     """Detects soldier level tiles in the barracks training panel."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Template names for levels 3-8
         self.template_names = {
             level: f"half_soldier_lv{level}_4k.png"
             for level in range(3, 9)
         }
 
-    def find_visible_soldiers(self, frame: np.ndarray, debug_timing: bool = False) -> Dict[int, Dict]:
+    def find_visible_soldiers(self, frame: npt.NDArray[Any], debug_timing: bool = False) -> dict[int, dict[str, Any]]:
         """
         Find all visible soldier tiles in the barracks panel.
 
@@ -93,7 +95,7 @@ class SoldierTileMatcher:
 
         return results
 
-    def find_soldier_level(self, frame: np.ndarray, target_level: int) -> Optional[Dict]:
+    def find_soldier_level(self, frame: npt.NDArray[Any], target_level: int) -> dict[str, Any] | None:
         """
         Find a specific soldier level in the panel.
 
@@ -128,7 +130,7 @@ class SoldierTileMatcher:
 
         return None
 
-    def get_leftmost_visible(self, frame: np.ndarray) -> Optional[Tuple[int, Dict]]:
+    def get_leftmost_visible(self, frame: npt.NDArray[Any]) -> tuple[int, dict[str, Any]] | None:
         """
         Find the leftmost visible soldier tile.
 
@@ -143,7 +145,7 @@ class SoldierTileMatcher:
         leftmost_level = min(visible.keys(), key=lambda lvl: visible[lvl]['x'])
         return leftmost_level, visible[leftmost_level]
 
-    def get_rightmost_visible(self, frame: np.ndarray) -> Optional[Tuple[int, Dict]]:
+    def get_rightmost_visible(self, frame: npt.NDArray[Any]) -> tuple[int, dict[str, Any]] | None:
         """
         Find the rightmost visible soldier tile.
 
@@ -170,21 +172,21 @@ def get_matcher() -> SoldierTileMatcher:
     return _matcher
 
 
-def find_visible_soldiers(frame: np.ndarray, debug_timing: bool = False) -> Dict[int, Dict]:
+def find_visible_soldiers(frame: npt.NDArray[Any], debug_timing: bool = False) -> dict[int, dict[str, Any]]:
     """Convenience function to find all visible soldier tiles."""
     return get_matcher().find_visible_soldiers(frame, debug_timing=debug_timing)
 
 
-def find_soldier_level(frame: np.ndarray, target_level: int) -> Optional[Dict]:
+def find_soldier_level(frame: npt.NDArray[Any], target_level: int) -> dict[str, Any] | None:
     """Convenience function to find a specific soldier level."""
     return get_matcher().find_soldier_level(frame, target_level)
 
 
-def get_leftmost_visible(frame: np.ndarray) -> Optional[Tuple[int, Dict]]:
+def get_leftmost_visible(frame: npt.NDArray[Any]) -> tuple[int, dict[str, Any]] | None:
     """Convenience function to get leftmost visible soldier tile."""
     return get_matcher().get_leftmost_visible(frame)
 
 
-def get_rightmost_visible(frame: np.ndarray) -> Optional[Tuple[int, Dict]]:
+def get_rightmost_visible(frame: npt.NDArray[Any]) -> tuple[int, dict[str, Any]] | None:
     """Convenience function to get rightmost visible soldier tile."""
     return get_matcher().get_rightmost_visible(frame)

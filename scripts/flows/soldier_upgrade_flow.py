@@ -15,15 +15,21 @@ Uses:
 - promote_button_matcher: Verify and click Promote button
 - upgrade_button template: Click upgrade button in panel
 """
+from __future__ import annotations
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import time
-import cv2
+from typing import TYPE_CHECKING, Any
+
+import numpy.typing as npt
 
 from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS
+
+if TYPE_CHECKING:
+    from utils.adb_helper import ADBHelper
 from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level
 from utils.promote_button_matcher import is_promote_visible, get_promote_click
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -48,13 +54,15 @@ MATCH_THRESHOLD = 0.1
 DISMISS_TAP = (500, 500)
 
 
-def get_barrack_click_position(barrack_index):
+def get_barrack_click_position(barrack_index: int) -> tuple[int, int]:
     """Get the click position for a barrack's bubble."""
     x, y = BARRACKS_POSITIONS[barrack_index]
     return (x + BARRACKS_CLICK_OFFSETS[0], y + BARRACKS_CLICK_OFFSETS[1])
 
 
-def find_highest_unlocked_level(frame, adb, debug=False):
+def find_highest_unlocked_level(
+    frame: npt.NDArray[Any], adb: ADBHelper, debug: bool = False
+) -> tuple[int | None, dict[int, dict[str, Any]] | None]:
     """
     Find the highest unlocked soldier level using visible tile detection.
 
@@ -85,7 +93,13 @@ def find_highest_unlocked_level(frame, adb, debug=False):
     return highest, visible
 
 
-def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, scroll_and_select=False):
+def soldier_upgrade_flow(
+    adb: ADBHelper,
+    barrack_index: int = 0,
+    debug: bool = False,
+    detect_only: bool = False,
+    scroll_and_select: bool = False,
+) -> bool | int:
     """
     Upgrade soldiers at a specific barracks.
 
@@ -178,6 +192,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
 
         # Get the center position of the highest level tile for scrolling
         # Reuse visible_tiles from find_highest_unlocked_level (no second scan needed)
+        assert visible_tiles is not None  # guaranteed since highest is not None
         highest_tile_center = visible_tiles[highest]['center']
         scroll_start_x, scroll_start_y = highest_tile_center
 
@@ -253,30 +268,6 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
         adb.tap(*UPGRADE_BUTTON_CLICK)
         time.sleep(1.0)
 
-        # Step 5a: Check for resource replenishment
-        if debug:
-            print("Step 4a: Checking for resource replenishment...")
-
-        from utils.replenish_all_helper import ReplenishAllHelper
-        replenish_helper = ReplenishAllHelper()
-
-        frame = win.get_screenshot_cv2()
-        if replenish_helper.find_replenish_button(frame):
-            if debug:
-                print("  Replenish button detected - handling shortage...")
-
-            replenish_helper.handle_replenish_flow(adb, win, debug=debug)
-
-            # Re-click Upgrade button after replenishing
-            if debug:
-                print("  Re-clicking Upgrade button after replenishment...")
-
-            adb.tap(*UPGRADE_BUTTON_CLICK)
-            time.sleep(1.0)
-        else:
-            if debug:
-                print("  No replenish needed - continuing...")
-
         # Step 6: Verify Promote screen appeared
         if debug:
             print("Step 5: Verifying Promote screen...")
@@ -290,13 +281,36 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
                 print("  Attempting to click anyway...")
             save_debug_screenshot(frame, "upgrade", "WARN_no_promote_button")
 
+        # Step 6a: Drag slider to max on Promote screen
+        if debug:
+            print("Step 5a: Dragging slider to maximum on Promote screen...")
+
+        frame = win.get_screenshot_cv2()
+        if not drag_slider_to_max(adb, frame, debug=debug):
+            if debug:
+                print("  WARNING: Could not find slider on Promote screen, continuing anyway...")
+        time.sleep(0.5)
+
         # Step 7: Click Promote button
         if debug:
             print("Step 6: Clicking Promote button...")
 
         promote_click = get_promote_click()
         adb.tap(*promote_click)
-        time.sleep(0.5)
+
+        # Step 7a: Poll for Insufficient Resources and handle if needed
+        if debug:
+            print("Step 6a: Checking for Insufficient Resources...")
+
+        from utils.replenish_all_helper import ReplenishAllHelper
+        replenish_helper = ReplenishAllHelper()
+
+        if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
+            # Re-click Promote button after replenishing
+            if debug:
+                print("  Re-clicking Promote button after replenishment...")
+            adb.tap(*promote_click)
+            time.sleep(0.5)
 
         if debug:
             total_time = (time.time() - flow_start) * 1000
@@ -318,7 +332,7 @@ def soldier_upgrade_flow(adb, barrack_index=0, debug=False, detect_only=False, s
             return_to_base_view(adb, win, debug=debug)
 
 
-def upgrade_all_pending_barracks(adb, debug=False):
+def upgrade_all_pending_barracks(adb: ADBHelper, debug: bool = False) -> int:
     """
     Upgrade soldiers at all PENDING barracks.
 

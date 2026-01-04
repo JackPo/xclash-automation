@@ -10,10 +10,19 @@ Usage:
     # Or extract from specific region
     text = ocr.extract_text(image, region=(x, y, w, h))
 """
-import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
-from PIL import Image
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import numpy.typing as npt
+import torch
+from PIL import Image
+from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
+
+if TYPE_CHECKING:
+    from PIL.Image import Image as PILImage
 
 
 class QwenOCR:
@@ -21,24 +30,22 @@ class QwenOCR:
 
     MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
 
-    _instance = None
-    _model = None
-    _processor = None
+    _instance: QwenOCR | None = None
+    _model: Any = None
+    _processor: Any = None
 
-    def __new__(cls):
+    def __new__(cls) -> QwenOCR:
         """Singleton pattern - only load model once."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize model on GPU."""
         if QwenOCR._model is None:
             print(f"Loading {self.MODEL_ID} on GPU...")
 
-            # Use 4-bit quantization with float32 compute for GTX 1080 (Pascal)
-            # Pascal GPUs are crippled for float16, must use float32 for compute
-            quantization_config = BitsAndBytesConfig(
+            quantization_config = BitsAndBytesConfig(  # type: ignore[no-untyped-call]
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.float32,
                 bnb_4bit_use_double_quant=True,
@@ -51,66 +58,57 @@ class QwenOCR:
                 device_map="cuda",
             )
 
-            QwenOCR._processor = AutoProcessor.from_pretrained(self.MODEL_ID)
+            QwenOCR._processor = AutoProcessor.from_pretrained(self.MODEL_ID)  # type: ignore[no-untyped-call]
             print("Qwen2.5-VL loaded successfully!")
 
     @property
-    def model(self):
+    def model(self) -> Any:
         return QwenOCR._model
 
     @property
-    def processor(self):
+    def processor(self) -> Any:
         return QwenOCR._processor
 
-    def extract_text(self, image, region=None, prompt="Read the text in this image. Return only the text, nothing else."):
-        """
-        Extract text from image using Qwen2.5-VL.
-
-        Args:
-            image: numpy array (BGR or RGB) or PIL Image
-            region: Optional (x, y, w, h) to crop before OCR
-            prompt: Custom prompt for extraction
-
-        Returns:
-            str: Extracted text
-        """
-        # Convert to PIL if needed
+    def extract_text(
+        self,
+        image: npt.NDArray[Any] | PILImage,
+        region: tuple[int, int, int, int] | None = None,
+        prompt: str = "Read the text in this image. Return only the text, nothing else.",
+    ) -> str:
+        pil_image: PILImage
         if isinstance(image, np.ndarray):
-            # Assume BGR from OpenCV, convert to RGB
             if len(image.shape) == 3 and image.shape[2] == 3:
-                image = Image.fromarray(image[:, :, ::-1])
+                pil_image = Image.fromarray(image[:, :, ::-1])
             else:
-                image = Image.fromarray(image)
+                pil_image = Image.fromarray(image)
+        else:
+            pil_image = image
 
-        # Crop region if specified
         if region is not None:
             x, y, w, h = region
-            image = image.crop((x, y, x + w, y + h))
+            pil_image = pil_image.crop((x, y, x + w, y + h))
 
-        # Prepare message
-        messages = [
+        messages: list[dict[str, Any]] = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": image},
+                    {"type": "image", "image": pil_image},
                     {"type": "text", "text": prompt},
                 ],
             }
         ]
 
-        # Process
-        text = self.processor.apply_chat_template(
+        text: str = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
 
         inputs = self.processor(
             text=[text],
-            images=[image],
+            images=[pil_image],
             padding=True,
             return_tensors="pt",
         ).to("cuda")
 
-        # Generate
         with torch.no_grad():
             output_ids = self.model.generate(
                 **inputs,
@@ -118,89 +116,62 @@ class QwenOCR:
                 do_sample=False,
             )
 
-        # Decode - only get the new tokens
-        generated_ids = output_ids[:, inputs.input_ids.shape[1]:]
-        result = self.processor.batch_decode(
-            generated_ids, skip_special_tokens=True
-        )[0]
+        generated_ids = output_ids[:, inputs.input_ids.shape[1] :]
+        result: str = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
         return result.strip()
 
-    def extract_number(self, image, region=None):
-        """
-        Extract a number from image.
-
-        Args:
-            image: numpy array or PIL Image
-            region: Optional (x, y, w, h) to crop
-
-        Returns:
-            int or None if no number found
-        """
+    def extract_number(
+        self,
+        image: npt.NDArray[Any] | PILImage,
+        region: tuple[int, int, int, int] | None = None,
+    ) -> int | None:
         text = self.extract_text(
             image,
             region=region,
-            prompt="Read the number in this image. Return only the digits, nothing else."
+            prompt="Read the number in this image. Return only the digits, nothing else.",
         )
 
-        # Extract digits
-        digits = ''.join(c for c in text if c.isdigit())
+        digits = "".join(c for c in text if c.isdigit())
         return int(digits) if digits else None
 
-    def extract_json(self, image, region=None, prompt="Extract information from this image and return it as JSON."):
-        """
-        Extract structured JSON data from image using Qwen2.5-VL.
-
-        Args:
-            image: numpy array (BGR or RGB) or PIL Image
-            region: Optional (x, y, w, h) to crop before OCR
-            prompt: Custom prompt for extraction (should request JSON output)
-
-        Returns:
-            dict: Parsed JSON object, or None if parsing fails
-        """
-        import json
-
+    def extract_json(
+        self,
+        image: npt.NDArray[Any] | PILImage,
+        region: tuple[int, int, int, int] | None = None,
+        prompt: str = "Extract information from this image and return it as JSON.",
+    ) -> dict[str, Any] | None:
         text = self.extract_text(image, region=region, prompt=prompt)
 
-        # Try to extract JSON from response
-        # Qwen might wrap JSON in markdown code blocks
         text = text.strip()
 
-        # Remove markdown code fences if present
         if text.startswith("```json"):
-            text = text[7:]  # Remove ```json
+            text = text[7:]
         elif text.startswith("```"):
-            text = text[3:]  # Remove ```
+            text = text[3:]
 
         if text.endswith("```"):
-            text = text[:-3]  # Remove trailing ```
+            text = text[:-3]
 
         text = text.strip()
 
         try:
-            return json.loads(text)
+            result: dict[str, Any] = json.loads(text)
+            return result
         except json.JSONDecodeError as e:
             print(f"[QWEN-OCR] Failed to parse JSON: {e}")
             print(f"[QWEN-OCR] Raw response: {text!r}")
             return None
 
 
-# Convenience function
-_ocr_instance = None
+_ocr_instance: QwenOCR | None = None
 
-def qwen_ocr(image, region=None, prompt=None):
-    """
-    Quick OCR using Qwen2.5-VL.
 
-    Args:
-        image: numpy array or PIL Image
-        region: Optional (x, y, w, h)
-        prompt: Optional custom prompt
-
-    Returns:
-        str: Extracted text
-    """
+def qwen_ocr(
+    image: npt.NDArray[Any] | PILImage,
+    region: tuple[int, int, int, int] | None = None,
+    prompt: str | None = None,
+) -> str:
     global _ocr_instance
     if _ocr_instance is None:
         _ocr_instance = QwenOCR()
@@ -210,17 +181,10 @@ def qwen_ocr(image, region=None, prompt=None):
     return _ocr_instance.extract_text(image, region)
 
 
-def qwen_extract_number(image, region=None):
-    """
-    Quick number extraction using Qwen2.5-VL.
-
-    Args:
-        image: numpy array or PIL Image
-        region: Optional (x, y, w, h)
-
-    Returns:
-        int or None
-    """
+def qwen_extract_number(
+    image: npt.NDArray[Any] | PILImage,
+    region: tuple[int, int, int, int] | None = None,
+) -> int | None:
     global _ocr_instance
     if _ocr_instance is None:
         _ocr_instance = QwenOCR()
@@ -230,6 +194,7 @@ def qwen_extract_number(image, region=None):
 
 if __name__ == "__main__":
     import sys
+
     import cv2
 
     if len(sys.argv) < 2:
@@ -237,23 +202,23 @@ if __name__ == "__main__":
         sys.exit(1)
 
     image_path = sys.argv[1]
-    image = cv2.imread(image_path)
+    img: npt.NDArray[Any] | None = cv2.imread(image_path)
 
-    if image is None:
+    if img is None:
         print(f"Failed to load: {image_path}")
         sys.exit(1)
 
-    region = None
+    rgn: tuple[int, int, int, int] | None = None
     if len(sys.argv) >= 6:
-        region = (int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
-        print(f"Region: {region}")
+        rgn = (int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
+        print(f"Region: {rgn}")
 
     ocr = QwenOCR()
 
     print("\n--- Text extraction ---")
-    text = ocr.extract_text(image, region)
-    print(f"Text: {text}")
+    txt = ocr.extract_text(img, rgn)
+    print(f"Text: {txt}")
 
     print("\n--- Number extraction ---")
-    number = ocr.extract_number(image, region)
+    number = ocr.extract_number(img, rgn)
     print(f"Number: {number}")

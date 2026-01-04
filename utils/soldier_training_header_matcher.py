@@ -4,8 +4,11 @@ Soldier Training Header Matcher - Verifies soldier training panel is open.
 Uses template_matcher for search-based detection.
 Template: soldier_training_header_4k.png
 """
+from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
+from typing import Any
 
 from utils.template_matcher import match_template
 
@@ -18,10 +21,10 @@ class SoldierTrainingHeaderMatcher:
 
     TEMPLATE_NAME = "soldier_training_header_4k.png"
 
-    def __init__(self, threshold: float = None):
+    def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else MATCH_THRESHOLD
 
-    def is_panel_open(self, frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
+    def is_panel_open(self, frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
         """
         Check if soldier training panel is open.
 
@@ -59,6 +62,6 @@ def get_matcher() -> SoldierTrainingHeaderMatcher:
     return _matcher
 
 
-def is_panel_open(frame: np.ndarray, debug: bool = False) -> tuple[bool, float]:
+def is_panel_open(frame: npt.NDArray[Any], debug: bool = False) -> tuple[bool, float]:
     """Convenience function to check if panel is open."""
     return get_matcher().is_panel_open(frame, debug=debug)
