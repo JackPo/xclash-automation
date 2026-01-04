@@ -45,22 +45,24 @@ class BackButtonMatcher:
         # SQDIFF uses 0.1, CCORR uses 0.90 by default
         self.threshold = threshold
 
-    def find(self, frame: np.ndarray) -> tuple[bool, float, tuple[int, int] | None]:
+    def find(self, frame: np.ndarray) -> tuple[bool, float, tuple[int, int] | None, str | None]:
         """
         Search for back button in frame.
 
         Returns:
-            (found: bool, score: float, click_pos: tuple or None)
+            (found: bool, score: float, click_pos: tuple or None, template_name: str or None)
             - found: True if any template matched
             - score: Raw score of best match (interpretation depends on method)
             - click_pos: Center of detected button, or None
+            - template_name: Which template matched, or None
         """
         if frame is None or frame.size == 0:
-            return False, 1.0, None
+            return False, 1.0, None, None
 
         best_normalized = -1.0  # Higher is better in normalized space
         best_raw_score = 1.0
         best_pos = None
+        best_template = None
 
         for template_name in self.TEMPLATES:
             found, raw_score, location = match_template(
@@ -83,15 +85,52 @@ class BackButtonMatcher:
                 if normalized > best_normalized:
                     best_normalized = normalized
                     best_raw_score = raw_score
+                    best_template = template_name
                     if location:
                         best_pos = location
 
         found = best_normalized >= 0
-        return found, best_raw_score, best_pos
+        return found, best_raw_score, best_pos, best_template
+
+    def is_template_present(self, frame: np.ndarray, template_name: str,
+                            near_pos: tuple[int, int] = None,
+                            tolerance: int = 30) -> bool:
+        """
+        Check if a SPECIFIC template is present, optionally near a position.
+
+        Args:
+            frame: Screenshot
+            template_name: Specific template to check (e.g., "back_button_union_4k.png")
+            near_pos: If provided, only return True if found within tolerance of this position
+            tolerance: Max pixel distance from near_pos (default 30)
+
+        Returns:
+            True if template is present (and near position if specified)
+        """
+        if frame is None or frame.size == 0:
+            return False
+
+        found, score, location = match_template(
+            frame,
+            template_name,
+            search_region=self.SEARCH_REGION,
+            threshold=self.threshold
+        )
+
+        if not found:
+            return False
+
+        if near_pos and location:
+            dx = abs(location[0] - near_pos[0])
+            dy = abs(location[1] - near_pos[1])
+            if dx > tolerance or dy > tolerance:
+                return False  # Found but at different position
+
+        return True
 
     def is_present(self, frame: np.ndarray, save_debug: bool = False) -> tuple[bool, float]:
         """Legacy API - returns (found, score) without position."""
-        found, score, _ = self.find(frame)
+        found, score, _, _ = self.find(frame)
         return found, score
 
     def click(self, adb_helper, detected_pos: tuple = None) -> None:

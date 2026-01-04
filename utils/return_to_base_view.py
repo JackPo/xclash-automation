@@ -255,7 +255,6 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Phase 1: Click back button while visible
         back_clicks = 0
         while back_clicks < MAX_BACK_CLICKS:
-            time.sleep(0.5)  # Give UI time to settle before checking
             frame = win.get_screenshot_cv2()
             if frame is None:
                 if debug:
@@ -271,12 +270,34 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 return True
 
             # Check for back button using search
-            back_present, back_score, back_pos = back_matcher.find(frame)
-            if back_present and back_pos:
+            back_present, back_score, back_pos, matched_template = back_matcher.find(frame)
+            if back_present and back_pos and matched_template:
                 if debug:
-                    print(f"    [RETURN] Back button found at {back_pos} (score={back_score:.3f}), clicking...")
+                    print(f"    [RETURN] Back button found at {back_pos} (score={back_score:.3f}, template={matched_template}), clicking...")
                 adb.tap(*back_pos)
                 back_clicks += 1
+
+                # Poll for THAT SPECIFIC template at THAT position to be gone
+                for poll in range(6):  # Up to 1.5s (6 x 0.25s)
+                    time.sleep(0.25)
+                    poll_frame = win.get_screenshot_cv2()
+                    if poll_frame is None:
+                        continue
+
+                    # Check if view changed to TOWN/WORLD
+                    poll_state, poll_score = detect_view(poll_frame)
+                    if poll_state in (ViewState.TOWN, ViewState.WORLD):
+                        _consecutive_restarts = 0
+                        if debug:
+                            print(f"    [RETURN] Reached {poll_state.value} view (score={poll_score:.3f})")
+                        return True
+
+                    # Check if THAT SPECIFIC template at THAT position is gone
+                    if not back_matcher.is_template_present(poll_frame, matched_template,
+                                                            near_pos=back_pos, tolerance=30):
+                        if debug:
+                            print(f"    [RETURN] Back button ({matched_template}) dismissed after {(poll+1)*0.25:.2f}s")
+                        break  # Original button dismissed, continue to check for more
             else:
                 if debug:
                     print(f"    [RETURN] No back button visible (score={back_score:.3f})")
@@ -320,7 +341,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Detect other states
             troop_selected, troop_score = _detect_troop_selected(frame)
             resource_bar, resource_score = _detect_resource_bar(frame)
-            back_present, back_score, back_pos = back_matcher.find(frame)
+            back_present, back_score, back_pos, _ = back_matcher.find(frame)
 
             if debug:
                 # Save debug screenshot with state info
@@ -427,7 +448,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     continue  # Retry from top
 
                 # Neither grass nor ground found - search for back button again
-                back_found, back_score2, back_pos2 = back_matcher.find(frame)
+                back_found, back_score2, back_pos2, _ = back_matcher.find(frame)
                 if back_found and back_pos2:
                     if debug:
                         print(f"    [RETURN] Found back button at {back_pos2} (score={back_score2:.3f})")
@@ -480,7 +501,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             cv2.imwrite(str(debug_path), frame)
             # Also detect view state for the marker
             view_state, view_score = detect_view(frame)
-            back_present, back_score, _ = back_matcher.find(frame)
+            back_present, back_score, _, _ = back_matcher.find(frame)
             print(f"    [RETURN] *** RESTART #{_consecutive_restarts} - will keep trying ***")
             print(f"    [RETURN] Screenshot saved: {debug_path.name}")
             print(f"    [RETURN] View state at restart: {view_state.value} (score={view_score:.3f})")

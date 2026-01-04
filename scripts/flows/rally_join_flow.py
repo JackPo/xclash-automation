@@ -479,18 +479,12 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
     """
     Dismiss floating panels and return to base view.
 
-    In WORLD view, floating panels (like Team Up) have no back button.
-    We dismiss them by clicking on grass outside the panel.
-    Then do normal back button clicking for any remaining dialogs.
-
     Args:
         adb: ADB helper
         win: Screenshot helper
-        back_button_matcher: Back button matcher
+        back_button_matcher: Back button matcher (unused, kept for API compatibility)
     """
-    from utils.safe_grass_matcher import find_safe_grass
-
-    # FIRST: Check for daily limit dialog that may have appeared late
+    # Check for daily limit dialog that may have appeared late
     # This dialog can appear with server delay AFTER the main check in Step 6b
     daily_limit_template = cv2.imread(str(DAILY_LIMIT_DIALOG_PATH))
     if daily_limit_template is not None:
@@ -507,28 +501,8 @@ def _cleanup_and_exit(adb: ADBHelper, win: WindowsScreenshotHelper, back_button_
                 adb.tap(*CANCEL_CLICK)
             time.sleep(0.5)
 
-    # Try clicking on grass to dismiss floating panels (WORLD view)
-    frame = win.get_screenshot_cv2()
-    grass_pos = find_safe_grass(frame, debug=False)
-    if grass_pos:
-        print(f"[RALLY-JOIN]   Clicking grass at {grass_pos} to dismiss floating panel")
-        adb.tap(*grass_pos)
-        time.sleep(0.5)
-
-    # Click back button up to 3 times (VERIFIED via matcher)
-    for attempt in range(3):
-        time.sleep(0.3)
-        frame = win.get_screenshot_cv2()
-        back_present, score = back_button_matcher.is_present(frame)
-
-        if back_present:
-            print(f"[RALLY-JOIN]   Clicking back button (attempt {attempt+1}, score={score:.4f})")
-            back_button_matcher.click(adb)
-            time.sleep(0.5)
-        else:
-            break
-
-    # Return to base view (robust recovery)
+    # Use centralized return_to_base_view for all back button handling
+    print("[RALLY-JOIN]   Returning to base view...")
     return_to_base_view(adb, win, debug=False)
 
 

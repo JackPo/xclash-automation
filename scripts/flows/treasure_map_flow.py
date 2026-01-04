@@ -124,16 +124,11 @@ def treasure_map_flow(adb):
         _log(f"FAILED at Step 5 (collect treasure) after {time.time() - flow_start:.1f}s")
         return False
 
-    # Step 6: Click back button to exit
+    # Step 6: Return to base view
     time.sleep(1.0)
-    _log("Step 6: Clicking back button to exit...")
-    _click_back_until_gone(adb)
-
-    # Step 7: Return to town and verify
-    time.sleep(1.0)
-    _log("Step 7: Returning to town...")
-    if not _return_to_town(adb):
-        _log("Warning: Could not verify return to town")
+    _log("Step 6: Returning to base view...")
+    from utils.return_to_base_view import return_to_base_view
+    return_to_base_view(adb, win, debug=False)
 
     elapsed = time.time() - flow_start
     _log(f"=== TREASURE FLOW SUCCESS === (took {elapsed:.1f}s)")
