@@ -205,12 +205,28 @@ def _start_app(adb: ADBHelper, debug: bool = False) -> None:
     dismiss_popups(adb, win, debug=debug)
 
 
+def _save_rtb_debug(frame: npt.NDArray[Any] | None, step: str, extra: str = "") -> None:
+    """Save debug screenshot for return_to_base diagnostics."""
+    if frame is None:
+        return
+    try:
+        from utils.debug_screenshot import save_debug_screenshot
+        label = f"{step}_{extra}" if extra else step
+        save_debug_screenshot(frame, "return_to_base", label)
+    except Exception:
+        pass  # Never fail the main flow due to screenshot issues
+
+
 def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None,
                         debug: bool = False) -> bool:
     global _consecutive_restarts  # Track restart count across recursive calls
 
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     back_matcher = BackButtonMatcher()
+
+    # ALWAYS capture entry screenshot for debugging
+    entry_frame = win.get_screenshot_cv2()
+    _save_rtb_debug(entry_frame, "STEP0_ENTRY")
 
     # STEP 1: Ensure app is running and setup is correct
     if not _is_xclash_in_foreground(adb):
@@ -232,12 +248,16 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     from utils.shaded_button_helper import is_button_shaded, dismiss_popups, BUTTON_CLICK
 
     frame = win.get_screenshot_cv2()
+    _save_rtb_debug(frame, "STEP1_after_foreground_check")
     if frame is not None:
         shaded, shaded_score = is_button_shaded(frame)
         if shaded:
+            _save_rtb_debug(frame, "STEP1_shaded_detected", f"score{shaded_score:.3f}")
             if debug:
                 print(f"    [RETURN] Shaded button detected (score={shaded_score:.4f}) - dismissing popups...")
             dismiss_popups(adb, win, max_clicks=10, debug=debug)
+            frame = win.get_screenshot_cv2()
+            _save_rtb_debug(frame, "STEP1_after_dismiss_popups")
 
     # STEP 2: Try to get to TOWN/WORLD (5 attempts)
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
@@ -253,10 +273,13 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     print("    [RETURN] Failed to get screenshot")
                 break
 
+            _save_rtb_debug(frame, f"STEP2_attempt{attempt+1}_backclick{back_clicks}")
+
             # Check if we're already in a good state
             view_state, view_score = detect_view(frame)
             if view_state in (ViewState.TOWN, ViewState.WORLD):
                 _consecutive_restarts = 0  # Reset on success
+                _save_rtb_debug(frame, f"SUCCESS_view_{view_state.value}", f"score{view_score:.3f}")
                 if debug:
                     print(f"    [RETURN] Reached {view_state.value} view (score={view_score:.3f})")
                 return True
@@ -264,6 +287,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Check for back button using search
             back_present, back_score, back_pos, matched_template = back_matcher.find(frame)
             if back_present and back_pos and matched_template:
+                _save_rtb_debug(frame, f"STEP2_back_found_a{attempt+1}", f"pos{back_pos[0]}_{back_pos[1]}")
                 if debug:
                     print(f"    [RETURN] Back button found at {back_pos} (score={back_score:.3f}, template={matched_template}), clicking...")
                 adb.tap(*back_pos)
@@ -280,6 +304,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     poll_state, poll_score = detect_view(poll_frame)
                     if poll_state in (ViewState.TOWN, ViewState.WORLD):
                         _consecutive_restarts = 0
+                        _save_rtb_debug(poll_frame, f"SUCCESS_after_back_{poll_state.value}")
                         if debug:
                             print(f"    [RETURN] Reached {poll_state.value} view (score={poll_score:.3f})")
                         return True
@@ -287,10 +312,12 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     # Check if THAT SPECIFIC template at THAT position is gone
                     if not back_matcher.is_template_present(poll_frame, matched_template,
                                                             near_pos=back_pos, tolerance=30):
+                        _save_rtb_debug(poll_frame, f"STEP2_back_dismissed_a{attempt+1}")
                         if debug:
                             print(f"    [RETURN] Back button ({matched_template}) dismissed after {(poll+1)*0.25:.2f}s")
                         break  # Original button dismissed, continue to check for more
             else:
+                _save_rtb_debug(frame, f"STEP2_no_back_a{attempt+1}", f"score{back_score:.3f}")
                 if debug:
                     print(f"    [RETURN] No back button visible (score={back_score:.3f})")
                 break
@@ -298,16 +325,19 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Phase 2: Check view state again
         time.sleep(0.5)  # Give UI time to settle
         frame = win.get_screenshot_cv2()
+        _save_rtb_debug(frame, f"STEP2_phase2_a{attempt+1}")
         if frame is not None:
             view_state, view_score = detect_view(frame)
             if view_state in (ViewState.TOWN, ViewState.WORLD):
                 _consecutive_restarts = 0  # Reset on success
+                _save_rtb_debug(frame, f"SUCCESS_phase2_{view_state.value}")
                 if debug:
                     print(f"    [RETURN] Reached {view_state.value} view")
                 return True
 
         # Phase 3: Smart state detection - figure out what state we're in
         frame = win.get_screenshot_cv2()
+        _save_rtb_debug(frame, f"STEP3_smart_detect_a{attempt+1}")
         if frame is not None:
             # If we can match ground/grass with high confidence, we KNOW which view we're in
             # Ground = TOWN, Grass = WORLD - just return True, we're already there!
@@ -318,6 +348,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             ground_pos = find_safe_ground(frame, debug=debug)
             if ground_pos:
                 _consecutive_restarts = 0
+                _save_rtb_debug(frame, "SUCCESS_ground_TOWN")
                 if debug:
                     print(f"    [RETURN] SUCCESS: GROUND detected = we're in TOWN view")
                 return True
@@ -326,6 +357,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             grass_pos = find_safe_grass(frame, debug=debug)
             if grass_pos:
                 _consecutive_restarts = 0
+                _save_rtb_debug(frame, "SUCCESS_grass_WORLD")
                 if debug:
                     print(f"    [RETURN] SUCCESS: GRASS detected = we're in WORLD view")
                 return True
@@ -353,6 +385,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Decision logic based on detected state
             if troop_selected:
                 # Troop is selected - click map to deselect
+                _save_rtb_debug(frame, f"STEP3_troop_selected_a{attempt+1}")
                 if debug:
                     print("    [RETURN] TROOP SELECTED state detected - clicking map to deselect...")
                 adb.tap(*MAP_DESELECT_CLICK)
@@ -360,10 +393,12 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
                 # Check if we're now in TOWN/WORLD
                 frame = win.get_screenshot_cv2()
+                _save_rtb_debug(frame, f"STEP3_after_troop_deselect_a{attempt+1}")
                 if frame is not None:
                     view_state, view_score = detect_view(frame)
                     if view_state in (ViewState.TOWN, ViewState.WORLD):
                         _consecutive_restarts = 0
+                        _save_rtb_debug(frame, f"SUCCESS_troop_deselect_{view_state.value}")
                         if debug:
                             print(f"    [RETURN] SUCCESS: Reached {view_state.value} after troop deselect")
                         return True
@@ -371,16 +406,19 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
             elif resource_bar and not back_present:
                 # Resource bar visible but no World button - might be popup or panned view
+                _save_rtb_debug(frame, f"STEP3_resource_bar_a{attempt+1}")
                 if debug:
                     print("    [RETURN] RESOURCE BAR visible but World button hidden - trying center click...")
                 adb.tap(*CENTER_SCREEN_CLICK)
                 time.sleep(1.5)
 
                 frame = win.get_screenshot_cv2()
+                _save_rtb_debug(frame, f"STEP3_after_center_click_a{attempt+1}")
                 if frame is not None:
                     view_state, view_score = detect_view(frame)
                     if view_state in (ViewState.TOWN, ViewState.WORLD):
                         _consecutive_restarts = 0
+                        _save_rtb_debug(frame, f"SUCCESS_center_click_{view_state.value}")
                         if debug:
                             print(f"    [RETURN] SUCCESS: Reached {view_state.value} after center click")
                         return True
@@ -388,6 +426,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
             elif back_present and back_pos:
                 # Back button visible - we're in some menu/dialog
+                _save_rtb_debug(frame, f"STEP3_back_in_menu_a{attempt+1}")
                 if debug:
                     print(f"    [RETURN] BACK BUTTON at {back_pos} - clicking to exit dialog...")
                 adb.tap(*back_pos)
@@ -400,22 +439,26 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 from utils.safe_grass_matcher import find_safe_grass
                 from utils.safe_ground_matcher import find_safe_ground
 
+                _save_rtb_debug(frame, f"STEP3_unknown_state_a{attempt+1}")
                 if debug:
                     print(f"    [RETURN] UNKNOWN state - checking grass/ground...")
 
                 # Try grass first (WORLD indicator)
                 grass_pos = find_safe_grass(frame, debug=debug)
                 if grass_pos:
+                    _save_rtb_debug(frame, f"STEP3_grass_found_a{attempt+1}", f"pos{grass_pos[0]}_{grass_pos[1]}")
                     if debug:
                         print(f"    [RETURN] Grass detected (WORLD view) - clicking at {grass_pos}")
                     adb.tap(*grass_pos)
                     time.sleep(1.5)
                     # Check if we're now in TOWN/WORLD
                     frame = win.get_screenshot_cv2()
+                    _save_rtb_debug(frame, f"STEP3_after_grass_click_a{attempt+1}")
                     if frame is not None:
                         view_state, view_score = detect_view(frame)
                         if view_state in (ViewState.TOWN, ViewState.WORLD):
                             _consecutive_restarts = 0
+                            _save_rtb_debug(frame, f"SUCCESS_grass_click_{view_state.value}")
                             if debug:
                                 print(f"    [RETURN] SUCCESS: Reached {view_state.value} after grass click")
                             return True
@@ -424,24 +467,29 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 # Try ground (TOWN indicator)
                 ground_pos = find_safe_ground(frame, debug=debug)
                 if ground_pos:
+                    _save_rtb_debug(frame, f"STEP3_ground_found_a{attempt+1}", f"pos{ground_pos[0]}_{ground_pos[1]}")
                     if debug:
                         print(f"    [RETURN] Ground detected (TOWN view) - clicking at {ground_pos}")
                     adb.tap(*ground_pos)
                     time.sleep(1.5)
                     # Check if we're now in TOWN/WORLD
                     frame = win.get_screenshot_cv2()
+                    _save_rtb_debug(frame, f"STEP3_after_ground_click_a{attempt+1}")
                     if frame is not None:
                         view_state, view_score = detect_view(frame)
                         if view_state in (ViewState.TOWN, ViewState.WORLD):
                             _consecutive_restarts = 0
+                            _save_rtb_debug(frame, f"SUCCESS_ground_click_{view_state.value}")
                             if debug:
                                 print(f"    [RETURN] SUCCESS: Reached {view_state.value} after ground click")
                             return True
                     continue  # Retry from top
 
                 # Neither grass nor ground found - search for back button again
+                _save_rtb_debug(frame, f"STEP3_no_grass_ground_a{attempt+1}")
                 back_found, back_score2, back_pos2, _ = back_matcher.find(frame)
                 if back_found and back_pos2:
+                    _save_rtb_debug(frame, f"STEP3_fallback_back_a{attempt+1}", f"pos{back_pos2[0]}_{back_pos2[1]}")
                     if debug:
                         print(f"    [RETURN] Found back button at {back_pos2} (score={back_score2:.3f})")
                     adb.tap(*back_pos2)
@@ -453,29 +501,35 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
                 # Check again
                 frame = win.get_screenshot_cv2()
+                _save_rtb_debug(frame, f"STEP3_after_fallback_a{attempt+1}")
                 if frame is not None:
                     view_state, view_score = detect_view(frame)
                     if view_state in (ViewState.TOWN, ViewState.WORLD):
                         _consecutive_restarts = 0
+                        _save_rtb_debug(frame, f"SUCCESS_fallback_{view_state.value}")
                         if debug:
                             print(f"    [RETURN] SUCCESS: Reached {view_state.value} after back click")
                         return True
 
                 # Try center click for "Tap to Close" popups
+                _save_rtb_debug(frame, f"STEP3_trying_center_a{attempt+1}")
                 if debug:
                     print("    [RETURN] Trying center screen click...")
                 adb.tap(*CENTER_SCREEN_CLICK)
                 time.sleep(1.5)
 
                 frame = win.get_screenshot_cv2()
+                _save_rtb_debug(frame, f"STEP3_after_center_a{attempt+1}")
                 if frame is not None:
                     view_state, view_score = detect_view(frame)
                     if view_state in (ViewState.TOWN, ViewState.WORLD):
                         _consecutive_restarts = 0
+                        _save_rtb_debug(frame, f"SUCCESS_center_{view_state.value}")
                         if debug:
                             print(f"    [RETURN] SUCCESS: Reached {view_state.value} after center click")
                         return True
 
+        _save_rtb_debug(frame, f"STEP2_still_stuck_a{attempt+1}")
         if debug:
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
