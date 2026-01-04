@@ -33,7 +33,7 @@ DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
 
 # Dashboard web server
 DASHBOARD_ENABLED = True           # Set to False to disable web dashboard
-DASHBOARD_PORT = None              # None = auto-detect free port, or set specific port
+DASHBOARD_PORT = 8080              # Dashboard runs at http://localhost:8080
 
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
