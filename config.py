@@ -156,6 +156,7 @@ EXPECTED_RESOLUTION = "3840x2160"  # Expected BlueStacks resolution for template
 
 # Screen regions (4K resolution: 3840x2160)
 STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
+STAMINA_REGEN_BUFFER = 15  # Subtract from regen estimate to ensure last rally completes
 
 # =============================================================================
 # TOWN LAYOUT COORDINATES (4K resolution)

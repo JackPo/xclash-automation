@@ -275,16 +275,19 @@ def print_rally_status(data: dict):
 
     # Points progress
     if data.get("is_beast_training"):
-        current = data.get("current_points", "?")
+        current = data.get("current_points")
         target = data.get("chest3_target", 30000)
-        remaining = data.get("points_remaining", "?")
-        rallies = data.get("rallies_needed", "?")
+        remaining = data.get("points_remaining")
+        rallies = data.get("rallies_needed")
         mode = data.get("zombie_mode", "elite")
         pts_per = data.get("points_per_rally", "?")
         sta_per = data.get("stamina_per_rally", "?")
 
-        print(f"Points: {current:,} / {target:,} ({remaining:,} remaining)")
-        print(f"Rallies needed: {rallies} ({mode} @ {pts_per} pts, {sta_per} stamina each)")
+        if current is not None:
+            print(f"Points: {current:,} / {target:,} ({remaining:,} remaining)")
+            print(f"Rallies needed: {rallies} ({mode} @ {pts_per} pts, {sta_per} stamina each)")
+        else:
+            print("Points: Could not read from game UI")
         print()
 
     # Stamina situation
@@ -338,7 +341,7 @@ def print_rally_status(data: dict):
                 parts.append(f'"use_50_count": {strategy["use_50_count"]}')
             if parts:
                 print(f'  python daemon_cli.py use_stamina {{{", ".join(parts)}}}')
-                print(f"  → Gains {strategy['stamina_gained']} stamina")
+                print(f"  => Gains {strategy['stamina_gained']} stamina")
     elif needed and current_sta >= needed:
         print("STRATEGY: No items needed - current stamina covers all rallies")
 

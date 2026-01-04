@@ -463,9 +463,11 @@ class DaemonWebSocketServer:
         if stamina_needed is not None:
             stamina_shortfall = max(0, stamina_needed - total_stamina_available)
 
-        # Calculate stamina regeneration (1 per 5 mins, leave 5 min buffer)
-        effective_mins = max(0, event_remaining_mins - 5)
-        stamina_regen = effective_mins // 5
+        # Calculate stamina regeneration (1 per 5 mins)
+        # Use stamina buffer (not time buffer) to ensure last rally can complete
+        from config import STAMINA_REGEN_BUFFER
+        stamina_regen_raw = event_remaining_mins // 5
+        stamina_regen = max(0, stamina_regen_raw - STAMINA_REGEN_BUFFER)
 
         # Calculate optimal stamina usage strategy
         optimal_strategy = None
