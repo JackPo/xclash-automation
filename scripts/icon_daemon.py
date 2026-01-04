@@ -143,6 +143,9 @@ from config import (
     # WebSocket API server
     DAEMON_SERVER_PORT,
     DAEMON_SERVER_ENABLED,
+    # Dashboard web server
+    DASHBOARD_ENABLED,
+    DASHBOARD_PORT,
 )
 
 from dataclasses import dataclass
@@ -622,6 +625,19 @@ class IconDaemon:
                 self.logger.error(f"STARTUP: WebSocket server failed to start: {e}")
         else:
             self.logger.info("STARTUP: WebSocket API server disabled by config")
+
+        # Start Dashboard web server
+        if DASHBOARD_ENABLED:
+            try:
+                from dashboard.server import start_dashboard_server
+                dashboard_port = start_dashboard_server(daemon_instance=self, port=DASHBOARD_PORT)
+                self.logger.info(f"STARTUP: Dashboard running at http://localhost:{dashboard_port}")
+            except ImportError as e:
+                self.logger.warning(f"STARTUP: Dashboard disabled (missing dependencies): {e}")
+            except Exception as e:
+                self.logger.error(f"STARTUP: Dashboard failed to start: {e}")
+        else:
+            self.logger.info("STARTUP: Dashboard disabled by config")
 
         self.logger.info("STARTUP: Ready")
 

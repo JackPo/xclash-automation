@@ -31,6 +31,10 @@ IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
 DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
 
+# Dashboard web server
+DASHBOARD_ENABLED = True           # Set to False to disable web dashboard
+DASHBOARD_PORT = None              # None = auto-detect free port, or set specific port
+
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
