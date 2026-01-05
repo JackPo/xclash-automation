@@ -133,6 +133,10 @@
                                 <span x-show="armsRaceScoreLoading">Checking...</span>
                             </button>
                         </div>
+                        <div x-show="armsRaceScore.current_points === null && !armsRaceScoreLoading && !armsRaceScore.error"
+                             class="text-xs text-gray-500 italic">
+                            No score checked yet for this event
+                        </div>
                         <div x-show="armsRaceScore.current_points !== null" class="text-sm">
                             <div class="flex justify-between text-gray-300">
                                 <span>Points:</span>
