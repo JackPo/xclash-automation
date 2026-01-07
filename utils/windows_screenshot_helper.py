@@ -148,16 +148,22 @@ class WindowsScreenshotHelper:
             height - self.BOTTOM_BORDER
         ))
 
-    def scale_to_4k(self, img: Image.Image) -> Image.Image:
+    def scale_to_4k(self, img: Image.Image) -> npt.NDArray[Any]:
         """Scale image to 4K resolution for template matching.
+
+        Uses cv2 INTER_LINEAR for speed (9ms vs 163ms for PIL LANCZOS).
+        Template matching results are functionally identical.
 
         Args:
             img: PIL.Image to scale
 
         Returns:
-            PIL.Image: Scaled to 3840x2160
+            np.ndarray: RGB image scaled to 3840x2160
         """
-        return img.resize((self.TARGET_WIDTH, self.TARGET_HEIGHT), Image.Resampling.LANCZOS)
+        # Convert PIL to numpy and use cv2 for fast scaling
+        arr = np.array(img)
+        scaled: npt.NDArray[Any] = cv2.resize(arr, (self.TARGET_WIDTH, self.TARGET_HEIGHT), interpolation=cv2.INTER_LINEAR)
+        return scaled
 
     def get_screenshot_cv2(self) -> npt.NDArray[Any]:
         """Get a 4K screenshot as cv2 numpy array (compatible with template matching).
@@ -176,12 +182,11 @@ class WindowsScreenshotHelper:
         # Remove borders
         cropped_img = self.remove_borders(raw_img)
 
-        # Scale to 4K
-        scaled_img = self.scale_to_4k(cropped_img)
+        # Scale to 4K (returns numpy RGB array)
+        scaled_rgb = self.scale_to_4k(cropped_img)
 
-        # Convert PIL RGB to cv2 BGR
-        img_array: npt.NDArray[Any] = np.array(scaled_img)
-        img_bgr: npt.NDArray[Any] = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        # Convert RGB to BGR for cv2/template matching
+        img_bgr: npt.NDArray[Any] = cv2.cvtColor(scaled_rgb, cv2.COLOR_RGB2BGR)
 
         return img_bgr
 

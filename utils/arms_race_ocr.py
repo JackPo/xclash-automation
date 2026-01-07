@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 # OCR region coordinates (4K resolution)
 # Format: (x, y, width, height)
 TITLE_REGION = (1405, 116, 791, 74)
-CURRENT_POINTS_REGION = (1466, 693, 135, 50)
+CURRENT_POINTS_REGION = (1350, 693, 265, 50)  # Wide enough for 8+ digits, coin icon OK
 CHEST1_REGION = (1363, 1054, 349, 92)
 CHEST2_REGION = (1743, 1054, 353, 92)
 CHEST3_REGION = (2119, 1054, 346, 92)

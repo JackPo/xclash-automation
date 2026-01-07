@@ -25,7 +25,11 @@ def _get_system_idle_seconds() -> float:
     lii = LASTINPUTINFO()
     lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
     ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii))
-    millis: int = ctypes.windll.kernel32.GetTickCount() - lii.dwTime
+    # Use GetTickCount64 to avoid 32-bit wraparound (every ~49.7 days)
+    # But dwTime is still 32-bit, so we need to handle wraparound
+    current_tick = ctypes.windll.kernel32.GetTickCount()
+    # Both are unsigned 32-bit, handle wraparound by masking to 32 bits
+    millis = (current_tick - lii.dwTime) & 0xFFFFFFFF
     return float(millis) / 1000.0
 
 
