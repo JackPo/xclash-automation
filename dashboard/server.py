@@ -234,6 +234,18 @@ async def api_status() -> dict[str, Any]:
     return status
 
 
+@app.get("/api/current-state")
+async def api_current_state() -> dict[str, Any]:
+    """
+    Get persisted current state (survives page refreshes).
+
+    Returns stamina, arms race score, view state, zombie mode - all from
+    the state file that the daemon writes to.
+    """
+    from utils.current_state import get_full_state
+    return get_full_state()
+
+
 @app.get("/api/arms-race")
 async def api_arms_race() -> dict[str, Any]:
     """Get Arms Race status."""
@@ -254,6 +266,7 @@ async def api_arms_race() -> dict[str, Any]:
 async def api_check_arms_race_score() -> dict[str, Any]:
     """Check current Arms Race score by triggering the flow."""
     import websockets
+    from utils.current_state import update_arms_race_score
 
     try:
         # Longer timeout for flow execution (180s like daemon_cli)
@@ -264,12 +277,20 @@ async def api_check_arms_race_score() -> dict[str, Any]:
             if response.get('success'):
                 # Flow result is in data.result (the dict returned by check_arms_race_progress)
                 result = response.get('data', {}).get('result', {})
+                current_points = result.get('current_points')
+                chest3_target = result.get('chest3_target', 30000)
+                detected_event = result.get('detected_event')
+
+                # Persist to state file so it survives page refresh
+                if current_points is not None:
+                    update_arms_race_score(current_points, chest3_target, detected_event)
+
                 return {
                     "success": True,
-                    "current_points": result.get('current_points'),
-                    "chest3_target": result.get('chest3_target'),
+                    "current_points": current_points,
+                    "chest3_target": chest3_target,
                     "points_to_chest3": result.get('points_to_chest3'),
-                    "detected_event": result.get('detected_event'),
+                    "detected_event": detected_event,
                 }
             return {"success": False, "error": response.get('error', 'Failed to check score')}
     except asyncio.TimeoutError:
@@ -299,6 +320,69 @@ async def api_arms_race_schedule() -> dict[str, Any]:
         "current_index": current_index,
         "cycle_day": current_status["day"],
     }
+
+
+# ============================================================================
+# Timeline API
+# ============================================================================
+
+# Cache for timeline data (10 second TTL)
+_timeline_cache: dict[str, Any] = {"data": None, "expires": 0.0}
+
+
+@app.get("/api/timeline")
+async def api_timeline(hours_back: int = 12, hours_forward: int = 12) -> dict[str, Any]:
+    """
+    Get unified event timeline.
+
+    Returns past events (from event log) and future events (cooldown-based + Arms Race schedule).
+    """
+    global _timeline_cache
+
+    now = time.time()
+
+    # Check cache (10 second TTL)
+    if _timeline_cache["expires"] > now:
+        return _timeline_cache["data"]
+
+    from utils.timeline import get_timeline
+    data = get_timeline(hours_back, hours_forward)
+
+    _timeline_cache = {"data": data, "expires": now + 10}
+    return data
+
+
+@app.get("/api/timeline/summary")
+async def api_timeline_summary(hours_back: int = 12, hours_forward: int = 12) -> dict[str, Any]:
+    """Get timeline summary with counts by category."""
+    from utils.timeline import get_timeline_summary
+    return get_timeline_summary(hours_back, hours_forward)
+
+
+# Cache for blocks data (5 second TTL - more frequent updates for progress bar)
+_blocks_cache: dict[str, Any] = {"data": None, "expires": 0.0}
+
+
+@app.get("/api/timeline/blocks")
+async def api_timeline_blocks(blocks_back: int = 2, blocks_forward: int = 3) -> dict[str, Any]:
+    """
+    Get Arms Race blocks with flow executions mapped to each block.
+
+    Returns structured block data for the block-based timeline UI.
+    """
+    global _blocks_cache
+
+    now = time.time()
+
+    # Check cache (5 second TTL for more responsive progress bar)
+    if _blocks_cache["expires"] > now:
+        return _blocks_cache["data"]
+
+    from utils.timeline import get_timeline_blocks
+    data = get_timeline_blocks(blocks_back, blocks_forward)
+
+    _blocks_cache = {"data": data, "expires": now + 5}
+    return data
 
 
 @app.get("/api/flows")

@@ -72,6 +72,13 @@
                     <div class="text-center">
                         <div class="text-2xl font-bold stat-value text-yellow-400" x-text="status.stamina ?? '--'"></div>
                         <div class="text-xs text-gray-500 uppercase tracking-wide">Stamina</div>
+                        <!-- Stamina claim timer -->
+                        <template x-if="staminaClaimTimer.claim_available === true">
+                            <div class="text-xs text-emerald-400 mt-0.5">Free ready!</div>
+                        </template>
+                        <template x-if="staminaClaimTimer.seconds_remaining != null && !staminaClaimTimer.claim_available">
+                            <div class="text-xs text-gray-400 mt-0.5" x-text="'Free: ' + formatClaimTimer()"></div>
+                        </template>
                     </div>
                     <div class="w-px h-8 bg-gray-700"></div>
                     <div class="text-center">
@@ -97,95 +104,265 @@
 
     <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
 
-        <!-- Arms Race Card -->
+        <!-- Arms Race Timeline Card -->
         <section class="card rounded-2xl p-6 border border-gray-800/50 glow-yellow">
-            <div class="flex items-center gap-3 mb-6">
-                <div class="w-8 h-8 rounded-lg bg-yellow-500/20 flex items-center justify-center text-yellow-400">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path>
-                    </svg>
+            <!-- Header Row 1: VS Day + Current Event + Score + Server Reset -->
+            <div class="flex flex-wrap items-stretch justify-between gap-4 mb-4">
+                <!-- VS Day Badge -->
+                <div class="px-4 py-2 rounded-xl flex-shrink-0"
+                     :class="blocks.is_special_day ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-gray-700/50 border border-gray-600/30'">
+                    <div class="text-xs text-gray-400 uppercase tracking-wide">VS</div>
+                    <div class="text-lg font-bold"
+                         :class="blocks.is_special_day ? 'text-yellow-300' : 'text-white'"
+                         x-text="'Day ' + (blocks.vs_day || '?')"></div>
+                    <div class="text-xs"
+                         :class="blocks.is_special_day ? 'text-yellow-400' : 'text-gray-500'"
+                         x-text="blocks.vs_info || ''"></div>
                 </div>
-                <h2 class="text-lg font-semibold text-yellow-400">Arms Race</h2>
-                <div class="ml-auto px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20">
-                    <span class="text-sm text-yellow-300">Day <span x-text="armsRace.day" class="font-bold"></span>/7</span>
+
+                <!-- Current Event + Time -->
+                <div class="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex-shrink-0">
+                    <div class="text-xs text-gray-400 uppercase tracking-wide">Now</div>
+                    <div class="text-lg font-bold text-emerald-300" x-text="blocks.current_event || 'Loading...'"></div>
+                    <div class="text-xs text-emerald-400" x-text="(blocks.time_remaining || '') + ' left'"></div>
+                </div>
+
+                <!-- Score Panel -->
+                <div class="px-4 py-2 rounded-xl bg-dark-800/50 border border-gray-700/30 flex-1 min-w-[200px]">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs text-gray-400 uppercase tracking-wide">Score</span>
+                        <button @click="checkArmsRaceScore()"
+                                :disabled="armsRaceScoreLoading"
+                                class="px-2 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 disabled:opacity-50 transition-colors">
+                            <span x-show="!armsRaceScoreLoading">Check</span>
+                            <span x-show="armsRaceScoreLoading">...</span>
+                        </button>
+                    </div>
+                    <div x-show="armsRaceScore.current_points !== null" class="text-sm">
+                        <div class="flex items-baseline gap-2">
+                            <span class="text-lg font-bold text-green-400" x-text="armsRaceScore.current_points?.toLocaleString()"></span>
+                            <span x-show="armsRaceScore.chest3_target" class="text-xs text-gray-500">
+                                / <span x-text="armsRaceScore.chest3_target?.toLocaleString()"></span>
+                            </span>
+                        </div>
+                        <div x-show="armsRaceScore.points_to_chest3 !== null" class="text-xs"
+                             :class="armsRaceScore.points_to_chest3 <= 0 ? 'text-green-400' : 'text-gray-400'"
+                             x-text="armsRaceScore.points_to_chest3 <= 0 ? 'Chest 3 Complete!' : armsRaceScore.points_to_chest3?.toLocaleString() + ' to go'"></div>
+                    </div>
+                    <div x-show="armsRaceScore.current_points === null && !armsRaceScoreLoading" class="text-xs text-gray-500 italic">
+                        <span x-show="armsRaceScore.last_checked">Checked <span x-text="formatTimeAgo(armsRaceScore.last_checked)"></span></span>
+                        <span x-show="!armsRaceScore.last_checked">No score yet</span>
+                    </div>
+                    <div x-show="armsRaceScore.error" class="text-xs text-red-400" x-text="armsRaceScore.error"></div>
+                </div>
+
+                <!-- Day Progress + Server Reset -->
+                <div class="px-4 py-2 rounded-xl bg-dark-800/50 border border-gray-700/30 flex-shrink-0 min-w-[140px]">
+                    <div class="text-xs text-gray-400 uppercase tracking-wide mb-1">Day Progress</div>
+                    <div class="flex gap-1 mb-2">
+                        <template x-for="d in 7" :key="d">
+                            <div class="flex-1 h-1.5 rounded-full transition-all"
+                                 :class="d <= (blocks.vs_day || 0) ? 'bg-gradient-to-r from-blue-500 to-purple-500' : 'bg-gray-700'"></div>
+                        </template>
+                    </div>
+                    <div class="flex justify-between text-[10px]">
+                        <span class="text-gray-500">Reset</span>
+                        <span class="text-gray-300" x-text="blocks.server_reset_in || '--'"></span>
+                    </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- Current Event -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-green-500/20">
-                    <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Current Event</div>
-                    <div class="text-xl font-bold text-green-400 mb-3" x-text="armsRace.current_event"></div>
-                    <div class="flex items-center gap-2 mb-3">
-                        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <span class="stat-value text-lg text-yellow-300" x-text="formatCountdown(armsRace.time_remaining_seconds)"></span>
+            <!-- Arms Race Blocks -->
+            <div class="relative">
+                <!-- Time Axis Labels -->
+                <div class="flex mb-2">
+                    <template x-for="(block, idx) in (blocks.blocks || [])" :key="'time_' + idx">
+                        <div class="flex-1 text-center text-xs text-gray-500"
+                             x-text="block?.start_time ? block.start_time.substring(11, 16) : ''"></div>
+                    </template>
+                </div>
+
+                <!-- Block Track -->
+                <div class="flex gap-1 relative">
+                    <!-- Day boundary markers -->
+                    <template x-for="(boundary, bIdx) in (blocks.day_boundaries || [])" :key="'boundary_' + bIdx">
+                        <div class="absolute top-0 bottom-0 w-0.5 bg-yellow-500/60 z-10"
+                             :style="'left: calc(' + (boundary.block_index / (blocks.blocks || []).length * 100) + '% - 2px)'"
+                             :title="'Day ' + boundary.day + ' starts'">
+                            <div class="absolute -top-5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-yellow-500/30 text-[10px] text-yellow-300 rounded whitespace-nowrap">
+                                Day <span x-text="boundary.day"></span>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Blocks -->
+                    <template x-for="(block, idx) in (blocks.blocks || [])" :key="'block_' + idx">
+                        <div class="flex-1 relative rounded-lg p-3 border transition-all min-h-[100px]"
+                             :class="{
+                                 'bg-gray-800/30 border-gray-700/30 opacity-60': block.status === 'completed',
+                                 'bg-emerald-500/20 border-emerald-500/50 ring-2 ring-emerald-500/30': block.status === 'current',
+                                 'bg-gray-700/20 border-gray-600/30 border-dashed': block.status === 'upcoming'
+                             }">
+
+                            <!-- NOW Badge -->
+                            <div x-show="block.status === 'current'"
+                                 class="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-emerald-500 text-[10px] font-bold rounded-full text-white z-20">
+                                NOW
+                            </div>
+
+                            <!-- Event Name -->
+                            <div class="text-sm font-semibold truncate mb-1"
+                                 :class="{
+                                     'text-gray-400': block.status === 'completed',
+                                     'text-emerald-300': block.status === 'current',
+                                     'text-gray-300': block.status === 'upcoming'
+                                 }"
+                                 x-text="block.event"></div>
+
+                            <!-- VS Day -->
+                            <div class="text-[10px] text-gray-500 mb-2" x-text="'Day ' + block.vs_day"></div>
+
+                            <!-- Progress Bar (current only) -->
+                            <div x-show="block.status === 'current'" class="mb-2">
+                                <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                    <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-1000"
+                                         :style="'width: ' + block.progress + '%'"></div>
+                                </div>
+                                <div class="text-[10px] text-emerald-400 mt-1 text-center" x-text="block.time_remaining"></div>
+                            </div>
+
+                            <!-- Time Range -->
+                            <div class="text-[10px] text-gray-500"
+                                 x-text="(block.start_time?.substring(11, 16) || '') + ' - ' + (block.end_time?.substring(11, 16) || '')"></div>
+
+                            <!-- Flow Markers -->
+                            <div x-show="block.flows && block.flows.length > 0" class="flex gap-1 mt-2 flex-wrap">
+                                <template x-for="(flow, flowIdx) in (block.flows || []).slice(0, 6)" :key="block.start_time + '_' + flowIdx">
+                                    <div class="w-2 h-2 rounded-full cursor-pointer hover:scale-150 transition"
+                                         :class="flow?.status === 'completed' ? 'bg-blue-400' : 'bg-red-400'"
+                                         :title="(flow?.name || '') + ' @ ' + (flow?.time || '')"
+                                         @click="showToast((flow?.name || '') + ' @ ' + (flow?.time || ''), 'info')"></div>
+                                </template>
+                                <span x-show="(block.flows || []).length > 6" class="text-[10px] text-gray-500"
+                                      x-text="'+' + ((block.flows || []).length - 6)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Legend -->
+                <div class="flex items-center gap-6 mt-4 pt-3 border-t border-gray-800/50 text-xs text-gray-500">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-3 rounded bg-gray-800/30 border border-gray-700/30"></div>
+                        <span>Past</span>
                     </div>
-                    <!-- Score Check -->
-                    <div class="pt-3 border-t border-gray-700/50">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-xs text-gray-500 uppercase tracking-wide">Progress</span>
-                            <button @click="checkArmsRaceScore()"
-                                    :disabled="armsRaceScoreLoading"
-                                    class="px-3 py-1 text-xs rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 disabled:opacity-50 transition-colors">
-                                <span x-show="!armsRaceScoreLoading">Check Score</span>
-                                <span x-show="armsRaceScoreLoading">Checking...</span>
-                            </button>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-3 rounded bg-emerald-500/20 border border-emerald-500/50"></div>
+                        <span>Current</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-3 rounded bg-gray-700/20 border border-gray-600/30 border-dashed"></div>
+                        <span>Upcoming</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                        <span>Flow Run</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-0.5 h-3 bg-yellow-500/60"></div>
+                        <span>Day Change</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Events List -->
+            <div class="mt-6 pt-4 border-t border-gray-800/50">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-gray-300">Recent & Upcoming Events</h3>
+                    <button @click="refreshEvents()" class="px-2 py-1 text-[10px] rounded bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 transition">
+                        Refresh
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Past Events -->
+                    <div class="bg-dark-800/30 rounded-xl p-4 border border-gray-700/30">
+                        <div class="flex items-center gap-2 mb-3">
+                            <div class="w-2 h-2 rounded-full bg-gray-400"></div>
+                            <span class="text-xs text-gray-400 uppercase tracking-wide">Past (12h)</span>
+                            <span class="ml-auto text-xs text-gray-500" x-text="(events.past || []).length + ' events'"></span>
                         </div>
-                        <div x-show="armsRaceScore.current_points === null && !armsRaceScoreLoading && !armsRaceScore.error"
-                             class="text-xs text-gray-500 italic">
-                            No score checked yet for this event
+                        <div class="space-y-2 max-h-[200px] overflow-y-auto">
+                            <template x-for="(event, idx) in (events.past || []).slice(0, 20)" :key="'past_' + idx">
+                                <div class="flex items-center justify-between py-1.5 px-2 rounded bg-dark-900/50 text-sm">
+                                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                                        <div class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                             :class="{
+                                                 'bg-yellow-400': event.category === 'arms_race',
+                                                 'bg-red-400': event.category === 'combat',
+                                                 'bg-purple-400': event.category === 'quest',
+                                                 'bg-blue-400': event.category === 'maintenance'
+                                             }"></div>
+                                        <span class="text-gray-300 truncate" x-text="formatFlowName(event.flow_name)"></span>
+                                        <!-- Rally join details -->
+                                        <template x-if="event.flow_name === 'rally_join' && event.result">
+                                            <span class="text-xs truncate"
+                                                  :class="event.result.success ? 'text-emerald-400' : 'text-orange-400'"
+                                                  x-text="event.result.monster_name ? (event.result.monster_name + (event.result.level ? ' Lv.' + event.result.level : '')) : (event.result.abort_reason || '')"></span>
+                                        </template>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-xs flex-shrink-0">
+                                        <span :class="event.status === 'completed' ? 'text-green-400' : 'text-red-400'"
+                                              x-text="event.status === 'completed' ? '✓' : '✗'"></span>
+                                        <span class="text-gray-500" x-text="formatEventTime(event.timestamp)"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="(events.past || []).length === 0" class="text-xs text-gray-500 italic text-center py-4">
+                                No recent events
+                            </div>
                         </div>
-                        <div x-show="armsRaceScore.current_points !== null" class="text-sm">
-                            <div class="flex justify-between text-gray-300">
-                                <span>Points:</span>
-                                <span class="font-bold text-green-400" x-text="armsRaceScore.current_points?.toLocaleString()"></span>
-                            </div>
-                            <div x-show="armsRaceScore.chest3_target" class="flex justify-between text-gray-400">
-                                <span>Chest 3:</span>
-                                <span x-text="armsRaceScore.chest3_target?.toLocaleString()"></span>
-                            </div>
-                            <div x-show="armsRaceScore.points_to_chest3 !== null" class="flex justify-between text-gray-400">
-                                <span>Remaining:</span>
-                                <span :class="armsRaceScore.points_to_chest3 <= 0 ? 'text-green-400' : ''"
-                                      x-text="armsRaceScore.points_to_chest3 <= 0 ? 'Complete!' : armsRaceScore.points_to_chest3?.toLocaleString()"></span>
-                            </div>
-                            <div x-show="armsRaceScore.last_checked" class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700/50">
-                                Checked <span x-text="formatTimeAgo(armsRaceScore.last_checked)"></span>
+                    </div>
+
+                    <!-- Future Events -->
+                    <div class="bg-dark-800/30 rounded-xl p-4 border border-gray-700/30">
+                        <div class="flex items-center gap-2 mb-3">
+                            <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+                            <span class="text-xs text-gray-400 uppercase tracking-wide">Upcoming (12h)</span>
+                            <span class="ml-auto text-xs text-gray-500" x-text="(events.future || []).length + ' events'"></span>
+                        </div>
+                        <div class="space-y-2 max-h-[200px] overflow-y-auto">
+                            <template x-for="(event, idx) in (events.future || []).slice(0, 20)" :key="'future_' + idx">
+                                <div class="flex items-center justify-between py-1.5 px-2 rounded bg-dark-900/50 text-sm">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-1.5 h-1.5 rounded-full"
+                                             :class="{
+                                                 'bg-yellow-400': event.category === 'arms_race',
+                                                 'bg-red-400': event.category === 'combat',
+                                                 'bg-purple-400': event.category === 'quest',
+                                                 'bg-blue-400': event.category === 'maintenance'
+                                             }"></div>
+                                        <span class="text-gray-300" x-text="formatFlowName(event.flow_name)"></span>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-xs">
+                                        <span class="text-gray-400" x-text="event.source === 'arms_race_schedule' ? 'AR' : event.source === 'cooldown' ? 'CD' : ''"></span>
+                                        <span class="text-emerald-400" x-text="formatEventTime(event.timestamp)"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="(events.future || []).length === 0" class="text-xs text-gray-500 italic text-center py-4">
+                                No upcoming events
                             </div>
                         </div>
-                        <div x-show="armsRaceScore.error" class="text-xs text-red-400" x-text="armsRaceScore.error"></div>
                     </div>
                 </div>
 
-                <!-- Cycle Progress -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
-                    <div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Cycle Progress</div>
-                    <div class="flex gap-1.5 mb-3">
-                        <template x-for="d in 7" :key="d">
-                            <div class="flex-1 h-2 rounded-full transition-all duration-300"
-                                 :class="d <= armsRace.day ? 'progress-bar' : 'bg-gray-700'"></div>
-                        </template>
-                    </div>
-                    <div class="text-sm text-gray-400">
-                        <span x-text="armsRace.day"></span> of 7 days completed
-                    </div>
-                </div>
-
-                <!-- Next/Prev -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
-                    <div class="space-y-3">
-                        <div>
-                            <div class="text-xs text-gray-500 uppercase tracking-wide">Next Up</div>
-                            <div class="text-base font-medium text-gray-200" x-text="armsRace.next_event"></div>
-                        </div>
-                        <div class="w-full h-px bg-gray-700"></div>
-                        <div>
-                            <div class="text-xs text-gray-500 uppercase tracking-wide">Previous</div>
-                            <div class="text-sm text-gray-400" x-text="armsRace.previous_event"></div>
-                        </div>
-                    </div>
+                <!-- Category Legend -->
+                <div class="flex items-center gap-4 mt-3 text-[10px] text-gray-500">
+                    <div class="flex items-center gap-1"><div class="w-1.5 h-1.5 rounded-full bg-yellow-400"></div> Arms Race</div>
+                    <div class="flex items-center gap-1"><div class="w-1.5 h-1.5 rounded-full bg-red-400"></div> Combat</div>
+                    <div class="flex items-center gap-1"><div class="w-1.5 h-1.5 rounded-full bg-purple-400"></div> Quest</div>
+                    <div class="flex items-center gap-1"><div class="w-1.5 h-1.5 rounded-full bg-blue-400"></div> Maintenance</div>
                 </div>
             </div>
         </section>
@@ -220,7 +397,7 @@
                         <div class="text-xs text-gray-400">Home</div>
                     </button>
 
-                    <button @click="refreshStatus(); refreshFlows(); refreshArmsRace();"
+                    <button @click="refreshStatus(); refreshFlows(); refreshArmsRace(); refreshBlocks(); refreshEvents();"
                             class="p-4 rounded-xl bg-gray-700/30 border border-gray-600/30 hover:bg-gray-600/30 transition-all duration-200 hover:scale-[1.02]">
                         <div class="text-2xl mb-1">R</div>
                         <div class="text-xs text-gray-400">Refresh</div>
@@ -258,20 +435,78 @@
                         </button>
                     </div>
 
-                    <!-- Zombie Mode -->
+                    <!-- Run Zombie Now -->
                     <div class="flex items-center gap-3">
                         <div class="w-24 text-sm text-gray-400">Zombie</div>
-                        <select x-model="selectedZombieMode"
-                                @change="setZombieMode()"
-                                class="flex-1 bg-dark-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-purple-500">
-                            <option value="elite">Elite Zombie (20 stamina)</option>
-                            <option value="gold">Gold Mine (10 stamina)</option>
-                            <option value="food">Food Farm (10 stamina)</option>
-                            <option value="iron_mine">Iron Mine (10 stamina)</option>
+                        <select x-model="runZombieSelection"
+                                class="flex-1 bg-dark-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-red-500">
+                            <option value="elite_zombie">Elite Zombie (20 stamina)</option>
+                            <option value="zombie_attack_gold">Gold Mine (10 stamina)</option>
+                            <option value="zombie_attack_food">Food Farm (10 stamina)</option>
+                            <option value="zombie_attack_iron_mine">Iron Mine (10 stamina)</option>
                         </select>
-                        <div class="w-20 text-right">
-                            <span x-show="zombieMode.hours_remaining" class="text-xs text-yellow-400"
-                                  x-text="zombieMode.hours_remaining ? zombieMode.hours_remaining.toFixed(1) + 'h' : ''"></span>
+                        <button @click="runFlow(runZombieSelection)"
+                                class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-medium transition">
+                            Run
+                        </button>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="flex items-center gap-3">
+                        <div class="w-24 text-sm text-gray-400">Quick</div>
+                        <button @click="runFlow('faction_trials')"
+                                class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-sm font-medium transition">
+                            Faction Trials
+                        </button>
+                        <button @click="runFlow('tavern_quest')"
+                                class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm font-medium transition">
+                            Tavern
+                        </button>
+                        <button @click="runFlow('bag_flow')"
+                                class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium transition">
+                            Bag
+                        </button>
+                    </div>
+
+                    <!-- Zombie Burst Mode -->
+                    <div class="mt-4 pt-4 border-t border-gray-700/50">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="text-sm text-gray-400">Burst Mode</span>
+                            <span x-show="burstMode.running" class="text-xs text-yellow-400 pulse-slow">Running...</span>
+                        </div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="flex items-center gap-2">
+                                <input type="number" x-model.number="burstMode.count" min="1" max="20"
+                                       class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-center"
+                                       :disabled="burstMode.running">
+                                <span class="text-xs text-gray-500">times</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="number" x-model.number="burstMode.delay" min="10" max="600" step="10"
+                                       class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-center"
+                                       :disabled="burstMode.running">
+                                <span class="text-xs text-gray-500">sec delay</span>
+                            </div>
+                            <label class="flex items-center gap-1 text-xs text-gray-400">
+                                <input type="checkbox" x-model="burstMode.untilEmpty" class="rounded"
+                                       :disabled="burstMode.running">
+                                <span>Until empty</span>
+                            </label>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button @click="startBurstMode()"
+                                    x-show="!burstMode.running"
+                                    class="flex-1 py-2 rounded-lg bg-orange-500/20 border border-orange-500/30 hover:bg-orange-500/30 text-orange-300 text-sm transition">
+                                Start Burst
+                            </button>
+                            <button @click="stopBurstMode()"
+                                    x-show="burstMode.running"
+                                    class="flex-1 py-2 rounded-lg bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 text-red-300 text-sm transition">
+                                Stop (<span x-text="burstMode.completed"></span>/<span x-text="burstMode.untilEmpty ? '∞' : burstMode.count"></span>)
+                            </button>
+                            <div x-show="burstMode.running && burstMode.nextRunIn > 0" class="text-xs text-gray-400">
+                                Next in <span x-text="burstMode.nextRunIn"></span>s
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -398,6 +633,36 @@
                         <button @click="applyStaminaOverrides()"
                                 class="w-full py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 text-yellow-300 text-sm transition">
                             Apply Stamina Overrides
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Zombie Mode -->
+                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="text-sm font-medium text-red-400">Zombie Mode</span>
+                        <span x-show="zombieMode.hours_remaining" class="text-xs text-yellow-400"
+                              x-text="formatOverrideTime(zombieMode.hours_remaining * 3600)"></span>
+                    </div>
+
+                    <div class="space-y-4">
+                        <!-- Mode Selector -->
+                        <div>
+                            <div class="text-sm mb-2">Auto-Trigger Mode</div>
+                            <select x-model="selectedZombieMode"
+                                    class="w-full bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-red-500">
+                                <option value="elite">Elite Zombie (20 stamina)</option>
+                                <option value="gold">Gold Mine (10 stamina)</option>
+                                <option value="food">Food Farm (10 stamina)</option>
+                                <option value="iron_mine">Iron Mine (10 stamina)</option>
+                            </select>
+                            <div class="text-xs text-gray-500 mt-1">Triggers when stamina exceeds threshold</div>
+                        </div>
+
+                        <!-- Apply Button -->
+                        <button @click="setZombieMode()"
+                                class="w-full py-2 rounded-lg bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 text-red-300 text-sm transition">
+                            Apply Zombie Mode
                         </button>
                     </div>
                 </div>
@@ -566,6 +831,18 @@
                 selectedTitle: '',
                 zombieMode: { mode: 'elite', expires: null, hours_remaining: null },
                 selectedZombieMode: 'elite',
+                runZombieSelection: 'elite_zombie',  // For immediate run (independent of config)
+                // Burst mode state
+                burstMode: {
+                    running: false,
+                    count: 5,
+                    delay: 300,  // seconds
+                    untilEmpty: false,
+                    completed: 0,
+                    nextRunIn: 0,
+                    intervalId: null,
+                    countdownId: null
+                },
                 toast: { show: false, message: '', type: 'info' },
                 lastUpdate: '--:--',
                 pollInterval: null,
@@ -579,24 +856,63 @@
                 // Arms Race score check
                 armsRaceScore: { current_points: null, chest3_target: null, points_to_chest3: null, last_checked: null, error: null },
                 armsRaceScoreLoading: false,
+                // Stamina claim timer (checked once at Beast Training block start)
+                staminaClaimTimer: { seconds_remaining: null, claim_available: null, checked_at: null },
+                // Block Timeline
+                blocks: {
+                    blocks: [],
+                    current_event: null,
+                    time_remaining: null,
+                    vs_day: null,
+                    vs_info: null,
+                    is_special_day: false,
+                    server_reset_in: null,
+                    day_boundaries: [],
+                    lastRefresh: null
+                },
+                // Events list
+                events: { past: [], future: [], lastRefresh: null },
+                scoreCheckInterval: null,
+                lastScoreCheckEvent: null,
 
                 async init() {
+                    // Load persisted state FIRST (survives page refresh)
+                    await this.loadPersistedState();
+
                     await Promise.all([
                         this.refreshStatus(),
                         this.refreshFlows(),
                         this.refreshArmsRace(),
                         this.loadTitles(),
                         this.loadZombieMode(),
-                        this.loadConfig()
+                        this.loadConfig(),
+                        this.refreshBlocks(),
+                        this.refreshEvents()
                     ]);
                     this.pollInterval = setInterval(() => {
                         this.refreshStatus();
                         this.refreshFlows();
                         this.refreshArmsRace();
+                        // Refresh blocks every 30s (not every 3s)
+                        if (!this.blocks.lastRefresh || Date.now() - this.blocks.lastRefresh > 30000) {
+                            this.refreshBlocks();
+                        }
+                        // Refresh events every 60s
+                        if (!this.events.lastRefresh || Date.now() - this.events.lastRefresh > 60000) {
+                            this.refreshEvents();
+                        }
                     }, 3000);
                     this.countdownInterval = setInterval(() => {
                         if (this.armsRace.time_remaining_seconds > 0) this.armsRace.time_remaining_seconds--;
                     }, 1000);
+                    // Auto score check every hour (3600000ms)
+                    this.scoreCheckInterval = setInterval(() => {
+                        this.autoCheckScore();
+                    }, 3600000);
+                    // Also check if we changed Arms Race event (every 30s)
+                    setInterval(() => {
+                        this.checkEventChange();
+                    }, 30000);
                 },
 
                 async refreshStatus() {
@@ -619,6 +935,121 @@
                         const res = await fetch('/api/arms-race');
                         this.armsRace = await res.json();
                     } catch (e) { console.error('Arms race fetch failed:', e); }
+                },
+
+                async loadPersistedState() {
+                    // Load persisted state from file (survives page refresh)
+                    try {
+                        const res = await fetch('/api/current-state');
+                        const state = await res.json();
+
+                        // Restore Arms Race score if we have one
+                        if (state.arms_race_score && state.arms_race_score.current_points !== null) {
+                            this.armsRaceScore = {
+                                current_points: state.arms_race_score.current_points,
+                                chest3_target: state.arms_race_score.chest3_target || 30000,
+                                points_to_chest3: state.arms_race_score.points_to_chest3,
+                                last_checked: state.arms_race_score.timestamp,
+                                error: null
+                            };
+                            console.log('Restored Arms Race score from persisted state:', this.armsRaceScore);
+                        }
+
+                        // Restore stamina if we have it (and status doesn't have it yet)
+                        if (state.stamina && state.stamina.value !== null) {
+                            // Will be overwritten by refreshStatus if daemon has newer data
+                            console.log('Persisted stamina:', state.stamina.value);
+                        }
+
+                        // Restore zombie mode
+                        if (state.zombie_mode && state.zombie_mode.mode) {
+                            this.zombieMode.mode = state.zombie_mode.mode;
+                            this.zombieMode.expires = state.zombie_mode.expires;
+                        }
+
+                        // Restore stamina claim timer
+                        if (state.stamina_claim_timer) {
+                            this.staminaClaimTimer = state.stamina_claim_timer;
+                        }
+
+                    } catch (e) {
+                        console.log('No persisted state available (first run?):', e.message);
+                    }
+                },
+
+                // =============================================
+                // Block Timeline Methods
+                // =============================================
+
+                async refreshBlocks() {
+                    try {
+                        const res = await fetch('/api/timeline/blocks');
+                        const data = await res.json();
+                        this.blocks = {
+                            blocks: data.blocks || [],
+                            current_event: data.current_event || null,
+                            time_remaining: data.time_remaining || null,
+                            vs_day: data.vs_day || null,
+                            vs_info: data.vs_info || null,
+                            is_special_day: data.is_special_day || false,
+                            server_reset_in: data.server_reset_in || null,
+                            day_boundaries: data.day_boundaries || [],
+                            lastRefresh: Date.now()
+                        };
+                    } catch (e) { console.error('Blocks fetch failed:', e); }
+                },
+
+                async refreshEvents() {
+                    try {
+                        const res = await fetch('/api/timeline');
+                        const data = await res.json();
+                        this.events = {
+                            past: (data.past_events || []).reverse(),  // Most recent first
+                            future: data.future_events || [],
+                            lastRefresh: Date.now()
+                        };
+                    } catch (e) { console.error('Events fetch failed:', e); }
+                },
+
+                autoCheckScore() {
+                    // Auto-check score every hour if we haven't checked in the last 55 minutes
+                    const lastChecked = this.armsRaceScore.last_checked;
+                    const fiftyFiveMinutes = 55 * 60 * 1000;
+                    if (!lastChecked || Date.now() - new Date(lastChecked).getTime() > fiftyFiveMinutes) {
+                        console.log('Auto-checking Arms Race score (hourly)');
+                        this.checkArmsRaceScore();
+                    }
+                },
+
+                checkEventChange() {
+                    // Check if Arms Race event changed - if so, reset score and check
+                    const currentEvent = this.blocks.current_event;
+                    if (currentEvent && currentEvent !== this.lastScoreCheckEvent) {
+                        console.log(`Arms Race event changed: ${this.lastScoreCheckEvent} -> ${currentEvent}`);
+                        this.lastScoreCheckEvent = currentEvent;
+                        // Reset score for new event
+                        this.armsRaceScore = { current_points: null, chest3_target: null, points_to_chest3: null, last_checked: null, error: null };
+                        // Auto-check score for new event after 30 seconds
+                        setTimeout(() => this.checkArmsRaceScore(), 30000);
+                    }
+                },
+
+                formatEventTime(isoDate) {
+                    if (!isoDate) return '';
+                    const date = new Date(isoDate);
+                    const now = new Date();
+                    const diffMins = Math.round((date - now) / 60000);
+                    const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+                    if (Math.abs(diffMins) < 1) return 'now';
+                    if (diffMins < 0) {
+                        if (diffMins > -60) return `${-diffMins}m ago`;
+                        if (diffMins > -1440) return timeStr;
+                        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    }
+                    if (diffMins < 60) return `in ${diffMins}m`;
+                    if (diffMins < 1440) return timeStr;
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 },
 
                 async checkArmsRaceScore() {
@@ -706,12 +1137,139 @@
                         const res = await fetch(`/api/zombie-mode/${this.selectedZombieMode}`, { method: 'POST' });
                         const data = await res.json();
                         if (data.success) {
-                            this.showToast(`Zombie: ${this.selectedZombieMode}`, 'success');
+                            this.showToast(`Zombie mode: ${this.getZombieModeDisplay(this.selectedZombieMode)}`, 'success');
                             await this.loadZombieMode();
                         } else {
                             this.showToast(`Failed: ${data.detail}`, 'error');
                         }
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async runCurrentZombie() {
+                    // Run the currently active zombie mode flow
+                    const mode = this.zombieMode.mode || 'elite';
+                    const flowMap = {
+                        'elite': 'elite_zombie',
+                        'gold': 'zombie_attack_gold',
+                        'food': 'zombie_attack_food',
+                        'iron_mine': 'zombie_attack_iron_mine'
+                    };
+                    const flowName = flowMap[mode] || 'elite_zombie';
+                    await this.runFlow(flowName);
+                },
+
+                getZombieModeDisplay(mode) {
+                    const displays = {
+                        'elite': 'Elite Zombie',
+                        'gold': 'Gold Mine',
+                        'food': 'Food Farm',
+                        'iron_mine': 'Iron Mine'
+                    };
+                    return displays[mode] || mode;
+                },
+
+                // =============================================
+                // Burst Mode Methods
+                // =============================================
+
+                async startBurstMode() {
+                    const flow = this.runZombieSelection;
+                    const staminaCost = flow === 'elite_zombie' ? 20 : 10;
+
+                    this.burstMode.running = true;
+                    this.burstMode.completed = 0;
+                    this.showToast(`Starting burst: ${this.formatFlowName(flow)}`, 'info');
+
+                    // Run immediately first
+                    await this.runBurstIteration(flow, staminaCost);
+
+                    // Schedule subsequent runs
+                    if (this.burstMode.running) {
+                        this.burstMode.nextRunIn = this.burstMode.delay;
+                        this.scheduleBurstNext(flow, staminaCost);
+                    }
+                },
+
+                async runBurstIteration(flow, staminaCost) {
+                    // Check if we should stop (stamina too low for "until empty" mode)
+                    if (this.burstMode.untilEmpty && this.status.stamina !== null && this.status.stamina < staminaCost) {
+                        this.showToast(`Burst complete: stamina too low (${this.status.stamina})`, 'success');
+                        this.stopBurstMode();
+                        return false;
+                    }
+
+                    // Check if we've hit the count limit (non-untilEmpty mode)
+                    if (!this.burstMode.untilEmpty && this.burstMode.completed >= this.burstMode.count) {
+                        this.showToast(`Burst complete: ${this.burstMode.completed} runs`, 'success');
+                        this.stopBurstMode();
+                        return false;
+                    }
+
+                    // Run the flow
+                    try {
+                        const res = await fetch(`/api/flows/${flow}/run`, { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.burstMode.completed++;
+                            await this.refreshFlows();
+                        } else {
+                            this.showToast(`Burst error: ${data.detail}`, 'error');
+                            this.stopBurstMode();
+                            return false;
+                        }
+                    } catch (e) {
+                        this.showToast(`Burst error: ${e.message}`, 'error');
+                        this.stopBurstMode();
+                        return false;
+                    }
+
+                    return true;
+                },
+
+                scheduleBurstNext(flow, staminaCost) {
+                    // Countdown timer
+                    this.burstMode.countdownId = setInterval(() => {
+                        this.burstMode.nextRunIn--;
+                        if (this.burstMode.nextRunIn <= 0) {
+                            clearInterval(this.burstMode.countdownId);
+                        }
+                    }, 1000);
+
+                    // Schedule next run
+                    this.burstMode.intervalId = setTimeout(async () => {
+                        clearInterval(this.burstMode.countdownId);
+
+                        if (!this.burstMode.running) return;
+
+                        // Refresh status to get current stamina
+                        await this.refreshStatus();
+
+                        const shouldContinue = await this.runBurstIteration(flow, staminaCost);
+                        if (shouldContinue && this.burstMode.running) {
+                            // Check if more runs needed
+                            const moreNeeded = this.burstMode.untilEmpty || this.burstMode.completed < this.burstMode.count;
+                            if (moreNeeded) {
+                                this.burstMode.nextRunIn = this.burstMode.delay;
+                                this.scheduleBurstNext(flow, staminaCost);
+                            } else {
+                                this.showToast(`Burst complete: ${this.burstMode.completed} runs`, 'success');
+                                this.stopBurstMode();
+                            }
+                        }
+                    }, this.burstMode.delay * 1000);
+                },
+
+                stopBurstMode() {
+                    this.burstMode.running = false;
+                    if (this.burstMode.intervalId) {
+                        clearTimeout(this.burstMode.intervalId);
+                        this.burstMode.intervalId = null;
+                    }
+                    if (this.burstMode.countdownId) {
+                        clearInterval(this.burstMode.countdownId);
+                        this.burstMode.countdownId = null;
+                    }
+                    this.burstMode.nextRunIn = 0;
                 },
 
                 showToast(message, type = 'info') {
@@ -736,6 +1294,24 @@
                     const m = Math.floor((secs % 3600) / 60);
                     const s = Math.floor(secs % 60);
                     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                },
+
+                formatClaimTimer() {
+                    // Calculate remaining time from stored timer, adjusted for elapsed time
+                    if (!this.staminaClaimTimer.seconds_remaining) return '--';
+                    let remaining = this.staminaClaimTimer.seconds_remaining;
+
+                    // Subtract elapsed time since we checked
+                    if (this.staminaClaimTimer.checked_at) {
+                        const elapsed = Math.floor((new Date() - new Date(this.staminaClaimTimer.checked_at)) / 1000);
+                        remaining = Math.max(0, remaining - elapsed);
+                    }
+
+                    if (remaining <= 0) return 'Ready!';
+                    const h = Math.floor(remaining / 3600);
+                    const m = Math.floor((remaining % 3600) / 60);
+                    if (h > 0) return `${h}h ${m}m`;
+                    return `${m}m`;
                 },
 
                 formatLastRun(isoDate) {

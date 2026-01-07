@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Flow configurations: cooldown (seconds), idle required (seconds)
 # All flows use IDLE_THRESHOLD from config.py as the default idle requirement
-# Exception: pre_beast_stamina_claim uses a lower idle threshold (20s) because it's time-critical
+# Exception: pre_beast_stamina_claim ignores idle (time-critical, must run in 6-min window)
 FLOW_CONFIGS = {
     "afk_rewards": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "union_gifts": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
@@ -33,7 +33,7 @@ FLOW_CONFIGS = {
     "bag_flow": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
-    "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 20},  # 4hr cooldown, 20s idle
+    "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 0},  # 4hr cooldown, NO idle (time-critical)
     # Beast Training phases - no cooldown (block-based tracking in arms_race_state)
     "beast_training_hour_mark": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},  # 5 min idle
     "beast_training_last_6": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},      # 5 min idle
@@ -543,6 +543,99 @@ class DaemonScheduler:
         logger.info(f"[SCHEDULER] Recorded {event} progress: {points} pts (chest3={chest3_target})")
 
     # =========================================================================
+    # Event Log (for Timeline)
+    # =========================================================================
+
+    MAX_EVENT_LOG_SIZE = 500  # Keep last 500 events
+
+    def record_event(
+        self,
+        flow_name: str,
+        status: str,
+        duration: float | None = None,
+        result: dict[str, Any] | None = None,
+        category: str = "maintenance",
+        is_critical: bool = False,
+    ) -> None:
+        """
+        Record a flow execution to the persistent event log.
+
+        Used by the timeline feature to show past automation events.
+
+        Args:
+            flow_name: Name of the flow (e.g., "elite_zombie", "tavern_quest")
+            status: "completed" | "failed" | "skipped"
+            duration: Execution time in seconds (optional)
+            result: Flow-specific result data (optional)
+            category: "arms_race" | "combat" | "quest" | "maintenance"
+            is_critical: Whether this was a critical flow
+        """
+        if "event_log" not in self.schedule:
+            self.schedule["event_log"] = []
+
+        now = datetime.now()
+        event_id = f"{now.isoformat()}_{flow_name}"
+
+        entry = {
+            "id": event_id,
+            "flow_name": flow_name,
+            "timestamp": now.isoformat(),
+            "status": status,
+            "duration_seconds": duration,
+            "result": result,
+            "category": category,
+            "is_critical": is_critical,
+        }
+
+        self.schedule["event_log"].append(entry)
+
+        # Prune if over limit
+        if len(self.schedule["event_log"]) > self.MAX_EVENT_LOG_SIZE:
+            self.schedule["event_log"] = self.schedule["event_log"][-self.MAX_EVENT_LOG_SIZE:]
+
+        self.save()
+        duration_str = f" ({duration:.1f}s)" if duration else ""
+        logger.debug(f"[SCHEDULER] Event logged: {flow_name} [{status}]{duration_str}")
+
+    def get_events_in_range(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        """
+        Get all events within a time range.
+
+        Args:
+            start: Start of range (inclusive)
+            end: End of range (inclusive)
+
+        Returns:
+            List of event dicts sorted by timestamp
+        """
+        events = self.schedule.get("event_log", [])
+        result = []
+
+        for event in events:
+            try:
+                timestamp = datetime.fromisoformat(event["timestamp"])
+                if start <= timestamp <= end:
+                    result.append(event)
+            except (ValueError, TypeError, KeyError):
+                continue
+
+        return sorted(result, key=lambda e: e["timestamp"])
+
+    def get_recent_events(self, hours: int = 12) -> list[dict[str, Any]]:
+        """
+        Get events from the last N hours.
+
+        Args:
+            hours: Number of hours to look back
+
+        Returns:
+            List of event dicts sorted by timestamp
+        """
+        end = datetime.now()
+        start = end - timedelta(hours=hours)
+        return self.get_events_in_range(start, end)
+
+    # =========================================================================
     # Daemon Runtime State
     # =========================================================================
 
@@ -649,6 +742,7 @@ class DaemonScheduler:
             "daily_limits": {},
             "arms_race": {},
             "daemon_state": {},
+            "event_log": [],
         }
 
     def _check_daily_reset(self) -> None:

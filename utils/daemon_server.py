@@ -298,6 +298,7 @@ class DaemonWebSocketServer:
     def _cmd_read_stamina(self, args: dict[str, Any]) -> dict[str, Any]:
         """Read current stamina from screen (fresh OCR)."""
         from utils.view_state_detector import detect_view, ViewState
+        from utils.current_state import update_stamina, update_view_state
 
         if self.daemon.windows_helper is None or self.daemon.ocr_client is None:
             raise RuntimeError("Daemon not initialized")
@@ -306,6 +307,9 @@ class DaemonWebSocketServer:
 
         # Check view state first
         view_state, view_score = detect_view(frame)
+
+        # Persist view state
+        update_view_state(view_state.name)
 
         # Only read stamina if in TOWN view
         if view_state != ViewState.TOWN:
@@ -319,6 +323,10 @@ class DaemonWebSocketServer:
         stamina = self.daemon.ocr_client.extract_number(
             frame, self.daemon.STAMINA_REGION
         )
+
+        # Persist stamina to state file
+        if stamina is not None:
+            update_stamina(stamina, view_state.name)
 
         return {
             "stamina": stamina,
@@ -650,6 +658,7 @@ class DaemonWebSocketServer:
     def _cmd_set_zombie_mode(self, args: dict[str, Any]) -> dict[str, Any]:
         """Set zombie mode for Beast Training (gold/food/iron_mine instead of elite)."""
         from config import ZOMBIE_MODE_CONFIG
+        from utils.current_state import update_zombie_mode
 
         mode = args.get("mode", "gold")
         hours_val = args.get("hours", 24)
@@ -665,6 +674,9 @@ class DaemonWebSocketServer:
 
         expires = self.daemon.scheduler.set_zombie_mode(mode, hours)
         mode_config: dict[str, Any] = ZOMBIE_MODE_CONFIG[mode]
+
+        # Persist to state file
+        update_zombie_mode(mode, expires.isoformat())
 
         return {
             "mode": mode,
