@@ -740,7 +740,13 @@ class IconDaemon:
             flow_func: Function to execute (takes adb as argument)
             critical: If True, blocks all other daemon actions during execution
         """
+        from utils.timeline import EXCLUDED_FLOWS, get_flow_category
+
         def wrapper() -> None:
+            start_time = time.time()
+            flow_result = None
+            status = "completed"
+
             try:
                 # Mark as critical if requested
                 if critical:
@@ -753,7 +759,7 @@ class IconDaemon:
 
                 # Mark daemon action before flow clicks (filters from idle tracking)
                 mark_daemon_action()
-                flow_func(self.adb)
+                flow_result = flow_func(self.adb)
 
                 if critical:
                     self.logger.info(f"CRITICAL FLOW END: {flow_name}")
@@ -761,7 +767,23 @@ class IconDaemon:
                     self.logger.info(f"FLOW END: {flow_name}")
             except Exception as e:
                 self.logger.error(f"FLOW ERROR: {flow_name} - {e}")
+                status = "failed"
+                flow_result = {"error": str(e)}
             finally:
+                duration = time.time() - start_time
+
+                # Record to event log for timeline (skip harvest/noise flows)
+                if flow_name not in EXCLUDED_FLOWS:
+                    result_data = flow_result if isinstance(flow_result, dict) else {"success": bool(flow_result)}
+                    self.scheduler.record_event(
+                        flow_name=flow_name,
+                        status=status,
+                        duration=duration,
+                        result=result_data,
+                        category=get_flow_category(flow_name),
+                        is_critical=critical,
+                    )
+
                 with self.flow_lock:
                     self.active_flows.discard(flow_name)
                     if critical and self.critical_flow_name == flow_name:
