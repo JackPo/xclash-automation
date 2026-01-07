@@ -44,6 +44,9 @@ RESOURCES_TAB_CLICK = (1820, 2080)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
+# Bag content region - ONLY search for items within this area (not full screen)
+BAG_CONTENT_REGION = (1337, 137, 1161, 1871)  # x, y, w, h - the white item grid
+
 # Thresholds
 DIAMOND_THRESHOLD = 0.01
 VERIFICATION_THRESHOLD = 0.01
@@ -87,18 +90,25 @@ def _find_first_diamond(
     template: npt.NDArray[Any],
 ) -> tuple[tuple[int, int] | None, float]:
     """
-    Find the first (best matching) diamond in the frame.
+    Find the first (best matching) diamond in the bag content region.
+
+    Only searches within BAG_CONTENT_REGION for speed (~50ms vs ~750ms).
 
     Returns:
         ((center_x, center_y), score) or (None, score) if not found
     """
+    # Crop to bag content region for faster search
+    rx, ry, rw, rh = BAG_CONTENT_REGION
+    roi = frame_gray[ry:ry+rh, rx:rx+rw]
+
     h, w = template.shape
-    result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
+    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
     min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
     if min_val <= DIAMOND_THRESHOLD:
-        center_x = min_loc[0] + w // 2
-        center_y = min_loc[1] + h // 2
+        # Convert ROI coords back to full-frame coords
+        center_x = rx + min_loc[0] + w // 2
+        center_y = ry + min_loc[1] + h // 2
         return (center_x, center_y), min_val
     return None, min_val
 

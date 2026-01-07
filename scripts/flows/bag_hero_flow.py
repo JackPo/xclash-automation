@@ -38,6 +38,9 @@ BAG_BUTTON_CLICK = (3725, 1624)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
+# Bag content region - ONLY search for items within this area (not full screen)
+BAG_CONTENT_REGION = (1337, 137, 1161, 1871)  # x, y, w, h - the white item grid
+
 HERO_TAB_REGION = (2130, 2015, 170, 100)  # Same region for active/inactive
 HERO_TAB_CLICK = (2257, 2078)
 
@@ -94,18 +97,24 @@ def _find_first_chest(
     debug: bool = False,
 ) -> tuple[tuple[int, int] | None, float, str | None]:
     """
-    Find the first (best matching) chest in the frame using multiple templates.
+    Find the first (best matching) chest in the bag content region.
+
+    Only searches within BAG_CONTENT_REGION for speed (~50ms vs ~750ms per template).
 
     Returns:
         ((center_x, center_y), score, template_name) or (None, best_score, None) if not found
     """
+    # Crop to bag content region for faster search
+    rx, ry, rw, rh = BAG_CONTENT_REGION
+    roi = frame_gray[ry:ry+rh, rx:rx+rw]
+
     best_match: tuple[int, int] | None = None
     best_score = 1.0
     best_template_name: str | None = None
 
     for name, template in chest_templates:
         h, w = template.shape
-        result = cv2.matchTemplate(frame_gray, template, cv2.TM_SQDIFF_NORMED)
+        result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, min_loc, _ = cv2.minMaxLoc(result)
 
         if debug:
@@ -114,8 +123,9 @@ def _find_first_chest(
         if min_val < best_score:
             best_score = min_val
             if min_val <= CHEST_THRESHOLD:
-                center_x = min_loc[0] + w // 2
-                center_y = min_loc[1] + h // 2
+                # Convert ROI coords back to full-frame coords
+                center_x = rx + min_loc[0] + w // 2
+                center_y = ry + min_loc[1] + h // 2
                 best_match = (center_x, center_y)
                 best_template_name = name
 

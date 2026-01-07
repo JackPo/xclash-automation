@@ -54,18 +54,21 @@ BAG_TAB_THRESHOLD = 0.05     # SQDIFF - no mask
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
-# Active tab templates - match all, lowest score = current tab
+# Active tab templates at FIXED positions (no searching - exact location match)
+# Region calculated from FULL-SCREEN search: center - (w/2, h/2)
+# ALL VERIFIED via systematic full-screen search when each tab is active
 ACTIVE_TAB_TEMPLATES = {
-    "special": "bag_special_tab_active_4k.png",
-    "resources": "bag_resources_tab_active_4k.png",
-    "hero": "bag_hero_tab_active_4k.png",
+    "special": ("bag_special_tab_active_4k.png", (1520, 2015, 170, 100)),   # center (1605, 2065) VERIFIED
+    "resources": ("bag_resources_tab_active_4k.png", (1760, 2045, 120, 70)),  # center (1820, 2080) VERIFIED
+    "hero": ("bag_hero_tab_active_4k.png", (2130, 2015, 170, 100)),  # center (2215, 2065) VERIFIED
 }
 
-# Tab click positions (4K)
+# Tab click positions (4K) - ALL VERIFIED via sweep test
+# Tab order: Special | Resource | Speed Up | Hero | Gift
 TAB_CLICK_POSITIONS = {
-    "special": (1602, 2080),
-    "resources": (1827, 2076),
-    "hero": (2257, 2078),
+    "special": (1605, 2065),   # VERIFIED - use template center
+    "resources": (1800, 2070),  # VERIFIED - confirmed activates resources
+    "hero": (2200, 2070),  # VERIFIED - confirmed activates hero (score=0.0034)
 }
 
 
@@ -73,13 +76,18 @@ def detect_active_tab(frame: npt.NDArray[Any], debug: bool = False) -> str | Non
     """
     Detect which bag tab is currently active by matching all active templates.
 
+    Uses fixed search regions for each tab (~1ms each vs ~750ms full-frame).
     Returns the tab name with lowest score that passes threshold, or None.
     """
     best_tab = None
     best_score = 1.0
 
-    for tab_name, template_name in ACTIVE_TAB_TEMPLATES.items():
-        found, min_val, _ = match_template(frame, template_name, threshold=0.1)
+    for tab_name, (template_name, search_region) in ACTIVE_TAB_TEMPLATES.items():
+        found, min_val, _ = match_template(
+            frame, template_name,
+            search_region=search_region,
+            threshold=0.1
+        )
 
         if debug:
             print(f"    {tab_name}: {min_val:.4f}")
