@@ -166,8 +166,8 @@ def _start_app(adb: ADBHelper, debug: bool = False) -> None:
         print("    [RETURN] Polling for game UI to load...")
 
     max_wait = 120  # Max 2 minutes
-    poll_interval = 3
-    waited = 0
+    poll_interval = 0.75  # Fast polling - screenshot is only ~9ms now
+    waited = 0.0
 
     while waited < max_wait:
         time.sleep(poll_interval)
@@ -294,8 +294,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 back_clicks += 1
 
                 # Poll for THAT SPECIFIC template at THAT position to be gone
-                for poll in range(6):  # Up to 1.5s (6 x 0.25s)
-                    time.sleep(0.25)
+                for poll in range(15):  # Up to 1.5s (15 x 0.1s) - fast polling with 9ms screenshots
+                    time.sleep(0.1)
                     poll_frame = win.get_screenshot_cv2()
                     if poll_frame is None:
                         continue  # type: ignore[unreachable]
@@ -314,7 +314,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                                                             near_pos=back_pos, tolerance=30):
                         _save_rtb_debug(poll_frame, f"STEP2_back_dismissed_a{attempt+1}")
                         if debug:
-                            print(f"    [RETURN] Back button ({matched_template}) dismissed after {(poll+1)*0.25:.2f}s")
+                            print(f"    [RETURN] Back button ({matched_template}) dismissed after {(poll+1)*0.1:.2f}s")
                         break  # Original button dismissed, continue to check for more
             else:
                 _save_rtb_debug(frame, f"STEP2_no_back_a{attempt+1}", f"score{back_score:.3f}")
@@ -323,7 +323,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 break
 
         # Phase 2: Check view state again
-        time.sleep(0.5)  # Give UI time to settle
+        time.sleep(0.3)  # Give UI time to settle (reduced - fast screenshots)
         frame = win.get_screenshot_cv2()
         _save_rtb_debug(frame, f"STEP2_phase2_a{attempt+1}")
         if frame is not None:
