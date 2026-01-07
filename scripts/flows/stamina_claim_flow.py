@@ -192,6 +192,18 @@ def stamina_claim_flow(
 
     result["claimed"] = True
     print("    [STAMINA-CLAIM] Flow complete - claimed free stamina!")
+
+    # Update state file - timer resets to 4 hours after claiming
+    try:
+        from utils.current_state import update_stamina_claim_timer
+        update_stamina_claim_timer(
+            seconds_remaining=14400,  # 4 hours until next claim
+            claim_available=False,
+            block_start=None,  # Will be set at next block start check
+        )
+    except Exception as e:
+        print(f"    [STAMINA-CLAIM] Warning: Failed to update state: {e}")
+
     return result
 
 

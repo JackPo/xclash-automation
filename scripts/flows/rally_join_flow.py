@@ -39,6 +39,7 @@ from utils.return_to_base_view import return_to_base_view
 from utils.back_button_matcher import BackButtonMatcher
 from utils.debug_screenshot import save_debug_screenshot
 from utils.safe_grass_matcher import find_safe_grass
+from utils.current_state import update_rally_join_result
 
 # Flow name for debug screenshots
 FLOW_NAME = "rally_join"
@@ -321,7 +322,12 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         union_boss_mode: If True, use any idle hero instead of leftmost only
 
     Returns:
-        dict: {'success': bool, 'monster_name': str | None}
+        dict: {
+            'success': bool,
+            'monster_name': str | None,
+            'level': int | None,
+            'abort_reason': str | None  # Only set if success=False
+        }
     """
     print("[RALLY-JOIN] Starting rally join flow")
 
@@ -343,6 +349,10 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
     )
     hero_selector = HeroSelector()
     back_button_matcher = BackButtonMatcher()
+
+    # Track monster details through the flow for persistence
+    monster_name: str | None = None
+    level: int | None = None
 
     # Step 0: Check for leftover daily limit dialog and dismiss if present
     # This prevents infinite loop when daemon re-triggers flow with dialog still on screen
@@ -373,7 +383,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
             _save_debug_screenshot(frame, "STEP0 AFTER grass click")
 
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': None}
+        update_rally_join_result(False, None, None, "leftover_dialog")
+        return {'success': False, 'monster_name': None, 'level': None, 'abort_reason': 'leftover_dialog'}
 
     # Step 1: Validate panel state
     print("[RALLY-JOIN] Step 1: Validating panel state")
@@ -389,7 +400,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         print(f"[RALLY-JOIN] Panel not valid: {message}. Exiting.")
         _save_debug_screenshot(frame, "STEP1 FAIL panel invalid", message)
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': None}
+        update_rally_join_result(False, None, None, "panel_invalid")
+        return {'success': False, 'monster_name': None, 'level': None, 'abort_reason': 'panel_invalid'}
 
     _save_debug_screenshot(frame, "STEP1 panel valid")
 
@@ -403,7 +415,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         print("[RALLY-JOIN] No rallies available. Exiting.")
         _save_debug_screenshot(frame, "STEP2 FAIL no rallies")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': None}
+        update_rally_join_result(False, None, None, "no_rallies")
+        return {'success': False, 'monster_name': None, 'level': None, 'abort_reason': 'no_rallies'}
 
     # Log all detected plus buttons
     for i, (x, y, score) in enumerate(plus_buttons):
@@ -465,20 +478,23 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
                     print("[RALLY-JOIN]   Panel still open after grass click - recovering")
                     _save_debug_screenshot(frame, f"STEP3 FAIL panel still open")
                     return_to_base_view(adb, win, debug=False)
-                    return {'success': False, 'monster_name': None}
+                    update_rally_join_result(False, monster_name, level, "panel_stuck")
+                    return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'panel_stuck'}
             else:
                 # No grass found - use return_to_base_view to recover
                 print("[RALLY-JOIN]   No grass found - recovering")
                 _save_debug_screenshot(dismiss_frame, f"STEP3 FAIL no grass found")
                 return_to_base_view(adb, win, debug=False)
-                return {'success': False, 'monster_name': None}
+                update_rally_join_result(False, monster_name, level, "no_grass")
+                return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'no_grass'}
     else:
         # No matching rallies found after trying all
         print("[RALLY-JOIN] No matching rallies found. Exiting.")
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, "STEP3 FAIL no matching rallies")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': None}
+        update_rally_join_result(False, monster_name, level, "no_matching_monster")
+        return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'no_matching_monster'}
 
     # Panel is already open from the loop above
     _save_debug_screenshot(frame, "STEP4 before hero selection")
@@ -502,7 +518,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         print("[RALLY-JOIN] No idle heroes found (no Zz icons). Better luck next time!")
         _save_debug_screenshot(frame, "STEP5 FAIL no idle heroes")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': monster_name}
+        update_rally_join_result(False, monster_name, level, "no_idle_heroes")
+        return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'no_idle_heroes'}
 
     print(f"[RALLY-JOIN]   Idle hero found at slot {idle_slot['id']}, clicking")
     _save_debug_screenshot(frame, f"STEP5 CLICKING hero slot {idle_slot['id']}", f"pos={idle_slot['click']}")
@@ -520,7 +537,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         print("[RALLY-JOIN] WARNING: team_up_button_4k.png not found, aborting")
         _save_debug_screenshot(frame, "STEP6 FAIL no teamup template")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': monster_name}
+        update_rally_join_result(False, monster_name, level, "missing_template")
+        return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'missing_template'}
 
     # Poll for Team Up button at fixed region (3s timeout)
     found, frame = _poll_for_button(win, team_up_template, TEAM_UP_REGION,
@@ -529,7 +547,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
         print("[RALLY-JOIN] Team Up button not found at expected region, aborting")
         _save_debug_screenshot(frame, "STEP6 FAIL teamup not found")
         _cleanup_and_exit(adb, win, back_button_matcher)
-        return {'success': False, 'monster_name': monster_name}
+        update_rally_join_result(False, monster_name, level, "teamup_not_found")
+        return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'teamup_not_found'}
 
     _save_debug_screenshot(frame, "STEP6 CLICKING Team Up", f"pos={TEAM_UP_CLICK}")
     # Click at fixed position (button is always here when found)
@@ -606,7 +625,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
             # Cleanup and exit
             _cleanup_and_exit(adb, win, back_button_matcher)
-            return {'success': False, 'monster_name': monster_name}
+            update_rally_join_result(False, monster_name, level, "daily_limit")
+            return {'success': False, 'monster_name': monster_name, 'level': level, 'abort_reason': 'daily_limit'}
 
     time.sleep(0.5)
     frame = win.get_screenshot_cv2()
@@ -617,7 +637,8 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
     _cleanup_and_exit(adb, win, back_button_matcher)
 
     print(f"[RALLY-JOIN] Successfully joined {monster_name} Lv.{level} rally")
-    return {'success': True, 'monster_name': monster_name}
+    update_rally_join_result(True, monster_name, level, None)
+    return {'success': True, 'monster_name': monster_name, 'level': level, 'abort_reason': None}
 
 
 def _cleanup_and_exit(
