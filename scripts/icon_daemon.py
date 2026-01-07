@@ -1988,48 +1988,44 @@ class IconDaemon:
                                     continue  # Keep trying
 
                             # SECOND: Check for back button with masked template (catches dialogs/menus)
-                            back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
-                            if back_found:
-                                # CRITICAL: Check idle before disruptive return_to_base_view
-                                # If user is actively clicking, just tap back button directly
-                                if effective_idle_secs >= self.IDLE_THRESHOLD:
+                            # ONLY recover if user is idle - NEVER click anything while user is active
+                            if effective_idle_secs >= self.IDLE_THRESHOLD:
+                                back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
+                                if back_found:
                                     self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), user idle, using return_to_base_view...")
                                     mark_daemon_action()
                                     return_to_base_view(self.adb, self.windows_helper, debug=False)
-                                else:
-                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), user active (idle={effective_idle_secs:.1f}s), clicking back only...")
-                                    mark_daemon_action()
-                                    click_back(self.adb)
-                                    time.sleep(0.3)
-                                # Re-check view state
-                                new_frame = self.windows_helper.get_screenshot_cv2()
-                                new_state, _ = detect_view(new_frame)
-                                if new_state.name in ("TOWN", "WORLD"):
-                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
-                                    self.unknown_state_start = None
-                                    self.unknown_state_left_time = None
-                                    continue  # Skip rest of iteration, start fresh
-                                else:
-                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying")
-                                    continue  # Keep trying
+                                    # Re-check view state
+                                    new_frame = self.windows_helper.get_screenshot_cv2()
+                                    new_state, _ = detect_view(new_frame)
+                                    if new_state.name in ("TOWN", "WORLD"):
+                                        self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
+                                        self.unknown_state_start = None
+                                        self.unknown_state_left_time = None
+                                        continue  # Skip rest of iteration, start fresh
+                                    else:
+                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying")
+                                        continue  # Keep trying
 
-                            # SECOND: Try safe ground (for floating popups without back button)
-                            ground_pos = find_safe_ground(frame, debug=self.debug)
-                            if ground_pos:
-                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
-                                mark_daemon_action()
-                                self.adb.tap(*ground_pos)
-                                time.sleep(0.5)
-                                # Re-check view state
-                                new_frame = self.windows_helper.get_screenshot_cv2()
-                                new_state, _ = detect_view(new_frame)
-                                if new_state.name in ("TOWN", "WORLD"):
-                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
-                                    self.unknown_state_start = None
-                                    self.unknown_state_left_time = None
-                                    continue  # Skip rest of iteration, start fresh
-                                else:
-                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will retry")
+                            # THIRD: Try safe ground (for floating popups without back button)
+                            # ONLY if user is idle - NEVER click anything while user is active
+                            if effective_idle_secs >= self.IDLE_THRESHOLD:
+                                ground_pos = find_safe_ground(frame, debug=self.debug)
+                                if ground_pos:
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
+                                    mark_daemon_action()
+                                    self.adb.tap(*ground_pos)
+                                    time.sleep(0.5)
+                                    # Re-check view state
+                                    new_frame = self.windows_helper.get_screenshot_cv2()
+                                    new_state, _ = detect_view(new_frame)
+                                    if new_state.name in ("TOWN", "WORLD"):
+                                        self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
+                                        self.unknown_state_start = None
+                                        self.unknown_state_left_time = None
+                                        continue  # Skip rest of iteration, start fresh
+                                    else:
+                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will retry")
 
                         # Full recovery: After 180s AND user is idle, run return_to_base_view
                         # Don't interrupt if user is actively using the game
