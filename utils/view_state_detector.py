@@ -9,6 +9,10 @@ Detection - Button location (3600, 1920) 240x240:
 CHAT detection - Chat header at (1854, 36) 123x59:
 - chat_header_4k.png matches -> CHAT view (NOT back button!)
 
+WEBVIEW detection - Close button at (3700, 10) 150x120:
+- webview_close_button_4k.png matches -> WEBVIEW (community page, etc.)
+- Daemon will NOT try to recover/close this view - user can browse freely
+
 Navigation paths:
 - TOWN -> WORLD: click (3720, 2040) - center of World button
 - WORLD -> TOWN: click (3720, 2040) - center of Town button
@@ -33,6 +37,7 @@ class ViewState(Enum):
     TOWN = "town"
     WORLD = "world"
     CHAT = "chat"
+    WEBVIEW = "webview"  # Community page or other in-game browser
     UNKNOWN = "unknown"
 
 
@@ -47,6 +52,12 @@ CHAT_HEADER_X = 1854
 CHAT_HEADER_Y = 36
 CHAT_HEADER_W = 123
 CHAT_HEADER_H = 59
+
+# Webview close button coordinates (top-right corner of webview)
+WEBVIEW_CLOSE_X = 3700
+WEBVIEW_CLOSE_Y = 10
+WEBVIEW_CLOSE_W = 150
+WEBVIEW_CLOSE_H = 120
 
 # Import from centralized config
 from config import BACK_BUTTON_CLICK, TOGGLE_BUTTON_CLICK
@@ -97,6 +108,20 @@ def detect_view(frame: npt.NDArray[Any], debug: bool = False) -> tuple[ViewState
 
     if found:
         return ViewState.CHAT, score
+
+    # Check for WEBVIEW state (community page or other in-game browser)
+    found, score, _ = match_template(
+        frame,
+        "webview_close_button_4k.png",
+        search_region=(WEBVIEW_CLOSE_X, WEBVIEW_CLOSE_Y, WEBVIEW_CLOSE_W, WEBVIEW_CLOSE_H),
+        threshold=THRESHOLD
+    )
+
+    if debug:
+        print(f"webview_close_button_4k.png: {score:.4f}")
+
+    if found:
+        return ViewState.WEBVIEW, score
 
     return ViewState.UNKNOWN, 1.0
 

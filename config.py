@@ -23,7 +23,8 @@ GOOGLE_API_KEY: str | None = None
 ANTHROPIC_API_KEY: str | None = None
 
 # Daemon timing
-DAEMON_INTERVAL = 2.0              # Check interval (seconds)
+DAEMON_INTERVAL = 2.0              # Main loop interval (seconds) - can go as low as 0.5s with cv2 scaling
+STAMINA_OCR_INTERVAL = 5.0         # Stamina OCR interval (seconds) - expensive, doesn't need to run every loop
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
@@ -221,7 +222,7 @@ THRESHOLDS_SQDIFF = {
     'dog_house': 0.1,
     'cabbage': 0.05,
     'equipment': 0.06,
-    'handshake': 0.04,
+    'handshake': 0.01,  # True positives: 0.000-0.005, false positives: 0.027+
     'treasure_map': 0.05,
     'harvest_box': 0.1,
     'afk_rewards': 0.06,

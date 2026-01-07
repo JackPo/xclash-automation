@@ -75,6 +75,7 @@ from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
 from utils.debug_screenshot import get_daemon_debug
+from utils.ui_helpers import click_back
 
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
@@ -92,11 +93,13 @@ from utils.arms_race_data_collector import (
 from utils.arms_race_panel_helper import check_beast_training_progress, check_arms_race_progress
 from utils.scheduler import get_scheduler
 from utils.config_overrides import get_override_manager
+from utils.current_state import update_stamina, update_view_state, update_daemon_status
 
 # Import configurable parameters
 from config import (
     IDLE_THRESHOLD,
     IDLE_CHECK_INTERVAL,
+    STAMINA_OCR_INTERVAL,
     ELITE_ZOMBIE_STAMINA_THRESHOLD,
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
     AFK_REWARDS_COOLDOWN,
@@ -335,6 +338,11 @@ class IconDaemon:
         # Unified stamina validation - ONE system for all stamina-based triggers
         # Uses StaminaReader for MODE-based confirmation with consistency check
         self.stamina_reader = StaminaReader()
+
+        # Stamina OCR throttling - OCR is expensive (~200ms), no need to run every iteration
+        self.last_stamina_ocr_time: float = 0.0
+        self.cached_stamina: int | None = None
+        self.stamina_ocr_interval = STAMINA_OCR_INTERVAL
 
         # Last detected view state (for dashboard API)
         self.last_view_state: str | None = None
@@ -1136,7 +1144,10 @@ class IconDaemon:
         Run a flow synchronously (blocking) and return its result.
 
         Used by the WebSocket API to wait for flow completion.
+        Records events to scheduler for timeline tracking.
         """
+        from utils.timeline import EXCLUDED_FLOWS, get_flow_category
+
         with self.flow_lock:
             if flow_name in self.active_flows:
                 return {"success": False, "error": f"{flow_name} already running"}
@@ -1149,6 +1160,7 @@ class IconDaemon:
 
             self.active_flows.add(flow_name)
 
+        start_time = time.time()
         try:
             if critical:
                 with self.flow_lock:
@@ -1162,16 +1174,42 @@ class IconDaemon:
             mark_daemon_action()
             # Run flow and capture result
             flow_result = flow_func(self.adb)
+            duration = time.time() - start_time
 
             if critical:
                 self.logger.info(f"CRITICAL FLOW END: {flow_name}")
             else:
                 self.logger.info(f"FLOW END: {flow_name}")
 
+            # Record to event log for timeline (skip harvest/noise flows)
+            if flow_name not in EXCLUDED_FLOWS:
+                result_data = flow_result if isinstance(flow_result, dict) else {"success": bool(flow_result)}
+                self.scheduler.record_event(
+                    flow_name=flow_name,
+                    status="completed",
+                    duration=duration,
+                    result=result_data,
+                    category=get_flow_category(flow_name),
+                    is_critical=critical,
+                )
+
             return {"success": True, "flow": flow_name, "critical": critical, "result": flow_result}
 
         except Exception as e:
+            duration = time.time() - start_time
             self.logger.error(f"FLOW ERROR: {flow_name} - {e}")
+
+            # Record failure to event log
+            if flow_name not in EXCLUDED_FLOWS:
+                self.scheduler.record_event(
+                    flow_name=flow_name,
+                    status="failed",
+                    duration=duration,
+                    result={"error": str(e)},
+                    category=get_flow_category(flow_name),
+                    is_critical=critical,
+                )
+
             return {"success": False, "flow": flow_name, "error": str(e)}
 
         finally:
@@ -1353,14 +1391,21 @@ class IconDaemon:
                     time.sleep(self.interval)
                     continue
 
+                # Get idle time early (needed for foreground check and other decisions)
+                idle_secs_early = get_user_idle_seconds()
+
                 # Periodic state save (every N iterations for resumability)
                 if iteration % self.state_save_interval == 0:
                     self._save_runtime_state()
 
                 # Check if xclash is running and in foreground
                 if not self._is_xclash_in_foreground():
-                    self.logger.warning(f"[{iteration}] xclash not in foreground - running full recovery...")
-                    return_to_base_view(self.adb, self.windows_helper, debug=True)
+                    # Only recover if user is idle - don't interrupt active user
+                    if idle_secs_early >= self.IDLE_THRESHOLD:
+                        self.logger.warning(f"[{iteration}] xclash not in foreground, user idle - running full recovery...")
+                        return_to_base_view(self.adb, self.windows_helper, debug=True)
+                    else:
+                        self.logger.debug(f"[{iteration}] xclash not in foreground, user active (idle={idle_secs_early:.1f}s) - skipping recovery")
                     continue  # Skip this iteration, start fresh
 
                 # Take single screenshot for all checks
@@ -1373,6 +1418,13 @@ class IconDaemon:
                     continue
 
                 # =================================================================
+                # VIEW STATE DETECTION - Run FIRST to know what checks to do
+                # =================================================================
+                view_state_enum, view_score = detect_view(frame)
+                view_state_str = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
+                self.last_view_state = view_state_str  # Store for dashboard API
+
+                # =================================================================
                 # FLOW CANDIDATE COLLECTION
                 # All flow detection adds to this list - NO direct execution here.
                 # At the end of detection, _execute_best_flow() picks ONE to run.
@@ -1380,10 +1432,19 @@ class IconDaemon:
                 # =================================================================
                 flow_candidates: list[FlowCandidate] = []
 
-                # Check IMMEDIATE action icons FIRST (before slow OCR)
+                # Check IMMEDIATE action icons (fixed spots, fast ~1ms each)
+                # Handshake: always check (fixed spot)
                 handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
-                treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
-                harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
+                # Treasure: only in TOWN or WORLD (fixed spot)
+                if view_state_enum in (ViewState.TOWN, ViewState.WORLD):
+                    treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
+                else:
+                    treasure_present, treasure_score = False, 1.0
+                # Harvest box: only in TOWN (fixed spot)
+                if view_state_enum == ViewState.TOWN:
+                    harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
+                else:
+                    harvest_present, harvest_score = False, 1.0
 
                 # Collect immediate actions as candidates (no idle requirements)
                 if handshake_present:
@@ -1395,18 +1456,14 @@ class IconDaemon:
                     ))
 
                 if treasure_present:
-                    # Validate: treasure map can only appear when world/town button visible
-                    view_state, view_score = detect_view(frame)
-                    if view_state in (ViewState.TOWN, ViewState.WORLD):
-                        flow_candidates.append(FlowCandidate(
-                            name="treasure_map",
-                            flow_func=treasure_map_flow,
-                            priority=FlowPriority.URGENT,
-                            critical=True,
-                            reason=f"score={treasure_score:.4f}, view={view_state.value}"
-                        ))
-                    else:
-                        self.logger.warning(f"[{iteration}] TREASURE rejected - no world/town icon (view={view_state.value}, score={treasure_score:.4f})")
+                    # Already validated: treasure only checked in TOWN/WORLD
+                    flow_candidates.append(FlowCandidate(
+                        name="treasure_map",
+                        flow_func=treasure_map_flow,
+                        priority=FlowPriority.URGENT,
+                        critical=True,
+                        reason=f"score={treasure_score:.4f}, view={view_state_str}"
+                    ))
 
                 if harvest_present:
                     flow_candidates.append(FlowCandidate(
@@ -1490,40 +1547,62 @@ class IconDaemon:
                     self.last_ocr_health_check = current_time
                     self._check_ocr_server_health()
 
-                # Extract stamina using OCR server (fast - no model loading)
-                try:
-                    stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
-                    if stamina is None:
+                # Extract stamina using OCR server (throttled - expensive operation)
+                # Only run OCR every STAMINA_OCR_INTERVAL seconds, use cached value otherwise
+                if current_time - self.last_stamina_ocr_time >= self.stamina_ocr_interval:
+                    try:
+                        stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
+                        if stamina is None:
+                            self.ocr_consecutive_failures += 1
+                        else:
+                            self.ocr_consecutive_failures = 0  # Reset on success
+                            self.cached_stamina = stamina  # Cache successful reading
+                        self.last_stamina_ocr_time = current_time
+                    except Exception as ocr_err:
+                        self.logger.warning(f"[{iteration}] OCR error: {ocr_err}")
+                        stamina = None
                         self.ocr_consecutive_failures += 1
-                    else:
-                        self.ocr_consecutive_failures = 0  # Reset on success
-                except Exception as ocr_err:
-                    self.logger.warning(f"[{iteration}] OCR error: {ocr_err}")
-                    stamina = None
-                    self.ocr_consecutive_failures += 1
+                        self.last_stamina_ocr_time = current_time
 
-                # After 3 consecutive OCR failures, try to restart server
-                if self.ocr_consecutive_failures >= 3:
-                    self.logger.warning(f"[{iteration}] {self.ocr_consecutive_failures} consecutive OCR failures, checking server health...")
-                    self._check_ocr_server_health()
-                    self.ocr_consecutive_failures = 0  # Reset counter after check
+                    # After 3 consecutive OCR failures, try to restart server
+                    if self.ocr_consecutive_failures >= 3:
+                        self.logger.warning(f"[{iteration}] {self.ocr_consecutive_failures} consecutive OCR failures, checking server health...")
+                        self._check_ocr_server_health()
+                        self.ocr_consecutive_failures = 0  # Reset counter after check
+                else:
+                    # Use cached stamina value between OCR reads
+                    stamina = self.cached_stamina
 
                 stamina_str = str(stamina) if stamina is not None else "?"
 
-                # Check remaining icons (these need idle/alignment checks anyway)
-                corn_present, corn_score = self.corn_matcher.is_present(frame)
-                gold_present, gold_score = self.gold_matcher.is_present(frame)
-                iron_present, iron_score = self.iron_matcher.is_present(frame)
-                gem_present, gem_score = self.gem_matcher.is_present(frame)
-                cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
-                equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
-                hospital_state, hospital_score = self.hospital_matcher.get_state(frame)
-                afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
-                # Get view state using view_state_detector
-                view_state_enum, view_score = detect_view(frame)
-                view_state_str = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
-                self.last_view_state = view_state_str  # Store for dashboard API
-                back_present, back_score = self.back_button_matcher.is_present(frame)
+                # =================================================================
+                # TOWN-ONLY MATCHERS (bubbles, afk, hospital - all fixed spots)
+                # View state already detected at top of iteration
+                # =================================================================
+                # Initialize all to defaults (not present)
+                corn_present, corn_score = False, 1.0
+                gold_present, gold_score = False, 1.0
+                iron_present, iron_score = False, 1.0
+                gem_present, gem_score = False, 1.0
+                cabbage_present, cabbage_score = False, 1.0
+                equip_present, equip_score = False, 1.0
+                hospital_state, hospital_score = HospitalState.UNKNOWN, 1.0
+                afk_present, afk_score = False, 1.0
+                back_present, back_score = False, 1.0
+
+                # Only check town-specific icons when in TOWN
+                if view_state_enum == ViewState.TOWN:
+                    corn_present, corn_score = self.corn_matcher.is_present(frame)
+                    gold_present, gold_score = self.gold_matcher.is_present(frame)
+                    iron_present, iron_score = self.iron_matcher.is_present(frame)
+                    gem_present, gem_score = self.gem_matcher.is_present(frame)
+                    cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
+                    equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
+                    hospital_state, hospital_score = self.hospital_matcher.get_state(frame)
+                    afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
+
+                # Back button - ONLY checked during UNKNOWN recovery (expensive half-screen search)
+                # Don't waste ~750ms every frame; it's checked in UNKNOWN recovery section when needed
 
                 # DEBUG: Capture screenshot when view is CHAT or UNKNOWN (problematic states)
                 if view_state_enum in (ViewState.CHAT, ViewState.UNKNOWN):
@@ -1534,8 +1613,8 @@ class IconDaemon:
                     get_daemon_debug().capture(frame, iteration, view_state_str, "baseline")
 
                 # Reset UNKNOWN recovery loop counters when we're genuinely out of UNKNOWN
-                # This only resets when detect_view returns TOWN/WORLD, not when return_to_base_view says "success"
-                if view_state_enum in (ViewState.TOWN, ViewState.WORLD) and self.unknown_recovery_count > 0:
+                # This only resets when detect_view returns TOWN/WORLD/WEBVIEW, not when return_to_base_view says "success"
+                if view_state_enum in (ViewState.TOWN, ViewState.WORLD, ViewState.WEBVIEW) and self.unknown_recovery_count > 0:
                     self.logger.debug(f"[{iteration}] UNKNOWN loop counters reset (view={view_state_str})")
                     self.unknown_recovery_count = 0
                     self.unknown_first_recovery_time = None
@@ -1563,8 +1642,8 @@ class IconDaemon:
                 arms_race_remaining = arms_race['time_remaining']
                 arms_race_remaining_mins = int(arms_race_remaining.total_seconds() / 60)
 
-                # Get barracks states
-                barracks_state_str = format_barracks_states(frame)
+                # Get barracks states (TOWN only - they're at fixed positions in town view)
+                barracks_state_str = format_barracks_states(frame) if view_state_enum == ViewState.TOWN else "[B1:? B2:? B3:? B4:?]"
 
                 # Update barracks history EVERY iteration during Soldier Training/VS day
                 # This allows history to build up BEFORE idle threshold is met
@@ -1889,11 +1968,17 @@ class IconDaemon:
                             # SECOND: Check for back button with masked template (catches dialogs/menus)
                             back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
                             if back_found:
-                                self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), using return_to_base_view...")
-                                mark_daemon_action()
-                                # Use return_to_base_view instead of click_back - it has proper recovery logic
-                                # and handles floating panels (like Team Up) that have no back button
-                                return_to_base_view(self.adb, self.windows_helper, debug=False)
+                                # CRITICAL: Check idle before disruptive return_to_base_view
+                                # If user is actively clicking, just tap back button directly
+                                if effective_idle_secs >= self.IDLE_THRESHOLD:
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), user idle, using return_to_base_view...")
+                                    mark_daemon_action()
+                                    return_to_base_view(self.adb, self.windows_helper, debug=False)
+                                else:
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), user active (idle={effective_idle_secs:.1f}s), clicking back only...")
+                                    mark_daemon_action()
+                                    click_back(self.adb)
+                                    time.sleep(0.3)
                                 # Re-check view state
                                 new_frame = self.windows_helper.get_screenshot_cv2()
                                 new_state, _ = detect_view(new_frame)
@@ -1991,6 +2076,17 @@ class IconDaemon:
                 # Requires 3 consistent readings (max-min <= 10), returns MODE value
                 stamina_confirmed, confirmed_stamina = self.stamina_reader.add_reading(stamina)
 
+                # Persist stamina to state file (throttled - only when confirmed or every 30s)
+                if stamina_confirmed and confirmed_stamina is not None:
+                    # Only persist when we have a confirmed reading
+                    if not hasattr(self, '_last_persisted_stamina') or self._last_persisted_stamina != confirmed_stamina:
+                        update_stamina(confirmed_stamina, view_state_str)
+                        self._last_persisted_stamina = confirmed_stamina
+
+                # Persist view state periodically (every 10 iterations = 30s)
+                if iteration % 10 == 0:
+                    update_view_state(view_state_str)
+
                 # =================================================================
                 # PRE-BEAST TRAINING: Claim stamina + block elite rallies before event
                 # =================================================================
@@ -2086,6 +2182,22 @@ class IconDaemon:
                         self.beast_training_current_block = block_start
                         self.beast_training_rally_count = 0
                         self.beast_training_use_count = 0  # Reset Use count for new block
+
+                        # Check stamina claim timer ONCE at block start (avoid repeated popup checks)
+                        from flows.stamina_claim_flow import check_claim_status
+                        from utils.current_state import update_stamina_claim_timer
+                        try:
+                            claim_status = check_claim_status(self.adb, self.windows_helper)
+                            update_stamina_claim_timer(
+                                seconds_remaining=claim_status.get("timer_seconds"),
+                                claim_available=claim_status.get("claim_available", False),
+                                block_start=block_start.isoformat() if block_start else None,
+                            )
+                            timer_info = f", free claim in {claim_status.get('timer_seconds', 0) // 60}min" if claim_status.get("timer_seconds") else ", claim available!" if claim_status.get("claim_available") else ""
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: Checked stamina timer at block start{timer_info}")
+                        except Exception as e:
+                            self.logger.warning(f"[{iteration}] BEAST TRAINING: Failed to check stamina timer: {e}")
+
                         # Check if there's a pre-set target for this block
                         arms_race_state = self.scheduler.get_arms_race_state()
                         next_target = arms_race_state.get("beast_training_next_target_rallies")
@@ -2287,9 +2399,21 @@ class IconDaemon:
 
                         # SMART CHECK: Will free claim be available before event ends?
                         # If yes, WAIT for it instead of using recovery items
-                        from flows.stamina_claim_flow import check_claim_status
-                        claim_status = check_claim_status(self.adb, self.windows_helper)
-                        timer_seconds = claim_status.get("timer_seconds")
+                        # Read timer from state file (checked once at block start)
+                        from utils.current_state import get_full_state
+                        state = get_full_state()
+                        timer_data = state.get("stamina_claim_timer", {})
+                        timer_seconds: int | None = timer_data.get("seconds_remaining")
+
+                        # Adjust for elapsed time since we checked at block start
+                        if timer_seconds is not None and timer_data.get("checked_at"):
+                            try:
+                                checked_at = datetime.fromisoformat(timer_data["checked_at"])
+                                elapsed = (datetime.now(timezone.utc) - checked_at).total_seconds()
+                                timer_seconds = max(0, timer_seconds - int(elapsed))
+                            except (ValueError, TypeError):
+                                pass  # Keep original timer_seconds if datetime parsing fails
+
                         event_remaining_seconds = arms_race_remaining_mins * 60
 
                         if timer_seconds is not None and timer_seconds < event_remaining_seconds:
