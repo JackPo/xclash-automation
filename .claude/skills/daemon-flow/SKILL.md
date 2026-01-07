@@ -1,7 +1,7 @@
 ---
 name: daemon-flow
-description: Control daemon via WebSocket - run flows, change zombie mode, apply titles. Use for "run flow", "zombie attack", "iron zombie", "gold zombie", "clear zombie mode", "switch to elite", "apply title", "minister of construction", "get status", "stamina".
-allowed-tools: Bash
+description: Control daemon via WebSocket - run flows, change zombie mode, apply titles. Use for "run flow", "zombie attack", "iron zombie", "gold zombie", "clear zombie mode", "switch to elite", "apply title", "minister of construction", "get status", "stamina". Also for daemon internals, flow documentation.
+allowed-tools: Bash, Read
 ---
 
 # Daemon WebSocket Control
@@ -192,3 +192,10 @@ powershell -Command "Get-Process python* | Format-Table Id, ProcessName, StartTi
 # Check daemon log
 powershell -Command "Get-Content 'C:\Users\mail\xclash\logs\current_daemon.log' -Tail 20"
 ```
+
+---
+
+## Additional Documentation
+
+- `FLOWS.md` - Detailed flow documentation (all triggers, sequences, templates)
+- `DAEMON.md` - Daemon internals (idle detection, flow coordination, OCR)

@@ -167,10 +167,12 @@ cv2.imwrite('templates/ground_truth/element_4k.png', roi)
 ## Files
 
 - `TEMPLATE_MATCHING.md` - Matcher class patterns and examples
+- `TEMPLATE_EXTRACTION.md` - Extraction workflows (correlation, masks)
 - `GEMINI_DETECTION.md` - Gemini workflow and prompt refinement
 
 ## See Also
 
+- `template-catalog` skill - Full template reference with positions/thresholds
 - `utils/view_state_detector.py` - View detection implementation
 - `calibration/detect_object.py` - Gemini detection script
 - `templates/ground_truth/` - All template images
