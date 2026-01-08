@@ -194,19 +194,9 @@ def match_template(
         return False, 1.0, None
 
     if mask is not None:
-        # Masked matching requires grayscale
-        if not grayscale:
-            search_area_gray = cv2.cvtColor(search_area, cv2.COLOR_BGR2GRAY) if len(search_area.shape) == 3 else search_area
-            template_gray = _load_template(template_name, grayscale=True)
-        else:
-            search_area_gray = search_area
-            template_gray = template
-
-        if template_gray is None:
-            return False, 1.0, None
-
-        # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
-        result = cv2.matchTemplate(search_area_gray, template_gray, cv2.TM_CCORR_NORMED, mask=mask)
+        # Masked matching - use COLOR for better blue/white discrimination
+        # TM_CCOEFF_NORMED with color gives blue=1.0, white=0.66 separation
+        result = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED, mask=mask)
         _, max_val, _, max_loc = cv2.minMaxLoc(result)
         location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
 
