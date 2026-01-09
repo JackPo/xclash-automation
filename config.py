@@ -205,18 +205,16 @@ EQUIPMENT_BUBBLE = {
 # =============================================================================
 # DETECTION THRESHOLDS
 # NOTE: Using COLOR matching. Masks auto-detected by template_matcher.
-#
-# MASKED templates (*_mask_4k.png exists): score ~1.0 = match, threshold is MINIMUM
-# NON-MASKED templates: score ~0.0 = match, threshold is MAXIMUM
+# ALL templates use lower=better scores. Threshold is MAXIMUM score allowed.
 # =============================================================================
 
-# Masked templates - threshold is MINIMUM score required (score >= threshold)
-# These have *_mask_4k.png files, use TM_CCORR_NORMED
+# Masked templates - threshold is MAXIMUM score allowed (score <= threshold)
+# These have *_mask_4k.png files, use TM_CCORR_NORMED (score converted to lower=better)
 THRESHOLDS_MASKED = {
-    'corn': 0.99,       # corn_harvest_bubble_mask_4k.png
-    'gold': 0.99,       # gold_coin_tight_mask_4k.png
-    'iron': 0.99,       # iron_bar_tight_mask_4k.png
-    'gem': 0.99,        # gem_tight_mask_4k.png
+    'corn': 0.05,       # corn_harvest_bubble_mask_4k.png
+    'gold': 0.05,       # gold_coin_tight_mask_4k.png
+    'iron': 0.05,       # iron_bar_tight_mask_4k.png
+    'gem': 0.05,        # gem_tight_mask_4k.png
 }
 
 # Non-masked templates - threshold is MAXIMUM score allowed (score <= threshold)
