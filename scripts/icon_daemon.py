@@ -74,7 +74,7 @@ from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_s
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
-from utils.debug_screenshot import get_daemon_debug
+from utils.debug_screenshot import get_daemon_debug, cleanup_old_screenshots
 from utils.ui_helpers import click_back
 
 # Disconnection dialog wait time (user playing on mobile)
@@ -420,6 +420,10 @@ class IconDaemon:
 
         # VS Event overrides - soldier promotions all day on specific days
         self.VS_SOLDIER_PROMOTION_DAYS = VS_SOLDIER_PROMOTION_DAYS
+
+        # Screenshot cleanup - every 6 hours
+        self.SCREENSHOT_CLEANUP_INTERVAL = 6 * 60 * 60  # 6 hours
+        self.last_screenshot_cleanup: float = 0
 
         # Barracks state validation - require 10 readings with 60%+ being a specific state
         # Allows UNKNOWN (?) readings as long as 60%+ are a consistent letter (R, P, or T)
@@ -1374,6 +1378,10 @@ class IconDaemon:
         print("Press Ctrl+C to stop")
         print("=" * 60)
 
+        # Cleanup old screenshots (>3 days) on startup
+        cleanup_old_screenshots()
+        self.last_screenshot_cleanup = time.time()
+
         # Check resolution immediately on startup
         self._check_resolution(0)
 
@@ -1432,6 +1440,12 @@ class IconDaemon:
 
                 # Take single screenshot for all checks
                 frame = self.windows_helper.get_screenshot_cv2()
+
+                # Periodic screenshot cleanup (every 6 hours)
+                current_time_for_cleanup = time.time()
+                if current_time_for_cleanup - self.last_screenshot_cleanup > self.SCREENSHOT_CLEANUP_INTERVAL:
+                    self.last_screenshot_cleanup = current_time_for_cleanup
+                    cleanup_old_screenshots()
 
                 # Skip all daemon checks if critical flow is active
                 if self.critical_flow_active:
@@ -1963,7 +1977,9 @@ class IconDaemon:
                                 self.disconnection_dialog_detected_time = None
 
                         # RECOVERY - try every iteration once user is idle
-                        if effective_idle_secs >= self.IDLE_THRESHOLD and unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
+                        # Require at least 3 seconds in UNKNOWN to avoid false triggers from intermittent bad frames
+                        UNKNOWN_MIN_DURATION = 3  # Minimum seconds in UNKNOWN before recovery starts
+                        if effective_idle_secs >= self.IDLE_THRESHOLD and unknown_duration >= UNKNOWN_MIN_DURATION and unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
                             from utils.template_matcher import match_template
                             from utils.safe_ground_matcher import find_safe_ground
                             from utils.shaded_button_helper import is_button_shaded, BUTTON_CLICK
@@ -1990,7 +2006,7 @@ class IconDaemon:
                             # SECOND: Check for back button with masked template (catches dialogs/menus)
                             # ONLY recover if user is idle - NEVER click anything while user is active
                             if effective_idle_secs >= self.IDLE_THRESHOLD:
-                                back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.98)
+                                back_found, back_score, back_pos = match_template(frame, "back_button_union_4k.png", threshold=0.02)
                                 if back_found:
                                     self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Back button detected (score={back_score:.4f}), user idle, using return_to_base_view...")
                                     mark_daemon_action()

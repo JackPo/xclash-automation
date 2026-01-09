@@ -1,11 +1,11 @@
 """
-Multi-read stamina confirmation with consistency validation.
+Multi-read stamina confirmation.
 
 The problem: OCR occasionally misreads stamina values (e.g., reads 23 when it's 5).
 Using LAST value in history causes false rally triggers.
 
-Solution: Require 3 consistent readings and use MODE (most common value).
-If readings vary too much (e.g., [5, 5, 23]), reset and start fresh.
+Solution: Require 3 readings and use MODE (most common value).
+This handles occasional OCR glitches while allowing fast adaptation to stamina changes.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from collections import Counter
 
 class StaminaReader:
     """
-    Multi-read stamina confirmation with consistency validation.
+    Multi-read stamina confirmation.
 
     Usage:
         reader = StaminaReader()
@@ -27,7 +27,6 @@ class StaminaReader:
     """
 
     REQUIRED_READINGS = 3
-    MAX_VARIANCE = 10  # Max allowed difference between min/max
 
     def __init__(self) -> None:
         self.history: list[int] = []
@@ -40,7 +39,7 @@ class StaminaReader:
             stamina: OCR-extracted stamina value, or None if extraction failed
 
         Returns:
-            (True, stamina) if 3 consistent readings confirm the value
+            (True, stamina) if 3 readings available (uses mode)
             (False, None) otherwise
         """
         # Invalid reading resets history
@@ -59,14 +58,7 @@ class StaminaReader:
         if len(self.history) < self.REQUIRED_READINGS:
             return False, None
 
-        # Check consistency of ALL values
-        min_val, max_val = min(self.history), max(self.history)
-        if max_val - min_val > self.MAX_VARIANCE:
-            # Values too spread - reset and start fresh with current reading
-            self.history = [stamina]
-            return False, None
-
-        # Use MODE (most common value)
+        # Use MODE (most common value) - handles occasional OCR glitches
         confirmed = Counter(self.history).most_common(1)[0][0]
         return True, confirmed
 

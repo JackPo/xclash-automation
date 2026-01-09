@@ -7,8 +7,8 @@ Naming convention:
 - Template: `<name>_4k.png`
 - Mask: `<name>_mask_4k.png`
 
-If mask exists, uses TM_CCORR_NORMED (higher=better, score ~1.0 is perfect).
-If no mask, uses TM_SQDIFF_NORMED (lower=better, score ~0.0 is perfect).
+Uses TM_SQDIFF_NORMED for non-masked, TM_CCORR_NORMED for masked (converted to lower=better).
+Score ~0.0 is always a perfect match.
 
 Usage:
     from utils.template_matcher import match_template
@@ -47,9 +47,9 @@ _templates_gray: dict[str, NDArray | None] = {}
 _masks: dict[str, NDArray | None] = {}
 _mask_exists: dict[str, bool] = {}  # Cache for mask existence checks
 
-# Default thresholds
-DEFAULT_SQDIFF_THRESHOLD = 0.1   # Max score for TM_SQDIFF_NORMED (lower=better)
-DEFAULT_CCORR_THRESHOLD = 0.90   # Min score for TM_CCORR_NORMED with mask (higher=better)
+# Default thresholds (all TM_SQDIFF_NORMED: lower=better)
+DEFAULT_THRESHOLD = 0.1   # Max score for TM_SQDIFF_NORMED
+DEFAULT_MASKED_THRESHOLD = 0.05   # Stricter threshold for masked matching
 
 
 def _get_mask_name(template_name: str) -> str:
@@ -140,28 +140,20 @@ def match_template(
     Uses COLOR matching by default. Set grayscale=True for grayscale matching.
 
     If a mask file exists (e.g., search_button_mask_4k.png for search_button_4k.png),
-    it will be used automatically with TM_CCORR_NORMED matching.
-    Otherwise, standard TM_SQDIFF_NORMED matching is used.
+    it will be used automatically with TM_CCORR_NORMED matching (score converted to lower=better).
 
     Args:
         frame: BGR image
         template_name: Name of template file (e.g., "search_button_4k.png")
         search_region: Optional (x, y, w, h) to limit search area
-        threshold: Override default threshold.
-                   - For masked (TM_CCORR_NORMED): min required score (default 0.95)
-                   - For non-masked (TM_SQDIFF_NORMED): max allowed score (default 0.1)
+        threshold: Override default threshold (max allowed score, lower=better)
         grayscale: Use grayscale matching instead of color (default False)
 
     Returns:
         (found: bool, score: float, location: tuple or None)
-        - found: True if match meets threshold
-        - score: Raw matching score (interpretation depends on method)
+        - found: True if match meets threshold (score <= threshold)
+        - score: Raw matching score (lower = better, ~0.0 is perfect)
         - location: Center point (x, y) in original frame coordinates, or None if template not found
-
-    Note:
-        Score semantics differ by method:
-        - Masked (TM_CCORR_NORMED): higher = better, ~1.0 is perfect match
-        - Non-masked (TM_SQDIFF_NORMED): lower = better, ~0.0 is perfect match
     """
     template = _load_template(template_name, grayscale=grayscale)
     if template is None:
@@ -194,22 +186,26 @@ def match_template(
         return False, 1.0, None
 
     if mask is not None:
-        # Masked matching - use COLOR for better blue/white discrimination
-        # TM_CCOEFF_NORMED with color gives blue=1.0, white=0.66 separation
-        result = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED, mask=mask)
+        # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
+        # Note: TM_SQDIFF_NORMED doesn't work correctly with masks in OpenCV
+        result = cv2.matchTemplate(search_area, template, cv2.TM_CCORR_NORMED, mask=mask)
         _, max_val, _, max_loc = cv2.minMaxLoc(result)
         location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
 
-        thresh = threshold if threshold is not None else DEFAULT_CCORR_THRESHOLD
-        found = max_val >= thresh
-        return found, max_val, location
+        # Convert to SQDIFF-like score for consistent interface (lower = better)
+        # TM_CCORR_NORMED: 1.0 = perfect, 0.0 = worst
+        # Convert: score = 1.0 - max_val, so 0.0 = perfect, 1.0 = worst
+        score = 1.0 - max_val
+        thresh = threshold if threshold is not None else DEFAULT_MASKED_THRESHOLD
+        found = score <= thresh
+        return found, score, location
     else:
         # Standard matching - TM_SQDIFF_NORMED (lower = better, ~0.0 is perfect)
         result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
         min_val, _, min_loc, _ = cv2.minMaxLoc(result)
         location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
 
-        thresh = threshold if threshold is not None else DEFAULT_SQDIFF_THRESHOLD
+        thresh = threshold if threshold is not None else DEFAULT_THRESHOLD
         found = min_val <= thresh
         return found, min_val, location
 

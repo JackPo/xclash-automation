@@ -11,6 +11,8 @@ Usage:
     # For comprehensive daemon debugging:
     debug = DaemonDebugCapture()
     debug.capture(frame, iteration, view_state, "flow_start", "elite_zombie")
+
+Controlled by config.DEBUG_SCREENSHOTS_ENABLED (default: False)
 """
 
 from __future__ import annotations
@@ -25,6 +27,12 @@ import time
 if TYPE_CHECKING:
     import numpy.typing as npt
 
+# Import config flag
+try:
+    from config import DEBUG_SCREENSHOTS_ENABLED
+except ImportError:
+    DEBUG_SCREENSHOTS_ENABLED = False
+
 # Base debug directory
 DEBUG_BASE = Path(__file__).parent.parent / "templates" / "debug"
 
@@ -35,6 +43,59 @@ DAEMON_DEBUG_BASE = Path(__file__).parent.parent / "screenshots" / "daemon_debug
 MAX_DISK_USAGE_GB = 50
 CLEANUP_THRESHOLD_GB = 45
 CLEANUP_INTERVAL_SECONDS = 1800  # Check every 30 min
+MAX_AGE_DAYS = 3  # Delete screenshots older than this
+
+# All screenshot directories to clean
+SCREENSHOT_DIRS = [
+    Path(__file__).parent.parent / "templates" / "debug",
+    Path(__file__).parent.parent / "screenshots" / "debug",
+    Path(__file__).parent.parent / "screenshots" / "daemon_debug",
+]
+
+
+def cleanup_old_screenshots(max_age_days: int = MAX_AGE_DAYS) -> int:
+    """
+    Remove screenshots older than max_age_days from all screenshot directories.
+
+    Call this on daemon startup to prevent disk from filling up.
+
+    Args:
+        max_age_days: Maximum age in days (default 3)
+
+    Returns:
+        Number of files removed
+    """
+    cutoff = time.time() - (max_age_days * 24 * 60 * 60)
+    removed = 0
+
+    for base_dir in SCREENSHOT_DIRS:
+        if not base_dir.exists():
+            continue
+
+        try:
+            for f in base_dir.rglob("*.png"):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink()
+                        removed += 1
+                except Exception:
+                    pass
+
+            # Remove empty directories
+            for d in list(base_dir.rglob("*")):
+                if d.is_dir():
+                    try:
+                        if not any(d.iterdir()):
+                            d.rmdir()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if removed > 0:
+        print(f"[CLEANUP] Removed {removed} screenshots older than {max_age_days} days")
+
+    return removed
 
 
 def save_debug_screenshot(frame: npt.NDArray[Any], flow_name: str, label: str) -> str:
@@ -47,8 +108,11 @@ def save_debug_screenshot(frame: npt.NDArray[Any], flow_name: str, label: str) -
         label: Description label for filename (e.g., "FAIL_step0_panel_not_open")
 
     Returns:
-        str: Path to saved file
+        str: Path to saved file, or empty string if disabled
     """
+    if not DEBUG_SCREENSHOTS_ENABLED:
+        return ""
+
     # Create subdirectory for this flow
     debug_dir = DEBUG_BASE / flow_name
     debug_dir.mkdir(parents=True, exist_ok=True)
@@ -96,7 +160,7 @@ class DaemonDebugCapture:
         self.last_cleanup = 0.0
         self.last_view_state = None
         self.capture_count = 0
-        self.enabled = True
+        self.enabled = DEBUG_SCREENSHOTS_ENABLED  # Controlled by config
 
         # Create today's directory
         self._update_daily_dir()

@@ -28,6 +28,9 @@ STAMINA_OCR_INTERVAL = 5.0         # Stamina OCR interval (seconds) - expensive,
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
+# Debug screenshots
+DEBUG_SCREENSHOTS_ENABLED = False  # Set to True to save debug screenshots (fills disk quickly!)
+
 # WebSocket API server
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
 DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
