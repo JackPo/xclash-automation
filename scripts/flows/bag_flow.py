@@ -32,8 +32,19 @@ if str(_script_dir) not in sys.path:
 
 import cv2
 import numpy as np
+from datetime import datetime
 
 from utils.template_matcher import match_template
+
+DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "screenshots" / "debug"
+
+def _save_debug(frame: npt.NDArray[Any], step: str) -> None:
+    """Save debug screenshot with timestamp and step name."""
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%H%M%S_%f")[:-3]
+    path = DEBUG_DIR / f"bag_{ts}_{step}.png"
+    cv2.imwrite(str(path), frame)
+    logger.info(f"[BAG DEBUG] Saved: {path.name}")
 from scripts.flows.bag_special_flow import bag_special_flow
 from scripts.flows.bag_hero_flow import bag_hero_flow
 from scripts.flows.bag_resources_flow import bag_resources_flow
@@ -42,25 +53,24 @@ from utils.view_state_detector import go_to_town
 
 # Fixed positions (4K resolution)
 # Template excludes notification badge area (top-right corner)
-BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_REGION = (3659, 1556, 132, 127)
 BAG_BUTTON_CLICK = (3725, 1624)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
 from utils.ui_helpers import click_back
 
-# Thresholds: bag_button has mask (CCORR, higher=better), bag_tab no mask (SQDIFF, lower=better)
-BAG_BUTTON_THRESHOLD = 0.97  # CCORR - masked template
-BAG_TAB_THRESHOLD = 0.05     # SQDIFF - no mask
+# Thresholds: all SQDIFF (lower=better)
+BAG_BUTTON_THRESHOLD = 0.05  # SQDIFF_NORMED - masked template
+BAG_TAB_THRESHOLD = 0.05     # SQDIFF_NORMED - no mask
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
 
 # Active tab templates at FIXED positions (no searching - exact location match)
-# Region calculated from FULL-SCREEN search: center - (w/2, h/2)
-# ALL VERIFIED via systematic full-screen search when each tab is active
+# Regions must be LARGER than templates for matching to work
 ACTIVE_TAB_TEMPLATES = {
-    "special": ("bag_special_tab_active_4k.png", (1520, 2015, 170, 100)),   # center (1605, 2065) VERIFIED
-    "resources": ("bag_resources_tab_active_4k.png", (1760, 2045, 120, 70)),  # center (1820, 2080) VERIFIED
-    "hero": ("bag_hero_tab_active_4k.png", (2130, 2015, 170, 100)),  # center (2215, 2065) VERIFIED
+    "special": ("bag_special_tab_active_4k.png", (1480, 2000, 230, 150)),   # template 211x134
+    "resources": ("bag_resources_tab_active_4k.png", (1720, 2010, 200, 130)),  # template 179x111
+    "hero": ("bag_hero_tab_active_4k.png", (2150, 2008, 230, 145)),  # template 200x127
 }
 
 # Tab click positions (4K) - ALL VERIFIED via sweep test
@@ -106,35 +116,33 @@ def switch_to_tab(adb: ADBHelper, win: WindowsScreenshotHelper, target_tab: str,
     Returns True if successfully on target tab.
     """
     frame = win.get_screenshot_cv2()
+    _save_debug(frame, f"tab_before_{target_tab}")
     current_tab = detect_active_tab(frame, debug=debug)
 
     if current_tab == target_tab:
-        if debug:
-            print(f"  Already on {target_tab} tab")
+        logger.info(f"[BAG] Already on {target_tab} tab")
         return True
 
     if target_tab not in TAB_CLICK_POSITIONS:
-        if debug:
-            print(f"  Unknown tab: {target_tab}")
+        logger.warning(f"[BAG] Unknown tab: {target_tab}")
         return False
 
-    if debug:
-        print(f"  Current tab: {current_tab}, switching to {target_tab}...")
+    click_pos = TAB_CLICK_POSITIONS[target_tab]
+    logger.info(f"[BAG] Current tab: {current_tab}, switching to {target_tab} at {click_pos}...")
 
-    adb.tap(*TAB_CLICK_POSITIONS[target_tab])
+    adb.tap(*click_pos)
     time.sleep(0.5)
 
     # Verify switch
     frame = win.get_screenshot_cv2()
+    _save_debug(frame, f"tab_after_{target_tab}")
     new_tab = detect_active_tab(frame, debug=debug)
 
     if new_tab == target_tab:
-        if debug:
-            print(f"  Switched to {target_tab} tab")
+        logger.info(f"[BAG] Switched to {target_tab} tab")
         return True
     else:
-        if debug:
-            print(f"  Failed to switch, still on {new_tab}")
+        logger.warning(f"[BAG] Failed to switch, still on {new_tab}")
         return False
 
 
@@ -160,15 +168,21 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
     go_to_town(adb, debug=debug)
     time.sleep(0.5)
 
-    # Step 1: Verify bag button visible (confirms we're in TOWN)
+    # DEBUG: Screenshot after go_to_town
     frame = win.get_screenshot_cv2()
-    is_present, score, _ = match_template(
+    _save_debug(frame, "01_after_go_to_town")
+
+    # Step 1: Verify bag button visible (confirms we're in TOWN)
+    is_present, score, location = match_template(
         frame, "bag_button_4k.png",
         search_region=BAG_BUTTON_REGION,
         threshold=BAG_BUTTON_THRESHOLD
     )
+    logger.info(f"[BAG] Bag button check: present={is_present}, score={score:.4f}, location={location}, region={BAG_BUTTON_REGION}")
+
     if not is_present:
         logger.warning(f"[BAG] Bag button not found (score={score:.4f}), aborting")
+        _save_debug(frame, "01b_bag_button_NOT_FOUND")
         return results
 
     logger.info(f"[BAG] Bag button verified (score={score:.4f})")
@@ -178,8 +192,11 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
     adb.tap(*BAG_BUTTON_CLICK)
     time.sleep(1.5)
 
-    # Verify bag opened
+    # DEBUG: Screenshot after bag click
     frame = win.get_screenshot_cv2()
+    _save_debug(frame, "02_after_bag_click")
+
+    # Verify bag opened
     is_present, score, _ = match_template(
         frame, "bag_tab_4k.png",
         search_region=BAG_TAB_REGION,
@@ -187,6 +204,7 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
     )
     if not is_present:
         logger.warning(f"[BAG] Bag didn't open (tab score={score:.4f}), running recovery")
+        _save_debug(frame, "02b_bag_NOT_OPENED")
         return_to_base_view(adb, win, debug=debug)
         return results
 
@@ -197,6 +215,8 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
     if switch_to_tab(adb, win, "special", debug=debug):
         results["special"] = bag_special_flow(adb, win, debug=debug, open_bag=False)
         logger.info(f"[BAG] Special tab claimed: {results['special']}")
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "03_after_special")
     else:
         logger.warning("[BAG] Failed to switch to Special tab")
 
@@ -205,6 +225,8 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
     if switch_to_tab(adb, win, "hero", debug=debug):
         results["hero"] = bag_hero_flow(adb, win, debug=debug, open_bag=False)
         logger.info(f"[BAG] Hero tab claimed: {results['hero']}")
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "04_after_hero")
     else:
         logger.warning("[BAG] Failed to switch to Hero tab")
 
@@ -213,14 +235,20 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
     if switch_to_tab(adb, win, "resources", debug=debug):
         results["resources"] = bag_resources_flow(adb, win, debug=debug, open_bag=False)
         logger.info(f"[BAG] Resources tab claimed: {results['resources']}")
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "05_after_resources")
     else:
         logger.warning("[BAG] Failed to switch to Resources tab")
 
     # Step 6: Close bag and return to base view
     logger.info("[BAG] Step 6: Closing bag...")
+    frame = win.get_screenshot_cv2()
+    _save_debug(frame, "06_before_close")
     click_back(adb)
     time.sleep(0.5)
 
+    frame = win.get_screenshot_cv2()
+    _save_debug(frame, "07_after_close")
     return_to_base_view(adb, win, debug=debug)
 
     logger.info(f"[BAG] Complete: Special={results['special']}, Hero={results['hero']}, Resources={results['resources']}")

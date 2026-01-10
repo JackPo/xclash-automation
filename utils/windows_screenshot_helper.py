@@ -173,6 +173,9 @@ class WindowsScreenshotHelper:
         Returns:
             np.ndarray: BGR image at 4K resolution (3840x2160x3)
         """
+        # Re-find window handle in case it became stale
+        self._find_window()
+
         # Ensure consistent window size before capture
         self.ensure_window_size()
 

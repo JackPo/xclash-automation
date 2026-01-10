@@ -2,15 +2,9 @@
 Bag Resources Tab Flow - Diamond claiming.
 
 Opens the bag, goes to Resources tab, finds diamond tiles one at a time,
-and uses them (drag slider to max, click Use). Rescans after each use
-since items shift position.
+and uses them. Rescans after each use since items shift position.
 
-Templates used:
-- bag_button_4k.png - Verify bag button present
-- bag_diamond_icon_4k.png - Find diamond tiles (threshold 0.05)
-- use_button_4k.png - Verify use dialog opened
-- plus_button_4k.png - Verify plus button present
-- slider_circle_4k.png - Find slider position to drag
+All matching uses template_matcher with COLOR images (no grayscale).
 """
 from __future__ import annotations
 
@@ -19,98 +13,57 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# Add parent dirs to path for imports
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
 
-import cv2
-import numpy as np
 import numpy.typing as npt
 
 from scripts.flows.bag_use_item_subflow import use_item_subflow
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.template_matcher import match_template
+from utils.ui_helpers import click_back
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
 # Fixed positions (4K resolution)
-BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_REGION = (3659, 1556, 132, 127)
 BAG_BUTTON_CLICK = (3725, 1624)
 
-RESOURCES_TAB_REGION = (1760, 2045, 120, 70)  # Same region for active/inactive
-RESOURCES_TAB_CLICK = (1820, 2080)
+RESOURCES_TAB_REGION = (1720, 2010, 200, 130)  # Must be larger than template (179x111)
+RESOURCES_TAB_CLICK = (1817, 2073)  # Exact center from full-screen match
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
 
 # Bag content region - ONLY search for items within this area (not full screen)
 BAG_CONTENT_REGION = (1337, 137, 1161, 1871)  # x, y, w, h - the white item grid
 
-# Thresholds
-DIAMOND_THRESHOLD = 0.01
-VERIFICATION_THRESHOLD = 0.01
-
-# Template paths
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
-
-
-def _load_template(name: str) -> npt.NDArray[Any]:
-    """Load a template image in grayscale."""
-    path = TEMPLATES_DIR / name
-    template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        raise FileNotFoundError(f"Template not found: {path}")
-    return template
-
-
-def _verify_at_fixed_region(
-    frame_gray: npt.NDArray[Any],
-    template: npt.NDArray[Any],
-    region: tuple[int, int, int, int],
-    threshold: float = VERIFICATION_THRESHOLD,
-) -> tuple[bool, float]:
-    """
-    Verify template is present at fixed region.
-
-    Returns:
-        (is_present, score)
-    """
-    x, y, w, h = region
-    roi = frame_gray[y:y+h, x:x+w]
-
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-
-    return min_val <= threshold, min_val
+# Thresholds - SQDIFF (lower is better)
+DIAMOND_THRESHOLD = 0.02
+VERIFICATION_THRESHOLD = 0.015
 
 
 def _find_first_diamond(
-    frame_gray: npt.NDArray[Any],
-    template: npt.NDArray[Any],
+    frame: npt.NDArray[Any],
+    debug: bool = False,
 ) -> tuple[tuple[int, int] | None, float]:
     """
-    Find the first (best matching) diamond in the bag content region.
-
-    Only searches within BAG_CONTENT_REGION for speed (~50ms vs ~750ms).
+    Find the first (best matching) diamond in the bag content region using COLOR matching.
 
     Returns:
         ((center_x, center_y), score) or (None, score) if not found
     """
-    # Crop to bag content region for faster search
-    rx, ry, rw, rh = BAG_CONTENT_REGION
-    roi = frame_gray[ry:ry+rh, rx:rx+rw]
+    found, score, location = match_template(
+        frame, "bag_diamond_icon_4k.png",
+        search_region=BAG_CONTENT_REGION,
+        threshold=DIAMOND_THRESHOLD
+    )
 
-    h, w = template.shape
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-
-    if min_val <= DIAMOND_THRESHOLD:
-        # Convert ROI coords back to full-frame coords
-        center_x = rx + min_loc[0] + w // 2
-        center_y = ry + min_loc[1] + h // 2
-        return (center_x, center_y), min_val
-    return None, min_val
+    if found and location:
+        return location, score
+    return None, score
 
 
 def bag_resources_flow(
@@ -134,14 +87,7 @@ def bag_resources_flow(
         Number of diamonds claimed
     """
     if win is None:
-            win = WindowsScreenshotHelper()
-
-    # Load templates
-    bag_template = _load_template("bag_button_4k.png")
-    bag_tab_template = _load_template("bag_tab_4k.png")
-    resources_tab_template = _load_template("bag_resources_tab_4k.png")  # Inactive
-    resources_tab_active_template = _load_template("bag_resources_tab_active_4k.png")  # Active
-    diamond_template = _load_template("bag_diamond_icon_4k.png")
+        win = WindowsScreenshotHelper()
 
     # Step 1: Open bag if requested
     if open_bag:
@@ -149,9 +95,9 @@ def bag_resources_flow(
             print("Step 1: Opening bag...")
 
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        is_present, score = _verify_at_fixed_region(frame_gray, bag_template, BAG_BUTTON_REGION)
+        # Use centralized template_matcher (COLOR matching)
+        is_present, score, _ = match_template(frame, "bag_button_4k.png", search_region=BAG_BUTTON_REGION, threshold=0.1)
         if not is_present:
             if debug:
                 print(f"  Bag button not found (score={score:.4f})")
@@ -165,9 +111,7 @@ def bag_resources_flow(
 
         # VERIFY: Bag tab visible at top (confirms bag menu opened)
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        is_present, score = _verify_at_fixed_region(frame_gray, bag_tab_template, BAG_TAB_REGION)
+        is_present, score, _ = match_template(frame, "bag_tab_4k.png", search_region=BAG_TAB_REGION, threshold=VERIFICATION_THRESHOLD)
         if not is_present:
             if debug:
                 print(f"  Bag tab not found - bag didn't open (score={score:.4f})")
@@ -181,41 +125,43 @@ def bag_resources_flow(
         print("Step 2: Checking Resources tab...")
 
     frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # First check if Resources tab is already ACTIVE
-    is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_REGION)
+    # Check BOTH templates - lower score wins
+    _, active_score, _ = match_template(frame, "bag_resources_tab_active_4k.png", search_region=RESOURCES_TAB_REGION, threshold=1.0)
+    _, inactive_score, tab_center = match_template(frame, "bag_resources_tab_4k.png", search_region=RESOURCES_TAB_REGION, threshold=1.0)
+
+    if debug:
+        print(f"  Resources tab scores: active={active_score:.4f}, inactive={inactive_score:.4f}")
+
+    # Lower score = better match (SQDIFF)
+    is_active = active_score < inactive_score
+
     if is_active:
         if debug:
-            print(f"  Resources tab already ACTIVE (score={active_score:.4f})")
+            print(f"  Resources tab already ACTIVE (active_score < inactive_score)")
     else:
-        # Check for INACTIVE Resources tab
-        is_present, inactive_score = _verify_at_fixed_region(frame_gray, resources_tab_template, RESOURCES_TAB_REGION)
-        if debug:
-            print(f"  Resources tab ACTIVE check: score={active_score:.4f}, INACTIVE check: score={inactive_score:.4f}")
-
-        if not is_present:
+        if tab_center is None:
             if debug:
-                print(f"  Resources tab not found (neither active nor inactive)")
+                print(f"  Resources tab not found")
             return 0
 
-        # Click inactive tab to activate it
+        # Click inactive tab to activate it (use detected center)
         if debug:
-            print(f"  Clicking Resources tab to activate...")
-        adb.tap(*RESOURCES_TAB_CLICK)
+            print(f"  Clicking Resources tab at {tab_center} to activate...")
+        adb.tap(*tab_center)
         time.sleep(0.5)
 
         # Verify it's now ACTIVE
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        is_active, active_score = _verify_at_fixed_region(frame_gray, resources_tab_active_template, RESOURCES_TAB_REGION)
-        if not is_active:
+        _, active_score, _ = match_template(frame, "bag_resources_tab_active_4k.png", search_region=RESOURCES_TAB_REGION, threshold=1.0)
+        _, inactive_score, _ = match_template(frame, "bag_resources_tab_4k.png", search_region=RESOURCES_TAB_REGION, threshold=1.0)
+        if active_score >= inactive_score:
             if debug:
-                print(f"  Resources tab still not active after click (score={active_score:.4f})")
+                print(f"  Resources tab still not active after click (active={active_score:.4f}, inactive={inactive_score:.4f})")
             return 0
 
         if debug:
-            print(f"  Resources tab is now ACTIVE (score={active_score:.4f})")
+            print(f"  Resources tab is now ACTIVE")
 
     # Step 3: Loop - find and process diamonds one at a time, rescan after each
     diamond_count = 0
@@ -227,9 +173,7 @@ def bag_resources_flow(
             print(f"\nScan #{diamond_count + 1}: Looking for diamonds...")
 
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        diamond_pos, score = _find_first_diamond(frame_gray, diamond_template)
+        diamond_pos, score = _find_first_diamond(frame, debug=debug)
 
         if diamond_pos is None:
             if debug:
@@ -259,6 +203,13 @@ def bag_resources_flow(
 
     if debug:
         print(f"\nCompleted! Processed {diamond_count} diamond(s)")
+
+    # Only close bag if we opened it
+    if open_bag:
+        if debug:
+            print("Closing bag...")
+        click_back(adb)
+        time.sleep(0.3)
 
     return diamond_count
 

@@ -2108,7 +2108,14 @@ class IconDaemon:
                 # =================================================================
                 # Uses StaminaReader for MODE-based confirmation with consistency check
                 # Requires 3 consistent readings (max-min <= 10), returns MODE value
-                stamina_confirmed, confirmed_stamina = self.stamina_reader.add_reading(stamina)
+                # CRITICAL: Only accept stamina readings from TOWN or WORLD views
+                # OCR produces garbage when view is UNKNOWN (UI popups, transitions)
+                if view_state_enum in (ViewState.TOWN, ViewState.WORLD):
+                    stamina_confirmed, confirmed_stamina = self.stamina_reader.add_reading(stamina)
+                else:
+                    # Don't trust stamina readings from UNKNOWN/CHAT/WEBVIEW states
+                    stamina_confirmed = False
+                    confirmed_stamina = None
 
                 # Persist stamina to state file (throttled - only when confirmed or every 30s)
                 if stamina_confirmed and confirmed_stamina is not None:

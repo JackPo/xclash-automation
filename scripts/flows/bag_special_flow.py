@@ -2,26 +2,9 @@
 Bag Special Tab Flow - Chest claiming from Special tab.
 
 Opens the bag (defaults to Special tab), finds chest tiles using multi-template
-matching, and uses them one at a time. Rescans after each use since items shift.
+COLOR matching, and uses them one at a time. Rescans after each use since items shift.
 
-Regular templates (opened every day):
-- bag_button_4k.png - Verify bag button present
-- bag_tab_4k.png - Verify bag menu opened
-- bag_special_tab_active_4k.png - Verify Special tab is active
-- bag_chest_special_4k.png - Open chest with blue gems
-- bag_golden_chest_4k.png - Golden wooden chest
-- bag_green_chest_4k.png - Green crystal chest
-- bag_purple_gold_chest_4k.png - Purple crystal chest
-- bag_chest_blue_4k.png - Blue/cyan crystal chest
-- bag_chest_purple_4k.png - Purple chest with gold trim
-- bag_chest_question_4k.png - Mystery chest with question mark
-- bag_chest_wooden_4k.png - Wooden chest with question mark medallion
-
-Level chest templates (VS Wednesday only - Day 3):
-- bag_chest_lv4_4k.png - Lv4 chest (purple striped)
-- bag_chest_lv3_4k.png - Lv3 chest (blue striped)
-- bag_chest_lv2_4k.png - Lv2 chest (gold ornate)
-- bag_chest_lv1_4k.png - Lv1 chest
+All matching uses template_matcher with COLOR images (no grayscale).
 """
 from __future__ import annotations
 
@@ -34,8 +17,6 @@ _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
 
-import cv2
-import numpy as np
 import numpy.typing as npt
 
 from scripts.flows.bag_use_item_subflow import use_item_subflow
@@ -43,12 +24,14 @@ from utils.arms_race import get_arms_race_status
 from config import VS_LEVEL_CHEST_DAYS
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.template_matcher import match_template
+from utils.ui_helpers import click_back
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
 # Fixed positions (4K resolution)
-BAG_BUTTON_REGION = (3679, 1596, 72, 77)
+BAG_BUTTON_REGION = (3659, 1556, 132, 127)
 BAG_BUTTON_CLICK = (3725, 1624)
 
 BAG_TAB_REGION = (1352, 32, 1127, 90)
@@ -56,14 +39,12 @@ BAG_TAB_REGION = (1352, 32, 1127, 90)
 # Bag content region - ONLY search for items within this area (not full screen)
 BAG_CONTENT_REGION = (1337, 137, 1161, 1871)  # x, y, w, h - the white item grid
 
-SPECIAL_TAB_REGION = (1520, 2015, 170, 100)  # Same region for active/inactive
-SPECIAL_TAB_CLICK = (1602, 2080)  # Only needed if switching from another tab
+SPECIAL_TAB_REGION = (1480, 2000, 230, 150)  # Must be larger than template (211x134)
+SPECIAL_TAB_CLICK = (1589, 2080)  # Exact center from full-screen match (active)
 
-# Thresholds
-CHEST_THRESHOLD = 0.01  # Very strict matching
-VERIFICATION_THRESHOLD = 0.01
-
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
+# Thresholds - SQDIFF (lower is better)
+CHEST_THRESHOLD = 0.02  # Strict matching for chests
+VERIFICATION_THRESHOLD = 0.02
 
 # Regular chest templates for Special tab (opened every day)
 CHEST_TEMPLATES = [
@@ -82,7 +63,6 @@ CHEST_TEMPLATES = [
 ]
 
 # Level chest templates (VS Wednesday only - Day 3)
-# These give VS points so we save them for the chest-opening VS event day
 LEVEL_CHEST_TEMPLATES = [
     "bag_chest_lv4_4k.png",  # Lv4 chest (purple striped)
     "bag_chest_lv3_4k.png",  # Lv3 chest (blue striped)
@@ -91,76 +71,35 @@ LEVEL_CHEST_TEMPLATES = [
 ]
 
 
-def _load_template(name: str) -> npt.NDArray[Any]:
-    """Load a template image in grayscale."""
-    path = TEMPLATES_DIR / name
-    template: npt.NDArray[Any] | None = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        raise FileNotFoundError(f"Template not found: {path}")
-    return template
-
-
-def _load_chest_templates(template_names: list[str]) -> list[tuple[str, npt.NDArray[Any]]]:
-    """Load chest templates from a list of names, skip missing ones."""
-    templates: list[tuple[str, npt.NDArray[Any]]] = []
-    for name in template_names:
-        path = TEMPLATES_DIR / name
-        template: npt.NDArray[Any] | None = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-        if template is not None:
-            templates.append((name, template))
-    return templates
-
-
-def _verify_at_fixed_region(
-    frame_gray: npt.NDArray[Any],
-    template: npt.NDArray[Any],
-    region: tuple[int, int, int, int],
-    threshold: float = VERIFICATION_THRESHOLD,
-) -> tuple[bool, float]:
-    """Verify template is present at fixed region."""
-    x, y, w, h = region
-    roi = frame_gray[y:y+h, x:x+w]
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-    return min_val <= threshold, min_val
-
-
 def _find_first_chest(
-    frame_gray: npt.NDArray[Any],
-    chest_templates: list[tuple[str, npt.NDArray[Any]]],
+    frame: npt.NDArray[Any],
+    template_names: list[str],
     debug: bool = False,
 ) -> tuple[tuple[int, int] | None, float, str | None]:
     """
-    Find the first (best matching) chest in the bag content region.
-
-    Only searches within BAG_CONTENT_REGION for speed (~50ms vs ~750ms per template).
+    Find the first (best matching) chest in the bag content region using COLOR matching.
 
     Returns:
         ((center_x, center_y), score, template_name) or (None, best_score, None) if not found
     """
-    # Crop to bag content region for faster search
-    rx, ry, rw, rh = BAG_CONTENT_REGION
-    roi = frame_gray[ry:ry+rh, rx:rx+rw]
-
     best_match: tuple[int, int] | None = None
     best_score = 1.0
     best_template_name: str | None = None
 
-    for name, template in chest_templates:
-        h, w = template.shape
-        result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+    for name in template_names:
+        found, score, location = match_template(
+            frame, name,
+            search_region=BAG_CONTENT_REGION,
+            threshold=CHEST_THRESHOLD
+        )
 
         if debug:
-            print(f"    {name}: score={min_val:.4f}")
+            print(f"    {name}: score={score:.4f}")
 
-        if min_val < best_score:
-            best_score = min_val
-            if min_val <= CHEST_THRESHOLD:
-                # Convert ROI coords back to full-frame coords
-                center_x = rx + min_loc[0] + w // 2
-                center_y = ry + min_loc[1] + h // 2
-                best_match = (center_x, center_y)
+        if score < best_score:
+            best_score = score
+            if found and location:
+                best_match = location
                 best_template_name = name
 
     return best_match, best_score, best_template_name
@@ -187,12 +126,7 @@ def bag_special_flow(
         Number of chests claimed
     """
     if win is None:
-            win = WindowsScreenshotHelper()
-
-    # Load templates
-    bag_template = _load_template("bag_button_4k.png")
-    bag_tab_template = _load_template("bag_tab_4k.png")
-    special_tab_active_template = _load_template("bag_special_tab_active_4k.png")
+        win = WindowsScreenshotHelper()
 
     # Check if VS level chest day AND in last 10 minutes (surprise strategy)
     arms_race = get_arms_race_status()
@@ -209,10 +143,8 @@ def bag_special_flow(
         if debug:
             print(f"VS Day {arms_race['day']}, {minutes_remaining:.1f} min left - including level chest templates")
 
-    chest_templates = _load_chest_templates(template_names)
-
     if debug:
-        print(f"Loaded {len(chest_templates)} chest templates: {[n for n, _ in chest_templates]}")
+        print(f"Using {len(template_names)} chest templates")
 
     # Step 1: Open bag if requested
     if open_bag:
@@ -220,9 +152,9 @@ def bag_special_flow(
             print("Step 1: Opening bag...")
 
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        is_present, score = _verify_at_fixed_region(frame_gray, bag_template, BAG_BUTTON_REGION)
+        # Use centralized template_matcher (COLOR matching)
+        is_present, score, _ = match_template(frame, "bag_button_4k.png", search_region=BAG_BUTTON_REGION, threshold=0.1)
         if not is_present:
             if debug:
                 print(f"  Bag button not found (score={score:.4f})")
@@ -236,9 +168,7 @@ def bag_special_flow(
 
         # Verify bag opened
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        is_present, score = _verify_at_fixed_region(frame_gray, bag_tab_template, BAG_TAB_REGION)
+        is_present, score, _ = match_template(frame, "bag_tab_4k.png", search_region=BAG_TAB_REGION, threshold=VERIFICATION_THRESHOLD)
         if not is_present:
             if debug:
                 print(f"  Bag tab not found - bag didn't open (score={score:.4f})")
@@ -247,32 +177,48 @@ def bag_special_flow(
         if debug:
             print(f"  Bag tab verified - bag is open (score={score:.4f})")
 
-    # Step 2: Verify Special tab is ACTIVE (bag defaults to Special tab)
+    # Step 2: Check Special tab state and activate if needed
     if debug:
-        print("Step 2: Verifying Special tab is active...")
+        print("Step 2: Checking Special tab...")
 
     frame = win.get_screenshot_cv2()
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    is_active, score = _verify_at_fixed_region(frame_gray, special_tab_active_template, SPECIAL_TAB_REGION)
-    if not is_active:
-        if debug:
-            print(f"  Special tab not active (score={score:.4f}), clicking...")
-        # Click Special tab to switch to it
-        adb.tap(*SPECIAL_TAB_CLICK)
-        time.sleep(0.5)
-
-        # Re-verify
-        frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        is_active, score = _verify_at_fixed_region(frame_gray, special_tab_active_template, SPECIAL_TAB_REGION)
-        if not is_active:
-            if debug:
-                print(f"  Special tab still not active (score={score:.4f})")
-            return 0
+    # Check BOTH active and inactive - lower score wins
+    _, active_score, _ = match_template(frame, "bag_special_tab_active_4k.png", search_region=SPECIAL_TAB_REGION, threshold=1.0)
+    _, inactive_score, tab_center = match_template(frame, "bag_special_tab_4k.png", search_region=SPECIAL_TAB_REGION, threshold=1.0)
 
     if debug:
-        print(f"  Special tab is ACTIVE (score={score:.4f})")
+        print(f"  Special tab scores: active={active_score:.4f}, inactive={inactive_score:.4f}")
+
+    # Lower score = better match (SQDIFF)
+    is_active = active_score < inactive_score
+
+    if is_active:
+        if debug:
+            print(f"  Special tab already ACTIVE (active_score < inactive_score)")
+    else:
+        if tab_center is None:
+            if debug:
+                print(f"  Special tab not found")
+            return 0
+
+        # Click inactive tab to activate it (use detected center)
+        if debug:
+            print(f"  Clicking Special tab at {tab_center} to activate...")
+        adb.tap(*tab_center)
+        time.sleep(0.5)
+
+        # Verify it's now ACTIVE
+        frame = win.get_screenshot_cv2()
+        _, active_score, _ = match_template(frame, "bag_special_tab_active_4k.png", search_region=SPECIAL_TAB_REGION, threshold=1.0)
+        _, inactive_score, _ = match_template(frame, "bag_special_tab_4k.png", search_region=SPECIAL_TAB_REGION, threshold=1.0)
+        if active_score >= inactive_score:
+            if debug:
+                print(f"  Special tab still not active after click (active={active_score:.4f}, inactive={inactive_score:.4f})")
+            return 0
+
+        if debug:
+            print(f"  Special tab is now ACTIVE")
 
     # Step 3: Loop - find and process chests one at a time, rescan after each
     chest_count = 0
@@ -283,9 +229,7 @@ def bag_special_flow(
             print(f"\nScan #{chest_count + 1}: Looking for chests...")
 
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        chest_pos, score, matched_template = _find_first_chest(frame_gray, chest_templates, debug=debug)
+        chest_pos, score, matched_template = _find_first_chest(frame, template_names, debug=debug)
 
         if chest_pos is None:
             if debug:
@@ -315,6 +259,13 @@ def bag_special_flow(
 
     if debug:
         print(f"\nCompleted! Processed {chest_count} chest(s)")
+
+    # Only close bag if we opened it
+    if open_bag:
+        if debug:
+            print("Closing bag...")
+        click_back(adb)
+        time.sleep(0.3)
 
     return chest_count
 
