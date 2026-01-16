@@ -32,6 +32,19 @@ The port is auto-detected (finds a free port). The URL is printed to console and
 - Idle time
 - Active flow indicator
 
+### Daily Check-ins
+Tracks daily tasks that reset at 02:00 UTC server time.
+
+| Task | Status | Description |
+|------|--------|-------------|
+| **Community** | Live | Daily sign-in via Community icon. Auto-runs, shows "Done X ago" or "Pending" |
+| **VIP Daily** | Stub | VIP daily rewards (not yet implemented) |
+| **Value Event** | Stub | Value event collection (not yet implemented) |
+
+- Green checkmark: Task completed today
+- Orange indicator: Task pending
+- Reset countdown: Shows time until 02:00 UTC
+
 ### Arms Race Panel
 - Current event name and time remaining
 - Day in 7-day cycle
@@ -82,6 +95,9 @@ Override config values temporarily via the dashboard. Useful for:
 | `ARMS_RACE_SOLDIER_TRAINING_ENABLED` | bool | true | Enable Soldier Training automation |
 | `ARMS_RACE_ENHANCE_HERO_ENABLED` | bool | true | Enable Enhance Hero automation |
 | `IDLE_THRESHOLD` | int | 300 | Seconds idle before flows trigger |
+| `HOSPITAL_HEAL_ENABLED` | bool | true | Enable automatic hospital healing |
+| `HOSPITAL_SOLDIER_CLAIM_ENABLED` | bool | true | Auto-claim healed soldiers |
+| `BARRACKS_CLAIM_ENABLED` | bool | true | Auto-claim trained soldiers from barracks |
 | `BAG_FLOW_COOLDOWN` | int | 1200 | Bag flow cooldown (seconds) |
 | `AFK_REWARDS_COOLDOWN` | int | 3600 | AFK rewards cooldown (seconds) |
 | `UNION_GIFTS_COOLDOWN` | int | 3600 | Union gifts cooldown (seconds) |

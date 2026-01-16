@@ -104,6 +104,56 @@
 
     <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
 
+        <!-- Daily Check-ins Section -->
+        <section class="card rounded-2xl p-4 border border-gray-800/50">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-gray-300">Daily Check-ins</h2>
+                <div class="text-xs text-gray-500">
+                    Resets in <span class="text-gray-300" x-text="formatResetCountdown()"></span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- Community Check-in -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg"
+                     :class="dailyCheckin.checked_in ? 'bg-green-500/10 border border-green-500/30' : 'bg-orange-500/10 border border-orange-500/30'">
+                    <div class="w-5 h-5 rounded flex items-center justify-center"
+                         :class="dailyCheckin.checked_in ? 'bg-green-500/30 text-green-400' : 'bg-orange-500/30 text-orange-400'">
+                        <svg x-show="dailyCheckin.checked_in" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span x-show="!dailyCheckin.checked_in" class="text-xs">?</span>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium" :class="dailyCheckin.checked_in ? 'text-green-400' : 'text-orange-400'">Community</div>
+                        <div class="text-[10px] text-gray-500" x-show="dailyCheckin.checked_in" x-text="formatTimeAgo(dailyCheckin.timestamp)"></div>
+                        <div class="text-[10px] text-gray-500" x-show="!dailyCheckin.checked_in">Pending</div>
+                    </div>
+                </div>
+
+                <!-- VIP Daily (stub) -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-700/20 border border-gray-600/30">
+                    <div class="w-5 h-5 rounded flex items-center justify-center bg-gray-600/30 text-gray-500">
+                        <span class="text-xs">-</span>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-gray-500">VIP Daily</div>
+                        <div class="text-[10px] text-gray-600">Not tracked</div>
+                    </div>
+                </div>
+
+                <!-- Value Event (stub) -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-700/20 border border-gray-600/30">
+                    <div class="w-5 h-5 rounded flex items-center justify-center bg-gray-600/30 text-gray-500">
+                        <span class="text-xs">-</span>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-gray-500">Value Event</div>
+                        <div class="text-[10px] text-gray-600">Not tracked</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Arms Race Timeline Card -->
         <section class="card rounded-2xl p-6 border border-gray-800/50 glow-yellow">
             <!-- Header Row 1: VS Day + Current Event + Score + Server Reset -->
@@ -730,26 +780,34 @@
                     </div>
                 </div>
 
-                <!-- Active Overrides Summary -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-orange-500/20" x-show="Object.keys(activeOverrides).length > 0">
+                <!-- Config Overrides - All Boolean Toggles -->
+                <div class="bg-dark-800/50 rounded-xl p-5 border border-orange-500/20">
                     <div class="flex items-center gap-2 mb-4">
-                        <span class="text-sm font-medium text-orange-400">Active Overrides</span>
+                        <span class="text-sm font-medium text-orange-400">Config Overrides</span>
                     </div>
 
                     <div class="space-y-2">
-                        <template x-for="(override, key) in activeOverrides" :key="key">
-                            <div class="flex items-center justify-between py-2 border-b border-gray-700/30 last:border-0">
+                        <!-- Show ALL boolean configs with toggles -->
+                        <template x-for="(cfg, key) in configs" :key="key">
+                            <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key)"
+                                 class="flex items-center justify-between py-2 border-b border-gray-700/30 last:border-0">
                                 <div>
                                     <div class="text-sm" x-text="formatConfigName(key)"></div>
-                                    <div class="text-xs text-gray-500">
-                                        <span x-text="JSON.stringify(override.value)"></span>
-                                        <span class="text-orange-400 ml-2" x-text="formatOverrideTime(override.expires_in)"></span>
-                                    </div>
+                                    <div class="text-xs" :class="cfg.overridden ? 'text-orange-400' : 'text-gray-500'"
+                                         x-text="cfg.overridden ? ('OVERRIDE ' + formatOverrideTime(cfg.expires_in)) : ('Default: ' + (cfg.default ? 'ON' : 'OFF'))"></div>
                                 </div>
-                                <button @click="clearOverride(key)"
-                                        class="px-2 py-1 text-xs rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition">
-                                    Clear
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <button x-show="cfg.overridden" @click="clearOverride(key)"
+                                            class="px-2 py-1 text-xs rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition">
+                                        Clear
+                                    </button>
+                                    <button @click="toggleConfigOverride(key)"
+                                            class="relative w-12 h-6 rounded-full transition-colors duration-200"
+                                            :class="cfg.value ? 'bg-green-500' : 'bg-gray-600'">
+                                        <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
+                                              :class="cfg.value ? 'translate-x-6' : ''"></span>
+                                    </button>
+                                </div>
                             </div>
                         </template>
                     </div>
@@ -844,6 +902,7 @@
                     countdownId: null
                 },
                 toast: { show: false, message: '', type: 'info' },
+                dailyCheckin: { checked_in: false, timestamp: null },
                 lastUpdate: '--:--',
                 pollInterval: null,
                 countdownInterval: null,
@@ -965,11 +1024,17 @@
                         if (state.zombie_mode && state.zombie_mode.mode) {
                             this.zombieMode.mode = state.zombie_mode.mode;
                             this.zombieMode.expires = state.zombie_mode.expires;
+                            this.selectedZombieMode = state.zombie_mode.mode;  // Sync dropdown
                         }
 
                         // Restore stamina claim timer
                         if (state.stamina_claim_timer) {
                             this.staminaClaimTimer = state.stamina_claim_timer;
+                        }
+
+                        // Restore daily check-in status
+                        if (state.daily_checkin) {
+                            this.dailyCheckin = state.daily_checkin;
                         }
 
                     } catch (e) {
@@ -1446,6 +1511,35 @@
 
                 formatConfigName(key) {
                     return key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+                },
+
+                // =============================================
+                // Daily Check-in Methods
+                // =============================================
+
+                getNextResetTime() {
+                    // Server resets at 02:00 UTC
+                    const now = new Date();
+                    const resetHour = 2;
+                    let reset = new Date(Date.UTC(
+                        now.getUTCFullYear(),
+                        now.getUTCMonth(),
+                        now.getUTCDate(),
+                        resetHour, 0, 0
+                    ));
+                    // If we're past today's reset, next reset is tomorrow
+                    if (now >= reset) {
+                        reset.setUTCDate(reset.getUTCDate() + 1);
+                    }
+                    return reset;
+                },
+
+                formatResetCountdown() {
+                    const reset = this.getNextResetTime();
+                    const diff = reset - new Date();
+                    const hours = Math.floor(diff / 3600000);
+                    const mins = Math.floor((diff % 3600000) / 60000);
+                    return `${hours}h ${mins}m`;
                 },
             };
         }

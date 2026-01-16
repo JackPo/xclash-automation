@@ -107,6 +107,26 @@ CONFIG_DEFINITIONS = {
         "category": "timing",
         "description": "Seconds user must be idle before flows trigger (default 5 min)",
     },
+    # Hospital Settings
+    "HOSPITAL_HEAL_ENABLED": {
+        "default": True,
+        "type": "bool",
+        "category": "hospital",
+        "description": "Enable automatic hospital healing (turn off to bank soldiers)",
+    },
+    "HOSPITAL_SOLDIER_CLAIM_ENABLED": {
+        "default": True,
+        "type": "bool",
+        "category": "hospital",
+        "description": "Auto-claim healed soldiers (turn off to keep in hospital)",
+    },
+    # Barracks Settings
+    "BARRACKS_CLAIM_ENABLED": {
+        "default": True,
+        "type": "bool",
+        "category": "barracks",
+        "description": "Auto-claim trained soldiers from barracks (turn off to bank soldiers)",
+    },
 }
 
 

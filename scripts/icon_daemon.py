@@ -76,6 +76,81 @@ from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
 from utils.debug_screenshot import get_daemon_debug, cleanup_old_screenshots
 from utils.ui_helpers import click_back
+import cv2
+
+# Daemon frame debug directory (for every-cycle screenshot capture)
+DAEMON_FRAMES_DIR = Path(__file__).parent.parent / "screenshots" / "debug" / "daemon_frames"
+DAEMON_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+DAEMON_FRAMES_MAX_GB = 50  # Auto-cleanup when folder exceeds this size
+
+# Global cycle counter for daemon frame screenshots
+_daemon_frame_cycle = 0
+
+
+def _cleanup_daemon_frames_if_over_limit() -> None:
+    """Remove oldest daemon frame screenshots if folder exceeds size limit.
+
+    Called periodically during daemon execution (every 100 cycles).
+    Targets 90% of max to avoid constant cleanup.
+    """
+    max_bytes = DAEMON_FRAMES_MAX_GB * 1024 * 1024 * 1024
+    target_bytes = int(max_bytes * 0.9)  # Clean to 90% when triggered
+
+    # Calculate current size
+    try:
+        files = list(DAEMON_FRAMES_DIR.glob('*.png'))
+        total_size = sum(f.stat().st_size for f in files)
+    except Exception:
+        return  # Can't check, skip cleanup
+
+    if total_size < max_bytes:
+        return  # Under limit, nothing to do
+
+    # Get files sorted by mtime (oldest first)
+    files_sorted = sorted(files, key=lambda f: f.stat().st_mtime)
+
+    deleted_count = 0
+    while total_size > target_bytes and files_sorted:
+        oldest = files_sorted.pop(0)
+        try:
+            size = oldest.stat().st_size
+            oldest.unlink()
+            total_size -= size
+            deleted_count += 1
+        except Exception:
+            pass  # File may have been deleted by another process
+
+    if deleted_count > 0:
+        logging.getLogger(__name__).info(
+            f"[CLEANUP] Deleted {deleted_count} old daemon frames, now at {total_size / 1024**3:.1f}GB"
+        )
+
+
+def _save_daemon_frame(frame: Any, view_state: str, stamina: int | None) -> None:
+    """Save daemon cycle screenshot with metadata in filename.
+
+    Args:
+        frame: BGR numpy array screenshot
+        view_state: Current view state (TOWN, WORLD, CHAT, UNKNOWN, etc.)
+        stamina: Current stamina value or None if unknown
+    """
+    global _daemon_frame_cycle
+    _daemon_frame_cycle += 1
+
+    timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    stam_str = str(stamina) if stamina is not None else "NA"
+    filename = f"{timestamp}_c{_daemon_frame_cycle:06d}_{view_state}_stam{stam_str}.png"
+    filepath = DAEMON_FRAMES_DIR / filename
+
+    try:
+        cv2.imwrite(str(filepath), frame)
+    except Exception:
+        pass  # Don't crash daemon for debug screenshots
+
+    # Cleanup check every 100 frames
+    if _daemon_frame_cycle % 100 == 0:
+        _cleanup_daemon_frames_if_over_limit()
+
 
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
@@ -84,6 +159,7 @@ from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coi
 from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from flows.zombie_attack_flow import zombie_attack_flow
+from flows.community_click_flow import community_click_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -333,6 +409,7 @@ class IconDaemon:
             "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "tavern_quest": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "community_checkin": {"cooldown": 14400, "idle_required": IDLE_THRESHOLD},  # 4 hours, flow skips if already done today
         })
 
         # Unified stamina validation - ONE system for all stamina-based triggers
@@ -437,6 +514,10 @@ class IconDaemon:
         # Hospital state history - same pattern as barracks
         self.hospital_state_history: list[HospitalState] = []  # List of HospitalState values
         self.HOSPITAL_CONSECUTIVE_REQUIRED = HOSPITAL_CONSECUTIVE_REQUIRED
+
+        # Handshake cooldown tracking
+        self._last_handshake_click: float = 0.0
+        self.HANDSHAKE_COOLDOWN: float = 2.0  # seconds between handshake clicks
 
         # Setup logging
         self.log_dir = Path('logs')
@@ -1263,6 +1344,7 @@ class IconDaemon:
             'flows.bag_flow',
             'flows.tavern_quest_flow',
             'flows.faction_trials_flow',
+            'flows.community_click_flow',
             'flows',
         ]
 
@@ -1280,7 +1362,7 @@ class IconDaemon:
         global stamina_claim_flow, stamina_use_flow, soldier_training_flow
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
         global tavern_quest_claim_flow, run_tavern_quest_flow, faction_trials_flow
-        global zombie_attack_flow
+        global zombie_attack_flow, community_click_flow
 
         from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
@@ -1292,6 +1374,7 @@ class IconDaemon:
         from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
         from flows.faction_trials_flow import faction_trials_flow
         from flows.zombie_attack_flow import zombie_attack_flow
+        from flows.community_click_flow import community_click_flow
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
 
@@ -1323,8 +1406,10 @@ class IconDaemon:
             "harvest_box": (harvest_box_flow, False),
             "gift_box": (gift_box_flow, True),
             "stamina_claim": (stamina_claim_flow, False),
+            "stamina_use": (lambda adb: stamina_use_flow(adb, self.windows_helper), False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
             "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),  # type: ignore[arg-type]
+            "community_checkin": (lambda adb: community_click_flow(adb, self.windows_helper), False),
         }
 
     def get_status(self) -> dict[str, Any]:
@@ -1461,6 +1546,12 @@ class IconDaemon:
                 self.last_view_state = view_state_str  # Store for dashboard API
 
                 # =================================================================
+                # DAEMON FRAME DEBUG - Save every frame for debugging
+                # =================================================================
+                last_stam = self.stamina_reader.history[-1] if self.stamina_reader.history else None
+                _save_daemon_frame(frame, view_state_str, last_stam)
+
+                # =================================================================
                 # FLOW CANDIDATE COLLECTION
                 # All flow detection adds to this list - NO direct execution here.
                 # At the end of detection, _execute_best_flow() picks ONE to run.
@@ -1482,14 +1573,14 @@ class IconDaemon:
                 else:
                     harvest_present, harvest_score = False, 1.0
 
-                # Collect immediate actions as candidates (no idle requirements)
-                if handshake_present:
-                    flow_candidates.append(FlowCandidate(
-                        name="handshake",
-                        flow_func=handshake_flow,
-                        priority=FlowPriority.URGENT,
-                        reason=f"score={handshake_score:.4f}"
-                    ))
+                # IMMEDIATE execution for handshake - but with cooldown to prevent rapid-fire
+                if handshake_present and self._can_run_flow():
+                    now = time.time()
+                    if now - self._last_handshake_click >= self.HANDSHAKE_COOLDOWN:
+                        self.logger.info(f"[{iteration}] HANDSHAKE detected (score={handshake_score:.4f}) - executing immediately")
+                        self._run_flow("handshake", handshake_flow)
+                        self._last_handshake_click = now
+                        continue  # Skip rest of iteration, start fresh
 
                 if treasure_present:
                     # Already validated: treasure only checked in TOWN/WORLD
@@ -1559,7 +1650,7 @@ class IconDaemon:
                                 # Click the march button to open Union War panel
                                 click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
                                 mark_daemon_action()
-                                self.adb.tap(click_x, click_y)
+                                self.adb.tap(click_x, click_y, source="daemon:rally_march")
                                 self.last_rally_march_click = current_time
                                 time.sleep(0.5)  # Brief wait for panel to start loading
 
@@ -1842,46 +1933,64 @@ class IconDaemon:
 
                         # HELP_READY: Just click to request ally help (simple action, not a flow)
                         if help_ready_count >= min_required:
-                            # Create a simple click flow
-                            def _help_ready_flow(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
-                                mark_daemon_action()
-                                adb.tap(x, y)
-                            flow_candidates.append(FlowCandidate(
-                                name="hospital_help",
-                                flow_func=_help_ready_flow,
-                                priority=FlowPriority.HIGH,
-                                reason=f"HELP_READY {help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
-                            ))
+                            # Check if hospital soldier claiming is enabled
+                            from utils.config_overrides import get_override_manager
+                            claim_enabled, _ = get_override_manager().get_effective("HOSPITAL_SOLDIER_CLAIM_ENABLED", True)
+                            if claim_enabled:
+                                # Create a simple click flow
+                                def _help_ready_flow(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
+                                    mark_daemon_action()
+                                    adb.tap(x, y, source="daemon:hospital_help")
+                                flow_candidates.append(FlowCandidate(
+                                    name="hospital_help",
+                                    flow_func=_help_ready_flow,
+                                    priority=FlowPriority.HIGH,
+                                    reason=f"HELP_READY {help_ready_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
+                                ))
+                            else:
+                                self.logger.debug(f"[{iteration}] HOSPITAL: Soldier claiming disabled by config, skipping")
 
                         # HEALING: Click to open panel, run healing flow
                         elif healing_count >= min_required:
-                            # Create wrapper that clicks, waits, then runs healing_flow
-                            def _healing_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
-                                mark_daemon_action()
-                                adb.tap(x, y)
-                                time.sleep(2.5)  # Wait for panel to fully open
-                                healing_flow(adb)
-                            flow_candidates.append(FlowCandidate(
-                                name="healing",
-                                flow_func=_healing_wrapper,
-                                priority=FlowPriority.HIGH,
-                                reason=f"HEALING {healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
-                            ))
+                            # Check if hospital healing is enabled
+                            from utils.config_overrides import get_override_manager
+                            heal_enabled, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
+                            if heal_enabled:
+                                # Create wrapper that clicks, waits, then runs healing_flow
+                                def _healing_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
+                                    mark_daemon_action()
+                                    adb.tap(x, y, source="daemon:hospital_healing")
+                                    time.sleep(2.5)  # Wait for panel to fully open
+                                    healing_flow(adb)
+                                flow_candidates.append(FlowCandidate(
+                                    name="healing",
+                                    flow_func=_healing_wrapper,
+                                    priority=FlowPriority.HIGH,
+                                    reason=f"HEALING {healing_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
+                                ))
+                            else:
+                                self.logger.debug(f"[{iteration}] HOSPITAL: Healing disabled by config, skipping")
 
                         # SOLDIERS_WOUNDED: Click to open panel, run healing flow
                         elif wounded_count >= min_required:
-                            # Create wrapper that clicks, waits, then runs healing_flow
-                            def _wounded_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
-                                mark_daemon_action()
-                                adb.tap(x, y)
-                                time.sleep(2.5)  # Wait for panel to fully open
-                                healing_flow(adb)
-                            flow_candidates.append(FlowCandidate(
-                                name="healing",
-                                flow_func=_wounded_wrapper,
-                                priority=FlowPriority.HIGH,
-                                reason=f"WOUNDED {wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
-                            ))
+                            # Check if hospital healing is enabled
+                            from utils.config_overrides import get_override_manager
+                            heal_enabled, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
+                            if heal_enabled:
+                                # Create wrapper that clicks, waits, then runs healing_flow
+                                def _wounded_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
+                                    mark_daemon_action()
+                                    adb.tap(x, y, source="daemon:hospital_wounded")
+                                    time.sleep(2.5)  # Wait for panel to fully open
+                                    healing_flow(adb)
+                                flow_candidates.append(FlowCandidate(
+                                    name="healing",
+                                    flow_func=_wounded_wrapper,
+                                    priority=FlowPriority.HIGH,
+                                    reason=f"WOUNDED {wounded_count}/{self.HOSPITAL_CONSECUTIVE_REQUIRED}"
+                                ))
+                            else:
+                                self.logger.debug(f"[{iteration}] HOSPITAL: Healing disabled by config, skipping")
                 else:
                     # Not in TOWN - reset hospital state history
                     if self.hospital_state_history:
@@ -1958,7 +2067,7 @@ class IconDaemon:
                                 confirm_pos = get_confirm_button_position()
                                 self.logger.info(f"[{iteration}] DISCONNECTION DIALOG: Waited {wait_elapsed:.0f}s, clicking Confirm at {confirm_pos}...")
                                 mark_daemon_action()
-                                self.adb.tap(*confirm_pos)
+                                self.adb.tap(*confirm_pos, source="daemon:disconnection_confirm")
                                 self.disconnection_dialog_detected_time = None
                                 self.unknown_state_start = None
                                 self.unknown_state_left_time = None
@@ -1989,7 +2098,7 @@ class IconDaemon:
                             if shaded:
                                 self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Shaded button detected (score={shaded_score:.4f}), clicking to dismiss popup...")
                                 mark_daemon_action()
-                                self.adb.tap(*BUTTON_CLICK)
+                                self.adb.tap(*BUTTON_CLICK, source="daemon:shaded_button")
                                 time.sleep(0.5)
                                 # Re-check view state
                                 new_frame = self.windows_helper.get_screenshot_cv2()
@@ -2023,14 +2132,36 @@ class IconDaemon:
                                         self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying")
                                         continue  # Keep trying
 
-                            # THIRD: Try safe ground (for floating popups without back button)
+                            # THIRD: Try safe ground/grass (for floating popups without back button)
+                            # Try BOTH TOWN floor and WORLD grass, pick better match
                             # ONLY if user is idle - NEVER click anything while user is active
                             if effective_idle_secs >= self.IDLE_THRESHOLD:
+                                from utils.safe_grass_matcher import find_safe_grass
+
+                                # Try both matchers
                                 ground_pos = find_safe_ground(frame, debug=self.debug)
-                                if ground_pos:
-                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Clicking safe ground at {ground_pos} to dismiss popup...")
+                                grass_pos = find_safe_grass(frame, debug=self.debug)
+
+                                # Pick the best one (both return position of lowest variance patch)
+                                # If both found, we need to compare - but we don't have variance returned
+                                # So just prefer whichever one found something
+                                best_pos = None
+                                pos_type = None
+                                if ground_pos and grass_pos:
+                                    # Both found - prefer ground (TOWN) as it's more common in popups
+                                    best_pos = ground_pos
+                                    pos_type = "ground(TOWN)"
+                                elif ground_pos:
+                                    best_pos = ground_pos
+                                    pos_type = "ground(TOWN)"
+                                elif grass_pos:
+                                    best_pos = grass_pos
+                                    pos_type = "grass(WORLD)"
+
+                                if best_pos:
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Clicking safe {pos_type} at {best_pos} to dismiss popup...")
                                     mark_daemon_action()
-                                    self.adb.tap(*ground_pos)
+                                    self.adb.tap(*best_pos, source=f"daemon:safe_{pos_type.split('(')[0]}")
                                     time.sleep(0.5)
                                     # Re-check view state
                                     new_frame = self.windows_helper.get_screenshot_cv2()
@@ -2042,6 +2173,33 @@ class IconDaemon:
                                         continue  # Skip rest of iteration, start fresh
                                     else:
                                         self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will retry")
+                                else:
+                                    # FOURTH: No safe ground/grass found - try clicking screen edges
+                                    # Building popups (Union Center, etc.) can be dismissed by clicking outside them
+                                    # The edges of the screen often have visible game area even with popups
+                                    EDGE_CLICK_POSITIONS = [
+                                        (100, 1080),   # Left edge, middle
+                                        (3700, 1080),  # Right edge, middle
+                                        (1920, 100),   # Top edge, center
+                                        (1920, 2050),  # Bottom edge, center
+                                    ]
+                                    # Rotate through edge positions based on iteration to try different ones
+                                    edge_idx = iteration % len(EDGE_CLICK_POSITIONS)
+                                    edge_pos = EDGE_CLICK_POSITIONS[edge_idx]
+                                    self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: No safe area found, trying edge click at {edge_pos}...")
+                                    mark_daemon_action()
+                                    self.adb.tap(*edge_pos, source="daemon:edge_click_recovery")
+                                    time.sleep(0.5)
+                                    # Re-check view state
+                                    new_frame = self.windows_helper.get_screenshot_cv2()
+                                    new_state, _ = detect_view(new_frame)
+                                    if new_state.name in ("TOWN", "WORLD"):
+                                        self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Edge click success! Now in {new_state.name}")
+                                        self.unknown_state_start = None
+                                        self.unknown_state_left_time = None
+                                        continue
+                                    else:
+                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name} after edge click")
 
                         # Full recovery: After 180s AND user is idle, run return_to_base_view
                         # Don't interrupt if user is actively using the game
@@ -2636,21 +2794,27 @@ class IconDaemon:
                             # First, collect soldiers from READY barracks (click yellow bubble)
                             from scripts.flows.soldier_upgrade_flow import soldier_upgrade_flow, get_barrack_click_position
                             if ready_count > 0:
-                                self.logger.info(f"[{iteration}] SOLDIER: Collecting from {ready_count} READY barrack(s) at indices {ready_indices}")
-                                for idx in ready_indices:
-                                    # Re-check idle - stop if user became active
-                                    if get_user_idle_seconds() < self.IDLE_THRESHOLD:
-                                        self.logger.info(f"[{iteration}] SOLDIER: User active, stopping collection loop")
-                                        break
-                                    click_x, click_y = get_barrack_click_position(idx)
-                                    self.logger.info(f"[{iteration}] SOLDIER: Collecting from barrack {idx+1} at ({click_x}, {click_y})")
-                                    mark_daemon_action()
-                                    self.adb.tap(click_x, click_y)
-                                    time.sleep(0.5)
-                                    # Clear history for this barrack after collecting
-                                    self.barracks_state_history[idx] = []
-                                # Wait for state change after collecting
-                                time.sleep(1.0)
+                                # Check if barracks claiming is enabled
+                                from utils.config_overrides import get_override_manager
+                                claim_enabled, _ = get_override_manager().get_effective("BARRACKS_CLAIM_ENABLED", True)
+                                if claim_enabled:
+                                    self.logger.info(f"[{iteration}] BARRACKS: Collecting from {ready_count} READY barrack(s) at indices {ready_indices}")
+                                    for idx in ready_indices:
+                                        # Re-check idle - stop if user became active
+                                        if get_user_idle_seconds() < self.IDLE_THRESHOLD:
+                                            self.logger.info(f"[{iteration}] BARRACKS: User active, stopping collection loop")
+                                            break
+                                        click_x, click_y = get_barrack_click_position(idx)
+                                        self.logger.info(f"[{iteration}] BARRACKS: Collecting from barrack {idx+1} at ({click_x}, {click_y})")
+                                        mark_daemon_action()
+                                        self.adb.tap(click_x, click_y, source=f"daemon:barrack_collect_{idx+1}")
+                                        time.sleep(0.5)
+                                        # Clear history for this barrack after collecting
+                                        self.barracks_state_history[idx] = []
+                                    # Wait for state change after collecting
+                                    time.sleep(1.0)
+                                else:
+                                    self.logger.info(f"[{iteration}] BARRACKS: Claiming disabled by config, skipping {ready_count} READY barrack(s)")
 
                             # Then upgrade each validated PENDING barrack
                             upgrades = 0
@@ -2671,7 +2835,7 @@ class IconDaemon:
                                 click_x, click_y = get_barrack_click_position(idx)
                                 self.logger.info(f"[{iteration}] SOLDIER: Clicking barrack {idx+1} at ({click_x}, {click_y})")
                                 mark_daemon_action()
-                                self.adb.tap(click_x, click_y)
+                                self.adb.tap(click_x, click_y, source=f"daemon:barrack_upgrade_{idx+1}")
                                 time.sleep(1.0)
 
                                 # Run upgrade flow via _run_flow_sync to coordinate with other flows
@@ -2726,6 +2890,16 @@ class IconDaemon:
                     flow_candidates.append(FlowCandidate(
                         name="union_technology",
                         flow_func=union_technology_flow,
+                        priority=FlowPriority.NORMAL,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
+
+                # Community daily check-in: 4 hour cooldown (flow skips if already done today)
+                if self._is_user_idle() and self.scheduler.is_flow_ready("community_checkin", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="community_checkin",
+                        flow_func=lambda adb: community_click_flow(adb, self.windows_helper),
                         priority=FlowPriority.NORMAL,
                         reason=f"idle={idle_str}",
                         record_to_scheduler=True
