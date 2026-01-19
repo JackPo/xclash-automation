@@ -293,50 +293,52 @@ def title_management_flow(
             print("  ERROR: Kingdom Title header not found")
             return False
 
-        # Step 4: Find and click desired title using template matching
+        # Step 4: Find and click desired title using template matching with scrolling
         if debug:
             print(f"  Step 4: Searching for {title_name} using template...")
 
         title_template_name = title_info.get("template")
         detected_pos = None
+        found = False
+
+        # Search full title list area
+        search_region = (1350, 500, 1100, 1400)
+
+        # TIGHT threshold - must be very close match
+        TIGHT_THRESHOLD = 0.015
 
         if title_template_name:
-            # Search in the title list region (full width of panel, from below King to bottom)
-            search_region = (1350, 500, 1100, 1400)  # x, y, w, h - covers title list area
-
-            # Try up to 3 scroll attempts to find the title
+            # Try up to 4 scroll attempts to find the title
             for scroll_attempt in range(4):  # 0 = no scroll, 1-3 = scroll down
                 frame = win.get_screenshot_cv2()
                 found, score, detected_pos = match_template(
                     frame, title_template_name,
                     search_region=search_region,
-                    threshold=THRESHOLD
+                    threshold=TIGHT_THRESHOLD
                 )
+
+                if debug:
+                    print(f"    Attempt {scroll_attempt}: score={score:.4f}, found={found}, pos={detected_pos}")
 
                 if found and detected_pos:
                     if debug:
-                        print(f"    Found {title_name} at {detected_pos} (score={score:.4f})")
+                        print(f"    Found {title_name} at {detected_pos}")
                     break
 
                 if scroll_attempt < 3:
                     if debug:
-                        print(f"    Not found (score={score:.4f}), scrolling down...")
-                    # Scroll down (swipe up) - tavern-style parameters
+                        print(f"    Not found, scrolling down...")
                     adb.swipe(1920, 1400, 1920, 800, 500)
                     time.sleep(0.8)
 
-            if detected_pos:
+            if found and detected_pos:
                 adb.tap(*detected_pos, source="flow:title_management:select_title")
             else:
-                # Fallback to fixed position if template not found after scrolling
-                if debug:
-                    print(f"    Template not found after scrolling, using fixed position {title_click}")
-                adb.tap(*title_click, source="flow:title_management:select_title")
+                print(f"  ERROR: Could not find {title_name} template after scrolling")
+                return False
         else:
-            # No template defined, use fixed position
-            if debug:
-                print(f"    No template defined, using fixed position {title_click}")
-            adb.tap(*title_click, source="flow:title_management:select_title")
+            print(f"  ERROR: No template defined for {title_name}")
+            return False
 
         # Wait for detail view to load
         # Note: title_template is now a LIST VIEW template, not suitable for detail view polling
