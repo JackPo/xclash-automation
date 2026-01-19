@@ -248,7 +248,7 @@ def title_management_flow(
             star_pos = detected_pos
             if debug:
                 print(f"    Star icon found at {star_pos} (score={score:.4f})")
-        adb.tap(*star_pos)
+        adb.tap(*star_pos, source="flow:title_management:click_star")
 
         # Poll for Royal City header
         if debug:
@@ -264,7 +264,7 @@ def title_management_flow(
         # Step 2: Click Manage button
         if debug:
             print(f"  Step 2: Clicking Manage at {MANAGE_BUTTON_CLICK}")
-        adb.tap(*MANAGE_BUTTON_CLICK)
+        adb.tap(*MANAGE_BUTTON_CLICK, source="flow:title_management:manage_button")
 
         # Poll for Royal City Management header
         if debug:
@@ -280,7 +280,7 @@ def title_management_flow(
         # Step 3: Click Title Assignment
         if debug:
             print(f"  Step 3: Clicking Title Assignment at {TITLE_ASSIGNMENT_CLICK}")
-        adb.tap(*TITLE_ASSIGNMENT_CLICK)
+        adb.tap(*TITLE_ASSIGNMENT_CLICK, source="flow:title_management:title_assignment")
 
         # Poll for Kingdom Title header (LIST view)
         if debug:
@@ -293,22 +293,57 @@ def title_management_flow(
             print("  ERROR: Kingdom Title header not found")
             return False
 
-        # Step 4: Click desired title row
+        # Step 4: Find and click desired title using template matching
         if debug:
-            print(f"  Step 4: Clicking {title_name} at {title_click}")
-        adb.tap(*title_click)
+            print(f"  Step 4: Searching for {title_name} using template...")
 
-        # Poll for title detail view
-        if title_template:
+        title_template_name = title_info.get("template")
+        detected_pos = None
+
+        if title_template_name:
+            # Search in the title list region (full width of panel, from below King to bottom)
+            search_region = (1350, 500, 1100, 1400)  # x, y, w, h - covers title list area
+
+            # Try up to 3 scroll attempts to find the title
+            for scroll_attempt in range(4):  # 0 = no scroll, 1-3 = scroll down
+                frame = win.get_screenshot_cv2()
+                found, score, detected_pos = match_template(
+                    frame, title_template_name,
+                    search_region=search_region,
+                    threshold=THRESHOLD
+                )
+
+                if found and detected_pos:
+                    if debug:
+                        print(f"    Found {title_name} at {detected_pos} (score={score:.4f})")
+                    break
+
+                if scroll_attempt < 3:
+                    if debug:
+                        print(f"    Not found (score={score:.4f}), scrolling down...")
+                    # Scroll down (swipe up) - tavern-style parameters
+                    adb.swipe(1920, 1400, 1920, 800, 500)
+                    time.sleep(0.8)
+
+            if detected_pos:
+                adb.tap(*detected_pos, source="flow:title_management:select_title")
+            else:
+                # Fallback to fixed position if template not found after scrolling
+                if debug:
+                    print(f"    Template not found after scrolling, using fixed position {title_click}")
+                adb.tap(*title_click, source="flow:title_management:select_title")
+        else:
+            # No template defined, use fixed position
             if debug:
-                print(f"    Polling for {title_template}...")
-            matched, _ = _poll_for_template(
-                win, TEMPLATE_DIR / title_template,
-                TITLE_DETAIL_POS, TITLE_DETAIL_SIZE, debug=debug
-            )
-            if not matched:
-                print(f"  ERROR: {title_name} detail view not found")
-                return False
+                print(f"    No template defined, using fixed position {title_click}")
+            adb.tap(*title_click, source="flow:title_management:select_title")
+
+        # Wait for detail view to load
+        # Note: title_template is now a LIST VIEW template, not suitable for detail view polling
+        # The check_holding_status below will verify we're on the correct screen
+        if debug:
+            print("    Waiting for detail view to load...")
+        time.sleep(1.0)
 
         # Check current holding status
         if debug:
@@ -333,7 +368,7 @@ def title_management_flow(
             # Step 5: Click Apply
             if debug:
                 print(f"  Step 5: Clicking Apply at {APPLY_BUTTON_CLICK}")
-            adb.tap(*APPLY_BUTTON_CLICK)
+            adb.tap(*APPLY_BUTTON_CLICK, source="flow:title_management:apply_button")
             time.sleep(1.0)
 
             if debug:
