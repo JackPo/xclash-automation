@@ -46,24 +46,14 @@ SCROLL_END_Y = 910  # Scroll by ~390 pixels (3 entries)
 SEARCH_X_START = 2150
 SEARCH_X_END = 2500
 SEARCH_Y_START = 800
-SEARCH_Y_END = 1450
+SEARCH_Y_END = 1550
 
-# Relative offsets FROM the Assist button/timer clock TOP-LEFT position
-# The color box and stars are ABOVE and LEFT of the button (in the player name row)
-COLOR_BOX_OFFSET_X = -60   # Left of assist button
-COLOR_BOX_OFFSET_Y = -63   # Above assist button
-COLOR_BOX_SIZE = 50
-
-STARS_OFFSET_X = -10   # Slightly left of assist button (right of color box)
-STARS_OFFSET_Y = -63   # Same row as color box
-STARS_WIDTH = 150
-STARS_HEIGHT = 50
-
-# Color thresholds (HSV)
-# Gold/Orange: H ~10-25, high S, high V
-# Purple: H ~130-160, high S
-GOLD_HUE_MIN, GOLD_HUE_MAX = 8, 28
-PURPLE_HUE_MIN, PURPLE_HUE_MAX = 125, 165
+# Region above assist button for color/stars detection
+# Fixed offset from assist button top-left position
+REGION_ABOVE_Y_OFFSET = -70  # 70px above button top
+REGION_WIDTH = 249           # Same width as assist button template
+REGION_HEIGHT = 70
+SQUARE_SPLIT_X = 55          # Square is 0:55, Stars is 55:249
 
 
 @dataclass
@@ -84,9 +74,13 @@ def load_templates() -> dict[str, npt.NDArray[Any]]:
     template_files = {
         "assist": "assist_button_ally_4k.png",
         "clock": "timer_clock_ally_4k.png",
-        "star": "star_single_4k.png",
-        "purple": "purple_box_ally_4k.png",
-        "gold": "gold_box_ally_4k.png",
+        # Star rating templates (194x70 each)
+        "stars_1": "ally_stars_1_4k.png",
+        "stars_3": "ally_stars_3_4k.png",
+        "stars_4": "ally_stars_4_4k.png",
+        # Color templates (55x70 each)
+        "color_gold": "ally_color_gold_4k.png",
+        "color_blue": "ally_color_blue_4k.png",
     }
 
     for name, filename in template_files.items():
@@ -147,77 +141,94 @@ def find_all_buttons(
     return sorted(filtered, key=lambda b: b["y"])
 
 
-def detect_quest_color(frame_bgr: npt.NDArray[Any], button_x: int, button_y: int) -> str:
-    """Detect if quest is gold (timer) or purple (assist available) based on button position."""
-    # Color box is to the upper-left of the button
-    x1 = button_x + COLOR_BOX_OFFSET_X
-    y1 = button_y + COLOR_BOX_OFFSET_Y
+def detect_quest_color(
+    frame_gray: npt.NDArray[Any],
+    button_x: int,
+    button_y: int,
+    templates: dict[str, npt.NDArray[Any]],
+    threshold: float = 0.01,
+) -> str:
+    """Detect quest color using template matching against color templates."""
+    # Extract region above the button
+    x1 = button_x
+    y1 = button_y + REGION_ABOVE_Y_OFFSET
 
     # Bounds check
-    if x1 < 0 or y1 < 0 or x1 + COLOR_BOX_SIZE > frame_bgr.shape[1] or y1 + COLOR_BOX_SIZE > frame_bgr.shape[0]:
+    if y1 < 0:
         return "unknown"
 
-    roi = frame_bgr[y1:y1+COLOR_BOX_SIZE, x1:x1+COLOR_BOX_SIZE]
+    # Extract square region (columns 0:55)
+    square_region = frame_gray[y1:y1+REGION_HEIGHT, x1:x1+SQUARE_SPLIT_X]
 
-    if roi.size == 0:
+    if square_region.size == 0:
         return "unknown"
 
-    # Convert to HSV
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    # Match against color templates
+    best_color = "unknown"
+    best_score = 1.0
 
-    # Look for the most saturated pixels (the colored box, not background)
-    sat_mask = hsv[:, :, 1] > 100
-    if sat_mask.sum() < 100:  # Not enough saturated pixels
-        return "unknown"
+    for color_name, template_key in [("gold", "color_gold"), ("blue", "color_blue")]:
+        template = templates.get(template_key)
+        if template is None:
+            continue
 
-    # Get mean hue of saturated pixels only
-    mean_hue = hsv[:, :, 0][sat_mask].mean()
+        # Ensure ROI is large enough
+        if square_region.shape[0] < template.shape[0] or square_region.shape[1] < template.shape[1]:
+            continue
 
-    if GOLD_HUE_MIN <= mean_hue <= GOLD_HUE_MAX:
-        return "gold"
-    elif PURPLE_HUE_MIN <= mean_hue <= PURPLE_HUE_MAX:
-        return "purple"
-    else:
-        return "unknown"
+        result = cv2.matchTemplate(square_region, template, cv2.TM_SQDIFF_NORMED)
+        min_val = float(result.min())
+
+        if min_val < best_score and min_val < threshold:
+            best_score = min_val
+            best_color = color_name
+
+    return best_color
 
 
 def count_stars(
     frame_gray: npt.NDArray[Any],
     button_x: int,
     button_y: int,
-    star_template: npt.NDArray[Any] | None,
-    threshold: float = 0.08,
+    templates: dict[str, npt.NDArray[Any]],
+    threshold: float = 0.01,
 ) -> int:
-    """Count number of yellow stars using template matching."""
-    x1 = button_x + STARS_OFFSET_X
-    y1 = button_y + STARS_OFFSET_Y
+    """Count stars using template matching against star rating templates."""
+    # Extract region above the button
+    x1 = button_x
+    y1 = button_y + REGION_ABOVE_Y_OFFSET
 
     # Bounds check
-    if x1 < 0 or y1 < 0 or star_template is None:
+    if y1 < 0:
         return 0
 
-    x2 = min(x1 + STARS_WIDTH, frame_gray.shape[1])
-    y2 = min(y1 + STARS_HEIGHT, frame_gray.shape[0])
+    # Extract stars region (columns 55:249)
+    stars_region = frame_gray[y1:y1+REGION_HEIGHT, x1+SQUARE_SPLIT_X:x1+REGION_WIDTH]
 
-    roi = frame_gray[y1:y2, x1:x2]
-
-    if roi.size == 0 or roi.shape[0] < star_template.shape[0] or roi.shape[1] < star_template.shape[1]:
+    if stars_region.size == 0:
         return 0
 
-    # Template match for stars
-    result = cv2.matchTemplate(roi, star_template, cv2.TM_SQDIFF_NORMED)
+    # Match against star templates
+    best_stars = 0
+    best_score = 1.0
 
-    # Find all matches below threshold
-    locations = np.where(result <= threshold)
-    matches = list(zip(*locations[::-1]))
+    for star_count, template_key in [(1, "stars_1"), (3, "stars_3"), (4, "stars_4")]:
+        template = templates.get(template_key)
+        if template is None:
+            continue
 
-    # Remove duplicates (stars are ~40px apart)
-    unique: list[tuple[Any, ...]] = []
-    for m in sorted(matches, key=lambda p: p[0]):
-        if not unique or abs(m[0] - unique[-1][0]) > 30:
-            unique.append(m)
+        # Ensure ROI is large enough
+        if stars_region.shape[0] < template.shape[0] or stars_region.shape[1] < template.shape[1]:
+            continue
 
-    return min(5, len(unique))
+        result = cv2.matchTemplate(stars_region, template, cv2.TM_SQDIFF_NORMED)
+        min_val = float(result.min())
+
+        if min_val < best_score and min_val < threshold:
+            best_score = min_val
+            best_stars = star_count
+
+    return best_stars
 
 
 def extract_entry_signature(frame_gray: npt.NDArray[Any], button_y: int) -> bytes:
@@ -240,7 +251,6 @@ def extract_entry_signature(frame_gray: npt.NDArray[Any], button_y: int) -> byte
 
 
 def scan_visible_entries(
-    frame: npt.NDArray[Any],
     frame_gray: npt.NDArray[Any],
     templates: dict[str, npt.NDArray[Any]],
 ) -> list[dict[str, Any]]:
@@ -253,8 +263,8 @@ def scan_visible_entries(
     )
 
     for i, btn in enumerate(buttons):
-        color = detect_quest_color(frame, btn["x"], btn["y"])
-        stars = count_stars(frame_gray, btn["x"], btn["y"], templates.get("star"))
+        color = detect_quest_color(frame_gray, btn["x"], btn["y"], templates)
+        stars = count_stars(frame_gray, btn["x"], btn["y"], templates)
         signature = extract_entry_signature(frame_gray, btn["y"])
 
         entry = {
@@ -306,7 +316,7 @@ def scan_all_ally_quests(
             debug_path.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(debug_path / f"ally_scan_iter{scroll_iter}.png"), frame)
 
-        entries = scan_visible_entries(frame, frame_gray, templates)
+        entries = scan_visible_entries(frame_gray, templates)
 
         new_count = 0
         for entry in entries:
@@ -373,11 +383,11 @@ if __name__ == "__main__":
     time.sleep(0.5)
 
     print("Opening Tavern...")
-    adb.tap(80, 1220)
+    adb.tap(80, 1220, source="util:ally_quest_scanner:open_tavern")
     time.sleep(1.5)
 
     print("Clicking Ally Quests tab...")
-    adb.tap(2200, 755)
+    adb.tap(2200, 755, source="util:ally_quest_scanner:ally_quests_tab")
     time.sleep(1.0)
 
     # Scroll to top first

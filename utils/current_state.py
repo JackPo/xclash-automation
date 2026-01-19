@@ -71,6 +71,11 @@ def _get_default_state() -> dict[str, Any]:
             "critical_flow": None,
             "idle_seconds": 0,
         },
+        "tavern_quests": {
+            "assist_allies": {"current": None, "max": 5},
+            "plunder_others": {"current": None, "max": 5},
+            "timestamp": None,
+        },
         "last_update": None,
     }
 
@@ -267,6 +272,89 @@ def get_stamina() -> dict[str, Any]:
 def get_arms_race_score() -> dict[str, Any]:
     """Get Arms Race score from state file."""
     return load_state().get("arms_race_score", {})
+
+
+def update_tavern_quests(
+    assist_current: int | None,
+    assist_max: int = 5,
+    plunder_current: int | None = None,
+    plunder_max: int = 5,
+) -> None:
+    """
+    Update tavern quest counters (Assist Allies, Plunder Others).
+
+    Args:
+        assist_current: Current assist count (e.g., 3 of 5)
+        assist_max: Max assists per day (default 5)
+        plunder_current: Current plunder count (e.g., 0 of 5)
+        plunder_max: Max plunders per day (default 5)
+    """
+    state = load_state()
+    state["tavern_quests"] = {
+        "assist_allies": {"current": assist_current, "max": assist_max},
+        "plunder_others": {"current": plunder_current, "max": plunder_max},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(state)
+
+
+def get_tavern_quests() -> dict[str, Any]:
+    """Get tavern quest counters from state file."""
+    return load_state().get("tavern_quests", {})
+
+
+def is_tavern_assists_maxed() -> bool:
+    """
+    Check if assist allies is maxed for today.
+
+    Returns True if current >= max AND timestamp is from today (server reset at 00:00 UTC).
+    """
+    state = load_state().get("tavern_quests", {})
+    assist = state.get("assist_allies", {})
+    current = assist.get("current")
+    maximum = assist.get("max", 5)
+    timestamp = state.get("timestamp")
+
+    if current is None or timestamp is None:
+        return False
+
+    # Check if from today (server resets at 00:00 UTC)
+    try:
+        ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        if ts.date() != now.date():
+            return False  # Old data, not from today
+    except Exception:
+        return False
+
+    return current >= maximum
+
+
+def is_tavern_plunder_maxed() -> bool:
+    """
+    Check if plunder others is maxed for today.
+
+    Returns True if current >= max AND timestamp is from today (server reset at 00:00 UTC).
+    """
+    state = load_state().get("tavern_quests", {})
+    plunder = state.get("plunder_others", {})
+    current = plunder.get("current")
+    maximum = plunder.get("max", 5)
+    timestamp = state.get("timestamp")
+
+    if current is None or timestamp is None:
+        return False
+
+    # Check if from today (server resets at 00:00 UTC)
+    try:
+        ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        if ts.date() != now.date():
+            return False  # Old data, not from today
+    except Exception:
+        return False
+
+    return current >= maximum
 
 
 def get_full_state() -> dict[str, Any]:

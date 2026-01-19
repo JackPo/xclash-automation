@@ -5,7 +5,7 @@ Automation daemon for X-Clash (com.xman.na.gp) running on BlueStacks. Uses Windo
 ## What it automates
 - Passive popups: handshake, treasure maps, harvest boxes, AFK rewards
 - Resource harvest bubbles (requires calibrated coordinates and aligned town view)
-- Tavern quests (claim, start gold scrolls, schedule-aware claiming)
+- Tavern quests (claim, start gold scrolls, schedule-aware claiming, ally quest assists for gold 4+ star quests)
 - Union gifts and Union Technology donations
 - Bag items and gift box rewards
 - Union War rally joining (monster filters + daily limit handling)
@@ -22,6 +22,8 @@ Notes:
 - Matchers detect UI elements; the daemon triggers flows when conditions are met.
 - OCR runs via a local Qwen2.5-VL server for stamina and event points.
 - A JSON scheduler persists cooldowns and daily limits across restarts.
+- State file (`data/daemon_current_state.json`) tracks stamina, tavern quest counters (assist allies, plunder others), daily check-ins, and Arms Race progress.
+- Web dashboard shows live status and allows flow control via WebSocket.
 
 ## Quick start
 1. Install Python 3.12+, BlueStacks 5, and optional CUDA (for OCR).
