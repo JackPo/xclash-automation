@@ -1,7 +1,17 @@
 """
 Treasure map icon template matcher for bouncing scroll detection.
 
-Uses template_matcher for fixed-position detection at (2096, 1540).
+Uses SINGLE template with mask for precise detection:
+- treasure_map_4k.png + treasure_map_mask_4k.png
+
+Analysis of 20 back-to-back screenshots showed:
+- Group A (15/20 frames): IDENTICAL pixels at bounce position
+- Bounced frames (5/20): No exact pairs found
+
+Strategy: Use Group A template only - catches 15/20 frames with score < 0.001.
+Over 2-3 consecutive screenshots, the bounce will return to Group A position.
+
+Templates are in: templates/ground_truth/treasure_map/
 
 Usage:
     from treasure_map_matcher import TreasureMapMatcher
@@ -28,6 +38,9 @@ class TreasureMapMatcher:
     """
     Presence detector for treasure map icon at FIXED location.
 
+    Uses single template with mask for precise detection (15/20 frames).
+    Over 2-3 screenshots, bounce returns to detectable position.
+
     FIXED specs (4K resolution):
     - Extraction position: (2096, 1540)
     - Size: 158x162 pixels
@@ -42,8 +55,9 @@ class TreasureMapMatcher:
     CLICK_X = 2175
     CLICK_Y = 1621
 
-    TEMPLATE_NAME = "treasure_map_4k.png"
-    DEFAULT_THRESHOLD = 0.05
+    # Single template with mask (auto-detected by match_template)
+    TEMPLATE = "treasure_map/treasure_map_4k.png"
+    DEFAULT_THRESHOLD = 0.01  # Tight threshold - Group A frames match with score < 0.001
 
     def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         """
@@ -59,6 +73,9 @@ class TreasureMapMatcher:
         """
         Check if treasure map icon is present at FIXED location.
 
+        Uses single template with mask for precise matching.
+        Detects 15/20 bounce frames with score < 0.001.
+
         Args:
             frame: BGR image frame from screenshot
             save_debug: Ignored (kept for backward compatibility)
@@ -69,12 +86,17 @@ class TreasureMapMatcher:
         if frame is None or frame.size == 0:
             return False, 1.0
 
-        is_present, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(self.ICON_X, self.ICON_Y, self.ICON_WIDTH, self.ICON_HEIGHT),
+        search_region = (self.ICON_X, self.ICON_Y, self.ICON_WIDTH, self.ICON_HEIGHT)
+
+        # Single template with auto-detected mask
+        found, score, _ = match_template(
+            frame, self.TEMPLATE,
+            search_region=search_region,
             threshold=self.threshold
         )
 
-        return is_present, score
+        return found, score
 
     def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED treasure map icon center position."""
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:treasure_map:click")

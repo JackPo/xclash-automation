@@ -42,7 +42,7 @@ import threading
 import logging
 import importlib
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 import pytz
@@ -160,6 +160,7 @@ from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_fl
 from flows.faction_trials_flow import faction_trials_flow
 from flows.zombie_attack_flow import zombie_attack_flow
 from flows.community_click_flow import community_click_flow
+from flows.royal_city_attack_flow import royal_city_attack_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -519,6 +520,10 @@ class IconDaemon:
         self._last_handshake_click: float = 0.0
         self.HANDSHAKE_COOLDOWN: float = 2.0  # seconds between handshake clicks
 
+        # Royal City Reinforce scheduling (Fridays 6:15-9:00 AM PT)
+        self._royal_city_last_attempt: float = 0.0
+        self._royal_city_success_date: date | None = None  # Date when we successfully marched (stop retrying)
+
         # Setup logging
         self.log_dir = Path('logs')
         self.log_dir.mkdir(exist_ok=True)
@@ -559,7 +564,7 @@ class IconDaemon:
         required_templates = [
             # Icon matcher templates
             'handshake_icon_4k.png',
-            'treasure_map_4k.png',
+            'treasure_map/treasure_map_4k.png',
             'corn_harvest_bubble_4k.png',
             'gold_coin_tight_4k.png',
             'harvest_box_4k.png',
@@ -644,7 +649,7 @@ class IconDaemon:
         print(f"  Handshake matcher: {self.handshake_matcher.TEMPLATE_NAME} (threshold={self.handshake_matcher.threshold})")
 
         self.treasure_matcher = TreasureMapMatcher(debug_dir=debug_dir)
-        print(f"  Treasure map matcher: {self.treasure_matcher.TEMPLATE_NAME} (threshold={self.treasure_matcher.threshold})")
+        print(f"  Treasure map matcher: {self.treasure_matcher.TEMPLATE} (threshold={self.treasure_matcher.threshold})")
 
         self.corn_matcher = CornHarvestMatcher(debug_dir=debug_dir)
         print(f"  Corn harvest matcher: {self.corn_matcher.TEMPLATE_NAME} (threshold={self.corn_matcher.threshold})")
@@ -809,14 +814,14 @@ class IconDaemon:
             self.logger.info(f"[{iteration}] FLOW: {best.name} - {best.reason}")
 
         # Execute the best flow
-        if self._run_flow(best.name, best.flow_func, critical=best.critical):
-            # Record cooldown if needed
-            if best.record_to_scheduler:
-                self.scheduler.record_flow_run(best.name)
+        # Note: scheduler recording now happens inside _run_flow thread (only if flow doesn't skip)
+        if self._run_flow(best.name, best.flow_func, critical=best.critical,
+                          record_to_scheduler=best.record_to_scheduler):
             return best.name
         return None
 
-    def _run_flow(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False) -> bool:
+    def _run_flow(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False,
+                  record_to_scheduler: bool = False) -> bool:
         """
         Run a flow in a thread-safe way.
 
@@ -824,6 +829,7 @@ class IconDaemon:
             flow_name: Identifier for the flow
             flow_func: Function to execute (takes adb as argument)
             critical: If True, blocks all other daemon actions during execution
+            record_to_scheduler: If True, records cooldown after execution (unless flow returns skipped=True)
         """
         from utils.timeline import EXCLUDED_FLOWS, get_flow_category
 
@@ -868,6 +874,17 @@ class IconDaemon:
                         category=get_flow_category(flow_name),
                         is_critical=critical,
                     )
+
+                # Record to scheduler - skipped flows get short cooldown (5 min)
+                # to prevent infinite loop while still allowing retry soon
+                if record_to_scheduler:
+                    flow_skipped = (flow_result and isinstance(flow_result, dict)
+                                    and flow_result.get("skipped"))
+                    if flow_skipped:
+                        # Short 5-min cooldown for skipped flows
+                        self.scheduler.record_flow_run(flow_name, cooldown_override=300)
+                    else:
+                        self.scheduler.record_flow_run(flow_name)
 
                 with self.flow_lock:
                     self.active_flows.discard(flow_name)
@@ -1246,6 +1263,64 @@ class IconDaemon:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
         return get_user_idle_seconds() >= self.IDLE_THRESHOLD
 
+    def _is_royal_city_window(self) -> bool:
+        """
+        Check if we're in the Royal City Reinforce window (Fridays 6:15-9:00 AM PT).
+
+        Returns True if:
+        - It's Friday (weekday() == 4)
+        - Time is between 6:15 AM and 9:00 AM Pacific
+        """
+        now_pt = datetime.now(self.pacific_tz)
+
+        # Check if Friday (weekday 4)
+        if now_pt.weekday() != 4:
+            return False
+
+        # Check time window: 6:15 AM to 9:00 AM PT
+        current_minutes = now_pt.hour * 60 + now_pt.minute
+        start_minutes = 6 * 60 + 15  # 6:15 AM = 375 minutes
+        end_minutes = 9 * 60  # 9:00 AM = 540 minutes
+
+        return start_minutes <= current_minutes < end_minutes
+
+    def _should_run_royal_city_reinforce(self) -> bool:
+        """
+        Check if we should attempt Royal City Reinforce.
+
+        Returns True if:
+        - ROYAL_CITY_REINFORCE_ENABLED is True
+        - In the Friday window (6:15-9:00 AM PT)
+        - Haven't successfully marched today
+        - Cooldown (15 min) has passed since last attempt
+        - User is idle
+        """
+        # Check if enabled
+        manager = get_override_manager()
+        enabled, _ = manager.get_effective("ROYAL_CITY_REINFORCE_ENABLED", True)
+        if not enabled:
+            return False
+
+        # Check window
+        if not self._is_royal_city_window():
+            return False
+
+        # Check if already succeeded today
+        today = datetime.now(self.pacific_tz).date()
+        if self._royal_city_success_date == today:
+            return False
+
+        # Check cooldown
+        cooldown, _ = manager.get_effective("ROYAL_CITY_REINFORCE_COOLDOWN", 900)
+        if time.time() - self._royal_city_last_attempt < cooldown:
+            return False
+
+        # Check idle
+        if not self._is_user_idle():
+            return False
+
+        return True
+
     def _run_flow_sync(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False) -> dict[str, Any]:
         """
         Run a flow synchronously (blocking) and return its result.
@@ -1410,6 +1485,7 @@ class IconDaemon:
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
             "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),  # type: ignore[arg-type]
             "community_checkin": (lambda adb: community_click_flow(adb, self.windows_helper), False),
+            "royal_city_attack": (lambda adb: royal_city_attack_flow(adb, self.windows_helper), False),
         }
 
     def get_status(self) -> dict[str, Any]:
@@ -1581,6 +1657,26 @@ class IconDaemon:
                         self._run_flow("handshake", handshake_flow)
                         self._last_handshake_click = now
                         continue  # Skip rest of iteration, start fresh
+
+                # =================================================================
+                # SCHEDULED FLOWS - Royal City Reinforce (Fridays 6:15-9:00 AM PT)
+                # =================================================================
+                if self._should_run_royal_city_reinforce() and self._can_run_flow():
+                    self.logger.info(f"[{iteration}] ROYAL CITY REINFORCE: Friday window, attempting reinforce...")
+                    self._royal_city_last_attempt = time.time()
+
+                    # Run the flow
+                    success = self._run_flow("royal_city_attack", royal_city_attack_flow)
+
+                    if success:
+                        # Successfully marched - stop retrying this Friday
+                        self._royal_city_success_date = datetime.now(self.pacific_tz).date()
+                        self.logger.info(f"[{iteration}] ROYAL CITY REINFORCE: SUCCESS! Troops dispatched, won't retry today.")
+                    else:
+                        cooldown, _ = get_override_manager().get_effective("ROYAL_CITY_REINFORCE_COOLDOWN", 900)
+                        self.logger.info(f"[{iteration}] ROYAL CITY REINFORCE: Failed, will retry in {cooldown // 60} minutes")
+
+                    continue  # Skip rest of iteration after scheduled flow
 
                 if treasure_present:
                     # Already validated: treasure only checked in TOWN/WORLD
@@ -2099,7 +2195,7 @@ class IconDaemon:
                                 self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Shaded button detected (score={shaded_score:.4f}), clicking to dismiss popup...")
                                 mark_daemon_action()
                                 self.adb.tap(*BUTTON_CLICK, source="daemon:shaded_button")
-                                time.sleep(0.5)
+                                time.sleep(1.5)  # Wait for UI to settle after popup dismiss
                                 # Re-check view state
                                 new_frame = self.windows_helper.get_screenshot_cv2()
                                 new_state, _ = detect_view(new_frame)
@@ -2107,9 +2203,11 @@ class IconDaemon:
                                     self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
                                     self.unknown_state_start = None
                                     self.unknown_state_left_time = None
+                                    time.sleep(self.interval)  # Respect main loop timing
                                     continue  # Skip rest of iteration, start fresh
                                 else:
-                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name} after shaded click, will keep trying")
+                                    self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name} after shaded click, waiting before retry...")
+                                    time.sleep(2.0)  # Extra cooldown when recovery fails
                                     continue  # Keep trying
 
                             # SECOND: Check for back button with masked template (catches dialogs/menus)
@@ -2127,9 +2225,11 @@ class IconDaemon:
                                         self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
                                         self.unknown_state_start = None
                                         self.unknown_state_left_time = None
+                                        time.sleep(self.interval)  # Respect main loop timing
                                         continue  # Skip rest of iteration, start fresh
                                     else:
-                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will keep trying")
+                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, waiting before retry...")
+                                        time.sleep(3.0)  # Longer cooldown after full return_to_base_view fails
                                         continue  # Keep trying
 
                             # THIRD: Try safe ground/grass (for floating popups without back button)
@@ -2162,7 +2262,7 @@ class IconDaemon:
                                     self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Clicking safe {pos_type} at {best_pos} to dismiss popup...")
                                     mark_daemon_action()
                                     self.adb.tap(*best_pos, source=f"daemon:safe_{pos_type.split('(')[0]}")
-                                    time.sleep(0.5)
+                                    time.sleep(1.5)  # Wait for UI to settle after ground/grass click
                                     # Re-check view state
                                     new_frame = self.windows_helper.get_screenshot_cv2()
                                     new_state, _ = detect_view(new_frame)
@@ -2170,9 +2270,11 @@ class IconDaemon:
                                         self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Success! Now in {new_state.name}")
                                         self.unknown_state_start = None
                                         self.unknown_state_left_time = None
+                                        time.sleep(self.interval)  # Respect main loop timing
                                         continue  # Skip rest of iteration, start fresh
                                     else:
-                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, will retry")
+                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name}, waiting before retry...")
+                                        time.sleep(2.0)  # Extra cooldown when recovery fails
                                 else:
                                     # FOURTH: No safe ground/grass found - try clicking screen edges
                                     # Building popups (Union Center, etc.) can be dismissed by clicking outside them
@@ -2189,7 +2291,7 @@ class IconDaemon:
                                     self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: No safe area found, trying edge click at {edge_pos}...")
                                     mark_daemon_action()
                                     self.adb.tap(*edge_pos, source="daemon:edge_click_recovery")
-                                    time.sleep(0.5)
+                                    time.sleep(1.5)  # Wait for UI to settle after edge click
                                     # Re-check view state
                                     new_frame = self.windows_helper.get_screenshot_cv2()
                                     new_state, _ = detect_view(new_frame)
@@ -2197,9 +2299,11 @@ class IconDaemon:
                                         self.logger.info(f"[{iteration}] UNKNOWN RECOVERY: Edge click success! Now in {new_state.name}")
                                         self.unknown_state_start = None
                                         self.unknown_state_left_time = None
+                                        time.sleep(self.interval)  # Respect main loop timing
                                         continue
                                     else:
-                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name} after edge click")
+                                        self.logger.debug(f"[{iteration}] UNKNOWN RECOVERY: Still in {new_state.name} after edge click, waiting before retry...")
+                                        time.sleep(2.0)  # Extra cooldown when recovery fails
 
                         # Full recovery: After 180s AND user is idle, run return_to_base_view
                         # Don't interrupt if user is actively using the game
@@ -2603,6 +2707,7 @@ class IconDaemon:
                         state = get_full_state()
                         timer_data = state.get("stamina_claim_timer", {})
                         timer_seconds: int | None = timer_data.get("seconds_remaining")
+                        claim_available = timer_data.get("claim_available", False)
 
                         # Adjust for elapsed time since we checked at block start
                         if timer_seconds is not None and timer_data.get("checked_at"):
@@ -2615,7 +2720,13 @@ class IconDaemon:
 
                         event_remaining_seconds = arms_race_remaining_mins * 60
 
-                        if timer_seconds is not None and timer_seconds < event_remaining_seconds:
+                        # Only wait if: timer will expire before event AND claim is actually available
+                        # If claim_available=false and timer=0, free claim was already used - don't wait
+                        should_wait = (timer_seconds is not None and
+                                      timer_seconds < event_remaining_seconds and
+                                      (timer_seconds > 0 or claim_available))
+
+                        if should_wait:
                             # Free claim will be available before event ends - WAIT
                             timer_mins = timer_seconds // 60
                             self.logger.info(
@@ -2896,7 +3007,10 @@ class IconDaemon:
                     ))
 
                 # Community daily check-in: 4 hour cooldown (flow skips if already done today)
-                if self._is_user_idle() and self.scheduler.is_flow_ready("community_checkin", idle_seconds=effective_idle_secs):
+                # Only run when in TOWN or WORLD view (community icon visible in both)
+                if (view_state_enum in (ViewState.TOWN, ViewState.WORLD) and
+                    self._is_user_idle() and
+                    self.scheduler.is_flow_ready("community_checkin", idle_seconds=effective_idle_secs)):
                     flow_candidates.append(FlowCandidate(
                         name="community_checkin",
                         flow_func=lambda adb: community_click_flow(adb, self.windows_helper),
