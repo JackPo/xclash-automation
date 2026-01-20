@@ -1012,12 +1012,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         - assists: number of assists made
         - reason: 'maxed_today', 'maxed', 'no_targets', 'completed'
     """
-    # Check if already maxed today - skip entirely
-    if _is_ally_assists_maxed_today():
-        logger.info("Ally assists already maxed today - skipping")
-        return {"assists": 0, "reason": "maxed_today"}
-
-    from utils.tavern_counter_reader import read_assist_counter
+    from utils.tavern_counter_reader import read_assist_counter, read_plunder_counter
     from utils.ally_quest_scanner import (
         load_templates as load_ally_templates,
         find_all_buttons,
@@ -1040,8 +1035,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         logger.warning("Not in Tavern for Ally Quests flow")
         return {"assists": 0, "reason": "not_in_tavern"}
 
-    # Read BOTH counters and update state
-    from utils.tavern_counter_reader import read_plunder_counter
+    # ALWAYS read BOTH counters and update state (even if skipping assists)
     assist_counter = read_assist_counter(frame)
     plunder_counter = read_plunder_counter(frame)
 
