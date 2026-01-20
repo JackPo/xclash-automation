@@ -31,6 +31,11 @@ IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 # Debug screenshots
 DEBUG_SCREENSHOTS_ENABLED = False  # Set to True to save debug screenshots (fills disk quickly!)
 
+# Per-flow debug flags (override global setting for specific flows)
+DEBUG_ELITE_ZOMBIE_FLOW = True     # Elite zombie rally flow
+DEBUG_ZOMBIE_ATTACK_FLOW = True    # Regular zombie attack flow
+DEBUG_RALLY_JOIN_FLOW = True       # Rally join flow
+
 # WebSocket API server
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
 DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
@@ -267,7 +272,7 @@ BARRACKS_YELLOW_PIXEL_THRESHOLD = 1000
 
 # Default soldier level to train when NOT in Arms Race Soldier Training event
 # During Arms Race Soldier Training, this may be overridden to train higher levels
-SOLDIER_TRAINING_DEFAULT_LEVEL = 4
+SOLDIER_TRAINING_DEFAULT_LEVEL = 5
 
 # =============================================================================
 # HOSPITAL STATE DETECTION (4K resolution)
@@ -299,10 +304,12 @@ STAMINA_CLAIM_BUTTON = {
     'click': (2284, 743),
 }
 
-# Use button in stamina popup (+50 stamina recovery items)
+# DEPRECATED: stamina_use_flow now uses dynamic detection via Y-band search
+# Old fixed coordinates clicked PURCHASE button, not USE button for recovery items
+# Kept for reference only - not used by stamina_use_flow.py
 STAMINA_USE_BUTTON = {
-    'search_region': (1800, 1100, 800, 500),  # x, y, w, h - lower half of popup
-    'click': (2284, 1440),
+    'search_region': (1800, 900, 800, 700),  # DEPRECATED
+    'click': (2267, 976),  # DEPRECATED - was PURCHASE button, not USE
 }
 
 # =============================================================================
