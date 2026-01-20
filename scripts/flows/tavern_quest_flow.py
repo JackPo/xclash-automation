@@ -998,14 +998,14 @@ def _update_tavern_counters(assist_current: int, assist_max: int = 5,
 
 def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
     """
-    Assist gold 4+ star ally quests.
+    Assist gold 5-star ally quests.
 
     Logic:
     1. Check if already maxed today (skip entirely if so)
     2. Read Assist Allies counter
     3. If >= 5, mark maxed and skip
     4. Click Ally Quests tab
-    5. Find gold 4+ star quests and click assist
+    5. Find gold 5-star quests and click assist
     6. Repeat until maxed or no targets
 
     Returns dict with:
@@ -1025,7 +1025,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         count_stars,
     )
 
-    MIN_STARS = 4  # Only assist gold 4+ star quests
+    MIN_STARS = 5  # Only assist gold 5-star quests
     ASSIST_BUTTON_CENTER_OFFSET = (125, 50)  # Center of 249x100 assist button
 
     logger.info("Starting Ally Quests flow")
@@ -1082,7 +1082,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
             frame_gray, ally_templates.get("assist"), ally_templates.get("clock")
         )
 
-        # Filter for gold 4+ star quests with assist buttons
+        # Filter for gold 5-star quests with assist buttons
         target = None
         for btn in buttons:
             if btn["type"] != "assist":
@@ -1099,7 +1099,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
                 break
 
         if target is None:
-            logger.info("No gold 4+ star quests found")
+            logger.info("No gold 5-star quests found")
             break
 
         # Click the assist button center
@@ -1226,7 +1226,7 @@ def run_tavern_quest_flow(adb: ADBHelper | None = None, win: WindowsScreenshotHe
         if my_quests_result.get("claimed", False):
             logger.info("Claim was made - next pass will verify nothing was missed")
 
-    # Run Ally Quests flow - re-open tavern and assist gold 4+ star quests
+    # Run Ally Quests flow - re-open tavern and assist gold 5-star quests
     logger.info("=== ALLY QUESTS FLOW ===")
     logger.info("Navigating to TOWN for ally quests")
     if go_to_town(adb, debug=debug):
