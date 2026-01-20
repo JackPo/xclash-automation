@@ -130,26 +130,31 @@ def _save_checkin_state(timestamp: str) -> None:
 
 
 def _is_already_checked_in_today() -> bool:
-    """Check if already checked in since last server reset (02:00 UTC)."""
+    """Check if already checked in since last community reset (01:00 UTC)."""
     state = _load_state()
     checkin = state.get("daily_checkin", {})
     last_timestamp = checkin.get("timestamp")
 
     if not last_timestamp:
+        print(f"[COMMUNITY] Reset check: No previous timestamp, will run")
         return False
 
     try:
         last_checkin = datetime.fromisoformat(last_timestamp)
         now = datetime.now(timezone.utc)
 
-        # Server resets at 02:00 UTC
-        today_reset = now.replace(hour=2, minute=0, second=0, microsecond=0)
-        if now.hour < 2:
+        # Community resets at 01:00 UTC (different from main server reset at 02:00 UTC)
+        today_reset = now.replace(hour=1, minute=0, second=0, microsecond=0)
+        if now.hour < 1:
             # Before today's reset, use yesterday's reset
-            today_reset = today_reset.replace(day=today_reset.day - 1)
+            from datetime import timedelta
+            today_reset = today_reset - timedelta(days=1)
 
-        return last_checkin > today_reset
-    except (ValueError, TypeError):
+        is_done = last_checkin > today_reset
+        print(f"[COMMUNITY] Reset check: last={last_checkin.isoformat()}, reset={today_reset.isoformat()}, done={is_done}")
+        return is_done
+    except (ValueError, TypeError) as e:
+        print(f"[COMMUNITY] Reset check: Error parsing timestamp: {e}")
         return False
 
 
@@ -332,14 +337,14 @@ def community_click_flow(
     if found and btn_pos is not None:
         if btn_type == "blue":
             if debug:
-                print(f"[COMMUNITY] Clicking Check in at {btn_pos}")
+                print(f"[COMMUNITY] Found blue button, clicking at {btn_pos}")
             adb.tap(btn_pos[0], btn_pos[1], source="flow:community:checkin_click")
             time.sleep(1.0)
             result["checked_in"] = True
             button_found = True
         else:  # grey
             if debug:
-                print("[COMMUNITY] Already checked in (grey button found)")
+                print("[COMMUNITY] Found grey button - already checked in")
             result["already_done"] = True
             button_found = True
 
