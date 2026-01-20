@@ -1035,19 +1035,44 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         logger.warning("Not in Tavern for Ally Quests flow")
         return {"assists": 0, "reason": "not_in_tavern"}
 
-    # ALWAYS read BOTH counters and update state (even if skipping assists)
-    assist_counter = read_assist_counter(frame)
-    plunder_counter = read_plunder_counter(frame)
+    # Check each counter SEPARATELY - only OCR if not already maxed for today
+    from utils.current_state import is_tavern_assists_maxed, is_tavern_plunder_maxed, get_tavern_quests
 
-    if assist_counter is None:
-        logger.warning("Could not read assist counter")
-        return {"assists": 0, "reason": "counter_read_failed"}
+    assists_already_maxed = is_tavern_assists_maxed()
+    plunder_already_maxed = is_tavern_plunder_maxed()
 
-    assist_current, assist_max = assist_counter
-    plunder_current = plunder_counter[0] if plunder_counter else None
-    plunder_max = plunder_counter[1] if plunder_counter else 5
+    # Get cached values for counters that are already maxed
+    cached = get_tavern_quests()
+    assist_current, assist_max = None, 5
+    plunder_current, plunder_max = None, 5
 
-    logger.info(f"Assist Allies: {assist_current}/{assist_max}, Plunder Others: {plunder_current}/{plunder_max}")
+    if assists_already_maxed:
+        # Use cached value, skip OCR
+        cached_assist = cached.get("assist_allies", {})
+        assist_current = cached_assist.get("current", 5)
+        assist_max = cached_assist.get("max", 5)
+        logger.info(f"Assist Allies: {assist_current}/{assist_max} (cached, maxed)")
+    else:
+        # OCR fresh value
+        assist_counter = read_assist_counter(frame)
+        if assist_counter is None:
+            logger.warning("Could not read assist counter")
+            return {"assists": 0, "reason": "counter_read_failed"}
+        assist_current, assist_max = assist_counter
+        logger.info(f"Assist Allies: {assist_current}/{assist_max} (fresh OCR)")
+
+    if plunder_already_maxed:
+        # Use cached value, skip OCR
+        cached_plunder = cached.get("plunder_others", {})
+        plunder_current = cached_plunder.get("current", 5)
+        plunder_max = cached_plunder.get("max", 5)
+        logger.info(f"Plunder Others: {plunder_current}/{plunder_max} (cached, maxed)")
+    else:
+        # OCR fresh value
+        plunder_counter = read_plunder_counter(frame)
+        plunder_current = plunder_counter[0] if plunder_counter else None
+        plunder_max = plunder_counter[1] if plunder_counter else 5
+        logger.info(f"Plunder Others: {plunder_current}/{plunder_max} (fresh OCR)")
 
     # Update state with both counters
     _update_tavern_counters(assist_current, assist_max, plunder_current, plunder_max)
