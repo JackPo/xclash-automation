@@ -33,7 +33,7 @@ class TreasureDiggingMarkerMatcher:
     CLICK_X = 1902
     CLICK_Y = 1009
 
-    TEMPLATE_NAME = "treasure_digging_marker_4k.png"
+    TEMPLATE_NAME = "treasure_map/treasure_digging_marker_4k.png"
     DEFAULT_THRESHOLD = 0.15
 
     def __init__(self, threshold: float | None = None) -> None:
@@ -50,7 +50,7 @@ class TreasureDiggingMarkerMatcher:
         return is_present, score
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:treasure_digging_marker:click")
 
 
 class GatherButtonMatcher:
@@ -80,7 +80,7 @@ class GatherButtonMatcher:
         return is_present, score
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:gather_button:click")
 
 
 class MarchButtonMatcher:
@@ -110,7 +110,7 @@ class MarchButtonMatcher:
         return is_present, score
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:march_button:click")
 
 
 class ZzSleepIconMatcher:
@@ -159,12 +159,12 @@ class ZzSleepIconMatcher:
         return None
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:zz_sleep_icon:click")
 
     def click_rightmost(self, adb_helper: ADBHelper, frame: npt.NDArray[Any]) -> bool:
         pos = self.find_rightmost_zz(frame)
         if pos:
-            adb_helper.tap(pos[0], pos[1])
+            adb_helper.tap(pos[0], pos[1], source="matcher:zz_sleep_icon:click_rightmost")
             return True
         return False
 
@@ -179,8 +179,8 @@ class TreasureReadyCircleMatcher:
     CLICK_X = 1915
     CLICK_Y = 790
 
-    TEMPLATE_NAME = "treasure_ready_circle_4k.png"
-    DEFAULT_THRESHOLD = 0.15
+    TEMPLATE_NAME = "treasure_map/treasure_ready_circle_4k.png"
+    DEFAULT_THRESHOLD = 0.05  # Masked template - real matches are ~0.001
 
     def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
@@ -196,4 +196,21 @@ class TreasureReadyCircleMatcher:
         return is_present, score
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:treasure_ready_circle:click")
+
+
+class TreasureCollectedMatcher:
+    """Detects the white/gray circle that appears after treasure is collected."""
+
+    TEMPLATE_NAME = "treasure_map/treasure_not_ready_circle_4k.png"
+    DEFAULT_THRESHOLD = 0.05  # Masked template - real matches are ~0.001
+
+    def __init__(self, threshold: float | None = None) -> None:
+        self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
+
+    def is_present(self, frame: npt.NDArray[Any], save_debug: bool = False) -> tuple[bool, float]:
+        if frame is None or frame.size == 0:
+            return False, 1.0
+
+        is_present, score, _ = match_template(frame, self.TEMPLATE_NAME, threshold=self.threshold)
+        return is_present, score

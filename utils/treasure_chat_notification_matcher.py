@@ -37,7 +37,7 @@ class TreasureChatNotificationMatcher:
     CLICK_OFFSET_X = 0  # Center horizontally
     CLICK_OFFSET_Y = 50  # 50px below center (near bottom of 181px tall template)
 
-    TEMPLATE_NAME = "treasure_chat_notification_4k.png"
+    TEMPLATE_NAME = "treasure_map/treasure_chat_notification_4k.png"
     DEFAULT_THRESHOLD = 0.1
 
     def __init__(self, threshold: float | None = None) -> None:
@@ -92,7 +92,7 @@ class TreasureChatNotificationMatcher:
             found_position: (x, y) center from is_present()
         """
         click_x, click_y = self.get_click_position(found_position)
-        adb_helper.tap(click_x, click_y)
+        adb_helper.tap(click_x, click_y, source="matcher:treasure_chat:click")
 
     def detect_and_click(self, frame: npt.NDArray[Any], adb_helper: ADBHelper, save_debug: bool = False) -> tuple[bool, float]:
         """
