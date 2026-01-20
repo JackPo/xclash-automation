@@ -11,11 +11,38 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Server reset time (02:00 UTC)
+SERVER_RESET_HOUR_UTC = 2
+
+
+def _get_server_day(dt: datetime) -> datetime:
+    """
+    Get the server day for a given datetime.
+    Server resets at 02:00 UTC, so times before 02:00 belong to the previous day.
+    Returns the date at 02:00 UTC for that server day.
+    """
+    # Convert to UTC if needed
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+
+    # If before 02:00 UTC, it's still the previous server day
+    if dt.hour < SERVER_RESET_HOUR_UTC:
+        dt = dt - timedelta(days=1)
+
+    return dt.replace(hour=SERVER_RESET_HOUR_UTC, minute=0, second=0, microsecond=0)
+
+
+def _is_same_server_day(ts: datetime, now: datetime) -> bool:
+    """Check if two datetimes are on the same server day (reset at 02:00 UTC)."""
+    return _get_server_day(ts) == _get_server_day(now)
 
 # State file location
 STATE_FILE = Path(__file__).parent.parent / "data" / "daemon_current_state.json"
@@ -307,7 +334,7 @@ def is_tavern_assists_maxed() -> bool:
     """
     Check if assist allies is maxed for today.
 
-    Returns True if current >= max AND timestamp is from today (server reset at 00:00 UTC).
+    Returns True if current >= max AND timestamp is from same server day (reset at 02:00 UTC).
     """
     state = load_state().get("tavern_quests", {})
     assist = state.get("assist_allies", {})
@@ -318,12 +345,12 @@ def is_tavern_assists_maxed() -> bool:
     if current is None or timestamp is None:
         return False
 
-    # Check if from today (server resets at 00:00 UTC)
+    # Check if from same server day (resets at 02:00 UTC)
     try:
         ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        if ts.date() != now.date():
-            return False  # Old data, not from today
+        if not _is_same_server_day(ts, now):
+            return False  # Old data, from previous server day
     except Exception:
         return False
 
@@ -334,7 +361,7 @@ def is_tavern_plunder_maxed() -> bool:
     """
     Check if plunder others is maxed for today.
 
-    Returns True if current >= max AND timestamp is from today (server reset at 00:00 UTC).
+    Returns True if current >= max AND timestamp is from same server day (reset at 02:00 UTC).
     """
     state = load_state().get("tavern_quests", {})
     plunder = state.get("plunder_others", {})
@@ -345,12 +372,12 @@ def is_tavern_plunder_maxed() -> bool:
     if current is None or timestamp is None:
         return False
 
-    # Check if from today (server resets at 00:00 UTC)
+    # Check if from same server day (resets at 02:00 UTC)
     try:
         ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        if ts.date() != now.date():
-            return False  # Old data, not from today
+        if not _is_same_server_day(ts, now):
+            return False  # Old data, from previous server day
     except Exception:
         return False
 
