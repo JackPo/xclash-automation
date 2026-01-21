@@ -17,6 +17,7 @@ Templates:
 """
 from __future__ import annotations
 
+import cv2
 import json
 import sys
 import time
@@ -32,6 +33,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.template_matcher import match_template, has_mask
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+# Debug screenshot directory
+DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "community_flow"
+
+
+def _save_debug(frame, step_name: str) -> None:
+    """Save debug screenshot with timestamp."""
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = DEBUG_DIR / f"{timestamp}_{step_name}.png"
+    cv2.imwrite(str(path), frame)
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -198,6 +210,8 @@ def community_click_flow(
 
     # Step 1: Find and click Community icon
     frame = win.get_screenshot_cv2()
+    _save_debug(frame, "01_before_community_icon")
+
     threshold = _get_threshold(COMMUNITY_ICON_TEMPLATE)
     found, score, pos = match_template(
         frame,
@@ -209,6 +223,7 @@ def community_click_flow(
         print(f"[COMMUNITY] Community icon: found={found}, score={score:.4f}, pos={pos}")
 
     if not found or pos is None:
+        _save_debug(frame, "01_community_icon_NOT_FOUND")
         if debug:
             print("[COMMUNITY] Community icon not found")
         return result
@@ -240,9 +255,12 @@ def community_click_flow(
 
         if found and pos is not None:
             daily_sig_pos = pos
+            _save_debug(frame, "02_daily_sig_FOUND")
             break
 
     if daily_sig_pos is None:
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "02_daily_sig_NOT_FOUND")
         if debug:
             print("[COMMUNITY] Daily Sig icon not found (timeout)")
         return result
@@ -275,6 +293,7 @@ def community_click_flow(
         if found_bear:
             # Bear found = panel loaded and ready
             panel_loaded = True
+            _save_debug(frame, "03_panel_loaded_bear_visible")
             if debug:
                 print("[COMMUNITY] Panel loaded (bear header visible)")
             break
@@ -282,16 +301,21 @@ def community_click_flow(
         time.sleep(POLL_INTERVAL)
 
     if not panel_loaded:
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "03_panel_NOT_loaded")
         if debug:
             print("[COMMUNITY] Panel load timeout (bear header not found)")
         return result
 
     # Step 4: Search for button, scroll DOWN one at a time if not found
     button_found = False
+    button_check_count = [0]  # Use list to allow modification in nested function
 
     def _check_buttons() -> tuple[bool, str, tuple[int, int] | None]:
         """Check for check-in buttons. Returns (found, type, position)."""
         frame = win.get_screenshot_cv2()
+        button_check_count[0] += 1
+        _save_debug(frame, f"04_button_check_{button_check_count[0]:02d}")
 
         # Check blue "Check in" button
         found_blue, score_blue, pos_blue = match_template(
@@ -303,6 +327,7 @@ def community_click_flow(
         if debug:
             print(f"[COMMUNITY] Blue button: found={found_blue}, score={score_blue:.4f}")
         if found_blue and pos_blue is not None:
+            _save_debug(frame, f"04_FOUND_blue_score{score_blue:.4f}")
             return True, "blue", pos_blue
 
         # Check grey "Checked in" button
@@ -315,6 +340,7 @@ def community_click_flow(
         if debug:
             print(f"[COMMUNITY] Grey button: found={found_grey}, score={score_grey:.4f}")
         if found_grey and pos_grey is not None:
+            _save_debug(frame, f"04_FOUND_grey_score{score_grey:.4f}")
             return True, "grey", pos_grey
 
         return False, "", None
@@ -338,22 +364,31 @@ def community_click_flow(
         if btn_type == "blue":
             if debug:
                 print(f"[COMMUNITY] Found blue button, clicking at {btn_pos}")
+            frame = win.get_screenshot_cv2()
+            _save_debug(frame, f"05_clicking_blue_at_{btn_pos[0]}_{btn_pos[1]}")
             adb.tap(btn_pos[0], btn_pos[1], source="flow:community:checkin_click")
             time.sleep(1.0)
+            frame = win.get_screenshot_cv2()
+            _save_debug(frame, "06_after_blue_click")
             result["checked_in"] = True
             button_found = True
         else:  # grey
             if debug:
                 print("[COMMUNITY] Found grey button - already checked in")
+            frame = win.get_screenshot_cv2()
+            _save_debug(frame, f"05_found_grey_at_{btn_pos[0]}_{btn_pos[1]}")
             result["already_done"] = True
             button_found = True
 
     if not button_found:
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "05_button_NOT_FOUND")
         if debug:
             print("[COMMUNITY] Could not find check-in button after 10 scroll attempts")
 
     # Step 6: Close panel with X button
     frame = win.get_screenshot_cv2()
+    _save_debug(frame, "07_before_close")
     found_x, score_x, pos_x = match_template(
         frame,
         CLOSE_X_TEMPLATE,
@@ -368,6 +403,8 @@ def community_click_flow(
         if debug:
             print(f"[COMMUNITY] Clicked X to close at {pos_x}")
         time.sleep(0.5)
+        frame = win.get_screenshot_cv2()
+        _save_debug(frame, "08_after_close")
 
     # Save state if we checked in or found already done
     if result["checked_in"] or result["already_done"]:
@@ -377,6 +414,9 @@ def community_click_flow(
             print(f"[COMMUNITY] Saved check-in state: {timestamp}")
 
     result["success"] = button_found
+
+    frame = win.get_screenshot_cv2()
+    _save_debug(frame, f"09_flow_complete_success{result['success']}_checkin{result['checked_in']}_done{result['already_done']}")
 
     if debug:
         print(f"[COMMUNITY] Flow complete: {result}")
