@@ -1101,24 +1101,26 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
             frame_gray, ally_templates.get("assist"), ally_templates.get("clock")
         )
 
-        # Filter for gold 5-star quests with assist buttons
+        # Filter for gold 4+ star quests with assist buttons
         target = None
+        logger.info(f"Found {len(buttons)} buttons total")
         for btn in buttons:
-            if btn["type"] != "assist":
-                continue
-
             color = detect_quest_color(frame_gray, btn["x"], btn["y"], ally_templates)
             stars = count_stars(frame_gray, btn["x"], btn["y"], ally_templates)
 
-            logger.debug(f"Quest Y={btn['y']}: color={color}, stars={stars}")
+            # Always log ALL quests found
+            logger.info(f"  Quest Y={btn['y']}: type={btn['type']}, color={color}, stars={stars}")
+
+            if btn["type"] != "assist":
+                continue
 
             if color == "gold" and stars >= MIN_STARS:
                 target = btn
-                logger.info(f"Found target: gold {stars}-star quest at Y={btn['y']}")
+                logger.info(f"  -> TARGET: gold {stars}-star quest at Y={btn['y']}")
                 break
 
         if target is None:
-            logger.info("No gold 5-star quests found")
+            logger.info(f"No gold {MIN_STARS}+ star quests with assist button found")
             break
 
         # Click the assist button center

@@ -2567,6 +2567,8 @@ class IconDaemon:
                                 self.logger.warning(f"[{iteration}] BEAST TRAINING: Hour Mark phase failed, will retry...")
 
                     # PHASE 2: Last 6 Minutes Re-check - retry until success
+                    # Track if we claimed stamina this iteration (to skip beast_stamina_use)
+                    last_6_claimed_stamina_this_iteration = False
                     if (arms_race_remaining_mins <= 6 and
                         self.scheduler.is_flow_ready("beast_training_last_6", idle_seconds=effective_idle_secs)):
                         # Check if already done for THIS block
@@ -2587,6 +2589,10 @@ class IconDaemon:
                                     f"Progress {current_pts}/30000 pts, need {rallies_needed} more rallies, "
                                     f"claimed {stamina_claimed} stamina"
                                 )
+
+                                # Mark that we claimed stamina this iteration - skip beast_stamina_use
+                                if stamina_claimed > 0:
+                                    last_6_claimed_stamina_this_iteration = True
 
                                 # ALWAYS reset rally_count and recalculate target from actual points
                                 # The POINTS are the source of truth, not our counter
@@ -2685,11 +2691,14 @@ class IconDaemon:
                     # Conditions: idle 5+ min, rally count < target, stamina < threshold, Use clicks < 4, cooldown
                     # SMART: Check claim timer first - if free claim will be available before event ends, WAIT
                     # Note: stamina_threshold is already set from zombie mode (10 for zombie, 20 for elite)
+                    # SKIP if Last 6 Min phase already claimed stamina this iteration (confirmed_stamina is stale)
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
                                            arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
                     if (not beast_claim_candidate and
                         not beast_rally_candidate and
+                        not last_6_claimed_stamina_this_iteration and
+                        arms_race_remaining_mins > 6 and  # Last 6 Min phase handles stamina
                         self.BEAST_TRAINING_USE_ENABLED and
                         effective_idle_secs >= self.IDLE_THRESHOLD and
                         stamina_confirmed and

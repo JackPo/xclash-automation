@@ -76,8 +76,10 @@ def load_templates() -> dict[str, npt.NDArray[Any]]:
         "clock": "timer_clock_ally_4k.png",
         # Star rating templates (194x70 each)
         "stars_1": "ally_stars_1_4k.png",
+        "stars_2": "ally_stars_2_4k.png",
         "stars_3": "ally_stars_3_4k.png",
         "stars_4": "ally_stars_4_4k.png",
+        "stars_5": "ally_stars_5_4k.png",
         # Color templates (55x70 each)
         "color_gold": "ally_color_gold_4k.png",
         "color_blue": "ally_color_blue_4k.png",
@@ -212,7 +214,7 @@ def count_stars(
     best_stars = 0
     best_score = 1.0
 
-    for star_count, template_key in [(1, "stars_1"), (3, "stars_3"), (4, "stars_4")]:
+    for star_count, template_key in [(1, "stars_1"), (2, "stars_2"), (3, "stars_3"), (4, "stars_4"), (5, "stars_5")]:
         template = templates.get(template_key)
         if template is None:
             continue

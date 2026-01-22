@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import cv2
 import json
+import logging
 import sys
 import time
 from datetime import datetime, timezone
@@ -31,8 +32,12 @@ import win32api
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+# Setup logger
+logger = logging.getLogger("community_flow")
+
 from utils.template_matcher import match_template, has_mask
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.view_state_detector import go_to_town
 
 # Debug screenshot directory
 DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "community_flow"
@@ -148,25 +153,25 @@ def _is_already_checked_in_today() -> bool:
     last_timestamp = checkin.get("timestamp")
 
     if not last_timestamp:
-        print(f"[COMMUNITY] Reset check: No previous timestamp, will run")
+        logger.info("[COMMUNITY] Reset check: No previous timestamp, will run")
         return False
 
     try:
         last_checkin = datetime.fromisoformat(last_timestamp)
         now = datetime.now(timezone.utc)
 
-        # Community resets at 01:00 UTC (different from main server reset at 02:00 UTC)
-        today_reset = now.replace(hour=1, minute=0, second=0, microsecond=0)
-        if now.hour < 1:
+        # Community resets at 08:00 UTC (midnight Pacific, different from main server 02:00 UTC)
+        today_reset = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if now.hour < 8:
             # Before today's reset, use yesterday's reset
             from datetime import timedelta
             today_reset = today_reset - timedelta(days=1)
 
         is_done = last_checkin > today_reset
-        print(f"[COMMUNITY] Reset check: last={last_checkin.isoformat()}, reset={today_reset.isoformat()}, done={is_done}")
+        logger.info(f"[COMMUNITY] Reset check: last={last_checkin.isoformat()}, reset={today_reset.isoformat()}, done={is_done}")
         return is_done
     except (ValueError, TypeError) as e:
-        print(f"[COMMUNITY] Reset check: Error parsing timestamp: {e}")
+        logger.error(f"[COMMUNITY] Reset check: Error parsing timestamp: {e}")
         return False
 
 
@@ -199,14 +204,19 @@ def community_click_flow(
 
     # Check if already done today
     if not force and _is_already_checked_in_today():
-        if debug:
-            print("[COMMUNITY] Already checked in today, skipping")
+        logger.info("[COMMUNITY] Already checked in today, SKIPPING flow")
         result["skipped"] = True
         result["success"] = True
         return result
 
     if debug:
         print("[COMMUNITY] Starting community click flow")
+
+    # Step 0: Go to town first (community icon only visible in town view)
+    if debug:
+        print("[COMMUNITY] Ensuring we're in town view...")
+    go_to_town(adb)
+    time.sleep(0.5)
 
     # Step 1: Find and click Community icon
     frame = win.get_screenshot_cv2()

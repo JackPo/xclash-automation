@@ -33,6 +33,7 @@ from utils.treasure_dig_matchers import (
     GatherButtonMatcher,
     MarchButtonMatcher,
     TreasureReadyCircleMatcher,
+    TreasureCollectedMatcher,
 )
 from utils.back_button_matcher import BackButtonMatcher
 from utils.hero_selector import HeroSelector
@@ -86,7 +87,7 @@ def treasure_map_flow(adb: ADBHelper) -> bool:
     flow_start = time.time()
     _log(f"=== TREASURE FLOW START ===")
     _log(f"Clicking treasure map icon at ({CLICK_X}, {CLICK_Y})")
-    adb.tap(CLICK_X, CLICK_Y)
+    adb.tap(CLICK_X, CLICK_Y, source="flow:treasure_map:click_icon")
 
     # Take screenshot right after clicking icon
     win = WindowsScreenshotHelper()
@@ -170,7 +171,11 @@ def _wait_and_click_chat_notification(adb: ADBHelper) -> bool:
             click_x, click_y = notification_matcher.get_click_position(found_pos)
             _save_debug_screenshot(frame, f"03_chat_FOUND_score{score:.3f}")
             _log(f"  Chat notification FOUND at {found_pos}, clicking Kingdom link at ({click_x}, {click_y})")
-            adb.tap(click_x, click_y)
+            adb.tap(click_x, click_y, source="flow:treasure_map:click_kingdom_link")
+            # Screenshot AFTER clicking Kingdom link to see navigation
+            time.sleep(0.5)
+            frame_after = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame_after, "03b_AFTER_kingdom_click")
             return True
 
         check_count += 1
@@ -210,6 +215,10 @@ def _wait_and_click_digging_marker(adb: ADBHelper) -> bool:
             _save_debug_screenshot(frame, f"05_marker_FOUND_score{score:.3f}")
             _log(f"  Digging marker FOUND, clicking at ({marker_matcher.CLICK_X}, {marker_matcher.CLICK_Y})")
             marker_matcher.click(adb)
+            # Screenshot AFTER clicking marker to see what appears
+            time.sleep(0.5)
+            frame_after = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame_after, "05b_AFTER_marker_click")
             return True
 
         time.sleep(CHECK_INTERVAL)
@@ -238,6 +247,10 @@ def _wait_and_click_gather(adb: ADBHelper) -> bool:
             _save_debug_screenshot(frame, f"07_gather_FOUND_score{score:.3f}")
             _log(f"  Gather button FOUND, clicking at ({gather_matcher.CLICK_X}, {gather_matcher.CLICK_Y})")
             gather_matcher.click(adb)
+            # Screenshot AFTER clicking gather to see what appears
+            time.sleep(0.5)
+            frame_after = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame_after, "07b_AFTER_gather_click")
             return True
 
         time.sleep(CHECK_INTERVAL)
@@ -271,7 +284,7 @@ def _select_character_and_march(adb: ADBHelper) -> bool:
             slot = hero_selector.find_rightmost_idle(frame, zz_mode='prefer')
             if slot:
                 _log(f"  Found rightmost hero at slot {slot['id']}, clicking {slot['click']}...")
-                adb.tap(*slot['click'])
+                adb.tap(*slot['click'], source="flow:treasure_map:select_hero")
                 time.sleep(0.5)
 
                 # Take new screenshot and click March
@@ -283,6 +296,10 @@ def _select_character_and_march(adb: ADBHelper) -> bool:
                 if march_present:
                     _log(f"  Clicking March at ({march_matcher.CLICK_X}, {march_matcher.CLICK_Y})")
                     march_matcher.click(adb)
+                    # Screenshot AFTER clicking march to see what appears
+                    time.sleep(0.5)
+                    frame_after = win.get_screenshot_cv2()
+                    _save_debug_screenshot(frame_after, "10b_AFTER_march_click")
                     return True
             else:
                 # Should never happen since zz_mode='prefer' always returns a slot
@@ -327,38 +344,38 @@ def _wait_and_collect_treasure(adb: ADBHelper) -> bool:
             _log(f"  Blue circle FOUND after {elapsed}s! score={score:.4f}")
             _log(f"  Clicking to collect at ({ready_matcher.CLICK_X}, {ready_matcher.CLICK_Y})")
             ready_matcher.click(adb)
+            # Screenshot AFTER clicking blue circle
+            time.sleep(0.3)
+            frame_after = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame_after, "12b_AFTER_blue_circle_click")
 
-            # Phase 2: Keep clicking until blue circle is CONFIRMED gone
-            # Require 3 consecutive "not blue" frames to prevent false positives
-            # from click animations causing score fluctuations
+            # Phase 2: Keep clicking blue until WHITE circle is detected
+            # White circle = treasure collected
             time.sleep(0.5)
-            consecutive_not_blue = 0
-            REQUIRED_CONSECUTIVE = 3
+            collected_matcher = TreasureCollectedMatcher()
 
-            for click_attempt in range(20):  # Increased from 10
+            for click_attempt in range(20):
                 frame = win.get_screenshot_cv2()
 
-                still_blue, score = ready_matcher.is_present(frame)
-                _save_debug_screenshot(frame, f"13_collect_click_{click_attempt+1}_score{score:.3f}")
+                is_white, white_score = collected_matcher.is_present(frame)
+                still_blue, blue_score = ready_matcher.is_present(frame)
+                _save_debug_screenshot(frame, f"13_collect_click_{click_attempt+1}_white{white_score:.3f}_blue{blue_score:.3f}")
 
-                if not still_blue:
-                    consecutive_not_blue += 1
-                    _log(f"  Not blue ({consecutive_not_blue}/{REQUIRED_CONSECUTIVE}), score={score:.4f}")
-                    if consecutive_not_blue >= REQUIRED_CONSECUTIVE:
-                        _save_debug_screenshot(frame, "14_treasure_COLLECTED")
-                        _log(f"  Circle gone for {REQUIRED_CONSECUTIVE} consecutive checks - COLLECTED!")
-                        return True
-                else:
-                    # Reset counter if blue detected again
-                    consecutive_not_blue = 0
-                    _log(f"  Still blue (score={score:.4f}), clicking again ({click_attempt+1}/20)...")
+                if is_white:
+                    _save_debug_screenshot(frame, f"14_treasure_COLLECTED_white{white_score:.3f}")
+                    _log(f"  WHITE circle detected - COLLECTED! white_score={white_score:.4f}")
+                    return True
+
+                if still_blue:
+                    _log(f"  Still blue (score={blue_score:.4f}), clicking again ({click_attempt+1}/20)...")
                     ready_matcher.click(adb)
+                else:
+                    _log(f"  No blue (score={blue_score:.4f}), no white (score={white_score:.4f}), waiting...")
 
                 time.sleep(0.5)
 
-            # After 20 attempts without 3 consecutive "not blue", warn but still return True
-            # (better to proceed than get stuck)
-            _log("  WARNING: Could not confirm collection after 20 attempts - proceeding anyway")
+            # After 20 attempts without white detection, warn but still return True
+            _log("  WARNING: White circle not detected after 20 clicks - proceeding anyway")
             return True
 
         time.sleep(MARCH_PROGRESS_CHECK_INTERVAL)

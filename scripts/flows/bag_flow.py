@@ -60,7 +60,7 @@ BAG_TAB_REGION = (1352, 32, 1127, 90)
 from utils.ui_helpers import click_back
 
 # Thresholds: all SQDIFF (lower=better)
-BAG_BUTTON_THRESHOLD = 0.05  # SQDIFF_NORMED - masked template
+BAG_BUTTON_THRESHOLD = 0.10  # CCORR masked template - higher threshold for notification badge
 BAG_TAB_THRESHOLD = 0.05     # SQDIFF_NORMED - no mask
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "ground_truth"
@@ -68,9 +68,9 @@ TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "g
 # Active tab templates at FIXED positions (no searching - exact location match)
 # Regions must be LARGER than templates for matching to work
 ACTIVE_TAB_TEMPLATES = {
-    "special": ("bag_special_tab_active_4k.png", (1480, 2000, 230, 150)),   # template 211x134
-    "resources": ("bag_resources_tab_active_4k.png", (1720, 2010, 200, 130)),  # template 179x111
-    "hero": ("bag_hero_tab_active_4k.png", (2150, 2008, 230, 145)),  # template 200x127
+    "special": ("bag_special_tab_active_4k.png", (1487, 2000, 230, 150)),   # template 211x134, center X=1497
+    "resources": ("bag_resources_tab_active_4k.png", (1750, 2000, 200, 140)),  # template 179x111, center X=1760
+    "hero": ("bag_hero_tab_active_4k.png", (2148, 2000, 220, 150)),  # template 200x127, center X=2158
 }
 
 # Tab click positions (4K) - ALL VERIFIED via sweep test
@@ -130,7 +130,7 @@ def switch_to_tab(adb: ADBHelper, win: WindowsScreenshotHelper, target_tab: str,
     click_pos = TAB_CLICK_POSITIONS[target_tab]
     logger.info(f"[BAG] Current tab: {current_tab}, switching to {target_tab} at {click_pos}...")
 
-    adb.tap(*click_pos)
+    adb.tap(*click_pos, source=f"flow:bag:switch_to_{target_tab}_tab")
     time.sleep(0.5)
 
     # Verify switch
@@ -189,7 +189,7 @@ def bag_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, debug: 
 
     # Step 2: Click bag button
     logger.info(f"[BAG] Step 2: Opening bag at {BAG_BUTTON_CLICK}...")
-    adb.tap(*BAG_BUTTON_CLICK)
+    adb.tap(*BAG_BUTTON_CLICK, source="flow:bag:open_bag_button")
     time.sleep(1.5)
 
     # DEBUG: Screenshot after bag click
