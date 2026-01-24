@@ -11,7 +11,7 @@ Tab Detection:
 My Quests:
 - Column-restricted Claim button detection (X: 2100-2500, full Y)
 - Click each Claim button found
-- Find Gold Scroll Lv4 rewards and click their Go buttons
+- Find Gold Scroll rewards (any level) and click their Go buttons
 - Scroll and repeat until no more actions available
 
 All matching uses COLOR images (no grayscale).
@@ -67,7 +67,8 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth
 MY_QUESTS_ACTIVE_TEMPLATE = str(TEMPLATE_DIR / "tavern_my_quests_active_4k.png")
 ALLY_QUESTS_ACTIVE_TEMPLATE = str(TEMPLATE_DIR / "tavern_ally_quests_active_4k.png")
 CLAIM_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "claim_button_tavern_4k.png")
-GOLD_SCROLL_LV4_TEMPLATE = str(TEMPLATE_DIR / "gold_scroll_lv4_4k.png")
+GOLD_SCROLL_TEMPLATE = str(TEMPLATE_DIR / "gold_scroll_4k.png")
+GOLD_SCROLL_MASK = str(TEMPLATE_DIR / "gold_scroll_mask_4k.png")
 GO_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "go_button_4k.png")
 QUESTION_MARK_TILE_TEMPLATE = str(TEMPLATE_DIR / "quest_question_tile_4k.png")
 
@@ -99,8 +100,8 @@ CLAIM_X_START = 2100
 CLAIM_X_END = 2500
 CLAIM_THRESHOLD = 0.02  # Strict threshold to avoid false positives
 
-# Gold scroll and Go button detection
-GOLD_SCROLL_THRESHOLD = 0.003  # Very strict - gold scroll Lv4 is unique
+# Gold scroll and Go button detection (masked matching - any level)
+GOLD_SCROLL_THRESHOLD = 0.95  # TM_CCORR_NORMED with mask - higher is better
 GO_BUTTON_THRESHOLD = 0.02
 GO_BUTTON_X_START = 2100  # Go buttons are in same column as Claim
 GO_BUTTON_X_END = 2500
@@ -436,20 +437,21 @@ def find_claim_buttons(frame: npt.NDArray[Any], template: npt.NDArray[Any]) -> l
 
 def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
     """
-    Find Go buttons for quests that have Gold Scroll Lv4 rewards (COLOR matching).
+    Find Go buttons for quests that have Gold Scroll rewards (any level, COLOR matching with mask).
 
     Logic:
-    1. Find all Gold Scroll Lv4 icons in the frame
+    1. Find all Gold Scroll icons using masked matching (ignores level text)
     2. Find all Go buttons in the rightmost column
     3. Match scrolls with Go buttons on the same Y-axis (within tolerance)
     4. Return click positions for matched Go buttons
     """
-    gold_scroll_template = load_template_color(GOLD_SCROLL_LV4_TEMPLATE)
+    gold_scroll_template = load_template_color(GOLD_SCROLL_TEMPLATE)
+    gold_scroll_mask = cv2.imread(GOLD_SCROLL_MASK, cv2.IMREAD_GRAYSCALE)
     go_button_template = load_template_color(GO_BUTTON_TEMPLATE)
 
-    # Find all gold scroll positions
-    scroll_result = cv2.matchTemplate(frame, gold_scroll_template, cv2.TM_SQDIFF_NORMED)
-    scroll_locations = np.where(scroll_result < GOLD_SCROLL_THRESHOLD)
+    # Find all gold scroll positions using masked matching (TM_CCORR_NORMED - higher is better)
+    scroll_result = cv2.matchTemplate(frame, gold_scroll_template, cv2.TM_CCORR_NORMED, mask=gold_scroll_mask)
+    scroll_locations = np.where(scroll_result >= GOLD_SCROLL_THRESHOLD)
 
     scroll_h, scroll_w = gold_scroll_template.shape[:2]
     scrolls = []
@@ -459,7 +461,7 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
         scrolls.append((x, center_y, score))
 
     # Non-maximum suppression for scrolls (min spacing 100px)
-    scrolls.sort(key=lambda s: s[2])  # Sort by score
+    scrolls.sort(key=lambda s: -s[2])  # Sort by score (highest first for CCORR)
     filtered_scrolls: list[tuple[Any, Any, Any]] = []
     for x, y, score in scrolls:
         is_distinct = True
@@ -473,7 +475,7 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
     if not filtered_scrolls:
         return []
 
-    logger.debug(f"Found {len(filtered_scrolls)} Gold Scroll Lv4 icons")
+    logger.debug(f"Found {len(filtered_scrolls)} Gold Scroll icons (any level)")
 
     # Find all Go buttons in the right column (COLOR)
     column_roi = frame[:, GO_BUTTON_X_START:GO_BUTTON_X_END]
@@ -1020,7 +1022,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         count_stars,
     )
 
-    MIN_STARS = 5  # Only assist gold 5-star quests
+    MIN_STARS = 4  # Assist gold 4+ star quests
     ASSIST_BUTTON_CENTER_OFFSET = (125, 50)  # Center of 249x100 assist button
 
     logger.info("Starting Ally Quests flow")
