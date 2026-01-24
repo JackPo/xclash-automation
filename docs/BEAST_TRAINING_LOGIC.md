@@ -59,7 +59,7 @@ Mode auto-expires after set duration, reverting to elite.
 
 ## Phases
 
-### Phase 1: Hour mark check
+### Phase 1: Hour mark check (60 min remaining)
 Triggered once when the last-hour window begins.
 
 Steps:
@@ -69,13 +69,24 @@ Steps:
 4. Run the deterministic decision engine (see below) to decide free-claim and item usage.
 5. Execute the decision and persist `beast_training_target_rallies` for the block.
 
-### Phase 2: Last 6 minutes check
-Triggered once in the last 6 minutes of the block.
+### Phase 2: Last hour phase (60 min remaining)
+Triggered once at 60 minutes remaining. Does the FULL sequence:
+
+Steps:
+1. Check current points.
+2. Compute rallies needed and reset rally counter.
+3. Claim free stamina if available.
+4. Use stamina items if needed.
+5. Run rallies until target reached or stamina exhausted.
+
+### Phase 3: Mid-check phase (30 min remaining)
+Triggered once at 30 minutes remaining. Does the FULL sequence again:
 
 Steps:
 1. Re-check current points.
 2. Recompute target rallies and reset the rally counter.
-3. Claim free stamina or use items if needed.
+3. Claim more stamina if needed.
+4. Run additional rallies if behind target.
 
 ### Continuous rally/attack loop
 During the last `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES` of the block:
@@ -105,7 +116,8 @@ Stored in `data/daemon_schedule.json` under `arms_race`:
 - `beast_training_target_rallies`
 - `beast_training_rally_count`
 - `beast_training_hour_mark_block`
-- `beast_training_last_6_block`
+- `beast_training_last_hour_block`
+- `beast_training_mid_check_block`
 
 The rally counter is reset whenever points are re-checked. Points are the source of truth.
 
