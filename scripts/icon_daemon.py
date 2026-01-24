@@ -155,7 +155,7 @@ def _save_daemon_frame(frame: Any, view_state: str, stamina: int | None) -> None
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_last_6_minutes_phase, check_progress_quick, marshall_speedup_all_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_beast_training_phase, check_progress_quick, marshall_speedup_all_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from flows.zombie_attack_flow import zombie_attack_flow
@@ -476,7 +476,7 @@ class IconDaemon:
         self.beast_training_last_use_time: float = 0  # Track cooldown between uses
         self.beast_training_claim_attempted: bool = False  # Track if we tried to claim this iteration
 
-        # Smart Beast Training flow phases use scheduler-based tracking (beast_training_hour_mark_block, beast_training_last_6_block)
+        # Smart Beast Training flow phases use scheduler-based tracking (beast_training_hour_mark_block, beast_training_last_hour_block, beast_training_mid_check_block)
         self.beast_training_last_progress_check: float = 0  # Timestamp of last progress check
 
         # Enhance Hero: last N minutes of Enhance Hero, runs once per block
@@ -1665,8 +1665,12 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] ROYAL CITY REINFORCE: Friday window, attempting reinforce...")
                     self._royal_city_last_attempt = time.time()
 
-                    # Run the flow
-                    success = self._run_flow("royal_city_attack", royal_city_attack_flow)
+                    # Run the flow SYNCHRONOUSLY to check actual result
+                    # _run_flow_sync returns {"success": True, "result": flow_result}
+                    # where "success" means "ran without exception", "result" is the actual flow return value
+                    sync_result = self._run_flow_sync("royal_city_attack", royal_city_attack_flow)
+                    flow_result = sync_result.get("result") if isinstance(sync_result, dict) else sync_result
+                    success = bool(flow_result)  # royal_city_attack_flow returns True/False
 
                     if success:
                         # Successfully marched - stop retrying this Friday
@@ -2401,7 +2405,7 @@ class IconDaemon:
                 in_pre_beast_window = 0 < minutes_until_beast <= self.BEAST_TRAINING_PRE_EVENT_MINUTES
 
                 # Pre-event stamina claim: 6 min before Beast Training, claim if red dot visible
-                # This starts the 4-hour cooldown early so we can claim again in last 6 min of event
+                # This starts the 4-hour cooldown early so we can claim again in last hour of event
                 # Uses scheduler's pre_beast_stamina_claim flow config (idle_required=20s, lower than IDLE_THRESHOLD)
                 # REQUIRES: TOWN or WORLD view (need to see stamina area)
                 if in_pre_beast_window and view_state_enum not in (ViewState.TOWN, ViewState.WORLD):
@@ -2468,7 +2472,7 @@ class IconDaemon:
                 # Beast Training: Mystic Beast Training last N minutes, stamina >= 20, cooldown
                 # Uses the SAME stamina_confirmed from unified validation above
                 #
-                # Sequence order (optimized for last 6 minutes):
+                # Sequence order (optimized for last hour):
                 # 1. Claim free stamina (if red dot visible)
                 # 2. Rally (burn stamina down to < 20)
                 # 3. Use +50 recovery items (only when stamina < 20, after rallies burn it down)
@@ -2522,7 +2526,8 @@ class IconDaemon:
                     # =========================================================
                     # SMART BEAST TRAINING FLOW - With Claude CLI decision
                     # Phase 1: Hour mark (60 min remaining) - inventory + progress + claim upfront
-                    # Phase 2: Last 6 minutes - re-check + claim remainder
+                    # Phase 2: Last hour - re-check + claim remainder
+                    # Phase 3: Mid-check at 30 minutes
                     # =========================================================
 
                     # PHASE 1: Hour Mark Check - retry until success (like union_technology)
@@ -2566,18 +2571,18 @@ class IconDaemon:
                                 # Failed - DON'T mark as done, will retry next iteration
                                 self.logger.warning(f"[{iteration}] BEAST TRAINING: Hour Mark phase failed, will retry...")
 
-                    # PHASE 2: Last 6 Minutes Re-check - retry until success
+                    # PHASE 2: Last Hour Re-check - retry until success
                     # Track if we claimed stamina this iteration (to skip beast_stamina_use)
-                    last_6_claimed_stamina_this_iteration = False
-                    if (arms_race_remaining_mins <= 6 and
-                        self.scheduler.is_flow_ready("beast_training_last_6", idle_seconds=effective_idle_secs)):
+                    last_hour_claimed_stamina_this_iteration = False
+                    if (arms_race_remaining_mins <= 60 and
+                        self.scheduler.is_flow_ready("beast_training_last_hour", idle_seconds=effective_idle_secs)):
                         # Check if already done for THIS block
                         phase_state = self.scheduler.get_arms_race_state()
-                        last_6_block = phase_state.get("beast_training_last_6_block")
+                        last_hour_block = phase_state.get("beast_training_last_hour_block")
 
-                        if last_6_block != str(block_start):  # Not done for this block
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Last 6 Minutes Phase (Claude CLI)...")
-                            result = run_last_6_minutes_phase(self.adb, self.windows_helper, debug=self.debug)
+                        if last_hour_block != str(block_start):  # Not done for this block
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Last Hour Phase (60 min)...")
+                            result = run_beast_training_phase(self.adb, self.windows_helper, debug=self.debug)
 
                             if result["success"]:
                                 rallies_needed = result["rallies_needed"]
@@ -2585,14 +2590,14 @@ class IconDaemon:
                                 stamina_claimed = result.get("stamina_claimed", 0)
 
                                 self.logger.info(
-                                    f"[{iteration}] BEAST TRAINING: Last 6 Min complete - "
+                                    f"[{iteration}] BEAST TRAINING: Last Hour complete - "
                                     f"Progress {current_pts}/30000 pts, need {rallies_needed} more rallies, "
                                     f"claimed {stamina_claimed} stamina"
                                 )
 
                                 # Mark that we claimed stamina this iteration - skip beast_stamina_use
                                 if stamina_claimed > 0:
-                                    last_6_claimed_stamina_this_iteration = True
+                                    last_hour_claimed_stamina_this_iteration = True
 
                                 # ALWAYS reset rally_count and recalculate target from actual points
                                 # The POINTS are the source of truth, not our counter
@@ -2607,11 +2612,49 @@ class IconDaemon:
                                     self.logger.info(f"[{iteration}] BEAST TRAINING: Reset rally_count=0, target={rallies_needed} (from {current_pts}/30000 pts)")
 
                                 # Mark block as done and record flow run
-                                self.scheduler.update_arms_race_state(beast_training_last_6_block=str(block_start))
-                                self.scheduler.record_flow_run("beast_training_last_6")
+                                self.scheduler.update_arms_race_state(beast_training_last_hour_block=str(block_start))
+                                self.scheduler.record_flow_run("beast_training_last_hour")
                             else:
                                 # Failed - DON'T mark as done, will retry next iteration
-                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Last 6 Minutes phase failed, will retry...")
+                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Last Hour phase failed, will retry...")
+
+                    # PHASE 3: Mid-Check at 30 minutes - re-assess and run more rallies if behind
+                    if (arms_race_remaining_mins <= 30 and
+                        self.scheduler.is_flow_ready("beast_training_mid_check", idle_seconds=effective_idle_secs)):
+                        phase_state = self.scheduler.get_arms_race_state()
+                        mid_check_block = phase_state.get("beast_training_mid_check_block")
+
+                        if mid_check_block != str(block_start):  # Not done for this block
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Mid-Check Phase (30 min)...")
+                            result = run_beast_training_phase(self.adb, self.windows_helper, debug=self.debug)
+
+                            if result["success"]:
+                                rallies_needed = result["rallies_needed"]
+                                current_pts = result.get("current_points")
+                                stamina_claimed = result.get("stamina_claimed", 0)
+
+                                self.logger.info(
+                                    f"[{iteration}] BEAST TRAINING: Mid-Check complete - "
+                                    f"Progress {current_pts}/30000 pts, need {rallies_needed} more rallies, "
+                                    f"claimed {stamina_claimed} stamina"
+                                )
+
+                                # Mark that we claimed stamina this iteration
+                                if stamina_claimed > 0:
+                                    last_hour_claimed_stamina_this_iteration = True
+
+                                # Update rally target from actual points
+                                self.beast_training_rally_count = 0
+                                self.scheduler.update_arms_race_state(
+                                    beast_training_rally_count=0,
+                                    beast_training_target_rallies=rallies_needed
+                                )
+
+                                # Mark block as done and record flow run
+                                self.scheduler.update_arms_race_state(beast_training_mid_check_block=str(block_start))
+                                self.scheduler.record_flow_run("beast_training_mid_check")
+                            else:
+                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Mid-Check phase failed, will retry...")
 
                     # Get target from scheduler (or use MAX_RALLIES as default)
                     # NOTE: Use "is None" check, NOT "or", because 0 is a valid target (chest3 reached)
@@ -2691,14 +2734,14 @@ class IconDaemon:
                     # Conditions: idle 5+ min, rally count < target, stamina < threshold, Use clicks < 4, cooldown
                     # SMART: Check claim timer first - if free claim will be available before event ends, WAIT
                     # Note: stamina_threshold is already set from zombie mode (10 for zombie, 20 for elite)
-                    # SKIP if Last 6 Min phase already claimed stamina this iteration (confirmed_stamina is stale)
+                    # SKIP if Last Hour phase already claimed stamina this iteration (confirmed_stamina is stale)
                     use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
                     use_allowed_by_time = (self.beast_training_use_count < 2 or
                                            arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
                     if (not beast_claim_candidate and
                         not beast_rally_candidate and
-                        not last_6_claimed_stamina_this_iteration and
-                        arms_race_remaining_mins > 6 and  # Last 6 Min phase handles stamina
+                        not last_hour_claimed_stamina_this_iteration and
+                        arms_race_remaining_mins > 60 and  # Last Hour phase handles stamina
                         self.BEAST_TRAINING_USE_ENABLED and
                         effective_idle_secs >= self.IDLE_THRESHOLD and
                         stamina_confirmed and

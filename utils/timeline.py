@@ -29,7 +29,8 @@ FLOW_CATEGORIES: dict[str, str | None] = {
     "zombie_attack_food": "combat",
     "zombie_attack_iron_mine": "combat",
     "beast_training_hour_mark": "arms_race",
-    "beast_training_last_6": "arms_race",
+    "beast_training_last_hour": "arms_race",
+    "beast_training_mid_check": "arms_race",
     "hero_upgrade": "arms_race",
     "hero_upgrade_arms_race": "arms_race",
     "soldier_training": "arms_race",
@@ -69,7 +70,7 @@ EXCLUDED_FLOWS = {k for k, v in FLOW_CATEGORIES.items() if v is None}
 
 # Map Arms Race event names to associated flows
 ARMS_RACE_EVENT_FLOWS: dict[str, list[str]] = {
-    "Mystic Beast Training": ["elite_zombie", "beast_training_hour_mark", "beast_training_last_6"],
+    "Mystic Beast Training": ["elite_zombie", "beast_training_hour_mark", "beast_training_last_hour", "beast_training_mid_check"],
     "Enhance Hero": ["hero_upgrade_arms_race"],
     "Soldier Training": ["soldier_upgrade", "marshall_speedup"],
     "City Construction": [],

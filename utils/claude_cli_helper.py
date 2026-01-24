@@ -1,7 +1,11 @@
 """
 Claude CLI helper for making decisions via subprocess.
 
-Uses Claude CLI to get JSON decisions for complex game logic.
+DEPRECATED: Stamina functions have been moved to scripts/flows/stamina_use_flow.py
+Use the following imports instead:
+    from scripts.flows.stamina_use_flow import calculate_optimal_stamina, get_stamina_decision
+
+This file is kept for backwards compatibility but will be removed in a future version.
 """
 from __future__ import annotations
 
@@ -143,7 +147,7 @@ def calculate_optimal_stamina(
         return claim_free, 0, 0, f"Free 50 covers {target} deficit"
 
     # Step 1b: Check if free 50 will be ready with at least 5 min buffer before event ends
-    # This ensures we have time to claim it during last_6_minutes phase
+    # This ensures we have time to claim it during last_hour phase
     # If so, reduce the items we need to use now (save owned items)
     CLAIM_BUFFER_MINS = 5
     free_coming_soon = False

@@ -36,7 +36,8 @@ FLOW_CONFIGS = {
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 0},  # 4hr cooldown, NO idle (time-critical)
     # Beast Training phases - no cooldown (block-based tracking in arms_race_state)
     "beast_training_hour_mark": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},  # 5 min idle
-    "beast_training_last_6": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},      # 5 min idle
+    "beast_training_last_hour": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},    # 5 min idle
+    "beast_training_mid_check": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},    # 5 min idle (30 min mark)
 }
 
 
@@ -114,15 +115,16 @@ class DaemonScheduler:
             logger.warning(f"[SCHEDULER] {flow_name}: invalid last_run data, allowing")
             return True  # Invalid data, allow run
 
-    def record_flow_run(self, flow_name: str) -> None:
+    def record_flow_run(self, flow_name: str, cooldown_override: int | None = None) -> None:
         """
         Record that a flow ran now. Updates last_run and appends to history.
 
         Args:
             flow_name: Name of the flow
+            cooldown_override: If set, use this cooldown instead of normal.
+                              Used for skipped flows to set a short retry cooldown.
         """
         now = datetime.now()
-        now_str = now.isoformat()
 
         if "flows" not in self.schedule:
             self.schedule["flows"] = {}
@@ -137,8 +139,15 @@ class DaemonScheduler:
             }
 
         flow_data = self.schedule["flows"][flow_name]
-        flow_data["last_run"] = now_str
-        flow_data["history"].append(now_str)
+
+        # If cooldown_override, backdate last_run so next ready = now + override
+        if cooldown_override is not None:
+            normal_cooldown = flow_data.get("cooldown_seconds", 3600)
+            adjusted = now - timedelta(seconds=(normal_cooldown - cooldown_override))
+            flow_data["last_run"] = adjusted.isoformat()
+        else:
+            flow_data["last_run"] = now.isoformat()
+        flow_data["history"].append(now.isoformat())
         run_count = len(flow_data["history"])
 
         self.save()
