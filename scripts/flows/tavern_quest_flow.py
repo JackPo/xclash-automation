@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 # Timing constants
 CLAIM_POLL_INTERVAL = 0.5  # seconds between polls
-PRE_ARRIVAL_BUFFER = 15    # seconds before completion to navigate to tavern
+PRE_ARRIVAL_BUFFER = 7     # seconds before completion to navigate to tavern
 SHORT_TIMER_THRESHOLD = 30 # seconds - timer considered "about to complete"
 
 # Template paths (absolute paths from project root)

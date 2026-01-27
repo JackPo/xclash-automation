@@ -1,24 +1,140 @@
 """
-Rally Monster Validator - OCR and validation for rally monster icons.
+Rally Monster Validator - Template matching and OCR for rally monster icons.
 
-Extracts monster icon relative to plus button position, uses OCR to read
-monster name and level, validates against configuration rules.
+Extracts monster icon relative to plus button position. Uses template matching
+first for speed, falls back to OCR if no template match found. Automatically
+saves new OCR results as templates for future matching.
 
 Supports DATA GATHERING MODE to collect monster samples for OCR tuning.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import cv2
+import numpy as np
 import numpy.typing as npt
 import re
 from datetime import datetime
 
 if TYPE_CHECKING:
     from utils.ocr_client import OCRClient
+
+logger = logging.getLogger(__name__)
+
+# Template directory for cached monster icons
+MONSTER_TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth" / "rally_monsters"
+
+# Live template cache - reloads when directory changes
+# Stores BGR float32 templates for fast numpy SSD comparison (5x faster than cv2.matchTemplate)
+_template_cache: dict[str, npt.NDArray[Any]] = {}
+_template_dir_mtime: float = 0.0
+
+
+def _load_monster_templates() -> dict[str, npt.NDArray[Any]]:
+    """
+    Load monster templates as BGR float32 for fast matching.
+
+    Returns dict mapping template name (e.g., "elite_zombie_24") to BGR float32 array.
+    Using numpy SSD on same-size images is 5x faster than cv2.matchTemplate.
+    """
+    global _template_cache, _template_dir_mtime
+
+    if not MONSTER_TEMPLATE_DIR.exists():
+        return {}
+
+    # Check if directory modified (new templates added)
+    try:
+        current_mtime = MONSTER_TEMPLATE_DIR.stat().st_mtime
+    except OSError:
+        return _template_cache
+
+    if current_mtime != _template_dir_mtime:
+        # Reload all templates as BGR float32
+        _template_cache = {}
+        for path in MONSTER_TEMPLATE_DIR.glob("*.png"):
+            name = path.stem  # e.g., "elite_zombie_24"
+            template = cv2.imread(str(path))
+            if template is not None:
+                _template_cache[name] = template.astype(np.float32)
+        _template_dir_mtime = current_mtime
+        if _template_cache:
+            logger.info(f"Loaded {len(_template_cache)} monster templates from {MONSTER_TEMPLATE_DIR}")
+
+    return _template_cache
+
+
+def _try_template_match(monster_crop: npt.NDArray[Any], templates: dict[str, npt.NDArray[Any]],
+                        threshold: float = 10.0) -> tuple[str, int] | None:
+    """
+    Try to match monster crop against cached templates using numpy MSE.
+
+    Uses numpy instead of cv2.matchTemplate for 5x speed improvement on same-size images.
+
+    Args:
+        monster_crop: BGR image of monster icon (290×363)
+        templates: Dict mapping template name to BGR float32 image
+        threshold: MSE threshold (lower = stricter). ~50 is good for exact match.
+
+    Returns:
+        (monster_name, level) if matched, None otherwise.
+    """
+    if not templates:
+        return None
+
+    best_match = None
+    best_score = threshold  # Must beat this threshold
+
+    # Convert crop to float32 once
+    crop_f32 = monster_crop.astype(np.float32)
+
+    for template_name, template in templates.items():
+        # Skip if shapes don't match
+        if crop_f32.shape != template.shape:
+            continue
+
+        # Fast numpy MSE (5x faster than cv2.matchTemplate for same-size)
+        diff = crop_f32 - template
+        mse = np.mean(diff * diff)
+
+        if mse < best_score:
+            best_score = mse
+            best_match = template_name
+
+    if best_match:
+        # Parse "elite_zombie_24" -> ("elite zombie", 24)
+        parts = best_match.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            name = parts[0].replace("_", " ")
+            level = int(parts[1])
+            logger.info(f"Template matched: {name} Lv{level} (mse={best_score:.1f})")
+            return (name, level)
+
+    return None
+
+
+def _save_as_template(monster_crop: npt.NDArray[Any], name: str, level: int) -> None:
+    """
+    Save OCR'd crop as template for future matching.
+
+    Args:
+        monster_crop: BGR image of monster icon
+        name: Monster name from OCR
+        level: Monster level from OCR
+    """
+    MONSTER_TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Sanitize name: "Elite Zombie" -> "elite_zombie"
+    safe_name = name.lower().replace(" ", "_").replace("-", "_")
+    filename = f"{safe_name}_{level}.png"
+    path = MONSTER_TEMPLATE_DIR / filename
+
+    if not path.exists():  # Don't overwrite existing
+        cv2.imwrite(str(path), monster_crop)
+        logger.info(f"Saved new monster template: {filename}")
 
 
 class RallyMonsterValidator:
@@ -79,7 +195,7 @@ class RallyMonsterValidator:
 
     def validate_monster(self, frame: npt.NDArray[Any], plus_x: int, plus_y: int, rally_index: int = 0) -> tuple[bool, str | None, int | None, str]:
         """
-        OCR and validate monster at position.
+        Validate monster at position using template matching first, OCR fallback.
 
         Args:
             frame: BGR screenshot from WindowsScreenshotHelper
@@ -90,9 +206,9 @@ class RallyMonsterValidator:
         Returns:
             (should_join, monster_name, level, raw_ocr_text)
             - should_join: True if monster matches config rules
-            - monster_name: Parsed monster name (or None if OCR failed)
-            - level: Parsed level number (or None if OCR failed)
-            - raw_ocr_text: Raw text from OCR for logging
+            - monster_name: Parsed monster name (or None if detection failed)
+            - level: Parsed level number (or None if detection failed)
+            - raw_ocr_text: Raw text from OCR or "(template)" for logging
         """
         # Calculate monster icon region
         monster_x, monster_y, monster_w, monster_h = self.get_monster_region(plus_x, plus_y)
@@ -100,52 +216,64 @@ class RallyMonsterValidator:
         # Extract monster icon crop
         monster_crop = frame[monster_y:monster_y+monster_h, monster_x:monster_x+monster_w]
 
-        # OCR the monster icon with specific prompt (expects JSON response)
-        try:
-            from config import OCR_PROMPT_RALLY_MONSTER
-            monster_data = self.ocr.extract_json(monster_crop, prompt=OCR_PROMPT_RALLY_MONSTER)
+        # ========== STEP 1: Try template matching first (fast) ==========
+        templates = _load_monster_templates()
+        template_match = _try_template_match(monster_crop, templates)
 
-            if not monster_data:
-                print(f"    [RALLY] OCR returned invalid JSON for rally {rally_index}")
+        if template_match:
+            monster_name, level = template_match
+            raw_text = "(template)"
+        else:
+            # ========== STEP 2: Fall back to OCR (slow) ==========
+            try:
+                from config import OCR_PROMPT_RALLY_MONSTER
+                monster_data = self.ocr.extract_json(monster_crop, prompt=OCR_PROMPT_RALLY_MONSTER)
+
+                if not monster_data:
+                    print(f"    [RALLY] OCR returned invalid JSON for rally {rally_index}")
+                    # Save to unknown/ if data gathering enabled
+                    if self.data_gathering_mode:
+                        self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
+                                                  "json-parse-error", 0, "unknown")
+                    return False, None, None, "(json-parse-error)"
+
+                # Extract fields from JSON
+                monster_name = monster_data.get("name", "").lower().strip()
+                level = monster_data.get("level")
+
+                # Convert level to int if it's a string
+                if isinstance(level, str):
+                    level = int(level) if level.isdigit() else None
+
+                raw_text = str(monster_data)  # For logging
+
+                # ========== STEP 3: Save as template for future matching ==========
+                if monster_name and level is not None:
+                    _save_as_template(monster_crop, monster_name, level)
+
+            except Exception as e:
+                print(f"    [RALLY] OCR failed for rally {rally_index}: {e}")
                 # Save to unknown/ if data gathering enabled
                 if self.data_gathering_mode:
                     self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
-                                              "json-parse-error", 0, "unknown")
-                return False, None, None, "(json-parse-error)"
+                                              "error", 0, "unknown")
+                return False, None, None, f"(error: {e})"
 
-            # Extract fields from JSON
-            monster_name = monster_data.get("name", "").lower().strip()
-            level = monster_data.get("level")
+            if not monster_name:
+                print(f"    [RALLY] Failed to parse monster name from: {raw_text!r}")
+                # Save to unknown/ if data gathering enabled
+                if self.data_gathering_mode:
+                    self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
+                                              "parse-failed", 0, "unknown")
+                return False, None, None, raw_text
 
-            # Convert level to int if it's a string
-            if isinstance(level, str):
-                level = int(level) if level.isdigit() else None
-
-            raw_text = str(monster_data)  # For logging
-
-        except Exception as e:
-            print(f"    [RALLY] OCR failed for rally {rally_index}: {e}")
-            # Save to unknown/ if data gathering enabled
-            if self.data_gathering_mode:
-                self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
-                                          "error", 0, "unknown")
-            return False, None, None, f"(error: {e})"
-
-        if not monster_name:
-            print(f"    [RALLY] Failed to parse monster name from: {raw_text!r}")
-            # Save to unknown/ if data gathering enabled
-            if self.data_gathering_mode:
-                self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
-                                          "parse-failed", 0, "unknown")
-            return False, None, None, raw_text
-
-        if level is None:
-            print(f"    [RALLY] Failed to parse level from: {raw_text!r}")
-            # Save to unknown/ if data gathering enabled (use level=0 as placeholder)
-            if self.data_gathering_mode:
-                self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
-                                          monster_name, 0, "unknown")
-            return False, monster_name, None, raw_text
+            if level is None:
+                print(f"    [RALLY] Failed to parse level from: {raw_text!r}")
+                # Save to unknown/ if data gathering enabled (use level=0 as placeholder)
+                if self.data_gathering_mode:
+                    self._save_monster_sample(monster_crop, rally_index, plus_x, plus_y,
+                                              monster_name, 0, "unknown")
+                return False, monster_name, None, raw_text
 
         # Validate against config rules
         should_join, is_known = self._should_join_rally(monster_name, level)
