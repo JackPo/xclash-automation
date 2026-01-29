@@ -22,7 +22,9 @@ Key behaviors:
 2. Find rally plus buttons via `utils/rally_plus_matcher.py` (full-frame search, filtered to rightmost column).
 3. For each plus button (top to bottom):
    - Click the plus button to open Team Up.
-   - OCR monster name/level from the original frame (`utils/rally_monster_validator.py`).
+   - Identify monster via `utils/rally_monster_validator.py`:
+     - **Template matching (fast)**: Compares crop against cached templates in `templates/ground_truth/rally_monsters/`. Returns first match with MSE < 20.0. Instant.
+     - **OCR fallback (slow)**: If no template match, uses Qwen OCR (~5 seconds). Saves new templates automatically.
    - If the rally matches `RALLY_MONSTERS`, continue; otherwise click back and try next.
 4. Select an idle hero:
    - Default: leftmost idle hero with Zz.
@@ -30,6 +32,11 @@ Key behaviors:
 5. Click Team Up.
 6. Handle daily limit dialog if it appears.
 7. Return to base view.
+
+## Monster templates
+Templates are stored in `templates/ground_truth/rally_monsters/` as `{monster_name}_{level}.png` (e.g., `elite_zombie_30.png`).
+
+When OCR identifies a new monster, it automatically saves the crop as a template for future fast matching.
 
 ## Daily limit handling
 If the daily rally reward dialog appears:

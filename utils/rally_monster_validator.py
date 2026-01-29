@@ -68,7 +68,7 @@ def _load_monster_templates() -> dict[str, npt.NDArray[Any]]:
 
 
 def _try_template_match(monster_crop: npt.NDArray[Any], templates: dict[str, npt.NDArray[Any]],
-                        threshold: float = 10.0) -> tuple[str, int] | None:
+                        threshold: float = 20.0) -> tuple[str, int] | None:
     """
     Try to match monster crop against cached templates using numpy MSE.
 
@@ -77,16 +77,13 @@ def _try_template_match(monster_crop: npt.NDArray[Any], templates: dict[str, npt
     Args:
         monster_crop: BGR image of monster icon (290×363)
         templates: Dict mapping template name to BGR float32 image
-        threshold: MSE threshold (lower = stricter). ~50 is good for exact match.
+        threshold: MSE threshold (lower = stricter). 25 allows minor variations.
 
     Returns:
         (monster_name, level) if matched, None otherwise.
     """
     if not templates:
         return None
-
-    best_match = None
-    best_score = threshold  # Must beat this threshold
 
     # Convert crop to float32 once
     crop_f32 = monster_crop.astype(np.float32)
@@ -100,18 +97,15 @@ def _try_template_match(monster_crop: npt.NDArray[Any], templates: dict[str, npt
         diff = crop_f32 - template
         mse = np.mean(diff * diff)
 
-        if mse < best_score:
-            best_score = mse
-            best_match = template_name
-
-    if best_match:
-        # Parse "elite_zombie_24" -> ("elite zombie", 24)
-        parts = best_match.rsplit("_", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            name = parts[0].replace("_", " ")
-            level = int(parts[1])
-            logger.info(f"Template matched: {name} Lv{level} (mse={best_score:.1f})")
-            return (name, level)
+        # Return FIRST match below threshold
+        if mse < threshold:
+            # Parse "elite_zombie_24" -> ("elite zombie", 24)
+            parts = template_name.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                name = parts[0].replace("_", " ")
+                level = int(parts[1])
+                logger.info(f"Template matched: {name} Lv{level} (mse={mse:.1f})")
+                return (name, level)
 
     return None
 

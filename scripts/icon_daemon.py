@@ -410,7 +410,7 @@ class IconDaemon:
             "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "tavern_quest": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
-            "community_checkin": {"cooldown": 14400, "idle_required": IDLE_THRESHOLD},  # 4 hours, flow skips if already done today
+            "community_checkin": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},  # 1 hour, flow skips if already done today
         })
 
         # Unified stamina validation - ONE system for all stamina-based triggers
@@ -2741,7 +2741,6 @@ class IconDaemon:
                     if (not beast_claim_candidate and
                         not beast_rally_candidate and
                         not last_hour_claimed_stamina_this_iteration and
-                        arms_race_remaining_mins > 60 and  # Last Hour phase handles stamina
                         self.BEAST_TRAINING_USE_ENABLED and
                         effective_idle_secs >= self.IDLE_THRESHOLD and
                         stamina_confirmed and
