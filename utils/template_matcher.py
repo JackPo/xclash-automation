@@ -124,28 +124,8 @@ def _get_gpu_matcher(template_type: int, method: int) -> Any:
     return _gpu_matchers[key]
 
 
-# Cache for masked templates (template * mask)
-_gpu_masked_templates: dict[str, Any] = {}  # cv2.cuda_GpuMat
-
-
-def _get_gpu_masked_template(template_name: str, template: NDArray, mask: NDArray) -> Any:
-    """Get GPU-uploaded masked template with caching (template with mask applied)."""
-    cache_key = f"{template_name}_masked"
-    if cache_key not in _gpu_masked_templates:
-        # Apply mask to template: set masked-out regions to 0
-        # Expand mask to 3 channels if needed
-        if len(template.shape) == 3 and len(mask.shape) == 2:
-            mask_3ch = np.stack([mask, mask, mask], axis=-1)
-        else:
-            mask_3ch = mask
-        # Normalize mask to 0-1 range and apply
-        mask_norm = mask_3ch.astype(np.float32) / 255.0
-        masked_template = (template.astype(np.float32) * mask_norm).astype(np.uint8)
-
-        gpu_template = cv2.cuda_GpuMat()
-        gpu_template.upload(masked_template)
-        _gpu_masked_templates[cache_key] = gpu_template
-    return _gpu_masked_templates[cache_key]
+# Cache for masked matching data: (gpu_masked_template, gpu_mask_squared, template_energy)
+_gpu_masked_data: dict[str, tuple[Any, Any, float]] = {}
 
 
 def _match_template_gpu(
@@ -189,6 +169,48 @@ def _match_template_gpu(
         return 1.0 - max_val, location
 
 
+def _get_gpu_masked_data(template_name: str, template: NDArray, mask: NDArray) -> tuple[Any, Any, float]:
+    """
+    Get cached GPU data for masked matching.
+
+    Returns: (gpu_masked_template, gpu_mask_squared, template_energy)
+    - gpu_masked_template: T * M uploaded to GPU
+    - gpu_mask_squared: M^2 uploaded to GPU (for frame energy computation)
+    - template_energy: sum((T * M)^2) precomputed
+    """
+    if template_name not in _gpu_masked_data:
+        # Expand mask to 3 channels if needed
+        if len(template.shape) == 3 and len(mask.shape) == 2:
+            mask_3ch = np.stack([mask, mask, mask], axis=-1)
+        else:
+            mask_3ch = mask
+
+        # Normalize mask to 0-1 range
+        mask_norm = mask_3ch.astype(np.float32) / 255.0
+
+        # Compute masked template: T * M
+        masked_template = (template.astype(np.float32) * mask_norm).astype(np.uint8)
+
+        # Compute template energy: sum((T * M)^2)
+        template_energy = float(np.sum((template.astype(np.float64) * mask_norm) ** 2))
+
+        # Compute mask squared for frame energy computation
+        # For grayscale frame matching, we need single channel M^2
+        mask_sq = (mask.astype(np.float32) / 255.0) ** 2
+        mask_sq_uint8 = (mask_sq * 255).astype(np.uint8)
+
+        # Upload to GPU
+        gpu_masked_template = cv2.cuda_GpuMat()
+        gpu_masked_template.upload(masked_template)
+
+        gpu_mask_sq = cv2.cuda_GpuMat()
+        gpu_mask_sq.upload(mask_sq_uint8)
+
+        _gpu_masked_data[template_name] = (gpu_masked_template, gpu_mask_sq, template_energy)
+
+    return _gpu_masked_data[template_name]
+
+
 def _match_template_gpu_masked(
     frame: NDArray,
     template: NDArray,
@@ -196,33 +218,59 @@ def _match_template_gpu_masked(
     template_name: str
 ) -> tuple[float, tuple[int, int]]:
     """
-    GPU-accelerated masked template matching.
+    GPU-accelerated masked template matching with proper normalization.
 
-    Uses TM_CCORR_NORMED on masked template.
-    Returns (score, location) where score is lower=better (converted from CCORR).
+    Identical math to CPU cv2.matchTemplate with mask:
+    R(x,y) = sum(T*M*I) / sqrt(sum((T*M)^2) * sum((I*M)^2))
+
+    Returns (score, location) where score is lower=better (0 = perfect match).
     """
+    # Get cached masked data
+    gpu_masked_template, gpu_mask_sq, template_energy = _get_gpu_masked_data(
+        template_name, template, mask
+    )
+
     # Upload frame to GPU
     gpu_frame = cv2.cuda_GpuMat()
     gpu_frame.upload(frame)
 
-    # Get cached masked GPU template
-    gpu_template = _get_gpu_masked_template(template_name, template, mask)
-
-    # Use TM_CCORR_NORMED for masked matching
+    # Step 1: Compute correlation sum(T*M*I) using TM_CCORR (non-normalized)
     template_type = cv2.CV_8UC3 if len(template.shape) == 3 else cv2.CV_8UC1
-    matcher = _get_gpu_matcher(template_type, cv2.TM_CCORR_NORMED)
+    matcher_ccorr = _get_gpu_matcher(template_type, cv2.TM_CCORR)
+    gpu_corr_result = matcher_ccorr.match(gpu_frame, gpu_masked_template)
+    corr_result = gpu_corr_result.download().astype(np.float64)
 
-    # Match
-    gpu_result = matcher.match(gpu_frame, gpu_template)
-    result = gpu_result.download()
+    # Step 2: Compute frame energy sum((I*M)^2) at each position
+    # For color: sum((I_r*M)^2 + (I_g*M)^2 + (I_b*M)^2) = sum((I_r^2 + I_g^2 + I_b^2) * M^2)
+    if len(frame.shape) == 3:
+        # Sum of squares across color channels
+        frame_sq_sum = np.sum(frame.astype(np.float32) ** 2, axis=2)
+    else:
+        frame_sq_sum = frame.astype(np.float32) ** 2
 
-    # Find best match (CCORR: higher is better)
+    # Normalize mask squared to float
+    mask_sq_float = (mask.astype(np.float32) / 255.0) ** 2
+
+    # Use CPU convolution for frame energy (more accurate with float)
+    frame_energy = cv2.matchTemplate(
+        frame_sq_sum.astype(np.float32),
+        mask_sq_float,
+        cv2.TM_CCORR
+    )
+
+    # Step 3: Normalize: corr / sqrt(template_energy * frame_energy)
+    frame_energy = np.maximum(frame_energy, 1e-10)
+    normalizer = np.sqrt(template_energy * frame_energy)
+    normalized = corr_result / normalizer
+
+    # Find best match (higher normalized correlation = better match)
     th, tw = template.shape[:2]
-    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+    _, max_val, _, max_loc = cv2.minMaxLoc(normalized)
     location = (max_loc[0] + tw // 2, max_loc[1] + th // 2)
 
-    # Convert to lower=better for consistent interface
-    return 1.0 - max_val, location
+    # Convert to lower=better for consistent interface (0 = perfect, 1 = worst)
+    score = 1.0 - max_val
+    return score, location
 
 
 def _load_mask(template_name: str) -> NDArray | None:
@@ -330,9 +378,9 @@ def match_template(
     use_gpu = _is_gpu_enabled()
 
     if mask is not None:
-        # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
+        # Masked matching
         if use_gpu:
-            # GPU masked matching
+            # GPU masked matching with proper normalization
             score, rel_location = _match_template_gpu_masked(
                 search_area, template, mask, template_name
             )
@@ -376,3 +424,6 @@ def clear_cache() -> None:
     _templates_gray.clear()
     _masks.clear()
     _mask_exists.clear()
+    _gpu_templates.clear()
+    _gpu_matchers.clear()
+    _gpu_masked_data.clear()
