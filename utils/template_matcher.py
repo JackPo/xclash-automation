@@ -236,23 +236,35 @@ def _match_template_gpu_masked(
     gpu_corr_result = matcher_ccorr.match(gpu_frame, gpu_masked_template)
     corr_result = gpu_corr_result.download().astype(np.float64)
 
-    # Step 2: Compute frame energy sum((I*M)^2) at each position
-    # For color: sum((I_r*M)^2 + (I_g*M)^2 + (I_b*M)^2) = sum((I_r^2 + I_g^2 + I_b^2) * M^2)
+    # Step 2: Compute frame energy sum((I*M)^2) at each position using GPU
+    # For color: sum((I_r^2 + I_g^2 + I_b^2) * M^2) = TM_CCORR(I_sq_gray, M^2)
+    # Use GPU for squaring and channel sum
     if len(frame.shape) == 3:
-        # Sum of squares across color channels
-        frame_sq_sum = np.sum(frame.astype(np.float32) ** 2, axis=2)
+        # Split channels, square each on GPU, sum
+        gpu_frame_f = cv2.cuda_GpuMat()
+        gpu_frame_f.upload(frame.astype(np.float32))
+        gpu_sq = cv2.cuda.sqr(gpu_frame_f)
+        # Sum channels: download and sum (GPU channel sum not directly available)
+        frame_sq = gpu_sq.download()
+        frame_sq_sum = np.sum(frame_sq, axis=2).astype(np.float32)
     else:
-        frame_sq_sum = frame.astype(np.float32) ** 2
+        gpu_frame_f = cv2.cuda_GpuMat()
+        gpu_frame_f.upload(frame.astype(np.float32))
+        gpu_sq = cv2.cuda.sqr(gpu_frame_f)
+        frame_sq_sum = gpu_sq.download()
 
-    # Normalize mask squared to float
-    mask_sq_float = (mask.astype(np.float32) / 255.0) ** 2
+    # Mask squared as float32 (small, fast on CPU)
+    mask_sq_float = ((mask.astype(np.float32) / 255.0) ** 2).astype(np.float32)
 
-    # Use CPU convolution for frame energy (more accurate with float)
-    frame_energy = cv2.matchTemplate(
-        frame_sq_sum.astype(np.float32),
-        mask_sq_float,
-        cv2.TM_CCORR
-    )
+    # Upload frame_sq and do GPU convolution for frame energy
+    gpu_frame_sq = cv2.cuda_GpuMat()
+    gpu_frame_sq.upload(frame_sq_sum)
+    gpu_mask_sq_f = cv2.cuda_GpuMat()
+    gpu_mask_sq_f.upload(mask_sq_float)
+
+    matcher_energy = cv2.cuda.createTemplateMatching(cv2.CV_32FC1, cv2.TM_CCORR)
+    gpu_energy_result = matcher_energy.match(gpu_frame_sq, gpu_mask_sq_f)
+    frame_energy = gpu_energy_result.download().astype(np.float64)
 
     # Step 3: Normalize: corr / sqrt(template_energy * frame_energy)
     frame_energy = np.maximum(frame_energy, 1e-10)
@@ -374,15 +386,18 @@ def match_template(
     use_gpu = _is_gpu_enabled()
 
     if mask is not None:
-        # Masked matching
-        if use_gpu:
+        # Masked matching - use GPU only for small regions (large frames cause GPU contention)
+        # Threshold: search area < 500x500 pixels
+        use_gpu_masked = use_gpu and search_area.shape[0] < 500 and search_area.shape[1] < 500
+
+        if use_gpu_masked:
             # GPU masked matching with proper normalization
             score, rel_location = _match_template_gpu_masked(
                 search_area, template, mask, template_name
             )
             location = (offset[0] + rel_location[0], offset[1] + rel_location[1])
         else:
-            # CPU masked matching
+            # CPU masked matching (more predictable for large frames)
             result = cv2.matchTemplate(search_area, template, cv2.TM_CCORR_NORMED, mask=mask)
             _, max_val, _, max_loc = cv2.minMaxLoc(result)
             location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
@@ -393,17 +408,17 @@ def match_template(
         found = score <= thresh
         return found, score, location
     else:
-        # Use GPU whenever available (20x faster for large frames)
-        if use_gpu:
+        # Non-masked matching - use GPU only for small regions (GPU contention with BlueStacks)
+        use_gpu_here = use_gpu and search_area.shape[0] < 500 and search_area.shape[1] < 500
+
+        if use_gpu_here:
             # GPU matching - TM_SQDIFF_NORMED
-            # _match_template_gpu returns location with template center offset already applied
             score, rel_location = _match_template_gpu(
                 search_area, template, template_name, cv2.TM_SQDIFF_NORMED
             )
-            # Add search region offset to get location in original frame
             location = (offset[0] + rel_location[0], offset[1] + rel_location[1])
         else:
-            # CPU fallback - TM_SQDIFF_NORMED (lower = better, ~0.0 is perfect)
+            # CPU matching (more predictable for large frames)
             result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
             min_val, _, min_loc, _ = cv2.minMaxLoc(result)
             location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
