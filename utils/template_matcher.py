@@ -48,9 +48,8 @@ _templates_gray: dict[str, NDArray | None] = {}
 _masks: dict[str, NDArray | None] = {}
 _mask_exists: dict[str, bool] = {}  # Cache for mask existence checks
 
-# GPU template cache and matchers
+# GPU template cache
 _gpu_templates: dict[str, Any] = {}  # cv2.cuda_GpuMat
-_gpu_matchers: dict[str, Any] = {}  # cv2.cuda.TemplateMatching
 
 # Check CUDA availability and initialize device once at import
 try:
@@ -117,11 +116,8 @@ def _get_gpu_template(name: str, template: NDArray) -> Any:
 
 
 def _get_gpu_matcher(template_type: int, method: int) -> Any:
-    """Get GPU template matcher with caching."""
-    key = (template_type, method)
-    if key not in _gpu_matchers:
-        _gpu_matchers[key] = cv2.cuda.createTemplateMatching(template_type, method)
-    return _gpu_matchers[key]
+    """Create GPU template matcher (no caching - causes CUDA state issues)."""
+    return cv2.cuda.createTemplateMatching(template_type, method)
 
 
 # Cache for masked matching data: (gpu_masked_template, gpu_mask_squared, template_energy)
@@ -425,5 +421,4 @@ def clear_cache() -> None:
     _masks.clear()
     _mask_exists.clear()
     _gpu_templates.clear()
-    _gpu_matchers.clear()
     _gpu_masked_data.clear()
