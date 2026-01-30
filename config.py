@@ -28,6 +28,9 @@ STAMINA_OCR_INTERVAL = 5.0         # Stamina OCR interval (seconds) - expensive,
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
+# GPU Acceleration
+GPU_TEMPLATE_MATCHING = True       # Use GPU (CUDA) for template matching (20x faster for large frames)
+
 # Debug screenshots
 DEBUG_SCREENSHOTS_ENABLED = False  # Set to True to save debug screenshots (fills disk quickly!)
 

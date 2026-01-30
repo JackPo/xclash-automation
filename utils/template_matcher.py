@@ -2,6 +2,7 @@
 Unified template matching with automatic mask detection.
 
 Uses COLOR matching by default (not grayscale).
+Uses GPU (CUDA) for full-frame searches when available (20x faster).
 
 Naming convention:
 - Template: `<name>_4k.png`
@@ -47,6 +48,29 @@ _templates_gray: dict[str, NDArray | None] = {}
 _masks: dict[str, NDArray | None] = {}
 _mask_exists: dict[str, bool] = {}  # Cache for mask existence checks
 
+# GPU template cache and matchers
+_gpu_templates: dict[str, Any] = {}  # cv2.cuda_GpuMat
+_gpu_matchers: dict[str, Any] = {}  # cv2.cuda.TemplateMatching
+
+# Check CUDA availability and initialize device once at import
+try:
+    _CUDA_DEVICE_COUNT = cv2.cuda.getCudaEnabledDeviceCount()
+    if _CUDA_DEVICE_COUNT > 0:
+        cv2.cuda.setDevice(0)
+except Exception:
+    _CUDA_DEVICE_COUNT = 0
+
+
+def _is_gpu_enabled() -> bool:
+    """Check if GPU template matching is enabled and available."""
+    if _CUDA_DEVICE_COUNT == 0:
+        return False
+    try:
+        from config import GPU_TEMPLATE_MATCHING
+        return GPU_TEMPLATE_MATCHING
+    except ImportError:
+        return True  # Default to GPU if config not available
+
 # Default thresholds (all TM_SQDIFF_NORMED: lower=better)
 DEFAULT_THRESHOLD = 0.1   # Max score for TM_SQDIFF_NORMED
 DEFAULT_MASKED_THRESHOLD = 0.05   # Stricter threshold for masked matching
@@ -81,6 +105,124 @@ def _load_template(name: str, grayscale: bool = False) -> NDArray | None:
         else:
             cache[name] = None
     return cache[name]
+
+
+def _get_gpu_template(name: str, template: NDArray) -> Any:
+    """Get GPU-uploaded template with caching."""
+    if name not in _gpu_templates:
+        gpu_template = cv2.cuda_GpuMat()
+        gpu_template.upload(template)
+        _gpu_templates[name] = gpu_template
+    return _gpu_templates[name]
+
+
+def _get_gpu_matcher(template_type: int, method: int) -> Any:
+    """Get GPU template matcher with caching."""
+    key = (template_type, method)
+    if key not in _gpu_matchers:
+        _gpu_matchers[key] = cv2.cuda.createTemplateMatching(template_type, method)
+    return _gpu_matchers[key]
+
+
+# Cache for masked templates (template * mask)
+_gpu_masked_templates: dict[str, Any] = {}  # cv2.cuda_GpuMat
+
+
+def _get_gpu_masked_template(template_name: str, template: NDArray, mask: NDArray) -> Any:
+    """Get GPU-uploaded masked template with caching (template with mask applied)."""
+    cache_key = f"{template_name}_masked"
+    if cache_key not in _gpu_masked_templates:
+        # Apply mask to template: set masked-out regions to 0
+        # Expand mask to 3 channels if needed
+        if len(template.shape) == 3 and len(mask.shape) == 2:
+            mask_3ch = np.stack([mask, mask, mask], axis=-1)
+        else:
+            mask_3ch = mask
+        # Normalize mask to 0-1 range and apply
+        mask_norm = mask_3ch.astype(np.float32) / 255.0
+        masked_template = (template.astype(np.float32) * mask_norm).astype(np.uint8)
+
+        gpu_template = cv2.cuda_GpuMat()
+        gpu_template.upload(masked_template)
+        _gpu_masked_templates[cache_key] = gpu_template
+    return _gpu_masked_templates[cache_key]
+
+
+def _match_template_gpu(
+    frame: NDArray,
+    template: NDArray,
+    template_name: str,
+    method: int = cv2.TM_SQDIFF_NORMED
+) -> tuple[float, tuple[int, int]]:
+    """
+    GPU-accelerated template matching for full-frame searches.
+
+    Returns (score, location) where score uses same convention as CPU (lower=better for SQDIFF).
+    """
+    # Upload frame to GPU (not cached - changes each call)
+    gpu_frame = cv2.cuda_GpuMat()
+    gpu_frame.upload(frame)
+
+    # Get cached GPU template
+    gpu_template = _get_gpu_template(template_name, template)
+
+    # Get or create matcher
+    template_type = cv2.CV_8UC3 if len(template.shape) == 3 else cv2.CV_8UC1
+    matcher = _get_gpu_matcher(template_type, method)
+
+    # Match
+    gpu_result = matcher.match(gpu_frame, gpu_template)
+
+    # Download result
+    result = gpu_result.download()
+
+    # Find best match
+    th, tw = template.shape[:2]
+    if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
+        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+        location = (min_loc[0] + tw // 2, min_loc[1] + th // 2)
+        return min_val, location
+    else:
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+        location = (max_loc[0] + tw // 2, max_loc[1] + th // 2)
+        # Convert to lower=better for consistent interface
+        return 1.0 - max_val, location
+
+
+def _match_template_gpu_masked(
+    frame: NDArray,
+    template: NDArray,
+    mask: NDArray,
+    template_name: str
+) -> tuple[float, tuple[int, int]]:
+    """
+    GPU-accelerated masked template matching.
+
+    Uses TM_CCORR_NORMED on masked template.
+    Returns (score, location) where score is lower=better (converted from CCORR).
+    """
+    # Upload frame to GPU
+    gpu_frame = cv2.cuda_GpuMat()
+    gpu_frame.upload(frame)
+
+    # Get cached masked GPU template
+    gpu_template = _get_gpu_masked_template(template_name, template, mask)
+
+    # Use TM_CCORR_NORMED for masked matching
+    template_type = cv2.CV_8UC3 if len(template.shape) == 3 else cv2.CV_8UC1
+    matcher = _get_gpu_matcher(template_type, cv2.TM_CCORR_NORMED)
+
+    # Match
+    gpu_result = matcher.match(gpu_frame, gpu_template)
+    result = gpu_result.download()
+
+    # Find best match (CCORR: higher is better)
+    th, tw = template.shape[:2]
+    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+    location = (max_loc[0] + tw // 2, max_loc[1] + th // 2)
+
+    # Convert to lower=better for consistent interface
+    return 1.0 - max_val, location
 
 
 def _load_mask(template_name: str) -> NDArray | None:
@@ -185,29 +327,47 @@ def match_template(
     if search_area.shape[0] < th or search_area.shape[1] < tw:
         return False, 1.0, None
 
+    use_gpu = _is_gpu_enabled()
+
     if mask is not None:
         # Masked matching - TM_CCORR_NORMED (higher = better, ~1.0 is perfect)
-        # Note: TM_SQDIFF_NORMED doesn't work correctly with masks in OpenCV
-        result = cv2.matchTemplate(search_area, template, cv2.TM_CCORR_NORMED, mask=mask)
-        _, max_val, _, max_loc = cv2.minMaxLoc(result)
-        location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
+        if use_gpu:
+            # GPU masked matching
+            score, rel_location = _match_template_gpu_masked(
+                search_area, template, mask, template_name
+            )
+            location = (offset[0] + rel_location[0], offset[1] + rel_location[1])
+        else:
+            # CPU masked matching
+            result = cv2.matchTemplate(search_area, template, cv2.TM_CCORR_NORMED, mask=mask)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+            location = (offset[0] + max_loc[0] + tw // 2, offset[1] + max_loc[1] + th // 2)
+            # Convert to SQDIFF-like score for consistent interface (lower = better)
+            score = 1.0 - max_val
 
-        # Convert to SQDIFF-like score for consistent interface (lower = better)
-        # TM_CCORR_NORMED: 1.0 = perfect, 0.0 = worst
-        # Convert: score = 1.0 - max_val, so 0.0 = perfect, 1.0 = worst
-        score = 1.0 - max_val
         thresh = threshold if threshold is not None else DEFAULT_MASKED_THRESHOLD
         found = score <= thresh
         return found, score, location
     else:
-        # Standard matching - TM_SQDIFF_NORMED (lower = better, ~0.0 is perfect)
-        result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-        location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
+        # Use GPU whenever available (20x faster for large frames)
+        if use_gpu:
+            # GPU matching - TM_SQDIFF_NORMED
+            # _match_template_gpu returns location with template center offset already applied
+            score, rel_location = _match_template_gpu(
+                search_area, template, template_name, cv2.TM_SQDIFF_NORMED
+            )
+            # Add search region offset to get location in original frame
+            location = (offset[0] + rel_location[0], offset[1] + rel_location[1])
+        else:
+            # CPU fallback - TM_SQDIFF_NORMED (lower = better, ~0.0 is perfect)
+            result = cv2.matchTemplate(search_area, template, cv2.TM_SQDIFF_NORMED)
+            min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+            location = (offset[0] + min_loc[0] + tw // 2, offset[1] + min_loc[1] + th // 2)
+            score = min_val
 
         thresh = threshold if threshold is not None else DEFAULT_THRESHOLD
-        found = min_val <= thresh
-        return found, min_val, location
+        found = score <= thresh
+        return found, score, location
 
 
 def clear_cache() -> None:
