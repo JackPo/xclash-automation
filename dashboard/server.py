@@ -299,6 +299,66 @@ async def api_check_arms_race_score() -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+@app.post("/api/shields/refresh")
+async def api_refresh_shields() -> dict[str, Any]:
+    """Refresh shield inventory by reading from bag Special tab."""
+    import websockets
+
+    try:
+        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+            await ws.send(json.dumps({'cmd': 'get_shield_inventory', 'args': {}}))
+            response = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
+
+            if response.get('success'):
+                data = response.get('data', {})
+                return {
+                    "success": True,
+                    "8hr": data.get('8hr'),
+                    "12hr": data.get('12hr'),
+                    "24hr": data.get('24hr'),
+                }
+            return {"success": False, "error": response.get('error', 'Failed to read shields')}
+    except asyncio.TimeoutError:
+        return {"success": False, "error": "Timeout - flow took too long"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class UseShieldRequest(BaseModel):
+    """Request to use a shield."""
+    shield_type: str
+
+
+@app.post("/api/shields/use")
+async def api_use_shield(request: UseShieldRequest) -> dict[str, Any]:
+    """Use/activate a shield from the bag."""
+    import websockets
+
+    if request.shield_type not in ["8hr", "12hr", "24hr"]:
+        return {"success": False, "error": f"Invalid shield type: {request.shield_type}"}
+
+    try:
+        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+            await ws.send(json.dumps({
+                'cmd': 'use_shield',
+                'args': {'shield_type': request.shield_type}
+            }))
+            response = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
+
+            if response.get('success'):
+                data = response.get('data', {})
+                return {
+                    "success": data.get('success', False),
+                    "message": data.get('message', ''),
+                    "error": data.get('error'),
+                }
+            return {"success": False, "error": response.get('error', 'Failed to use shield')}
+    except asyncio.TimeoutError:
+        return {"success": False, "error": "Timeout - flow took too long"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/api/arms-race/schedule")
 async def api_arms_race_schedule() -> dict[str, Any]:
     """Get full 7-day Arms Race schedule."""

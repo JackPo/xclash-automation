@@ -103,6 +103,17 @@ def _get_default_state() -> dict[str, Any]:
             "plunder_others": {"current": None, "max": 5},
             "timestamp": None,
         },
+        "shield_inventory": {
+            "8hr": None,
+            "12hr": None,
+            "24hr": None,
+            "timestamp": None,
+        },
+        "under_attack": {
+            "is_under_attack": False,
+            "last_detected": None,
+            "attack_count_today": 0,
+        },
         "last_update": None,
     }
 
@@ -387,3 +398,73 @@ def is_tavern_plunder_maxed() -> bool:
 def get_full_state() -> dict[str, Any]:
     """Get complete current state."""
     return load_state()
+
+
+def update_shield_inventory(
+    shields_8hr: int | None,
+    shields_12hr: int | None,
+    shields_24hr: int | None,
+) -> None:
+    """
+    Update shield inventory counts in state file.
+
+    Args:
+        shields_8hr: Count of 8-hour shields (green)
+        shields_12hr: Count of 12-hour shields (blue)
+        shields_24hr: Count of 24-hour shields (purple)
+    """
+    state = load_state()
+    state["shield_inventory"] = {
+        "8hr": shields_8hr,
+        "12hr": shields_12hr,
+        "24hr": shields_24hr,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(state)
+
+
+def get_shield_inventory() -> dict[str, Any]:
+    """Get shield inventory from state file."""
+    return load_state().get("shield_inventory", {})
+
+
+def update_under_attack(is_under_attack: bool) -> None:
+    """
+    Update under attack status in state file.
+
+    Args:
+        is_under_attack: True if currently under attack
+    """
+    state = load_state()
+    now = datetime.now(timezone.utc)
+
+    # Get existing state
+    attack_state = state.get("under_attack", {})
+    attack_count = attack_state.get("attack_count_today", 0)
+    last_detected = attack_state.get("last_detected")
+
+    # Reset count if from previous server day
+    if last_detected:
+        try:
+            last_ts = datetime.fromisoformat(last_detected.replace("Z", "+00:00"))
+            if not _is_same_server_day(last_ts, now):
+                attack_count = 0
+        except Exception:
+            pass
+
+    # Increment count if newly detected
+    was_under_attack = attack_state.get("is_under_attack", False)
+    if is_under_attack and not was_under_attack:
+        attack_count += 1
+
+    state["under_attack"] = {
+        "is_under_attack": is_under_attack,
+        "last_detected": now.isoformat() if is_under_attack else last_detected,
+        "attack_count_today": attack_count,
+    }
+    save_state(state)
+
+
+def get_under_attack() -> dict[str, Any]:
+    """Get under attack status from state file."""
+    return load_state().get("under_attack", {})

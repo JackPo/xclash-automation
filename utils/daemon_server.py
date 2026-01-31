@@ -32,6 +32,10 @@ try:
     websockets = _ws
     ws_serve = _serve
     _websockets_available = True
+    # Silence websockets library spam (connection open/closed messages)
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("websockets.server").setLevel(logging.WARNING)
+    logging.getLogger("websockets.protocol").setLevel(logging.WARNING)
 except ImportError:
     pass
 
@@ -110,7 +114,7 @@ class DaemonWebSocketServer:
         """Handle a single WebSocket connection."""
         self.clients.add(websocket)
         client_count = len(self.clients)
-        logger.info(f"Client connected ({client_count} total)")
+        logger.debug(f"Client connected ({client_count} total)")
 
         try:
             async for message in websocket:
@@ -127,7 +131,7 @@ class DaemonWebSocketServer:
                 logger.error(f"Client handler error: {e}")
         finally:
             self.clients.discard(websocket)
-            logger.info(f"Client disconnected ({len(self.clients)} total)")
+            logger.debug(f"Client disconnected ({len(self.clients)} total)")
 
     def _process_message(self, message: str) -> dict[str, Any]:
         """
@@ -175,11 +179,16 @@ class DaemonWebSocketServer:
             # Stamina commands
             "use_stamina": self._cmd_use_stamina,
             "get_stamina_inventory": self._cmd_get_stamina_inventory,
+            # Shield inventory
+            "get_shield_inventory": self._cmd_get_shield_inventory,
+            "use_shield": self._cmd_use_shield,
             # Config override commands
             "get_config": self._cmd_get_config,
             "set_override": self._cmd_set_override,
             "clear_override": self._cmd_clear_override,
             "list_overrides": self._cmd_list_overrides,
+            # Debug commands
+            "clear_active_flows": self._cmd_clear_active_flows,
         }
 
         if cmd is None:
@@ -439,7 +448,7 @@ class DaemonWebSocketServer:
         from utils.arms_race import get_arms_race_status
         from utils.view_state_detector import detect_view, go_to_town, ViewState
         from scripts.flows.beast_training_flow import check_progress_quick
-        from utils.stamina_popup_helper import get_inventory_snapshot
+        from scripts.flows.stamina_use_flow import get_inventory_snapshot
 
         if self.daemon.adb is None or self.daemon.windows_helper is None or self.daemon.ocr_client is None:
             raise RuntimeError("Daemon not initialized")
@@ -515,7 +524,7 @@ class DaemonWebSocketServer:
         # Calculate optimal stamina usage strategy
         optimal_strategy = None
         if stamina_needed is not None and current_stamina is not None:
-            from utils.claude_cli_helper import calculate_optimal_stamina
+            from scripts.flows.stamina_use_flow import calculate_optimal_stamina
             # Account for natural regen when calculating deficit
             effective_stamina = current_stamina + stamina_regen
             deficit = max(0, stamina_needed - effective_stamina)
@@ -828,7 +837,7 @@ class DaemonWebSocketServer:
         Example:
             {"cmd": "use_stamina", "args": {"claim_free_50": true, "use_10_count": 5}}
         """
-        from utils.stamina_popup_helper import (
+        from scripts.flows.stamina_use_flow import (
             open_stamina_popup,
             close_stamina_popup,
             claim_free_50,
@@ -910,7 +919,7 @@ class DaemonWebSocketServer:
 
         Returns owned counts and free 50 cooldown status.
         """
-        from utils.stamina_popup_helper import get_inventory_snapshot
+        from scripts.flows.stamina_use_flow import get_inventory_snapshot
 
         if self.daemon.adb is None or self.daemon.windows_helper is None:
             raise RuntimeError("Daemon not initialized")
@@ -928,6 +937,67 @@ class DaemonWebSocketServer:
                 (50 if inventory["cooldown_secs"] == 0 else 0)
             )
         }
+
+    def _cmd_get_shield_inventory(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Read shield inventory from bag Special tab.
+
+        Opens bag, navigates to Special tab, matches shield templates,
+        and extracts counts via OCR.
+
+        Returns:
+            {"8hr": N, "12hr": N, "24hr": N} - counts for each shield type
+        """
+        from scripts.flows.shield_inventory_flow import shield_inventory_flow
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
+
+        debug = args.get("debug", False)
+        result = shield_inventory_flow(
+            self.daemon.adb,
+            self.daemon.windows_helper,
+            debug=debug
+        )
+
+        return {
+            "shields": result,
+            "8hr": result.get("8hr"),
+            "12hr": result.get("12hr"),
+            "24hr": result.get("24hr"),
+        }
+
+    def _cmd_use_shield(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Use/activate a shield from the bag.
+
+        Args:
+            shield_type: "8hr", "12hr", or "24hr"
+            debug: Enable debug output (optional)
+
+        Returns:
+            {"success": True/False, "message": str}
+        """
+        from scripts.flows.shield_use_flow import shield_use_flow
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
+
+        shield_type = args.get("shield_type")
+        if not shield_type:
+            raise ValueError("Missing 'shield_type' argument")
+        if shield_type not in ["8hr", "12hr", "24hr"]:
+            raise ValueError(f"Invalid shield_type: {shield_type}")
+
+        debug = args.get("debug", False)
+        result = shield_use_flow(
+            self.daemon.adb,
+            shield_type,
+            self.daemon.windows_helper,
+            debug=debug
+        )
+
+        return result
 
     # =========================================================================
     # Config Override Commands
@@ -1026,3 +1096,16 @@ class DaemonWebSocketServer:
 
         manager = get_override_manager()
         return {"overrides": manager.get_active_overrides()}
+
+    def _cmd_clear_active_flows(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Clear stuck active_flows set. Use when a flow crashed without cleanup.
+
+        Example:
+            {"cmd": "clear_active_flows"}
+        """
+        old_flows = list(self.daemon.active_flows)
+        self.daemon.active_flows.clear()
+        logger.warning(f"Cleared stuck active_flows: {old_flows}")
+        self.broadcast("active_flows_cleared", {"cleared": old_flows})
+        return {"cleared": old_flows}

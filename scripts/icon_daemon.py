@@ -503,6 +503,15 @@ class IconDaemon:
         self.SCREENSHOT_CLEANUP_INTERVAL = 6 * 60 * 60  # 6 hours
         self.last_screenshot_cleanup: float = 0
 
+        # Shield inventory check - every 6 hours
+        self.SHIELD_INVENTORY_INTERVAL = 6 * 60 * 60  # 6 hours
+        self.last_shield_inventory_check: float = 0
+
+        # Under attack detection
+        self.under_attack: bool = False  # Current attack state
+        self.last_attack_log_time: float = 0  # Prevent log spam
+        self.ATTACK_LOG_COOLDOWN = 60  # Only log once per minute while under attack
+
         # Barracks state validation - require 10 readings with 60%+ being a specific state
         # Allows UNKNOWN (?) readings as long as 60%+ are a consistent letter (R, P, or T)
         # Example: PPPPPP???? (6P + 4?) = 60% P = PASS
@@ -1608,6 +1617,20 @@ class IconDaemon:
                     self.last_screenshot_cleanup = current_time_for_cleanup
                     cleanup_old_screenshots()
 
+                # Periodic shield inventory check (every 6 hours)
+                # Only run if not in critical flow and user is idle
+                if (current_time_for_cleanup - self.last_shield_inventory_check > self.SHIELD_INVENTORY_INTERVAL
+                    and not self.critical_flow_active
+                    and get_user_idle_seconds() >= self.IDLE_THRESHOLD):
+                    self.last_shield_inventory_check = current_time_for_cleanup
+                    self.logger.info(f"[{iteration}] Running periodic shield inventory check...")
+                    try:
+                        from scripts.flows.shield_inventory_flow import shield_inventory_flow
+                        result = shield_inventory_flow(self.adb, self.windows_helper, debug=False)
+                        self.logger.info(f"[{iteration}] Shield inventory: {result}")
+                    except Exception as e:
+                        self.logger.error(f"[{iteration}] Shield inventory check failed: {e}")
+
                 # Skip all daemon checks if critical flow is active
                 if self.critical_flow_active:
                     self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
@@ -1620,6 +1643,55 @@ class IconDaemon:
                 view_state_enum, view_score = detect_view(frame)
                 view_state_str = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
                 self.last_view_state = view_state_str  # Store for dashboard API
+
+                # =================================================================
+                # UNDER ATTACK DETECTION - Check if player is being attacked
+                # =================================================================
+                from utils.under_attack_matcher import is_under_attack
+                attack_detected, attack_score = is_under_attack(frame)
+
+                if attack_detected and not self.under_attack:
+                    # Attack started - log it
+                    self.under_attack = True
+                    self.last_attack_log_time = time.time()
+                    self.logger.warning(f"[{iteration}] UNDER ATTACK! (score={attack_score:.4f})")
+                    # Update persistent state
+                    from utils.current_state import update_under_attack
+                    update_under_attack(True)
+                    # Record event for frontend
+                    self.scheduler.record_event(
+                        flow_name="under_attack",
+                        status="detected",
+                        result={"score": attack_score, "view": view_state_str},
+                        category="combat",
+                        is_critical=True,
+                    )
+                    # Broadcast to connected clients
+                    if self.command_server:
+                        self.command_server.broadcast("under_attack", {
+                            "detected": True,
+                            "score": attack_score,
+                            "timestamp": datetime.now().isoformat(),
+                        })
+                elif not attack_detected and self.under_attack:
+                    # Attack ended
+                    self.under_attack = False
+                    self.logger.info(f"[{iteration}] Attack ended - safe now")
+                    # Update persistent state
+                    from utils.current_state import update_under_attack
+                    update_under_attack(False)
+                    self.scheduler.record_event(
+                        flow_name="under_attack",
+                        status="ended",
+                        result={"view": view_state_str},
+                        category="combat",
+                        is_critical=False,
+                    )
+                    if self.command_server:
+                        self.command_server.broadcast("under_attack", {
+                            "detected": False,
+                            "timestamp": datetime.now().isoformat(),
+                        })
 
                 # =================================================================
                 # DAEMON FRAME DEBUG - Save every frame for debugging
