@@ -329,6 +329,107 @@ class UseShieldRequest(BaseModel):
     shield_type: str
 
 
+class ScheduleShieldRequest(BaseModel):
+    """Request to schedule a shield activation."""
+    shield_type: str
+    delay_seconds: int
+
+
+# Track scheduled shield tasks
+_scheduled_shield: dict[str, Any] = {
+    "task": None,
+    "shield_type": None,
+    "activate_at": None,
+}
+
+
+async def _delayed_shield_activation(shield_type: str, delay_seconds: int):
+    """Background task to activate shield after delay."""
+    import websockets
+
+    await asyncio.sleep(delay_seconds)
+
+    try:
+        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+            await ws.send(json.dumps({
+                'cmd': 'use_shield',
+                'args': {'shield_type': shield_type}
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=180)
+    except Exception as e:
+        print(f"[DASHBOARD] Scheduled shield activation failed: {e}")
+    finally:
+        # Clear the scheduled state
+        _scheduled_shield["task"] = None
+        _scheduled_shield["shield_type"] = None
+        _scheduled_shield["activate_at"] = None
+
+
+@app.post("/api/shields/schedule")
+async def api_schedule_shield(request: ScheduleShieldRequest) -> dict[str, Any]:
+    """Schedule a shield to activate after a delay."""
+    if request.shield_type not in ["8hr", "12hr", "24hr"]:
+        return {"success": False, "error": f"Invalid shield type: {request.shield_type}"}
+
+    if request.delay_seconds < 1:
+        return {"success": False, "error": "Delay must be at least 1 second"}
+
+    if request.delay_seconds > 86400:  # Max 24 hours
+        return {"success": False, "error": "Delay cannot exceed 24 hours"}
+
+    # Cancel existing scheduled shield if any
+    if _scheduled_shield["task"] is not None:
+        _scheduled_shield["task"].cancel()
+
+    # Calculate activation time
+    activate_at = datetime.now(timezone.utc) + timedelta(seconds=request.delay_seconds)
+
+    # Create the delayed task
+    task = asyncio.create_task(
+        _delayed_shield_activation(request.shield_type, request.delay_seconds)
+    )
+
+    _scheduled_shield["task"] = task
+    _scheduled_shield["shield_type"] = request.shield_type
+    _scheduled_shield["activate_at"] = activate_at.isoformat()
+
+    return {
+        "success": True,
+        "shield_type": request.shield_type,
+        "delay_seconds": request.delay_seconds,
+        "activate_at": activate_at.isoformat(),
+    }
+
+
+@app.get("/api/shields/scheduled")
+async def api_get_scheduled_shield() -> dict[str, Any]:
+    """Get the currently scheduled shield, if any."""
+    if _scheduled_shield["task"] is None or _scheduled_shield["task"].done():
+        return {"scheduled": False}
+
+    return {
+        "scheduled": True,
+        "shield_type": _scheduled_shield["shield_type"],
+        "activate_at": _scheduled_shield["activate_at"],
+    }
+
+
+@app.post("/api/shields/cancel")
+async def api_cancel_scheduled_shield() -> dict[str, Any]:
+    """Cancel a scheduled shield activation."""
+    if _scheduled_shield["task"] is None or _scheduled_shield["task"].done():
+        return {"success": False, "error": "No shield scheduled"}
+
+    _scheduled_shield["task"].cancel()
+    shield_type = _scheduled_shield["shield_type"]
+
+    _scheduled_shield["task"] = None
+    _scheduled_shield["shield_type"] = None
+    _scheduled_shield["activate_at"] = None
+
+    return {"success": True, "cancelled": shield_type}
+
+
 @app.post("/api/shields/use")
 async def api_use_shield(request: UseShieldRequest) -> dict[str, Any]:
     """Use/activate a shield from the bag."""

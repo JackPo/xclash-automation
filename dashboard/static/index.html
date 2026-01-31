@@ -115,8 +115,24 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                                 </svg>
                             </button>
+                            <button @click="showShieldScheduleModal = true"
+                                    class="p-1 rounded text-gray-500 hover:text-yellow-300 hover:bg-yellow-500/20 transition-all"
+                                    title="Schedule shield activation">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </button>
                         </div>
-                        <div class="text-xs text-gray-500 uppercase tracking-wide">Shields (8/12/24h)</div>
+                        <!-- Scheduled shield display -->
+                        <template x-if="scheduledShield">
+                            <div class="flex items-center gap-1 text-xs text-yellow-400">
+                                <span x-text="scheduledShield.shield_type"></span>
+                                <span>in</span>
+                                <span class="font-mono" x-text="formatCountdown(scheduledShield.seconds_remaining)"></span>
+                                <button @click="cancelScheduledShield()" class="ml-1 text-red-400 hover:text-red-300" title="Cancel">✕</button>
+                            </div>
+                        </template>
+                        <div x-show="!scheduledShield" class="text-xs text-gray-500 uppercase tracking-wide">Shields (8/12/24h)</div>
                     </div>
                     <div class="w-px h-8 bg-gray-700"></div>
                     <div class="text-center">
@@ -980,6 +996,69 @@
         </section>
     </main>
 
+    <!-- Shield Schedule Modal -->
+    <div x-show="showShieldScheduleModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+         @click.self="showShieldScheduleModal = false"
+         @keydown.escape.window="showShieldScheduleModal = false">
+        <div class="bg-gray-800 rounded-xl p-6 w-96 border border-gray-700 shadow-2xl">
+            <h3 class="text-lg font-bold text-gray-200 mb-4">Schedule Shield Activation</h3>
+
+            <div class="space-y-4">
+                <!-- Shield Type -->
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Shield Type</label>
+                    <div class="flex gap-2">
+                        <button @click="scheduleShieldType = '8hr'"
+                                class="flex-1 py-2 rounded font-bold transition-all"
+                                :class="scheduleShieldType === '8hr' ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'">
+                            8hr
+                        </button>
+                        <button @click="scheduleShieldType = '12hr'"
+                                class="flex-1 py-2 rounded font-bold transition-all"
+                                :class="scheduleShieldType === '12hr' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'">
+                            12hr
+                        </button>
+                        <button @click="scheduleShieldType = '24hr'"
+                                class="flex-1 py-2 rounded font-bold transition-all"
+                                :class="scheduleShieldType === '24hr' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'">
+                            24hr
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Delay Input -->
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Activate In (e.g., "5m", "1h 30m", "90s", "10:30")</label>
+                    <input type="text" x-model="scheduleDelayInput"
+                           class="w-full px-3 py-2 rounded bg-gray-700 border border-gray-600 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                           placeholder="e.g., 9m 13s"
+                           @keydown.enter="scheduleShield()">
+                </div>
+
+                <!-- Quick Presets -->
+                <div class="flex gap-2 flex-wrap">
+                    <button @click="scheduleDelayInput = '5m'" class="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300">5m</button>
+                    <button @click="scheduleDelayInput = '10m'" class="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300">10m</button>
+                    <button @click="scheduleDelayInput = '30m'" class="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300">30m</button>
+                    <button @click="scheduleDelayInput = '1h'" class="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300">1h</button>
+                    <button @click="scheduleDelayInput = '2h'" class="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300">2h</button>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button @click="showShieldScheduleModal = false"
+                        class="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-all">
+                    Cancel
+                </button>
+                <button @click="scheduleShield()"
+                        class="flex-1 py-2 rounded bg-yellow-600 hover:bg-yellow-500 text-white font-bold transition-all">
+                    Schedule
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div x-show="toast.show" x-cloak
          x-transition:enter="transition ease-out duration-300"
@@ -1036,6 +1115,11 @@
                 // Shield inventory
                 shieldInventory: { '8hr': null, '12hr': null, '24hr': null, timestamp: null },
                 shieldRefreshing: false,
+                // Shield scheduling
+                showShieldScheduleModal: false,
+                scheduleShieldType: '8hr',
+                scheduleDelayInput: '',
+                scheduledShield: null,  // { shield_type, activate_at, seconds_remaining }
                 // Under attack state
                 underAttack: false,
                 underAttackTime: null,
@@ -1070,7 +1154,8 @@
                         this.loadZombieMode(),
                         this.loadConfig(),
                         this.refreshBlocks(),
-                        this.refreshEvents()
+                        this.refreshEvents(),
+                        this.refreshScheduledShield()
                     ]);
                     this.pollInterval = setInterval(() => {
                         this.refreshStatus();
@@ -1078,6 +1163,8 @@
                         this.refreshArmsRace();
                         // Refresh under attack state every 10s
                         this.refreshUnderAttack();
+                        // Refresh scheduled shield
+                        this.refreshScheduledShield();
                         // Refresh blocks every 30s (not every 3s)
                         if (!this.blocks.lastRefresh || Date.now() - this.blocks.lastRefresh > 30000) {
                             this.refreshBlocks();
@@ -1089,6 +1176,13 @@
                     }, 3000);
                     this.countdownInterval = setInterval(() => {
                         if (this.armsRace.time_remaining_seconds > 0) this.armsRace.time_remaining_seconds--;
+                        // Decrement scheduled shield countdown
+                        if (this.scheduledShield && this.scheduledShield.seconds_remaining > 0) {
+                            this.scheduledShield.seconds_remaining--;
+                            if (this.scheduledShield.seconds_remaining <= 0) {
+                                this.scheduledShield = null; // Clear when activated
+                            }
+                        }
                     }, 1000);
                     // Auto score check every hour (3600000ms)
                     this.scoreCheckInterval = setInterval(() => {
@@ -1347,6 +1441,110 @@
                         }
                     } catch (e) {
                         this.showToast(`Error: ${e.message}`, 'error');
+                    }
+                },
+
+                parseTimeInput(input) {
+                    // Parse time input like "9m 13s", "1h 30m", "90s", "5m", "10:30" (time of day)
+                    if (!input || !input.trim()) return null;
+                    input = input.trim().toLowerCase();
+
+                    // Check for time of day format (HH:MM)
+                    const timeMatch = input.match(/^(\d{1,2}):(\d{2})$/);
+                    if (timeMatch) {
+                        const hours = parseInt(timeMatch[1]);
+                        const minutes = parseInt(timeMatch[2]);
+                        const now = new Date();
+                        const target = new Date();
+                        target.setHours(hours, minutes, 0, 0);
+                        if (target <= now) {
+                            target.setDate(target.getDate() + 1); // Tomorrow if time already passed
+                        }
+                        return Math.floor((target - now) / 1000);
+                    }
+
+                    // Parse duration format (e.g., "1h 30m 15s", "5m", "90s")
+                    let totalSeconds = 0;
+                    const hourMatch = input.match(/(\d+)\s*h/);
+                    const minMatch = input.match(/(\d+)\s*m(?!s)/);
+                    const secMatch = input.match(/(\d+)\s*s/);
+
+                    if (hourMatch) totalSeconds += parseInt(hourMatch[1]) * 3600;
+                    if (minMatch) totalSeconds += parseInt(minMatch[1]) * 60;
+                    if (secMatch) totalSeconds += parseInt(secMatch[1]);
+
+                    // If no units matched, try parsing as just seconds
+                    if (!hourMatch && !minMatch && !secMatch) {
+                        const num = parseInt(input);
+                        if (!isNaN(num)) totalSeconds = num;
+                    }
+
+                    return totalSeconds > 0 ? totalSeconds : null;
+                },
+
+                async scheduleShield() {
+                    const delaySeconds = this.parseTimeInput(this.scheduleDelayInput);
+                    if (!delaySeconds) {
+                        this.showToast('Invalid time format. Try "9m 13s" or "10:30"', 'error');
+                        return;
+                    }
+
+                    try {
+                        const res = await fetch('/api/shields/schedule', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                shield_type: this.scheduleShieldType,
+                                delay_seconds: delaySeconds
+                            })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast(`${this.scheduleShieldType} shield scheduled in ${this.formatCountdown(delaySeconds)}`, 'success');
+                            this.showShieldScheduleModal = false;
+                            this.scheduleDelayInput = '';
+                            this.refreshScheduledShield();
+                        } else {
+                            this.showToast(data.error || 'Failed to schedule', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast(`Error: ${e.message}`, 'error');
+                    }
+                },
+
+                async cancelScheduledShield() {
+                    try {
+                        const res = await fetch('/api/shields/cancel', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast(`Cancelled scheduled ${data.cancelled} shield`, 'info');
+                            this.scheduledShield = null;
+                        } else {
+                            this.showToast(data.error || 'Nothing to cancel', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast(`Error: ${e.message}`, 'error');
+                    }
+                },
+
+                async refreshScheduledShield() {
+                    try {
+                        const res = await fetch('/api/shields/scheduled');
+                        const data = await res.json();
+                        if (data.scheduled) {
+                            const activateAt = new Date(data.activate_at);
+                            const now = new Date();
+                            const secondsRemaining = Math.max(0, Math.floor((activateAt - now) / 1000));
+                            this.scheduledShield = {
+                                shield_type: data.shield_type,
+                                activate_at: data.activate_at,
+                                seconds_remaining: secondsRemaining
+                            };
+                        } else {
+                            this.scheduledShield = null;
+                        }
+                    } catch (e) {
+                        // Ignore errors
                     }
                 },
 
