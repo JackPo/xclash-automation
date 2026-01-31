@@ -1,0 +1,425 @@
+# Daemon Flow Documentation
+
+Detailed documentation for all automated flows in the icon daemon.
+
+## Currently Detected Icons
+
+| Icon | Matcher | Threshold | Click | Flow |
+|------|---------|-----------|-------|------|
+| Handshake | `handshake_icon_matcher.py` | 0.04 | (3165, 1843) | `handshake_flow` |
+| Treasure Map | `treasure_map_matcher.py` | 0.05 | (2175, 1621) | `treasure_map_flow` |
+| Harvest Box | `harvest_box_matcher.py` | 0.1 | (2177, 1618) | `harvest_box_flow` |
+| Corn | `corn_harvest_matcher.py` | 0.05 | (1932, 1297) | `corn_harvest_flow` |
+| Gold | `gold_coin_matcher.py` | 0.06 | (1395, 835) | `gold_coin_flow` |
+| Iron | `iron_bar_matcher.py` | 0.08 | (1639, 377) | `iron_bar_flow` |
+| Gem | `gem_matcher.py` | 0.06 | (1405, 696) | `gem_flow` |
+| Healing | `healing_bubble_matcher.py` | 0.06 | (3340, 364) | `healing_flow` |
+| Elite Zombie | Stamina OCR | stamina >= 118 | N/A | `elite_zombie_flow` |
+| Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
+| Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3725, 1624) | `bag_flow` |
+| Royal City | Scheduled | User-specified time | N/A | `royal_city_flow` |
+
+---
+
+## Harvest Action Requirements
+
+Harvest actions (corn, gold, iron, gem, cabbage, equipment) require ALL of:
+1. **TOWN view** - must see World button
+2. **5+ minutes idle** - won't trigger while user active
+3. **Dog house aligned** - town view not panned
+
+**Immediate actions** (no idle/alignment check):
+- Handshake flow
+- Treasure map (digging) flow
+- Harvest box flow
+
+---
+
+## Elite Zombie Rally (Stamina-based)
+
+**Trigger**: stamina >= 118 AND user idle 5+ min
+
+**Sequence**:
+1. Navigate to WORLD view
+2. Click magnifying glass → **POLL** for `rally_search_button_4k.png`
+3. Click Elite Zombie tab → **VERIFY** `elite_zombie_tab_4k.png`
+4. Click plus button N times (level, via ELITE_ZOMBIE_PLUS_CLICKS)
+5. **VERIFY** `rally_search_button_4k.png`, click detected location
+6. **POLL** for `rally_button_4k.png` → click detected location
+7. **POLL** for `team_up_button_4k.png`
+8. Select LEFTMOST idle hero (with Zz icon)
+9. **VERIFY** and click `team_up_button_4k.png`
+
+**Templates**:
+- `rally_search_button_4k.png` (368x126, threshold 0.05)
+- `elite_zombie_tab_4k.png` (284x97, threshold 0.1)
+- `rally_button_4k.png` (153x177, threshold 0.08)
+- `team_up_button_4k.png` (368x134, threshold 0.05)
+
+**Hero Selection**:
+- Elite Zombie: LEFTMOST idle hero
+- Treasure Map: RIGHTMOST idle hero
+
+---
+
+## Hero Upgrade Arms Race Flow
+
+**Trigger**: During "Enhance Hero" event, last N minutes, idle since block start
+
+**Sequence**:
+1. Click Fing Hero button at (2272, 2038)
+2. Wait for hero grid (3x4)
+3. Scan 12 tiles for red notification dots
+4. For each tile with dot:
+   - Click tile center
+   - Check upgrade button (green=available, gray=unavailable)
+   - If available: click upgrade at (1919, 1829)
+   - If unavailable: click back
+5. `return_to_base_view()`
+
+**Red Dot Detection**:
+- Count red pixels in upper-right 40x40 of each tile
+- Red in BGR: B<100, G<100, R>150
+- Threshold: 50+ pixels = has dot
+
+**Hero Grid (4K)**:
+
+| Row | Col 1 | Col 2 | Col 3 | Col 4 |
+|-----|-------|-------|-------|-------|
+| 1 | (1497, 413) | (1775, 413) | (2056, 413) | (2330, 413) |
+| 2 | (1497, 837) | (1775, 837) | (2056, 837) | (2330, 837) |
+| 3 | (1497, 1265) | (1775, 1265) | (2056, 1265) | (2330, 1265) |
+
+**Templates**:
+- `heroes_button_4k.png` (123x177, click: 2272,2038)
+- `upgrade_button_available_4k.png` (407x121)
+- `upgrade_button_unavailable_4k.png` (365x126)
+
+---
+
+## Soldier Training Arms Race Flow
+
+**Trigger**: During "Soldier Training" event OR VS promotion day, idle 5+ min, PENDING barrack
+
+**VS Override**: Days in `VS_SOLDIER_PROMOTION_DAYS` run soldier promotion ALL DAY.
+
+**Sequence** (per PENDING barrack):
+1. Click barrack bubble
+2. **POLL** for `soldier_training_header_4k.png` (3s timeout)
+3. Detect highest unlocked soldier level
+4. Target = highest - 1
+5. Scroll horizontally if needed
+6. Click target level tile
+7. **VERIFY** `train_button_4k.png`
+8. Click Train at (2153, 1462)
+9. Handle resource replenishment if needed
+10. `return_to_base_view()` (always in finally)
+
+**Soldier Tile Detection**:
+- Bottom-half templates: `half_soldier_lv{3-8}_4k.png` (79x148)
+- Fixed Y: 890-969, threshold 0.02
+- Scroll direction: swipe FROM tile TO RIGHT to reveal left
+
+**Config**:
+- `ARMS_RACE_SOLDIER_TRAINING_ENABLED = True`
+- `VS_SOLDIER_PROMOTION_DAYS = [2]` (Day 2 = Thursday)
+
+**Testing**:
+```bash
+python scripts/flows/soldier_upgrade_flow.py --detect-only
+python scripts/flows/soldier_upgrade_flow.py --scroll-and-select
+python scripts/flows/soldier_upgrade_flow.py
+```
+
+---
+
+## Non-Arms-Race Soldier Training
+
+**Trigger**: NOT during Soldier Training event, READY barracks, 5+ min idle
+
+**Flow**:
+1. `soldier_training_flow` collects READY, trains PENDING
+2. `train_soldier_at_barrack()` calculates time until next event
+3. If training exceeds time → use `target_hours` to finish before event
+4. Otherwise → max training time
+
+**Timing Logic**:
+```python
+time_until = get_time_until_soldier_training()
+if time_until and time_until.total_seconds() > 0:
+    max_hours = (time_until.total_seconds() - 300) / 3600  # 5 min buffer
+    max_hours = max(0.5, max_hours)  # Min 30 min
+```
+
+---
+
+## Beast Training Arms Race Flow
+
+**Trigger**: During "Mystic Beast Training" event, last 60 minutes, idle 2+ min
+
+**See full docs**: `docs/BEAST_TRAINING_LOGIC.md`
+
+**Key Numbers** (by zombie mode):
+
+| Mode | Stamina | Points | Actions for 30k |
+|------|---------|--------|-----------------|
+| elite | 20 | 2,000 | 15 rallies |
+| gold/food/iron_mine | 10 | 1,000 | 30 attacks |
+
+**Two-Phase Flow**:
+
+1. **Hour Mark Check** (1 hour into event):
+   - Open Events → Arms Race
+   - OCR current points
+   - `actions_needed = ceil((30000 - current_points) / points_per_action)`
+   - Set `beast_training_target_rallies`
+
+2. **Execution** (continuous):
+   - While `rally_count < target`:
+     - stamina >= threshold → do rally/attack
+     - stamina < threshold, use_count < 4 → click Use for 50 stamina
+
+**State** (`data/daemon_schedule.json`):
+```json
+{
+  "arms_race": {
+    "beast_training_rally_count": 4,
+    "beast_training_target_rallies": 6
+  }
+}
+```
+
+**Config**:
+- `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60`
+- `ARMS_RACE_BEAST_TRAINING_USE_MAX = 4`
+
+---
+
+## Rally Join Flow
+
+**Trigger**: Handshake icon → Union War panel → `rally_join_flow`
+
+**Sequence**:
+1. Validate panel (heading + Team Intelligence tab)
+2. Find plus buttons in rightmost column
+3. For each rally (top to bottom):
+   - Click plus → Team Up panel
+   - OCR monster name/level
+   - Check `RALLY_MONSTERS` config
+   - Skip → **click grass to dismiss** (no back button)
+   - Match → hero selection
+4. **POLL** for Team Up panel (5s)
+5. Select leftmost idle hero
+6. Click Team Up
+7. **POLL** for daily limit dialog (2s):
+   - If found → Cancel → mark exhausted
+
+**Team Up Dismissal**: Click grass via `find_safe_grass()`, not back button.
+
+**Daily Limit**: Template `daily_rally_limit_dialog_4k.png` (983x527, threshold 0.05)
+
+**Config**:
+```python
+RALLY_MONSTERS = [
+    {"name": "Zombie Overlord", "auto_join": True, "max_level": 130, "track_daily_limit": False},
+    {"name": "Elite Zombie", "auto_join": True, "max_level": 25, "track_daily_limit": True},
+    {"name": "Union Boss", "auto_join": True, "max_level": 9999, "track_daily_limit": False},
+    # ...
+]
+```
+
+---
+
+## Royal City Flow (Scheduled)
+
+**Trigger**: Scheduled execution
+
+**Prerequisite**: `go_to_mark_flow` first
+
+**Sequence**:
+1. Find/click star → open panel
+2. **VERIFY** city UNCLAIMED (`royal_city_unoccupied_tab_4k.png`)
+3. Perform action:
+   - `scout`: click Scout button
+   - `attack`: opens troop selection → hero → March
+   - `rally`: opens rally setup → hero → confirm
+4. `return_to_base_view()`
+
+**Usage**:
+```bash
+python scripts/flows/royal_city_flow.py scout --debug
+python scripts/flows/royal_city_flow.py attack --debug
+python scripts/flows/royal_city_flow.py rally --debug
+```
+
+---
+
+## Hospital Healing Flow
+
+**Trigger**: Hospital bubble (HELP_READY, HEALING, SOLDIERS_WOUNDED)
+
+**Key Concept**: Reset ALL sliders first, then fill bottom row only to 1 hour.
+
+**Sequence**:
+1. Verify hospital panel (header match)
+2. Scroll + reset ALL sliders to minimum
+3. Check initial time (~0)
+4. Select bottom row (`buttons[-1]`)
+5. Drag slider to max, check time
+6. If >1 hour → binary search (8 iterations) for ~1 hour
+7. Click Healing
+8. If "Insufficient Resources" → Replenish All → Healing again
+9. `return_to_base_view()`
+
+**Config**:
+- `MAX_SAFE_HEAL_SECONDS = 5400` (90 min safety)
+
+---
+
+## Bag Flow (Idle-Triggered)
+
+**Trigger**: TOWN view + 5 min idle + 1 hour cooldown
+
+**Sequence**:
+1. Navigate to TOWN
+2. Click bag (3725, 1624)
+3. `bag_special_flow` - claim chests (7 templates)
+4. `bag_hero_flow` - claim chests (2 templates)
+5. `bag_resources_flow` - claim diamonds
+6. Close bag, `return_to_base_view()`
+
+**Critical flow**: Blocks daemon idle recovery from closing bag.
+
+---
+
+## Tavern Quest Flow
+
+**Trigger**: Tavern button detected (TBD - not yet in daemon)
+
+**Entry**: Click (80, 1220)
+
+**Double-Pass Strategy**: After Claim, exit tavern completely, re-enter, repeat.
+
+**My Quests Flow**:
+1. Navigate to TOWN
+2. Click tavern button
+3. Switch to My Quests tab if needed
+4. Column-restricted Claim search (X: 2100-2500)
+5. If Claim → click, dismiss, EXIT tavern
+6. If none → scroll, rescan (max 2 scrolls with no claims)
+
+---
+
+## Snowman Party Flow (Scaffolding)
+
+**Trigger**: "Snowman Party" chat message
+
+**Sequence**:
+1. Detect yellow chat bubble
+2. Click to navigate
+3. Wait for snowman
+4. (TBD) Click claim bubble
+5. `return_to_base_view()`
+
+**Templates**:
+- `snowman_party_chat_4k.png` (772x80)
+- `snowman_4k.png` (254x212)
+- `snowman_claim_bubble_4k.png` (TBD)
+
+---
+
+## Shield Inventory Flow
+
+**Trigger**: 6-hour scheduled check OR manual via frontend/CLI
+
+**Sequence**:
+1. Open bag (click 3725, 1624)
+2. Navigate to Special tab
+3. Match shield templates (8hr, 12hr, 24hr)
+4. OCR count from full tile region for each found shield
+5. Update `daemon_current_state.json` with counts
+6. Close bag
+
+**Templates**:
+- `bag_shield_8hr_4k.png` (230x189, green background)
+- `bag_shield_12hr_4k.png` (230x189, blue background)
+- `bag_shield_24hr_4k.png` (230x189, purple background)
+
+**State** (`data/daemon_current_state.json`):
+```json
+{
+  "shield_inventory": {
+    "8hr": 8,
+    "12hr": 7,
+    "24hr": 3,
+    "timestamp": "2026-01-31T..."
+  }
+}
+```
+
+**CLI**:
+```bash
+python scripts/daemon_cli.py get_shield_inventory
+python scripts/flows/shield_inventory_flow.py --debug
+```
+
+---
+
+## Shield Use Flow
+
+**Trigger**: Frontend button click OR CLI command
+
+**Sequence**:
+1. Open bag (click 3725, 1624)
+2. Navigate to Special tab
+3. Find shield icon (8hr/12hr/24hr)
+4. Click shield icon
+5. Click Use button
+6. Close bag
+7. Update inventory count in state
+
+**Templates**:
+- `bag_shield_8hr_4k.png` (green, 8-hour protection)
+- `bag_shield_12hr_4k.png` (blue, 12-hour protection)
+- `bag_shield_24hr_4k.png` (purple, 24-hour protection)
+- `use_button_4k.png` (Use dialog button)
+
+**CLI**:
+```bash
+python scripts/daemon_cli.py use_shield --shield_type 8hr
+python scripts/flows/shield_use_flow.py 8hr --debug
+```
+
+**API**:
+```
+POST /api/shields/use
+{"shield_type": "8hr"}
+```
+
+---
+
+## Under Attack Detection
+
+**Trigger**: Continuous monitoring in daemon loop
+
+**Detection**: Uses `under_attack_matcher.py` template matching
+
+**Events**:
+- Attack detected → `scheduler.record_event()` with category "combat"
+- Attack ended → event logged
+
+**State** (`data/daemon_current_state.json`):
+```json
+{
+  "under_attack": {
+    "is_under_attack": false,
+    "last_detected": "2026-01-31T...",
+    "attack_count_today": 3
+  }
+}
+```
+
+**Frontend**:
+- Red alert banner when under attack
+- Quick shield activation buttons
+- Attack events in Recent Events timeline (red "combat" dot)
