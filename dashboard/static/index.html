@@ -142,25 +142,27 @@
                             </button>
                         </div>
                     </template>
-                    <!-- Bloodlust Banner -->
-                    <template x-if="bloodlust.active">
-                        <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-orange-500/20 border border-orange-500/50">
-                            <svg class="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                            </svg>
-                            <span class="text-sm text-orange-300">
-                                <span class="font-bold">BLOODLUST</span> ends in
-                                <span class="font-mono font-bold" x-text="formatCountdown(bloodlust.seconds_remaining)"></span>
+                    <!-- Protection Status (Shield or Bloodlust - mutually exclusive, same icon position) -->
+                    <template x-if="shieldProtectionActive || bloodlust.active">
+                        <div class="flex items-center gap-2 px-3 py-1 rounded-lg"
+                             :class="shieldProtectionActive ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-orange-500/20 border border-orange-500/50'">
+                            <!-- Shield Icon -->
+                            <template x-if="shieldProtectionActive">
+                                <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+                                </svg>
+                            </template>
+                            <!-- Bloodlust Icon (crossed swords) -->
+                            <template x-if="bloodlust.active && !shieldProtectionActive">
+                                <svg class="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M6.92 5L5 6.92l5.79 5.79L5 18.5l1.92 1.92 5.79-5.79 5.79 5.79L20.42 18.5l-5.79-5.79L20.42 6.92 18.5 5l-5.79 5.79L6.92 5z"/>
+                                </svg>
+                            </template>
+                            <!-- Status Text -->
+                            <span class="text-sm font-bold"
+                                  :class="shieldProtectionActive ? 'text-blue-300' : 'text-orange-300'"
+                                  x-text="shieldProtectionActive ? 'SHIELDED' : ('BLOODLUST ' + formatCountdown(bloodlust.seconds_remaining))">
                             </span>
-                        </div>
-                    </template>
-                    <!-- Shield Protection Active Banner -->
-                    <template x-if="shieldProtectionActive">
-                        <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-blue-500/20 border border-blue-500/50">
-                            <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
-                            </svg>
-                            <span class="text-sm text-blue-300 font-bold">SHIELDED</span>
                         </div>
                     </template>
                     <div class="w-px h-8 bg-gray-700"></div>
