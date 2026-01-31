@@ -219,6 +219,92 @@ Continuous monitoring for incoming attacks.
 
 ---
 
+## Bloodlust Detection
+
+Monitors for bloodlust state (crossed swords icon). Lasts ~15 minutes.
+
+**Detection**: `utils/bloodlust_matcher.py` - checks position (283, 287)
+
+**Template**: `bloodlust_icon_4k.png` (62x62)
+
+**Events logged to frontend**:
+- `bloodlust` / `started` - bloodlust began (combat category)
+- `bloodlust` / `ended` - bloodlust ended with duration
+
+**State** (`data/daemon_current_state.json`):
+```json
+{
+  "bloodlust": {
+    "is_active": true,
+    "started_at": "2026-01-31T...",
+    "expected_end": "2026-01-31T..."
+  }
+}
+```
+
+**Frontend**: Orange banner with 15-minute countdown
+
+**CLI**:
+```bash
+python utils/bloodlust_matcher.py  # Test detection on current screen
+```
+
+---
+
+## Shield Active Detection
+
+Detects if player already has shield protection active.
+
+**Detection**: `utils/shield_active_matcher.py` - checks position (283, 287)
+
+**Template**: `shield_active_icon_4k.png` (62x62, blue glowing shield)
+
+**Behavior**: Shield use flow automatically checks before activating:
+- If shield active → returns `shield_already_active: true`, skips
+- Use `--force` flag to override and apply new shield anyway
+
+**CLI**:
+```bash
+python utils/shield_active_matcher.py  # Test detection
+
+# Normal use (skips if shield active)
+python scripts/daemon_cli.py use_shield --shield_type 8hr
+
+# Force (use even if shield active)
+python scripts/daemon_cli.py use_shield --shield_type 8hr --force
+```
+
+---
+
+## Shield Scheduling
+
+Schedule shield activation with delay via frontend or API.
+
+**Time Formats**:
+- `5m` - 5 minutes
+- `1h 30m` - 1 hour 30 minutes
+- `9m 13s` - 9 minutes 13 seconds
+- `10:30` - activate at 10:30 (next occurrence)
+
+**API Endpoints**:
+```
+POST /api/shields/schedule
+{"shield_type": "8hr", "delay_seconds": 553}
+
+GET /api/shields/scheduled
+Returns: {"scheduled": true, "shield_type": "8hr", "activate_at": "..."}
+
+POST /api/shields/cancel
+Cancels pending scheduled shield
+```
+
+**Frontend**:
+- Clock icon button next to shields opens schedule modal
+- Yellow banner shows countdown when scheduled
+- Cancel button to abort
+
+---
+
 ## IMPORTANT: Daemon Management
 
 **NEVER start the daemon.** User manages startup.

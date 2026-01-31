@@ -423,3 +423,103 @@ POST /api/shields/use
 - Red alert banner when under attack
 - Quick shield activation buttons
 - Attack events in Recent Events timeline (red "combat" dot)
+
+---
+
+## Bloodlust Detection
+
+**Trigger**: Continuous monitoring in daemon loop
+
+**Detection**: `bloodlust_matcher.py` - checks for crossed swords icon at (283, 287)
+
+**Duration**: ~15 minutes from first detection
+
+**Template**: `bloodlust_icon_4k.png` (62x62)
+
+**Position**: Upper-left area, below fist icon (same location as shield active icon)
+
+**Events**:
+- Bloodlust started → `scheduler.record_event()` with category "combat"
+- Bloodlust ended → event logged with actual duration
+
+**State** (`data/daemon_current_state.json`):
+```json
+{
+  "bloodlust": {
+    "is_active": true,
+    "started_at": "2026-01-31T...",
+    "expected_end": "2026-01-31T..."
+  }
+}
+```
+
+**Frontend**:
+- Orange banner with 15-minute countdown when active
+- Can trigger actions when bloodlust ends (e.g., auto-shield)
+
+**CLI**:
+```bash
+python utils/bloodlust_matcher.py  # Test detection
+```
+
+---
+
+## Shield Already Active Detection
+
+**Detection**: `shield_active_matcher.py` - checks for blue shield icon at (283, 287)
+
+**Template**: `shield_active_icon_4k.png` (62x62)
+
+**Position**: Same as bloodlust icon (they don't appear simultaneously)
+
+**Behavior**:
+- Shield use flow checks if shield already active before using new one
+- Returns early with `shield_already_active: true` if detected
+- Use `force=True` to override and apply new shield anyway
+
+**CLI**:
+```bash
+# Normal - skips if shield active
+python scripts/flows/shield_use_flow.py 8hr --debug
+
+# Force - use even if shield active
+python scripts/flows/shield_use_flow.py 8hr --debug --force
+
+# Via daemon CLI
+python scripts/daemon_cli.py use_shield --shield_type 8hr --force
+```
+
+---
+
+## Shield Scheduling
+
+**Trigger**: Frontend modal OR API call
+
+**Features**:
+- Schedule shield activation with delay (e.g., "9m 13s", "1h 30m", "10:30")
+- Supports flexible time formats:
+  - `5m` - 5 minutes
+  - `1h 30m` - 1 hour 30 minutes
+  - `90s` - 90 seconds
+  - `10:30` - activate at specific time (next occurrence)
+- Quick preset buttons: 5m, 10m, 30m, 1h, 2h
+- Cancel scheduled shield anytime
+- Only one shield can be scheduled at a time
+
+**Frontend**:
+- Clock icon button next to shield refresh
+- Modal with shield type selection and time input
+- Yellow banner showing countdown when scheduled
+- Cancel button to abort scheduled shield
+
+**API Endpoints**:
+```
+POST /api/shields/schedule
+{"shield_type": "8hr", "delay_seconds": 553}
+
+GET /api/shields/scheduled
+Returns: {"scheduled": true, "shield_type": "8hr", "activate_at": "..."}
+
+POST /api/shields/cancel
+Cancels any pending scheduled shield
+```
