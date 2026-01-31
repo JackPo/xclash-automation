@@ -114,6 +114,11 @@ def _get_default_state() -> dict[str, Any]:
             "last_detected": None,
             "attack_count_today": 0,
         },
+        "bloodlust": {
+            "is_active": False,
+            "started_at": None,
+            "expected_end": None,
+        },
         "last_update": None,
     }
 
@@ -468,3 +473,56 @@ def update_under_attack(is_under_attack: bool) -> None:
 def get_under_attack() -> dict[str, Any]:
     """Get under attack status from state file."""
     return load_state().get("under_attack", {})
+
+
+def update_bloodlust(is_active: bool) -> None:
+    """
+    Update bloodlust status in state file.
+
+    When bloodlust becomes active, sets expected_end to 15 minutes from now.
+    When bloodlust ends, clears the timestamps.
+
+    Args:
+        is_active: True if bloodlust is currently active
+    """
+    from utils.bloodlust_matcher import BLOODLUST_DURATION_SECONDS
+
+    state = load_state()
+    now = datetime.now(timezone.utc)
+
+    bloodlust_state = state.get("bloodlust", {})
+    was_active = bloodlust_state.get("is_active", False)
+
+    if is_active and not was_active:
+        # Bloodlust just started
+        expected_end = now + timedelta(seconds=BLOODLUST_DURATION_SECONDS)
+        state["bloodlust"] = {
+            "is_active": True,
+            "started_at": now.isoformat(),
+            "expected_end": expected_end.isoformat(),
+        }
+    elif not is_active and was_active:
+        # Bloodlust just ended
+        state["bloodlust"] = {
+            "is_active": False,
+            "started_at": bloodlust_state.get("started_at"),
+            "expected_end": None,
+        }
+    elif is_active:
+        # Still active - don't update timestamps
+        pass
+    else:
+        # Still inactive - ensure state is clean
+        if bloodlust_state.get("is_active"):
+            state["bloodlust"] = {
+                "is_active": False,
+                "started_at": None,
+                "expected_end": None,
+            }
+
+    save_state(state)
+
+
+def get_bloodlust() -> dict[str, Any]:
+    """Get bloodlust status from state file."""
+    return load_state().get("bloodlust", {})

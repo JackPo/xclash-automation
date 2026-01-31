@@ -123,17 +123,37 @@
                                 </svg>
                             </button>
                         </div>
-                        <!-- Scheduled shield display -->
-                        <template x-if="scheduledShield">
-                            <div class="flex items-center gap-1 text-xs text-yellow-400">
-                                <span x-text="scheduledShield.shield_type"></span>
-                                <span>in</span>
-                                <span class="font-mono" x-text="formatCountdown(scheduledShield.seconds_remaining)"></span>
-                                <button @click="cancelScheduledShield()" class="ml-1 text-red-400 hover:text-red-300" title="Cancel">✕</button>
-                            </div>
-                        </template>
-                        <div x-show="!scheduledShield" class="text-xs text-gray-500 uppercase tracking-wide">Shields (8/12/24h)</div>
+                        <div class="text-xs text-gray-500 uppercase tracking-wide">Shields (8/12/24h)</div>
                     </div>
+                    <!-- Scheduled Shield Banner -->
+                    <template x-if="scheduledShield">
+                        <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-yellow-500/20 border border-yellow-500/50">
+                            <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span class="text-sm text-yellow-300">
+                                <span class="font-bold" x-text="scheduledShield.shield_type"></span> shield in
+                                <span class="font-mono font-bold" x-text="formatCountdown(scheduledShield.seconds_remaining)"></span>
+                            </span>
+                            <button @click="cancelScheduledShield()"
+                                    class="ml-1 px-2 py-0.5 rounded text-xs bg-red-500/30 hover:bg-red-500/50 text-red-300 hover:text-red-200 transition-all"
+                                    title="Cancel scheduled shield">
+                                Cancel
+                            </button>
+                        </div>
+                    </template>
+                    <!-- Bloodlust Banner -->
+                    <template x-if="bloodlust.active">
+                        <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-orange-500/20 border border-orange-500/50">
+                            <svg class="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                            </svg>
+                            <span class="text-sm text-orange-300">
+                                <span class="font-bold">BLOODLUST</span> ends in
+                                <span class="font-mono font-bold" x-text="formatCountdown(bloodlust.seconds_remaining)"></span>
+                            </span>
+                        </div>
+                    </template>
                     <div class="w-px h-8 bg-gray-700"></div>
                     <div class="text-center">
                         <div class="text-2xl font-bold stat-value text-blue-400" x-text="formatSeconds(status.idle_seconds)"></div>
@@ -1123,6 +1143,8 @@
                 // Under attack state
                 underAttack: false,
                 underAttackTime: null,
+                // Bloodlust state
+                bloodlust: { active: false, started_at: null, expected_end: null, seconds_remaining: null },
                 // Stamina claim timer (checked once at Beast Training block start)
                 staminaClaimTimer: { seconds_remaining: null, claim_available: null, checked_at: null },
                 // Block Timeline
@@ -1183,6 +1205,13 @@
                                 this.scheduledShield = null; // Clear when activated
                             }
                         }
+                        // Decrement bloodlust countdown
+                        if (this.bloodlust.active && this.bloodlust.seconds_remaining > 0) {
+                            this.bloodlust.seconds_remaining--;
+                            if (this.bloodlust.seconds_remaining <= 0) {
+                                this.bloodlust.active = false; // Clear when expired
+                            }
+                        }
                     }, 1000);
                     // Auto score check every hour (3600000ms)
                     this.scoreCheckInterval = setInterval(() => {
@@ -1218,6 +1247,19 @@
                             this.underAttackTime = state.under_attack.last_detected
                                 ? new Date(state.under_attack.last_detected).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
                                 : null;
+                        }
+                        // Also refresh bloodlust from same state
+                        if (state.bloodlust) {
+                            this.bloodlust.active = state.bloodlust.is_active || false;
+                            this.bloodlust.started_at = state.bloodlust.started_at;
+                            this.bloodlust.expected_end = state.bloodlust.expected_end;
+                            if (this.bloodlust.expected_end && this.bloodlust.active) {
+                                const endTime = new Date(this.bloodlust.expected_end);
+                                const now = new Date();
+                                this.bloodlust.seconds_remaining = Math.max(0, Math.floor((endTime - now) / 1000));
+                            } else {
+                                this.bloodlust.seconds_remaining = null;
+                            }
                         }
                     } catch (e) { /* ignore */ }
                 },
@@ -1286,6 +1328,18 @@
                             this.underAttackTime = state.under_attack.last_detected
                                 ? new Date(state.under_attack.last_detected).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
                                 : null;
+                        }
+
+                        // Restore bloodlust state
+                        if (state.bloodlust) {
+                            this.bloodlust.active = state.bloodlust.is_active || false;
+                            this.bloodlust.started_at = state.bloodlust.started_at;
+                            this.bloodlust.expected_end = state.bloodlust.expected_end;
+                            if (this.bloodlust.expected_end) {
+                                const endTime = new Date(this.bloodlust.expected_end);
+                                const now = new Date();
+                                this.bloodlust.seconds_remaining = Math.max(0, Math.floor((endTime - now) / 1000));
+                            }
                         }
 
                     } catch (e) {

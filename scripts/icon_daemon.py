@@ -512,6 +512,10 @@ class IconDaemon:
         self.last_attack_log_time: float = 0  # Prevent log spam
         self.ATTACK_LOG_COOLDOWN = 60  # Only log once per minute while under attack
 
+        # Bloodlust detection
+        self.bloodlust_active: bool = False  # Current bloodlust state
+        self.bloodlust_started_at: float | None = None  # When bloodlust was first detected
+
         # Barracks state validation - require 10 readings with 60%+ being a specific state
         # Allows UNKNOWN (?) readings as long as 60%+ are a consistent letter (R, P, or T)
         # Example: PPPPPP???? (6P + 4?) = 60% P = PASS
@@ -1691,6 +1695,57 @@ class IconDaemon:
                         self.command_server.broadcast("under_attack", {
                             "detected": False,
                             "timestamp": datetime.now().isoformat(),
+                        })
+
+                # =================================================================
+                # BLOODLUST DETECTION - Check if bloodlust is active (15 min duration)
+                # =================================================================
+                from utils.bloodlust_matcher import is_bloodlust_active, BLOODLUST_DURATION_SECONDS
+                bloodlust_detected, bloodlust_score = is_bloodlust_active(frame)
+
+                if bloodlust_detected and not self.bloodlust_active:
+                    # Bloodlust just started
+                    self.bloodlust_active = True
+                    self.bloodlust_started_at = time.time()
+                    self.logger.info(f"[{iteration}] BLOODLUST ACTIVE! (score={bloodlust_score:.4f}) - expires in 15 min")
+                    # Update persistent state
+                    from utils.current_state import update_bloodlust
+                    update_bloodlust(True)
+                    # Record event for frontend
+                    self.scheduler.record_event(
+                        flow_name="bloodlust",
+                        status="started",
+                        result={"score": bloodlust_score, "duration_seconds": BLOODLUST_DURATION_SECONDS},
+                        category="combat",
+                        is_critical=False,
+                    )
+                    if self.command_server:
+                        self.command_server.broadcast("bloodlust", {
+                            "active": True,
+                            "started_at": datetime.now().isoformat(),
+                            "duration_seconds": BLOODLUST_DURATION_SECONDS,
+                        })
+                elif not bloodlust_detected and self.bloodlust_active:
+                    # Bloodlust ended
+                    duration = time.time() - self.bloodlust_started_at if self.bloodlust_started_at else 0
+                    self.bloodlust_active = False
+                    self.bloodlust_started_at = None
+                    self.logger.info(f"[{iteration}] Bloodlust ended after {duration:.0f}s")
+                    # Update persistent state
+                    from utils.current_state import update_bloodlust
+                    update_bloodlust(False)
+                    self.scheduler.record_event(
+                        flow_name="bloodlust",
+                        status="ended",
+                        result={"duration_seconds": duration},
+                        category="combat",
+                        is_critical=False,
+                    )
+                    if self.command_server:
+                        self.command_server.broadcast("bloodlust", {
+                            "active": False,
+                            "ended_at": datetime.now().isoformat(),
+                            "duration_seconds": duration,
                         })
 
                 # =================================================================
