@@ -161,7 +161,7 @@
                             <!-- Status Text -->
                             <span class="text-sm font-bold"
                                   :class="shieldProtectionActive ? 'text-blue-300' : 'text-orange-300'"
-                                  x-text="shieldProtectionActive ? 'SHIELDED' : ('BLOODLUST ' + formatCountdown(bloodlust.seconds_remaining))">
+                                  x-text="shieldProtectionActive ? 'SHIELDED' : ('BLOODLUST ~' + formatCountdown(bloodlust.seconds_remaining) + ' (?)')">
                             </span>
                         </div>
                     </template>
