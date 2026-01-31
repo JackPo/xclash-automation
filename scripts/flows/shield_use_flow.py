@@ -60,6 +60,7 @@ def shield_use_flow(
     shield_type: str,
     win: WindowsScreenshotHelper | None = None,
     debug: bool = False,
+    force: bool = False,
 ) -> dict:
     """
     Use/activate a shield from the bag.
@@ -69,6 +70,7 @@ def shield_use_flow(
         shield_type: "8hr", "12hr", or "24hr"
         win: WindowsScreenshotHelper instance (optional)
         debug: Enable debug output
+        force: If True, use shield even if one is already active
 
     Returns:
         Dict with success status and message
@@ -84,6 +86,28 @@ def shield_use_flow(
     if debug:
         print(f"Shield Use Flow - {shield_type}")
         print("=" * 50)
+
+    # Step 0: Check if shield is already active
+    if not force:
+        if debug:
+            print("Step 0: Checking if shield already active...")
+
+        frame = win.get_screenshot_cv2()
+        from utils.shield_active_matcher import is_shield_active
+        shield_active, shield_score = is_shield_active(frame, debug=debug)
+
+        if shield_active:
+            if debug:
+                print(f"  Shield already active (score={shield_score:.4f}) - skipping")
+            return {
+                "success": False,
+                "error": "Shield already active",
+                "shield_already_active": True,
+                "score": shield_score
+            }
+
+        if debug:
+            print(f"  No active shield detected (score={shield_score:.4f})")
 
     # Step 1: Open bag
     if debug:
@@ -267,10 +291,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Shield Use Flow - Activate a shield")
     parser.add_argument("shield_type", choices=["8hr", "12hr", "24hr"], help="Shield duration")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--force", action="store_true", help="Use shield even if one is already active")
     args = parser.parse_args()
 
     adb = ADBHelper()
     win = WindowsScreenshotHelper()
 
-    result = shield_use_flow(adb, args.shield_type, win, debug=args.debug)
+    result = shield_use_flow(adb, args.shield_type, win, debug=args.debug, force=args.force)
     print(f"\nResult: {result}")

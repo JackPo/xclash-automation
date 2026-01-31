@@ -974,6 +974,7 @@ class DaemonWebSocketServer:
         Args:
             shield_type: "8hr", "12hr", or "24hr"
             debug: Enable debug output (optional)
+            force: Use shield even if one is already active (optional)
 
         Returns:
             {"success": True/False, "message": str}
@@ -990,11 +991,13 @@ class DaemonWebSocketServer:
             raise ValueError(f"Invalid shield_type: {shield_type}")
 
         debug = args.get("debug", False)
+        force = args.get("force", False)
         result = shield_use_flow(
             self.daemon.adb,
             shield_type,
             self.daemon.windows_helper,
-            debug=debug
+            debug=debug,
+            force=force
         )
 
         return result
