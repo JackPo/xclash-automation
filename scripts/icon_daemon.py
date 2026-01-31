@@ -516,6 +516,9 @@ class IconDaemon:
         self.bloodlust_active: bool = False  # Current bloodlust state
         self.bloodlust_started_at: float | None = None  # When bloodlust was first detected
 
+        # Shield active detection
+        self.shield_protection_active: bool = False  # Current shield protection state
+
         # Barracks state validation - require 10 readings with 60%+ being a specific state
         # Allows UNKNOWN (?) readings as long as 60%+ are a consistent letter (R, P, or T)
         # Example: PPPPPP???? (6P + 4?) = 60% P = PASS
@@ -1746,6 +1749,42 @@ class IconDaemon:
                             "active": False,
                             "ended_at": datetime.now().isoformat(),
                             "duration_seconds": duration,
+                        })
+
+                # =================================================================
+                # SHIELD ACTIVE DETECTION - Check if player has shield protection
+                # =================================================================
+                from utils.shield_active_matcher import is_shield_active
+                shield_detected, shield_score = is_shield_active(frame)
+
+                if shield_detected and not self.shield_protection_active:
+                    # Shield just became active
+                    self.shield_protection_active = True
+                    self.logger.info(f"[{iteration}] SHIELD PROTECTION ACTIVE (score={shield_score:.4f})")
+                    from utils.current_state import update_shield_active
+                    update_shield_active(True)
+                    if self.command_server:
+                        self.command_server.broadcast("shield_active", {
+                            "active": True,
+                            "timestamp": datetime.now().isoformat(),
+                        })
+                elif not shield_detected and self.shield_protection_active:
+                    # Shield ended
+                    self.shield_protection_active = False
+                    self.logger.info(f"[{iteration}] Shield protection ended")
+                    from utils.current_state import update_shield_active
+                    update_shield_active(False)
+                    self.scheduler.record_event(
+                        flow_name="shield_expired",
+                        status="ended",
+                        result={},
+                        category="combat",
+                        is_critical=True,
+                    )
+                    if self.command_server:
+                        self.command_server.broadcast("shield_active", {
+                            "active": False,
+                            "timestamp": datetime.now().isoformat(),
                         })
 
                 # =================================================================

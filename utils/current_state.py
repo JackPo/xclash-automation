@@ -119,6 +119,10 @@ def _get_default_state() -> dict[str, Any]:
             "started_at": None,
             "expected_end": None,
         },
+        "shield_active": {
+            "is_active": False,
+            "detected_at": None,
+        },
         "last_update": None,
     }
 
@@ -526,3 +530,47 @@ def update_bloodlust(is_active: bool) -> None:
 def get_bloodlust() -> dict[str, Any]:
     """Get bloodlust status from state file."""
     return load_state().get("bloodlust", {})
+
+
+def update_shield_active(is_active: bool) -> None:
+    """
+    Update shield active status in state file.
+
+    Args:
+        is_active: True if shield protection is currently active
+    """
+    state = load_state()
+    now = datetime.now(timezone.utc)
+
+    shield_state = state.get("shield_active", {})
+    was_active = shield_state.get("is_active", False)
+
+    if is_active and not was_active:
+        # Shield just became active
+        state["shield_active"] = {
+            "is_active": True,
+            "detected_at": now.isoformat(),
+        }
+    elif not is_active and was_active:
+        # Shield just ended
+        state["shield_active"] = {
+            "is_active": False,
+            "detected_at": shield_state.get("detected_at"),
+        }
+    elif is_active:
+        # Still active - don't update timestamp
+        pass
+    else:
+        # Still inactive
+        if shield_state.get("is_active"):
+            state["shield_active"] = {
+                "is_active": False,
+                "detected_at": None,
+            }
+
+    save_state(state)
+
+
+def get_shield_active() -> dict[str, Any]:
+    """Get shield active status from state file."""
+    return load_state().get("shield_active", {})

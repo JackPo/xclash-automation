@@ -154,6 +154,15 @@
                             </span>
                         </div>
                     </template>
+                    <!-- Shield Protection Active Banner -->
+                    <template x-if="shieldProtectionActive">
+                        <div class="flex items-center gap-2 px-3 py-1 rounded-lg bg-blue-500/20 border border-blue-500/50">
+                            <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+                            </svg>
+                            <span class="text-sm text-blue-300 font-bold">SHIELDED</span>
+                        </div>
+                    </template>
                     <div class="w-px h-8 bg-gray-700"></div>
                     <div class="text-center">
                         <div class="text-2xl font-bold stat-value text-blue-400" x-text="formatSeconds(status.idle_seconds)"></div>
@@ -1145,6 +1154,8 @@
                 underAttackTime: null,
                 // Bloodlust state
                 bloodlust: { active: false, started_at: null, expected_end: null, seconds_remaining: null },
+                // Shield protection state
+                shieldProtectionActive: false,
                 // Stamina claim timer (checked once at Beast Training block start)
                 staminaClaimTimer: { seconds_remaining: null, claim_available: null, checked_at: null },
                 // Block Timeline
@@ -1261,6 +1272,10 @@
                                 this.bloodlust.seconds_remaining = null;
                             }
                         }
+                        // Refresh shield protection status
+                        if (state.shield_active) {
+                            this.shieldProtectionActive = state.shield_active.is_active || false;
+                        }
                     } catch (e) { /* ignore */ }
                 },
 
@@ -1340,6 +1355,11 @@
                                 const now = new Date();
                                 this.bloodlust.seconds_remaining = Math.max(0, Math.floor((endTime - now) / 1000));
                             }
+                        }
+
+                        // Restore shield protection state
+                        if (state.shield_active) {
+                            this.shieldProtectionActive = state.shield_active.is_active || false;
                         }
 
                     } catch (e) {
