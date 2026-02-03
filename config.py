@@ -38,6 +38,7 @@ DEBUG_SCREENSHOTS_ENABLED = False  # Set to True to save debug screenshots (fill
 DEBUG_ELITE_ZOMBIE_FLOW = True     # Elite zombie rally flow
 DEBUG_ZOMBIE_ATTACK_FLOW = True    # Regular zombie attack flow
 DEBUG_RALLY_JOIN_FLOW = True       # Rally join flow
+DEBUG_TREASURE_FLOW = True         # Treasure map flow (critical - always debug!)
 
 # WebSocket API server
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
@@ -156,6 +157,8 @@ TAVERN_SERVER_RESET_HOUR = 18  # 6 PM Pacific - blocked window starts here
 AFK_REWARDS_COOLDOWN = 3600        # 1 hour between AFK rewards checks
 UNION_GIFTS_COOLDOWN = 3600        # 1 hour between union gift claims
 UNION_TECHNOLOGY_COOLDOWN = 3600   # 1 hour between union technology donations
+UNION_COAL_COOLDOWN = 3600         # 1 hour between union coal collections
+UNION_FURNACE_COOLDOWN = 7200      # 2 hours between union furnace donations
 UNION_FLOW_SEPARATION = 600        # 10 minutes minimum between union gifts and union technology
 SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collection attempts
 BAG_FLOW_COOLDOWN = 1200           # 20 minutes between bag flow runs

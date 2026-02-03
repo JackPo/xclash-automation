@@ -6,7 +6,7 @@ Automation daemon for X-Clash (com.xman.na.gp) running on BlueStacks. Uses Windo
 - Passive popups: handshake, treasure maps, harvest boxes, AFK rewards
 - Resource harvest bubbles (requires calibrated coordinates and aligned town view)
 - Tavern quests (claim, start gold scrolls, schedule-aware claiming, ally quest assists for gold 4+ star quests)
-- Union gifts and Union Technology donations
+- Union gifts, Union Technology donations, Union Coal collection, Union Furnace donations
 - Bag items and gift box rewards
 - Union War rally joining (monster filters + daily limit handling)
 - Hospital healing (batch healing)

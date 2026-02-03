@@ -161,6 +161,8 @@ from flows.faction_trials_flow import faction_trials_flow
 from flows.zombie_attack_flow import zombie_attack_flow
 from flows.community_click_flow import community_click_flow
 from flows.royal_city_attack_flow import royal_city_attack_flow
+from flows.union_coal_flow import union_coal_flow
+from flows.union_furnace_flow import union_furnace_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -182,6 +184,8 @@ from config import (
     AFK_REWARDS_COOLDOWN,
     UNION_GIFTS_COOLDOWN,
     UNION_TECHNOLOGY_COOLDOWN,
+    UNION_COAL_COOLDOWN,
+    UNION_FURNACE_COOLDOWN,
     BAG_FLOW_COOLDOWN,
     GIFT_BOX_COOLDOWN,
     UNKNOWN_STATE_TIMEOUT,
@@ -397,6 +401,14 @@ class IconDaemon:
         self.last_union_technology_time = 0
         self.UNION_TECHNOLOGY_COOLDOWN = UNION_TECHNOLOGY_COOLDOWN
 
+        # Union coal cooldown - once per hour
+        self.last_union_coal_time = 0
+        self.UNION_COAL_COOLDOWN = UNION_COAL_COOLDOWN
+
+        # Union furnace cooldown - every 2 hours
+        self.last_union_furnace_time = 0
+        self.UNION_FURNACE_COOLDOWN = UNION_FURNACE_COOLDOWN
+
         # Return-to-town tracking - every 5 idle iterations, go back to TOWN
         self.idle_iteration_count = 0
         self.IDLE_RETURN_TO_TOWN_INTERVAL = 5  # Every 5 iterations when idle
@@ -407,6 +419,8 @@ class IconDaemon:
             "afk_rewards": {"cooldown": AFK_REWARDS_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "union_gifts": {"cooldown": UNION_GIFTS_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "union_technology": {"cooldown": UNION_TECHNOLOGY_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "union_coal": {"cooldown": UNION_COAL_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            "union_furnace": {"cooldown": UNION_FURNACE_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "tavern_quest": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
@@ -1502,6 +1516,8 @@ class IconDaemon:
             "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),  # type: ignore[arg-type]
             "community_checkin": (lambda adb: community_click_flow(adb, self.windows_helper), False),
             "royal_city_attack": (lambda adb: royal_city_attack_flow(adb, self.windows_helper), False),
+            "union_coal": (union_coal_flow, False),
+            "union_furnace": (union_furnace_flow, False),
         }
 
     def get_status(self) -> dict[str, Any]:
@@ -3218,6 +3234,26 @@ class IconDaemon:
                     flow_candidates.append(FlowCandidate(
                         name="union_technology",
                         flow_func=union_technology_flow,
+                        priority=FlowPriority.NORMAL,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
+
+                # Union coal: 1 hour cooldown
+                if self._is_user_idle() and self.scheduler.is_flow_ready("union_coal", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="union_coal",
+                        flow_func=union_coal_flow,
+                        priority=FlowPriority.NORMAL,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
+
+                # Union furnace: 2 hour cooldown
+                if self._is_user_idle() and self.scheduler.is_flow_ready("union_furnace", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="union_furnace",
+                        flow_func=union_furnace_flow,
                         priority=FlowPriority.NORMAL,
                         reason=f"idle={idle_str}",
                         record_to_scheduler=True
