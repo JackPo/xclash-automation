@@ -152,15 +152,23 @@ def _is_after_quest_start_time() -> bool:
         pacific = pytz.timezone('America/Los_Angeles')
         now = datetime.now(pacific)
 
-        # Blocked window: from server reset (18:00) to quest start time (22:30)
-        # If hour is between reset and start hour, we're blocked
-        if TAVERN_SERVER_RESET_HOUR <= now.hour < TAVERN_QUEST_START_HOUR:
-            return False
-        # If hour equals start hour but before start minute, still blocked
-        if now.hour == TAVERN_QUEST_START_HOUR and now.minute < TAVERN_QUEST_START_MINUTE:
-            return False
+        # Blocked window: from server reset to quest start time
+        # Handle overnight wrap (e.g., reset at 18:00, start at 10:30 next day)
+        if TAVERN_SERVER_RESET_HOUR > TAVERN_QUEST_START_HOUR:
+            # Overnight: blocked from reset to midnight OR midnight to start
+            if now.hour >= TAVERN_SERVER_RESET_HOUR:
+                return False  # After reset, before midnight
+            if now.hour < TAVERN_QUEST_START_HOUR:
+                return False  # After midnight, before start hour
+            if now.hour == TAVERN_QUEST_START_HOUR and now.minute < TAVERN_QUEST_START_MINUTE:
+                return False  # Start hour but before start minute
+        else:
+            # Same day: blocked from reset to start (original logic)
+            if TAVERN_SERVER_RESET_HOUR <= now.hour < TAVERN_QUEST_START_HOUR:
+                return False
+            if now.hour == TAVERN_QUEST_START_HOUR and now.minute < TAVERN_QUEST_START_MINUTE:
+                return False
 
-        # All other times are allowed (22:30 to 17:59 next day)
         return True
     except Exception as e:
         logger.warning(f"Time check failed: {e}, defaulting to True")
@@ -848,6 +856,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
     no_action_count = 0
     max_no_action = 2  # Stop after 2 consecutive scrolls with no actions
     all_completions: list[datetime] = []  # Accumulate timer completions for scheduler
+    frames_for_ocr: list[npt.NDArray[Any]] = []  # Collect frames for deferred OCR
 
     iteration = 0
     while no_action_count < max_no_action:
@@ -963,11 +972,32 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
             # Question mark quests found but before start time
             logger.debug("Question mark Go buttons found but before quest start time - skipping")
 
-        # Scan timers on current screen BEFORE scrolling
-        completions = scan_quest_timers(frame, ocr)
-        if completions:
-            all_completions.extend(completions)
-            logger.debug(f"Found {len(completions)} timer(s) on current screen")
+        # RETRY: If no claim buttons found, retry a couple times (UI may still be rendering)
+        if not claim_buttons:
+            for retry in range(2):
+                time.sleep(0.2)
+                retry_frame = win.get_screenshot_cv2()
+                claim_buttons = find_claim_buttons(retry_frame, claim_template)
+                if claim_buttons:
+                    logger.info(f"[MyQ iter {iteration}] Found {len(claim_buttons)} Claim on retry {retry+1}")
+                    # Process claim - click it
+                    x, y = claim_buttons[0]
+                    logger.info(f"Clicking Claim at ({x}, {y}) [retry]")
+                    adb.tap(x, y, source="flow:tavern_quest:claim_button_retry")
+                    time.sleep(0.5)
+                    total_claims += 1
+                    no_action_count = 0
+                    frame = win.get_screenshot_cv2()
+                    _save_debug(frame, f"myq_iter{iteration:02d}_after_claim_retry")
+                    if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
+                        return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True, "completions": all_completions}
+                    break
+            # If claim found on retry, continue to re-scan
+            if claim_buttons:
+                continue
+
+        # Save frame for deferred OCR (don't block the flow)
+        frames_for_ocr.append(frame.copy())
 
         # No actions found - scroll
         logger.info("No actionable buttons found (Claim/Go), scrolling...")
@@ -980,6 +1010,16 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
         # DEBUG: Screenshot after scroll
         frame = win.get_screenshot_cv2()
         _save_debug(frame, f"myq_iter{iteration:02d}_after_scroll")
+
+    # Deferred OCR: Process all collected frames for timer scanning
+    if frames_for_ocr:
+        logger.info(f"Post-processing {len(frames_for_ocr)} frames for timer OCR...")
+        for saved_frame in frames_for_ocr:
+            completions = scan_quest_timers(saved_frame, ocr)
+            if completions:
+                all_completions.extend(completions)
+        if all_completions:
+            logger.debug(f"Found {len(all_completions)} total timer completion(s)")
 
     logger.info(f"My Quests flow complete. Claims: {total_claims}, Go clicks: {total_go_clicks}, Timers: {len(all_completions)}")
     return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
@@ -1132,7 +1172,7 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         logger.info(f"Clicking assist at ({click_x}, {click_y})")
         adb.tap(click_x, click_y, source="flow:tavern_quest:ally_assist")
         assists_made += 1
-        time.sleep(1.5)
+        time.sleep(0.5)
 
         # Wait for popup to dismiss
         if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
@@ -1209,7 +1249,7 @@ def run_tavern_quest_flow(adb: ADBHelper | None = None, win: WindowsScreenshotHe
         # Step 2: Click tavern button to open
         logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
         adb.tap(*TAVERN_BUTTON_CLICK, source="flow:tavern_quest:open_tavern")
-        time.sleep(1.5)  # Wait for tavern to open
+        time.sleep(0.5)  # Wait for tavern to open
 
         # DEBUG: Screenshot after tavern click
         frame = win.get_screenshot_cv2()
@@ -1255,7 +1295,7 @@ def run_tavern_quest_flow(adb: ADBHelper | None = None, win: WindowsScreenshotHe
     if go_to_town(adb, debug=debug):
         logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
         adb.tap(*TAVERN_BUTTON_CLICK, source="flow:tavern_quest:open_tavern_ally")
-        time.sleep(1.5)
+        time.sleep(0.5)
 
         ally_result = run_ally_quests_flow(adb, win, debug=debug)
         results["ally_quests_assists"] = ally_result.get("assists", 0)

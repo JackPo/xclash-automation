@@ -39,6 +39,7 @@ DEBUG_ELITE_ZOMBIE_FLOW = True     # Elite zombie rally flow
 DEBUG_ZOMBIE_ATTACK_FLOW = True    # Regular zombie attack flow
 DEBUG_RALLY_JOIN_FLOW = True       # Rally join flow
 DEBUG_TREASURE_FLOW = True         # Treasure map flow (critical - always debug!)
+DEBUG_RETURN_TO_BASE = True        # Return to base view recovery (debug clicking loops)
 
 # WebSocket API server
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
@@ -148,7 +149,7 @@ VS_QUESTION_MARK_SKIP_DAYS = [3, 6]
 # Tavern Quest Time Gating (Pacific Time)
 # Quest starts (clicking Go) only allowed from start time until server reset
 # This applies to BOTH gold scroll quests AND question mark quests
-TAVERN_QUEST_START_HOUR = 22  # 10 PM
+TAVERN_QUEST_START_HOUR = 10  # 10 AM
 TAVERN_QUEST_START_MINUTE = 30  # :30
 # Server resets at 02:00 UTC = 18:00 Pacific (6 PM)
 TAVERN_SERVER_RESET_HOUR = 18  # 6 PM Pacific - blocked window starts here

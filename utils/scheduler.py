@@ -285,7 +285,7 @@ class DaemonScheduler:
         else:
             logger.info(f"[SCHEDULER] Tavern completions cleared (no active quests)")
 
-    def is_tavern_completion_imminent(self, buffer_seconds: int = 15) -> bool:
+    def is_tavern_completion_imminent(self, buffer_seconds: int = 5) -> bool:
         """
         Check if any tavern quest completion is within buffer_seconds.
 

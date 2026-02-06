@@ -35,6 +35,7 @@ Usage:
 """
 from __future__ import annotations
 
+import gc
 import sys
 import time
 import argparse
@@ -730,7 +731,7 @@ class IconDaemon:
         # - Gets to TOWN/WORLD via back button clicking
         # - Restarts and retries if stuck
         self.logger.info("STARTUP: Running recovery to ensure ready state...")
-        return_to_base_view(self.adb, self.windows_helper, debug=True)
+        return_to_base_view(self.adb, self.windows_helper, debug=True, respect_idle=False)
 
         # Log scheduler status on startup
         self.logger.info("STARTUP: Scheduler status:")
@@ -1621,8 +1622,16 @@ class IconDaemon:
                 if iteration % self.state_save_interval == 0:
                     self._save_runtime_state()
 
+                # Periodic garbage collection (every 100 iterations to prevent memory leak)
+                if iteration % 100 == 0:
+                    gc.collect()
+
                 # Check if xclash is running and in foreground
                 if not self._is_xclash_in_foreground():
+                    # Skip recovery during critical flows - they manage their own state
+                    if self.critical_flow_active:
+                        self.logger.debug(f"[{iteration}] xclash not in foreground but critical flow {self.critical_flow_name} active - skipping recovery")
+                        continue
                     # Only recover if user is idle - don't interrupt active user
                     if idle_secs_early >= self.IDLE_THRESHOLD:
                         self.logger.warning(f"[{iteration}] xclash not in foreground, user idle - running full recovery...")

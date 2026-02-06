@@ -180,7 +180,7 @@ class TreasureReadyCircleMatcher:
     CLICK_Y = 790
 
     TEMPLATE_NAME = "treasure_map/treasure_ready_circle_4k.png"
-    DEFAULT_THRESHOLD = 0.05  # Masked template - real matches are ~0.001
+    DEFAULT_THRESHOLD = 0.02  # Masked template - real matches are ~0.001, lowered from 0.05 to avoid false positives on Union menu
 
     def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
@@ -202,8 +202,14 @@ class TreasureReadyCircleMatcher:
 class TreasureCollectedMatcher:
     """Detects the white/gray circle that appears after treasure is collected."""
 
+    # Same region as TreasureReadyCircleMatcher - the circle is in the same position!
+    ICON_X = 1800
+    ICON_Y = 665
+    ICON_WIDTH = 231
+    ICON_HEIGHT = 250
+
     TEMPLATE_NAME = "treasure_map/treasure_not_ready_circle_4k.png"
-    DEFAULT_THRESHOLD = 0.05  # Masked template - real matches are ~0.001
+    DEFAULT_THRESHOLD = 0.06  # White circle after collection - actual scores ~0.046
 
     def __init__(self, threshold: float | None = None) -> None:
         self.threshold = threshold if threshold is not None else self.DEFAULT_THRESHOLD
@@ -212,5 +218,10 @@ class TreasureCollectedMatcher:
         if frame is None or frame.size == 0:
             return False, 1.0
 
-        is_present, score, _ = match_template(frame, self.TEMPLATE_NAME, threshold=self.threshold)
+        is_present, score, _ = match_template(
+            frame,
+            self.TEMPLATE_NAME,
+            search_region=(self.ICON_X, self.ICON_Y, self.ICON_WIDTH, self.ICON_HEIGHT),
+            threshold=self.threshold
+        )
         return is_present, score
