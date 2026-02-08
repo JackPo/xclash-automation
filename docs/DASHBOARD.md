@@ -47,7 +47,12 @@ Tracks daily tasks that reset at 02:00 UTC server time.
 
 ### Arms Race Panel
 - Current event name and time remaining
-- Day in 7-day cycle
+- **Next occurrence**: Shows when the current event type repeats (e.g., "next in 19h 2m")
+- Day in 7-day cycle (progress bar)
+- **Next event countdowns**: Row of badges showing time until each event type:
+  - Hero, Build, Soldier, Tech, Beast
+  - Current event highlighted in green
+  - Useful for planning activities around upcoming events
 - **Check Score button**: Opens Arms Race panel in-game, OCRs current points, displays:
   - Current points
   - Chest 3 target
@@ -90,7 +95,7 @@ Override config values temporarily via the dashboard. Useful for:
 | `RALLY_JOIN_ENABLED` | bool | false | Auto-join rallies when handshake icon detected |
 | `RALLY_IGNORE_DAILY_LIMIT` | bool | false | Click Confirm on daily limit warning |
 | `ELITE_ZOMBIE_STAMINA_THRESHOLD` | int | 118 | Minimum stamina to trigger Elite Zombie |
-| `ELITE_ZOMBIE_PLUS_CLICKS` | int | 5 | Times to click plus button (zombie level) |
+| `ELITE_ZOMBIE_LEVEL_CLICKS` | int | 0 | Level adjustment: +N=plus, -N=minus (Season 1: use -1) |
 | `ARMS_RACE_BEAST_TRAINING_ENABLED` | bool | true | Enable Beast Training automation |
 | `ARMS_RACE_SOLDIER_TRAINING_ENABLED` | bool | true | Enable Soldier Training automation |
 | `ARMS_RACE_ENHANCE_HERO_ENABLED` | bool | true | Enable Enhance Hero automation |

@@ -345,8 +345,8 @@
                     <div class="text-xs text-gray-400 uppercase tracking-wide">Now</div>
                     <div class="text-lg font-bold text-emerald-300" x-text="blocks.current_event || 'Loading...'"></div>
                     <div class="text-xs text-emerald-400" x-text="(blocks.time_remaining || '') + ' left'"></div>
-                    <div class="text-[10px] text-gray-500 mt-0.5" x-show="armsRace.next_occurrences && armsRace.current_event">
-                        next in <span x-text="formatSecondsToHM(armsRace.next_occurrences[armsRace.current_event])"></span>
+                    <div class="text-[10px] text-gray-500 mt-0.5" x-show="armsRace.next_occurrences && blocks.current_event && armsRace.next_occurrences[blocks.current_event]">
+                        next in <span x-text="formatSecondsToHM(armsRace.next_occurrences[blocks.current_event])"></span>
                     </div>
                 </div>
 
