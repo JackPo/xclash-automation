@@ -27,7 +27,7 @@ import sys
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.arms_race import get_arms_race_status, SCHEDULE, VALID_EVENTS
+from utils.arms_race import get_arms_race_status, get_time_until_event, SCHEDULE, VALID_EVENTS
 from utils.scheduler import get_scheduler
 
 # Global reference to daemon instance (set by icon_daemon.py on startup)
@@ -248,8 +248,19 @@ async def api_current_state() -> dict[str, Any]:
 
 @app.get("/api/arms-race")
 async def api_arms_race() -> dict[str, Any]:
-    """Get Arms Race status."""
+    """Get Arms Race status including next occurrence times for all events."""
     status = get_arms_race_status()
+
+    # Calculate time until next occurrence of each event type
+    # skip_current=True means if you're IN Soldier Training, show when NEXT Soldier Training is
+    next_occurrences = {}
+    for event_name in VALID_EVENTS:
+        time_until = get_time_until_event(event_name, skip_current=True)
+        if time_until is not None:
+            next_occurrences[event_name] = time_until.total_seconds()
+        else:
+            next_occurrences[event_name] = None
+
     return {
         "current_event": status["current"],
         "previous_event": status["previous"],
@@ -259,6 +270,7 @@ async def api_arms_race() -> dict[str, Any]:
         "time_elapsed_seconds": status["time_elapsed"].total_seconds(),
         "block_start": status["block_start"].isoformat(),
         "block_end": status["block_end"].isoformat(),
+        "next_occurrences": next_occurrences,
     }
 
 
@@ -699,6 +711,296 @@ async def api_list_overrides() -> dict[str, Any]:
     if response.get('success'):
         return response.get('data', {})
     raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
+# DM Chat Sessions API
+# ============================================================================
+
+@app.get("/api/dm-sessions")
+async def api_dm_sessions() -> dict[str, Any]:
+    """Get all DM chat sessions from playerprefs."""
+    import re
+    from urllib.parse import unquote
+
+    # Path to playerprefs on device - copy to sdcard first
+    import subprocess
+    adb = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
+
+    try:
+        # Copy playerprefs to sdcard
+        subprocess.run([adb, "-s", "emulator-5554", "shell",
+                       "su -c 'cp /data/data/com.xman.na.gp/shared_prefs/com.xman.na.gp.v2.playerprefs.xml /sdcard/playerprefs.xml'"],
+                      capture_output=True, timeout=10)
+
+        # Read the file
+        result = subprocess.run([adb, "-s", "emulator-5554", "shell", "cat /sdcard/playerprefs.xml"],
+                               capture_output=True, text=True, timeout=30, encoding='utf-8', errors='replace')
+        content = result.stdout
+
+        if not content:
+            return {"success": False, "error": "Could not read playerprefs"}
+
+        # Parse sessions
+        sessions = re.findall(r'<string name="session_(\d+)_(\d+)_">([^<]*)</string>', content)
+
+        # Get role names from roleInfo
+        role_names = {}
+        role_infos = re.findall(r'<string name="roleInfo_(\d+)[^"]*">([^<]*)</string>', content)
+        for role_id, value in role_infos:
+            try:
+                data = json.loads(unquote(value))
+                role_names[role_id] = {
+                    "name": data.get("name", f"Role_{role_id}"),
+                    "guild": data.get("guildname", ""),
+                    "level": data.get("roleLv", 0),
+                }
+            except:
+                pass
+
+        # Build session list
+        result_sessions = []
+        for my_id, other_id, value in sessions:
+            try:
+                decoded = unquote(value)
+                data = json.loads(decoded)
+                if not data:
+                    continue
+
+                last_msg = data[-1]
+                last_ts = last_msg.get("chatTime", 0)
+                last_text = last_msg.get("context", "")[:50]
+                last_sender = "me" if str(last_msg.get("roleid", "")) == my_id else "them"
+
+                other_info = role_names.get(other_id, {"name": f"Role_{other_id}", "guild": "", "level": 0})
+
+                result_sessions.append({
+                    "other_id": other_id,
+                    "other_name": other_info["name"],
+                    "other_guild": other_info["guild"],
+                    "other_level": other_info["level"],
+                    "message_count": len(data),
+                    "last_timestamp": last_ts,
+                    "last_message": last_text,
+                    "last_sender": last_sender,
+                })
+            except:
+                pass
+
+        # Sort by last message time (most recent first)
+        result_sessions.sort(key=lambda x: -x["last_timestamp"])
+
+        return {
+            "success": True,
+            "sessions": result_sessions,
+            "total": len(result_sessions),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/dm-sessions/{other_id}")
+async def api_dm_session_messages(other_id: str, limit: int = 50) -> dict[str, Any]:
+    """Get messages from a specific DM session."""
+    import re
+    from urllib.parse import unquote
+    import subprocess
+
+    adb = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
+    my_id = "5179912"  # Your role ID
+
+    try:
+        # Read playerprefs
+        result = subprocess.run([adb, "-s", "emulator-5554", "shell", "cat /sdcard/playerprefs.xml"],
+                               capture_output=True, text=True, timeout=30, encoding='utf-8', errors='replace')
+        content = result.stdout
+
+        if not content:
+            return {"success": False, "error": "Could not read playerprefs"}
+
+        # Find the session
+        match = re.search(rf'<string name="session_{my_id}_{other_id}_">([^<]*)</string>', content)
+        if not match:
+            return {"success": False, "error": f"Session with {other_id} not found"}
+
+        decoded = unquote(match.group(1))
+        data = json.loads(decoded)
+
+        # Get other player's name
+        other_name = f"Role_{other_id}"
+        role_match = re.search(rf'<string name="roleInfo_{other_id}[^"]*">([^<]*)</string>', content)
+        if role_match:
+            try:
+                role_data = json.loads(unquote(role_match.group(1)))
+                other_name = role_data.get("name", other_name)
+            except:
+                pass
+
+        # Format messages (last N)
+        messages = []
+        for msg in data[-limit:]:
+            sender_id = str(msg.get("roleid", ""))
+            messages.append({
+                "sender": "me" if sender_id == my_id else "them",
+                "sender_name": "You" if sender_id == my_id else other_name,
+                "text": msg.get("context", ""),
+                "timestamp": msg.get("chatTime", 0),
+            })
+
+        return {
+            "success": True,
+            "other_id": other_id,
+            "other_name": other_name,
+            "messages": messages,
+            "total": len(data),
+            "showing": len(messages),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# Player Profile API
+# ============================================================================
+
+# Cache for playerprefs to avoid hammering ADB
+_playerprefs_cache = {"content": None, "timestamp": 0}
+_PLAYERPREFS_CACHE_TTL = 30  # seconds
+
+# Title ID to internal name mapping (based on game order)
+# These map numeric titleID values to kingdom_titles.json keys
+TITLE_ID_MAP = {
+    0: None,  # No title
+    1: "prime_minister",
+    2: "marshall",
+    3: "minister_of_health",
+    4: "ministry_of_construction",
+    5: "minister_of_science",
+    6: "minister_of_domestic_affairs",
+    7: "grand_chancellor",
+    8: "military_commander",
+}
+
+
+def _get_playerprefs_cached() -> str | None:
+    """Get playerprefs content with caching."""
+    import subprocess
+    import time
+
+    now = time.time()
+    if _playerprefs_cache["content"] and (now - _playerprefs_cache["timestamp"]) < _PLAYERPREFS_CACHE_TTL:
+        return _playerprefs_cache["content"]
+
+    adb = r"C:\Program Files\BlueStacks_nxt\hd-adb.exe"
+
+    try:
+        # Copy playerprefs to sdcard
+        subprocess.run([adb, "-s", "emulator-5554", "shell",
+                       "su -c 'cp /data/data/com.xman.na.gp/shared_prefs/com.xman.na.gp.v2.playerprefs.xml /sdcard/playerprefs.xml'"],
+                      capture_output=True, timeout=10)
+
+        # Read the file
+        result = subprocess.run([adb, "-s", "emulator-5554", "shell", "cat /sdcard/playerprefs.xml"],
+                               capture_output=True, text=True, timeout=30, encoding='utf-8', errors='replace')
+        content = result.stdout
+
+        if content:
+            _playerprefs_cache["content"] = content
+            _playerprefs_cache["timestamp"] = now
+
+        return content
+    except Exception:
+        return _playerprefs_cache.get("content")
+
+
+@app.get("/api/player-profile")
+async def api_player_profile() -> dict[str, Any]:
+    """Get current player profile from playerprefs."""
+    import re
+    from urllib.parse import unquote
+
+    content = _get_playerprefs_cached()
+    if not content:
+        return {"success": False, "error": "Could not read playerprefs"}
+
+    try:
+        # First, find OUR role ID from session keys (session_{myId}_{otherId}_)
+        session_match = re.search(r'<string name="session_(\d+)_\d+_">', content)
+        my_role_id = session_match.group(1) if session_match else None
+
+        if not my_role_id:
+            return {"success": False, "error": "Could not determine player role ID"}
+
+        # Find our roleInfo entry
+        role_infos = re.findall(r'<string name="roleInfo_(\d+)_(\d+)">([^<]*)</string>', content)
+
+        # Look for our specific role ID
+        our_info = None
+        for role_id, world_id, value in role_infos:
+            if role_id == my_role_id:
+                try:
+                    data = json.loads(unquote(value))
+                    # Check this has real data (not an empty cross-world cache)
+                    if data.get("name") or data.get("ce", 0) > 0:
+                        our_info = (role_id, world_id, data)
+                        break
+                except:
+                    pass
+
+        if not our_info:
+            return {"success": False, "error": f"Could not find profile for role {my_role_id}"}
+
+        role_id, world_id, data = our_info
+
+        # Build profile response
+        profile = {
+            "role_id": role_id,
+            "world_id": world_id,
+            "name": data.get("name", "Unknown"),
+            "level": data.get("roleLv", 0),
+            "vip_level": data.get("nVipLv", 0),
+            "guild": data.get("guildname", ""),
+            "ce": data.get("ce", 0),
+            "campaign_stage": data.get("passStage", 0),
+            "title_id": data.get("titleID", 0),
+            "title": None,
+            "avatar_url": None,
+        }
+
+        # Get avatar URL - try toFaceStr first (custom photo), then faceStr
+        for face_key in ["toFaceStr", "toFaceId", "faceStr"]:
+            face_str = data.get(face_key, "")
+            if face_str and face_str.startswith("http"):
+                profile["avatar_url"] = face_str
+                break
+
+        # Map title ID to title info
+        title_id = profile["title_id"]
+        title_key = TITLE_ID_MAP.get(title_id)
+
+        if title_key:
+            # Load kingdom titles
+            titles_path = Path(__file__).parent.parent / "data" / "kingdom_titles.json"
+            if titles_path.exists():
+                with open(titles_path, "r") as f:
+                    titles_data = json.load(f)
+                    title_info = titles_data.get("titles", {}).get(title_key)
+                    if title_info:
+                        profile["title"] = {
+                            "key": title_key,
+                            "name": title_info.get("display_name", title_key),
+                            "buffs": title_info.get("buffs", []),
+                        }
+
+        return {
+            "success": True,
+            "profile": profile,
+            "cache_ttl": _PLAYERPREFS_CACHE_TTL,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @app.get("/api/events")

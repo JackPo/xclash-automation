@@ -166,9 +166,9 @@ ARMS_RACE_EVENTS = {
         "header_template": "mystic_beast_training_4k.png",
     },
     "Soldier Training": {
-        "chest1": None,
-        "chest2": None,
-        "chest3": None,
+        "chest1": 15000,
+        "chest2": 30000,
+        "chest3": 75000,
         "header_template": "soldier_training_header_4k.png",
     },
     "Enhance Hero": {
@@ -178,15 +178,15 @@ ARMS_RACE_EVENTS = {
         "header_template": "enhance_hero_header_4k.png",
     },
     "City Construction": {
-        "chest1": None,
-        "chest2": None,
-        "chest3": None,
+        "chest1": 6250,
+        "chest2": 12500,
+        "chest3": 30000,
         "header_template": "city_construction_4k.png",
     },
     "Technology Research": {
-        "chest1": None,
-        "chest2": None,
-        "chest3": None,
+        "chest1": 6250,
+        "chest2": 12500,
+        "chest3": 30000,
         "header_template": "technology_research_4k.png",
     },
 }
@@ -210,7 +210,7 @@ def is_event_data_complete(event_name: str) -> bool:
     return meta.get("chest3") is not None
 
 
-def get_time_until_event(event_name: str, now: datetime | None = None) -> timedelta | None:
+def get_time_until_event(event_name: str, now: datetime | None = None, skip_current: bool = False) -> timedelta | None:
     """
     Get time until next occurrence of specified Arms Race event.
 
@@ -218,9 +218,10 @@ def get_time_until_event(event_name: str, now: datetime | None = None) -> timede
         event_name: One of "Enhance Hero", "City Construction", "Soldier Training",
                     "Technology Research", "Mystic Beast Training"
         now: Optional datetime (defaults to current UTC time)
+        skip_current: If True and currently in event, return time to NEXT occurrence
 
     Returns:
-        timedelta(0) if currently in the specified event
+        timedelta(0) if currently in the specified event (and skip_current=False)
         timedelta with positive value if event is upcoming
         None on error or invalid event name
     """
@@ -229,22 +230,26 @@ def get_time_until_event(event_name: str, now: datetime | None = None) -> timede
 
     try:
         status = get_arms_race_status(now)
+        current_idx = status['event_index']
+        time_remaining: timedelta = status['time_remaining']
 
-        # If currently in the specified event, return 0
+        # If currently in the specified event
         if status['current'] == event_name:
-            return timedelta(0)
+            if not skip_current:
+                return timedelta(0)
+            # Skip to find the NEXT occurrence after current one ends
+            start_offset = 1
+        else:
+            start_offset = 1
 
         # Search forward in table
-        current_idx = status['event_index']
-
-        for offset in range(1, 43):
+        for offset in range(start_offset, 43):
             check_idx = (current_idx + offset) % 42
             _, _, activity = SCHEDULE[check_idx]
 
             if activity == event_name:
                 # Found it
                 events_away = offset
-                time_remaining: timedelta = status['time_remaining']
                 return time_remaining + timedelta(hours=(events_away - 1) * EVENT_HOURS)
 
         return None
