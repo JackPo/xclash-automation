@@ -51,6 +51,7 @@ from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
+from config import DEBUG_ZOMBIE_ATTACK_FLOW
 
 # Setup logger
 logger = logging.getLogger("zombie_attack_flow")
@@ -62,6 +63,7 @@ FLOW_NAME = "zombie_attack"
 MAGNIFYING_GLASS_CLICK = (88, 1486)
 ZOMBIE_TAB_CLICK = (1512, 1092)
 PLUS_BUTTON_CLICK = (2232, 1875)
+MINUS_BUTTON_CLICK = (1545, 1869)  # Blue minus button left of slider
 SEARCH_BUTTON_CLICK = (1914, 2018)
 
 # Zombie tab FIXED position for template matching (4K)
@@ -118,9 +120,42 @@ MAX_POLL_ATTEMPTS = 10
 POLL_INTERVAL = 0.3
 
 
-def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
-    """Save screenshot for debugging."""
-    return save_debug_screenshot(frame, FLOW_NAME, name)
+def _save_debug_screenshot(frame: npt.NDArray[Any], name: str, click_pos: tuple[int, int] | None = None) -> str:
+    """Save screenshot for debugging.
+
+    Args:
+        frame: Screenshot to save
+        name: Filename suffix
+        click_pos: Optional (x, y) position to draw click marker
+    """
+    if not DEBUG_ZOMBIE_ATTACK_FLOW:
+        return ""
+    # Save directly to flow-specific directory
+    from pathlib import Path
+    from datetime import datetime
+    debug_dir = Path(__file__).parent.parent.parent / "screenshots" / "debug" / FLOW_NAME
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filepath = debug_dir / f"{timestamp}_{name}.png"
+
+    # If click position provided, annotate the image
+    if click_pos is not None:
+        annotated = frame.copy()
+        x, y = click_pos
+        # Draw red circle at click position
+        cv2.circle(annotated, (x, y), 30, (0, 0, 255), 4)
+        # Draw crosshairs
+        cv2.line(annotated, (x - 50, y), (x + 50, y), (0, 0, 255), 3)
+        cv2.line(annotated, (x, y - 50), (x, y + 50), (0, 0, 255), 3)
+        # Add text label
+        cv2.putText(annotated, f"CLICK: ({x}, {y})", (x + 40, y - 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+        cv2.imwrite(str(filepath), annotated)
+    else:
+        cv2.imwrite(str(filepath), frame)
+
+    print(f"    [ZOMBIE_ATTACK] DEBUG: {filepath.name}")
+    return str(filepath)
 
 
 def _log(msg: str) -> None:
@@ -162,20 +197,20 @@ def _poll_for_template(
     return False, score, None, frame
 
 
-def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clicks: int = 5) -> bool:
+def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', level_clicks: int = 0) -> bool:
     """
     Execute the zombie attack flow.
 
     Args:
         adb: ADBHelper instance
         zombie_type: 'iron_mine', 'food', or 'gold'
-        plus_clicks: Number of times to click plus button (default 10)
+        level_clicks: Signed int for level adjustment (+N = plus clicks, -N = minus clicks)
 
     Returns:
         bool: True if flow completed successfully, False otherwise
     """
     flow_start = time.time()
-    _log(f"=== ZOMBIE ATTACK FLOW START (type={zombie_type}, plus={plus_clicks}) ===")
+    _log(f"=== ZOMBIE ATTACK FLOW START (type={zombie_type}, level_clicks={level_clicks}) ===")
 
     if zombie_type not in ZOMBIE_CARDS:
         _log(f"FAILED: Invalid zombie_type '{zombie_type}'. Must be: iron_mine, food, gold")
@@ -201,7 +236,7 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
 
         # Step 1: Click magnifying glass
         _log(f"Step 1: Clicking magnifying glass at {MAGNIFYING_GLASS_CLICK}")
-        adb.tap(*MAGNIFYING_GLASS_CLICK)
+        adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:zombie_attack:magnifying_glass")
         time.sleep(SCREEN_TRANSITION_DELAY)
 
         # Step 2: Poll for Zombie tab at FIXED position (active OR inactive)
@@ -247,7 +282,7 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
         # Step 3: If not active, click Zombie tab to activate it
         if not is_active:
             _log(f"Step 3: Clicking Zombie tab at {ZOMBIE_TAB_CLICK}...")
-            adb.tap(*ZOMBIE_TAB_CLICK)
+            adb.tap(*ZOMBIE_TAB_CLICK, source="flow:zombie_attack:zombie_tab")
             time.sleep(CLICK_DELAY)
 
             # Re-verify it's now active
@@ -265,24 +300,40 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
 
         # Step 4: Click zombie type card
         _log(f"Step 4: Clicking {zombie_type} card at {zombie_config['click']}")
-        adb.tap(*zombie_config['click'])
+        adb.tap(*zombie_config['click'], source="flow:zombie_attack:select_type")
         time.sleep(CLICK_DELAY)
 
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, f"03_after_{zombie_type}_click")
 
-        # Step 5: Click plus button
-        _log(f"Step 5: Clicking plus button {plus_clicks} times at {PLUS_BUTTON_CLICK}")
-        for i in range(plus_clicks):
-            adb.tap(*PLUS_BUTTON_CLICK)
-            time.sleep(PLUS_CLICK_DELAY)
+        # Step 5: Adjust level (positive = plus, negative = minus)
+        if level_clicks > 0:
+            button_pos = PLUS_BUTTON_CLICK
+            button_name = "plus"
+            clicks = level_clicks
+        elif level_clicks < 0:
+            button_pos = MINUS_BUTTON_CLICK
+            button_name = "minus"
+            clicks = abs(level_clicks)
+        else:
+            clicks = 0
+            button_name = "none"
+            button_pos = PLUS_BUTTON_CLICK  # unused
+
+        if clicks > 0:
+            _log(f"Step 5: Clicking {button_name} button {clicks} times at {button_pos}")
+            for i in range(clicks):
+                adb.tap(*button_pos, source=f"flow:zombie_attack:{button_name}_button")
+                time.sleep(PLUS_CLICK_DELAY)
+        else:
+            _log("Step 5: No level adjustment (level_clicks=0)")
 
         frame = win.get_screenshot_cv2()
-        _save_debug_screenshot(frame, "04_after_plus_clicks")
+        _save_debug_screenshot(frame, f"04_after_{button_name}_clicks")
 
         # Step 6: Click Search button
         _log(f"Step 6: Clicking search button at {SEARCH_BUTTON_CLICK}")
-        adb.tap(*SEARCH_BUTTON_CLICK)
+        adb.tap(*SEARCH_BUTTON_CLICK, source="flow:zombie_attack:search_button")
         time.sleep(SEARCH_RESULT_DELAY)
 
         # Step 7: Poll for Attack button at FIXED position (masked template)
@@ -296,7 +347,7 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
             found, score, _ = match_template(
                 frame, "royal_city_attack_button_4k.png",
                 search_region=attack_region,
-                threshold=0.99  # Masked CCORR, score ~0.9996 for match
+                threshold=0.01  # Masked SQDIFF, lower=better
             )
             if found:
                 _log(f"  Attack button found (score={score:.4f}) after {attempt + 1} attempts")
@@ -312,7 +363,8 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
 
         # Step 8: Click attack button at fixed position
         _log(f"Step 8: Clicking attack button at {ATTACK_BUTTON_CLICK}...")
-        adb.tap(*ATTACK_BUTTON_CLICK)
+        _save_debug_screenshot(frame, "05b_CLICKING_attack", click_pos=ATTACK_BUTTON_CLICK)
+        adb.tap(*ATTACK_BUTTON_CLICK, source="flow:zombie_attack:attack_button")
         time.sleep(SCREEN_TRANSITION_DELAY)
 
         frame = win.get_screenshot_cv2()
@@ -339,7 +391,8 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
             if idle_slot:
                 click_pos = idle_slot['click']
                 _log(f"  Clicking rightmost slot {idle_slot['id']} at {click_pos}")
-                adb.tap(*click_pos)
+                _save_debug_screenshot(frame, "07b_CLICKING_soldier", click_pos=click_pos)
+                adb.tap(*click_pos, source="flow:zombie_attack:select_soldier")
                 time.sleep(CLICK_DELAY)
             else:
                 _log("  ERROR: No soldier slot found!")
@@ -365,7 +418,8 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', plus_clic
 
         if found and march_loc:
             _log(f"Clicking march button at detected location {march_loc}...")
-            adb.tap(*march_loc)
+            _save_debug_screenshot(frame, "09_CLICKING_march", click_pos=march_loc)
+            adb.tap(*march_loc, source="flow:zombie_attack:march_button")
             time.sleep(SCREEN_TRANSITION_DELAY)
         else:
             _log(f"WARNING: March button not found (score={score:.4f}), continuing anyway...")
@@ -393,15 +447,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Zombie Attack Flow")
     parser.add_argument("--type", choices=['iron_mine', 'food', 'gold'], default='iron_mine',
                         help="Zombie type to attack")
-    parser.add_argument("--plus-clicks", type=int, default=10,
-                        help="Number of plus button clicks")
+    parser.add_argument("--level-clicks", type=int, default=0,
+                        help="Level adjustment: positive=plus, negative=minus (e.g., -2, -1, 0, +1, +2)")
     args = parser.parse_args()
 
     adb = ADBHelper()
-    print(f"Testing Zombie Attack Flow (type={args.type}, plus={args.plus_clicks})...")
+    print(f"Testing Zombie Attack Flow (type={args.type}, level_clicks={args.level_clicks})...")
     print("=" * 50)
 
-    success = zombie_attack_flow(adb, zombie_type=args.type, plus_clicks=args.plus_clicks)
+    success = zombie_attack_flow(adb, zombie_type=args.type, level_clicks=args.level_clicks)
 
     print("=" * 50)
     if success:

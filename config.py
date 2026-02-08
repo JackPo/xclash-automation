@@ -52,7 +52,7 @@ DASHBOARD_PORT = 8080              # Dashboard runs at http://localhost:8080
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
-ELITE_ZOMBIE_PLUS_CLICKS = 5           # Times to click plus button (increases zombie level)
+ELITE_ZOMBIE_LEVEL_CLICKS = 0          # Signed: +N = plus clicks, -N = minus clicks (e.g., -2, -1, 0, +1, +2)
 
 # =============================================================================
 # ARMS RACE EVENT AUTOMATION
@@ -93,10 +93,10 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when st
 # "elite" = elite_zombie_flow (20 stamina, 2000 pts), "gold"/"food"/"iron_mine" = zombie_attack_flow (10 stamina, 1000 pts)
 # Set via WebSocket: {"action": "set_zombie_mode", "mode": "gold", "hours": 24}
 ZOMBIE_MODE_CONFIG = {
-    "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie", "plus_clicks": 0},
-    "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold", "plus_clicks": 10},
-    "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food", "plus_clicks": 10},
-    "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine", "plus_clicks": 10},
+    "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie", "level_clicks": 0},
+    "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold", "level_clicks": 0},
+    "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food", "level_clicks": 0},
+    "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine", "level_clicks": 0},
 }
 
 # Enhance Hero (during Enhance Hero event)
@@ -165,6 +165,7 @@ SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collecti
 BAG_FLOW_COOLDOWN = 1200           # 20 minutes between bag flow runs
 GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
 TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
+TAVERN_MIN_DISPATCH_GAP_MINUTES = 10  # Minimum minutes between dispatching quests
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery

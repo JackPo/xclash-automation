@@ -44,6 +44,7 @@ import logging
 import importlib
 from pathlib import Path
 from datetime import datetime, date, timezone
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
 
 import pytz
@@ -77,6 +78,7 @@ from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
 from utils.debug_screenshot import get_daemon_debug, cleanup_old_screenshots
 from utils.ui_helpers import click_back
+from utils.template_matcher import clear_gpu_cache
 import cv2
 
 # Daemon frame debug directory (for every-cycle screenshot capture)
@@ -424,7 +426,10 @@ class IconDaemon:
             "union_furnace": {"cooldown": UNION_FURNACE_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "bag_flow": {"cooldown": BAG_FLOW_COOLDOWN, "idle_required": IDLE_THRESHOLD},
             "gift_box": {"cooldown": GIFT_BOX_COOLDOWN, "idle_required": IDLE_THRESHOLD},
-            "tavern_quest": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},
+            # Tavern modes - separate cooldowns for each mode
+            "tavern_scan": {"cooldown": TAVERN_SCAN_COOLDOWN, "idle_required": IDLE_THRESHOLD},  # 30 min - OCR timers
+            "tavern_dispatch": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},  # 1 hour - start new quests
+            "tavern_ally": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},  # 1 hour - assist ally quests
             "community_checkin": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},  # 1 hour, flow skips if already done today
         })
 
@@ -1491,7 +1496,12 @@ class IconDaemon:
         Used by WebSocket API to list and trigger flows.
         """
         return {
-            "tavern_quest": (run_tavern_quest_flow, True),  # Double-pass claim strategy
+            # Tavern modes - each does ONE thing
+            "tavern_quest": (partial(run_tavern_quest_flow, mode="claim"), True),  # Legacy name - now just claim
+            "tavern_claim": (partial(run_tavern_quest_flow, mode="claim"), True),
+            "tavern_scan": (partial(run_tavern_quest_flow, mode="scan"), True),
+            "tavern_dispatch": (partial(run_tavern_quest_flow, mode="dispatch"), True),
+            "tavern_ally": (partial(run_tavern_quest_flow, mode="ally"), True),
             "bag_flow": (bag_flow, True),
             "union_gifts": (union_gifts_flow, False),
             "union_technology": (union_technology_flow, False),
@@ -1625,6 +1635,10 @@ class IconDaemon:
                 # Periodic garbage collection (every 100 iterations to prevent memory leak)
                 if iteration % 100 == 0:
                     gc.collect()
+                    # Clear GPU template cache to prevent VRAM leak
+                    released = clear_gpu_cache()
+                    if released > 0:
+                        self.logger.debug(f"[{iteration}] Released {released} GPU objects")
 
                 # Check if xclash is running and in foreground
                 if not self._is_xclash_in_foreground():
@@ -1891,12 +1905,12 @@ class IconDaemon:
                         reason=f"score={harvest_score:.4f}"
                     ))
 
-                # Tavern Quest scheduled claim - check if completion is imminent (within 15 seconds)
-                # Uses run_tavern_quest_flow for double-pass strategy (avoids UI glitches missing claims)
+                # Tavern Quest claim - check if completion is imminent (within 5 seconds)
+                # Uses CLAIM mode - just clicks Claim buttons, no OCR, no Go buttons
                 if self.scheduler.is_tavern_completion_imminent():
                     flow_candidates.append(FlowCandidate(
-                        name="tavern_quest",
-                        flow_func=run_tavern_quest_flow,
+                        name="tavern_claim",
+                        flow_func=partial(run_tavern_quest_flow, mode="claim"),
                         priority=FlowPriority.CRITICAL,  # Imminent completion is time-critical
                         critical=True,
                         reason="completion imminent"
@@ -2643,8 +2657,8 @@ class IconDaemon:
                             standalone_flow_name = "elite_zombie"
                         else:
                             zt = standalone_mode_config.get("zombie_type", "gold")
-                            pc = standalone_mode_config.get("plus_clicks", 10)
-                            standalone_flow_func = lambda adb, _zt=zt, _pc=pc: zombie_attack_flow(adb, zombie_type=_zt, plus_clicks=_pc)
+                            lc = standalone_mode_config.get("level_clicks", standalone_mode_config.get("plus_clicks", 0))
+                            standalone_flow_func = lambda adb, _zt=zt, _lc=lc: zombie_attack_flow(adb, zombie_type=_zt, level_clicks=_lc)
                             standalone_flow_name = f"zombie_attack_{zt}"
                         flow_candidates.append(FlowCandidate(
                             name=standalone_flow_name,
@@ -2894,20 +2908,20 @@ class IconDaemon:
                         if zombie_mode == "elite":
                             def _elite_rally_wrapper(adb: Any) -> Any:
                                 import config
-                                original_clicks = getattr(config, 'ELITE_ZOMBIE_PLUS_CLICKS', 5)
-                                config.ELITE_ZOMBIE_PLUS_CLICKS = 0
+                                original_clicks = getattr(config, 'ELITE_ZOMBIE_LEVEL_CLICKS', 0)
+                                config.ELITE_ZOMBIE_LEVEL_CLICKS = 0
                                 try:
                                     return elite_zombie_flow(adb)
                                 finally:
-                                    config.ELITE_ZOMBIE_PLUS_CLICKS = original_clicks
+                                    config.ELITE_ZOMBIE_LEVEL_CLICKS = original_clicks
                             beast_rally_wrapper = _elite_rally_wrapper
                         else:
                             # Zombie attack mode (gold/food/iron_mine)
                             zombie_type = str(mode_config.get("zombie_type", "gold"))
-                            raw_plus = mode_config.get("plus_clicks", 5)
-                            plus_clicks = int(raw_plus) if isinstance(raw_plus, (int, float, str)) else 5
-                            def _zombie_attack_wrapper(adb: Any, zt: str = zombie_type, pc: int = plus_clicks) -> Any:
-                                return zombie_attack_flow(adb, zombie_type=zt, plus_clicks=pc)
+                            raw_level = mode_config.get("level_clicks", mode_config.get("plus_clicks", 0))
+                            level_clicks = int(raw_level) if isinstance(raw_level, (int, float, str)) else 0
+                            def _zombie_attack_wrapper(adb: Any, zt: str = zombie_type, lc: int = level_clicks) -> Any:
+                                return zombie_attack_flow(adb, zombie_type=zt, level_clicks=lc)
                             beast_rally_wrapper = _zombie_attack_wrapper
 
                         beast_rally_candidate = True
@@ -3319,8 +3333,8 @@ class IconDaemon:
                         record_to_scheduler=True
                     ))
 
-                # Tavern quest SCHEDULED trigger at 10:30 PM Pacific (ignores cooldown/idle)
-                # This ensures quests start right when the window opens
+                # Tavern quest SCHEDULED trigger at 10:30 AM Pacific (ignores cooldown/idle)
+                # Uses DISPATCH mode to start new quests when the window opens
                 now_pacific = datetime.now(self.pacific_tz)
                 tavern_trigger_time = now_pacific.replace(hour=TAVERN_QUEST_START_HOUR, minute=TAVERN_QUEST_START_MINUTE, second=0, microsecond=0)
                 tavern_scheduled_triggered = False
@@ -3328,20 +3342,31 @@ class IconDaemon:
                     self.tavern_scheduled_triggered_date != now_pacific.date()):
                     tavern_scheduled_triggered = True
                     flow_candidates.append(FlowCandidate(
-                        name="tavern_quest",
-                        flow_func=run_tavern_quest_flow,
+                        name="tavern_dispatch",
+                        flow_func=partial(run_tavern_quest_flow, mode="dispatch"),
                         priority=FlowPriority.HIGH,  # Scheduled triggers are important
                         critical=True,
                         reason=f"scheduled {TAVERN_QUEST_START_HOUR}:{TAVERN_QUEST_START_MINUTE:02d} PT",
                         record_to_scheduler=True
                     ))
 
-                # Tavern quest: 5 min idle, 30 min cooldown (claims + Go clicks + timer scan)
-                elif self._is_user_idle() and self.scheduler.is_flow_ready("tavern_quest", idle_seconds=effective_idle_secs):
+                # Tavern SCAN: 5 min idle, 30 min cooldown - just OCR timers, no clicking
+                elif self._is_user_idle() and self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
                     flow_candidates.append(FlowCandidate(
-                        name="tavern_quest",
-                        flow_func=run_tavern_quest_flow,
+                        name="tavern_scan",
+                        flow_func=partial(run_tavern_quest_flow, mode="scan"),
                         priority=FlowPriority.NORMAL,
+                        critical=True,
+                        reason=f"idle={idle_str}",
+                        record_to_scheduler=True
+                    ))
+
+                # Tavern ALLY: 1 hour cooldown - assist ally quests (skips if 5/5)
+                if self._is_user_idle() and self.scheduler.is_flow_ready("tavern_ally", idle_seconds=effective_idle_secs):
+                    flow_candidates.append(FlowCandidate(
+                        name="tavern_ally",
+                        flow_func=partial(run_tavern_quest_flow, mode="ally"),
+                        priority=FlowPriority.LOW,
                         critical=True,
                         reason=f"idle={idle_str}",
                         record_to_scheduler=True
@@ -3404,9 +3429,9 @@ class IconDaemon:
                         self.vs_chest_triggered.add(vs_checkpoint_triggered)
                         self.logger.info(f"[{iteration}] VS checkpoint {vs_checkpoint_triggered} marked as triggered")
 
-                    if executed_flow == "tavern_quest" and tavern_scheduled_triggered:
+                    if executed_flow == "tavern_dispatch" and tavern_scheduled_triggered:
                         self.tavern_scheduled_triggered_date = now_pacific.date()
-                        self.logger.info(f"[{iteration}] Tavern scheduled trigger marked for {now_pacific.date()}")
+                        self.logger.info(f"[{iteration}] Tavern dispatch scheduled trigger marked for {now_pacific.date()}")
 
                     # Reset hospital state history after hospital flows execute
                     if executed_flow in ("hospital_help", "healing"):

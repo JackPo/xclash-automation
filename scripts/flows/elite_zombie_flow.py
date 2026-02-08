@@ -42,20 +42,20 @@ from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
-from config import ELITE_ZOMBIE_PLUS_CLICKS
+from config import ELITE_ZOMBIE_LEVEL_CLICKS, DEBUG_ELITE_ZOMBIE_FLOW
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 
-def _get_plus_clicks() -> int:
-    """Get effective ELITE_ZOMBIE_PLUS_CLICKS, checking override manager first."""
+def _get_level_clicks() -> int:
+    """Get effective ELITE_ZOMBIE_LEVEL_CLICKS (signed: +N=plus, -N=minus)."""
     try:
         from utils.config_overrides import get_override_manager
         manager = get_override_manager()
-        value, _ = manager.get_effective('ELITE_ZOMBIE_PLUS_CLICKS', ELITE_ZOMBIE_PLUS_CLICKS)
+        value, _ = manager.get_effective('ELITE_ZOMBIE_LEVEL_CLICKS', ELITE_ZOMBIE_LEVEL_CLICKS)
         return int(value)
     except ImportError:
-        return ELITE_ZOMBIE_PLUS_CLICKS
+        return ELITE_ZOMBIE_LEVEL_CLICKS
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -76,6 +76,7 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth
 MAGNIFYING_GLASS_CLICK = (88, 1486)
 ELITE_ZOMBIE_TAB_CLICK = (2062, 1095)
 PLUS_BUTTON_CLICK = (2232, 1875)
+MINUS_BUTTON_CLICK = (1545, 1869)  # Blue minus button left of slider
 SEARCH_BUTTON_CLICK = (1914, 2018)
 RALLY_BUTTON_CLICK = (1915, 1682)
 TEAM_UP_BUTTON_CLICK = (1912, 1648)
@@ -111,9 +112,42 @@ KLASS_THRESHOLD = 0.1
 UNKNOWN_EVENTS_DIR = Path(__file__).parent.parent.parent / "templates" / "unknown_events"
 
 
-def _save_debug_screenshot(frame: NDArray, name: str) -> str:
-    """Save screenshot for debugging. Returns path."""
-    return save_debug_screenshot(frame, FLOW_NAME, name)
+def _save_debug_screenshot(frame: NDArray, name: str, click_pos: tuple[int, int] | None = None) -> str:
+    """Save screenshot for debugging. Returns path.
+
+    Args:
+        frame: Screenshot to save
+        name: Filename suffix
+        click_pos: Optional (x, y) position to draw click marker
+    """
+    if not DEBUG_ELITE_ZOMBIE_FLOW:
+        return ""
+    # Save directly to flow-specific directory
+    from pathlib import Path
+    from datetime import datetime
+    debug_dir = Path(__file__).parent.parent.parent / "screenshots" / "debug" / FLOW_NAME
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+    filepath = debug_dir / f"{timestamp}_{name}.png"
+
+    # If click position provided, annotate the image
+    if click_pos is not None:
+        annotated = frame.copy()
+        x, y = click_pos
+        # Draw red circle at click position
+        cv2.circle(annotated, (x, y), 30, (0, 0, 255), 4)
+        # Draw crosshairs
+        cv2.line(annotated, (x - 50, y), (x + 50, y), (0, 0, 255), 3)
+        cv2.line(annotated, (x, y - 50), (x, y + 50), (0, 0, 255), 3)
+        # Add text label
+        cv2.putText(annotated, f"CLICK: ({x}, {y})", (x + 40, y - 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+        cv2.imwrite(str(filepath), annotated)
+    else:
+        cv2.imwrite(str(filepath), frame)
+
+    print(f"    [ELITE_ZOMBIE] DEBUG: {filepath.name}")
+    return str(filepath)
 
 
 def _log(msg: str) -> None:
@@ -246,7 +280,7 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
 
         # Step 1: Click magnifying glass
         _log(f"Step 1: Clicking magnifying glass at {MAGNIFYING_GLASS_CLICK}")
-        adb.tap(*MAGNIFYING_GLASS_CLICK)
+        adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:elite_zombie:magnifying_glass")
         time.sleep(SCREEN_TRANSITION_DELAY)
 
         # Step 2: Poll for Elite Zombie tab at FIXED position (active OR inactive)
@@ -292,7 +326,7 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         # Step 3: If not active, click Elite Zombie tab to activate it
         if not is_active:
             _log(f"Step 3: Clicking Elite Zombie tab at {ELITE_ZOMBIE_TAB_CLICK}...")
-            adb.tap(*ELITE_ZOMBIE_TAB_CLICK)
+            adb.tap(*ELITE_ZOMBIE_TAB_CLICK, source="flow:elite_zombie:elite_zombie_tab")
             time.sleep(CLICK_DELAY)
 
             # Re-verify it's now active
@@ -317,19 +351,28 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         # Step 2.5: Check if Klass Rally is active
         is_klass = _is_klass_event(frame)
 
-        # Step 3: Click plus button (skip if Klass Rally)
-        plus_clicks = _get_plus_clicks()
+        # Step 3: Adjust level (positive = plus, negative = minus, skip if Klass Rally)
+        level_clicks = _get_level_clicks()
         if is_klass:
-            _log("Step 3: Skipping plus clicks (Klass Rally)")
-        else:
-            _log(f"Step 3: Clicking plus button {plus_clicks} times at {PLUS_BUTTON_CLICK}")
-            for i in range(plus_clicks):
-                adb.tap(*PLUS_BUTTON_CLICK)
+            _log("Step 3: Skipping level adjustment (Klass Rally)")
+        elif level_clicks > 0:
+            _log(f"Step 3: Clicking plus button {level_clicks} times at {PLUS_BUTTON_CLICK}")
+            for i in range(level_clicks):
+                adb.tap(*PLUS_BUTTON_CLICK, source="flow:elite_zombie:plus_button")
                 time.sleep(PLUS_CLICK_DELAY)
+        elif level_clicks < 0:
+            clicks = abs(level_clicks)
+            _log(f"Step 3: Clicking minus button {clicks} times at {MINUS_BUTTON_CLICK}")
+            for i in range(clicks):
+                adb.tap(*MINUS_BUTTON_CLICK, source="flow:elite_zombie:minus_button")
+                time.sleep(PLUS_CLICK_DELAY)
+        else:
+            _log("Step 3: No level adjustment (level_clicks=0)")
 
         frame = win.get_screenshot_cv2()
         if frame is not None:
-            _save_debug_screenshot(frame, "03_after_plus_clicks")
+            dir_str = "plus" if level_clicks > 0 else ("minus" if level_clicks < 0 else "no")
+            _save_debug_screenshot(frame, f"03_after_{dir_str}_clicks")
 
         # Step 4: VERIFY rally search button still visible, then click it
         _log(f"Step 4: Verifying and clicking search button...")
@@ -347,7 +390,7 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
 
         _log(f"  Search button at {loc} (score={score:.4f}), clicking...")
         assert loc is not None  # Guaranteed by found == True check above
-        adb.tap(*loc)  # Click detected location of rally_search_button
+        adb.tap(*loc, source="flow:elite_zombie:search_button")  # Click detected location of rally_search_button
 
         # Wait for search to complete and camera to pan to zombie
         time.sleep(SEARCH_RESULT_DELAY)
@@ -357,13 +400,14 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         _log("  Waiting for search results...")
         found, score, loc, frame = _poll_for_template(
             win, "rally_button_4k.png",
-            # rally_button has mask - uses default CCORR threshold 0.90
+            # rally_button has mask - uses default SQDIFF threshold 0.05
             # Search region centered on screen where zombie appears
-            search_region=(1500, 1000, 800, 800),
+            search_region=(1500, 1000, 800, 900),
             max_attempts=15  # Give extra time for search
         )
         if frame is not None:
-            _save_debug_screenshot(frame, "04_after_search")
+            # Save with detected rally button position annotated
+            _save_debug_screenshot(frame, "04_after_search", click_pos=loc)
         if not found:
             _log("FAILED: Rally button not found after search (no zombie found?)")
             return_to_base_view(adb, win, debug=False)
@@ -372,7 +416,9 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         # Step 5: Click rally button (use detected location)
         _log(f"Step 5: Rally button at {loc} (score={score:.4f}), clicking...")
         assert loc is not None  # Guaranteed by found == True check above
-        adb.tap(*loc)
+        # Save BEFORE click with annotated position
+        _save_debug_screenshot(frame, "04b_CLICKING_rally", click_pos=loc)
+        adb.tap(*loc, source="flow:elite_zombie:rally_button")
 
         # Poll for Team Up button to appear (proves rally screen loaded)
         _log("  Waiting for rally screen to load...")
@@ -412,7 +458,9 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
             if idle_slot:
                 click_pos = idle_slot['click']
                 _log(f"  Clicking leftmost slot {idle_slot['id']} at {click_pos}")
-                adb.tap(*click_pos)
+                # Save BEFORE click with annotated position
+                _save_debug_screenshot(frame, "06b_CLICKING_hero", click_pos=click_pos)
+                adb.tap(*click_pos, source="flow:elite_zombie:hero_slot")
                 time.sleep(CLICK_DELAY)
             else:
                 # Should never happen with zz_mode='ignore'
@@ -439,7 +487,9 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
             assert loc is not None  # Guaranteed when found == True
             tap_loc = loc
 
-        adb.tap(*tap_loc)
+        # Save BEFORE click with annotated position
+        _save_debug_screenshot(frame, "07b_CLICKING_team_up", click_pos=tap_loc)
+        adb.tap(*tap_loc, source="flow:elite_zombie:team_up_button")
         time.sleep(CLICK_DELAY)
 
         frame = win.get_screenshot_cv2()

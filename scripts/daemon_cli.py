@@ -253,17 +253,17 @@ def main():
             i += 1
 
     elif cmd == "run_zombie_attack":
-        # Usage: daemon_cli.py run_zombie_attack <type> [--plus N]
+        # Usage: daemon_cli.py run_zombie_attack <type> [--level-clicks N]
         if len(sys.argv) < 3:
             print("Error: run_zombie_attack requires a zombie type")
-            print("Usage: daemon_cli.py run_zombie_attack <iron_mine|gold|food> [--plus N]")
+            print("Usage: daemon_cli.py run_zombie_attack <iron_mine|gold|food> [--level-clicks N]")
             sys.exit(1)
         args["zombie_type"] = sys.argv[2]
-        # Check for --plus argument
-        if "--plus" in sys.argv:
-            plus_idx = sys.argv.index("--plus")
-            if plus_idx + 1 < len(sys.argv):
-                args["plus_clicks"] = int(sys.argv[plus_idx + 1])
+        # Check for --level-clicks argument (positive=plus, negative=minus)
+        if "--level-clicks" in sys.argv:
+            idx = sys.argv.index("--level-clicks")
+            if idx + 1 < len(sys.argv):
+                args["level_clicks"] = int(sys.argv[idx + 1])
 
     elif cmd == "set_zombie_mode":
         # Usage: daemon_cli.py set_zombie_mode <mode> [hours]

@@ -51,9 +51,49 @@ Deep dive: `BEAST_TRAINING_LOGIC.md`.
 ### Rally loop
 During the last `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES` of the event:
 1. Validate stamina via consecutive OCR readings.
-2. If stamina >= `ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD` and under target, run `elite_zombie_flow` with zero plus-clicks.
+2. If stamina >= `ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD` and under target, run `elite_zombie_flow` with configured `level_clicks`.
 3. If stamina < `ARMS_RACE_STAMINA_CLAIM_THRESHOLD` and red dot visible, run `stamina_claim_flow`.
 4. If stamina is low and a free claim will not arrive before event end, run `stamina_use_flow` (subject to cooldown and max-use limits).
+
+## Zombie Level Management
+
+Both `elite_zombie_flow` and `zombie_attack_flow` support a signed `level_clicks` parameter:
+- **Positive values** (+1, +2, etc.): Click the plus button to increase zombie level
+- **Negative values** (-1, -2, etc.): Click the minus button to decrease zombie level
+- **Zero**: No level adjustment, use whatever level the game defaults to
+
+### Season 1 Behavior
+
+In Season 1, the game automatically increases the zombie level after each successful attack. This creates a problem: the automation keeps succeeding, the level keeps increasing, and eventually your troops get killed because the zombie is too strong.
+
+**Solution**: Set `level_clicks` to a negative value (e.g., -1) to dial back the level before each attack, counteracting the automatic level increase.
+
+### Configuration
+
+In `config_local.py`:
+```python
+# Elite zombie (standalone attacks when stamina >= 118)
+ELITE_ZOMBIE_LEVEL_CLICKS = -1  # Click minus once before each rally
+
+# All zombie modes (Beast Training automation)
+ZOMBIE_MODE_CONFIG = {
+    "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie", "level_clicks": -1},
+    "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold", "level_clicks": -1},
+    "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food", "level_clicks": -1},
+    "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine", "level_clicks": -1},
+}
+```
+
+### CLI Usage
+
+Run zombie attacks with specific level adjustments:
+```bash
+# Gold zombie, click minus twice
+python scripts/daemon_cli.py run_zombie_attack gold --level-clicks -2
+
+# Iron mine zombie, click plus once
+python scripts/daemon_cli.py run_zombie_attack iron_mine --level-clicks 1
+```
 
 Key safeguards:
 - Recovery item use is capped by `ARMS_RACE_BEAST_TRAINING_USE_MAX` and `ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN`.

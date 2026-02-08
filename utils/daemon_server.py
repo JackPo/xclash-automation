@@ -735,10 +735,10 @@ class DaemonWebSocketServer:
 
         Args:
             zombie_type: "gold", "food", or "iron_mine" (default: "gold")
-            plus_clicks: Number of plus button clicks (default: 10)
+            level_clicks: Signed int for level adjustment (+N = plus, -N = minus)
 
         Example:
-            {"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "plus_clicks": 10}}
+            {"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "level_clicks": -2}}
         """
         from scripts.flows.zombie_attack_flow import zombie_attack_flow
 
@@ -746,7 +746,7 @@ class DaemonWebSocketServer:
             raise RuntimeError("Daemon not initialized")
 
         zombie_type: str = args.get("zombie_type", "gold")
-        plus_clicks_val = args.get("plus_clicks", 5)
+        level_clicks_val = args.get("level_clicks", args.get("plus_clicks", 0))  # backward compat
 
         # Validate zombie_type
         valid_types = ["gold", "food", "iron_mine"]
@@ -754,11 +754,11 @@ class DaemonWebSocketServer:
             raise ValueError(f"Invalid zombie_type: {zombie_type}. Valid: {valid_types}")
 
         try:
-            plus_clicks = int(plus_clicks_val)
+            level_clicks = int(level_clicks_val)
         except (TypeError, ValueError):
-            raise ValueError(f"Invalid plus_clicks value: {plus_clicks_val}")
+            raise ValueError(f"Invalid level_clicks value: {level_clicks_val}")
 
-        logger.info(f"Running zombie_attack_flow(zombie_type={zombie_type}, plus_clicks={plus_clicks})")
+        logger.info(f"Running zombie_attack_flow(zombie_type={zombie_type}, level_clicks={level_clicks})")
 
         # Mark as flow to prevent daemon interference
         flow_name = f"zombie_attack_{zombie_type}"
@@ -769,12 +769,12 @@ class DaemonWebSocketServer:
             flow_result: bool = zombie_attack_flow(
                 self.daemon.adb,
                 zombie_type=zombie_type,
-                plus_clicks=plus_clicks
+                level_clicks=level_clicks
             )
             return {
                 "success": True,
                 "zombie_type": zombie_type,
-                "plus_clicks": plus_clicks,
+                "level_clicks": level_clicks,
                 "result": flow_result
             }
         except Exception as e:
@@ -782,7 +782,7 @@ class DaemonWebSocketServer:
             return {
                 "success": False,
                 "zombie_type": zombie_type,
-                "plus_clicks": plus_clicks,
+                "level_clicks": level_clicks,
                 "error": str(e)
             }
         finally:
