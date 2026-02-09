@@ -306,25 +306,39 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', level_cli
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, f"03_after_{zombie_type}_click")
 
+        # Wait for slider to be ready before clicking minus/plus
+        time.sleep(0.5)
+
         # Step 5: Adjust level (positive = plus, negative = minus)
         if level_clicks > 0:
-            button_pos = PLUS_BUTTON_CLICK
+            button_template = "plus_button_4k.png"
             button_name = "plus"
             clicks = level_clicks
         elif level_clicks < 0:
-            button_pos = MINUS_BUTTON_CLICK
+            button_template = "minus_button_4k.png"
             button_name = "minus"
             clicks = abs(level_clicks)
         else:
             clicks = 0
             button_name = "none"
-            button_pos = PLUS_BUTTON_CLICK  # unused
+            button_template = None
 
-        if clicks > 0:
-            _log(f"Step 5: Clicking {button_name} button {clicks} times at {button_pos}")
-            for i in range(clicks):
-                adb.tap(*button_pos, source=f"flow:zombie_attack:{button_name}_button")
-                time.sleep(PLUS_CLICK_DELAY)
+        if clicks > 0 and button_template:
+            # Template match to find the button
+            frame = win.get_screenshot_cv2()
+            found, score, button_pos = match_template(frame, button_template, threshold=0.1)
+            if found and button_pos:
+                _log(f"Step 5: Found {button_name} button at {button_pos} (score={score:.4f})")
+                _log(f"Step 5: Clicking {button_name} button {clicks} times")
+                for i in range(clicks):
+                    adb.tap(*button_pos, source=f"flow:zombie_attack:{button_name}_button")
+                    time.sleep(PLUS_CLICK_DELAY)
+            else:
+                _log(f"Step 5: WARNING - {button_name} button not found (score={score:.4f}), using fallback position")
+                fallback_pos = PLUS_BUTTON_CLICK if level_clicks > 0 else MINUS_BUTTON_CLICK
+                for i in range(clicks):
+                    adb.tap(*fallback_pos, source=f"flow:zombie_attack:{button_name}_button_fallback")
+                    time.sleep(PLUS_CLICK_DELAY)
         else:
             _log("Step 5: No level adjustment (level_clicks=0)")
 

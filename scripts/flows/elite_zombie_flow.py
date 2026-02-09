@@ -351,21 +351,38 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         # Step 2.5: Check if Klass Rally is active
         is_klass = _is_klass_event(frame)
 
+        # Wait for slider to be ready before clicking minus/plus
+        time.sleep(0.5)
+
         # Step 3: Adjust level (positive = plus, negative = minus, skip if Klass Rally)
         level_clicks = _get_level_clicks()
         if is_klass:
             _log("Step 3: Skipping level adjustment (Klass Rally)")
-        elif level_clicks > 0:
-            _log(f"Step 3: Clicking plus button {level_clicks} times at {PLUS_BUTTON_CLICK}")
-            for i in range(level_clicks):
-                adb.tap(*PLUS_BUTTON_CLICK, source="flow:elite_zombie:plus_button")
-                time.sleep(PLUS_CLICK_DELAY)
-        elif level_clicks < 0:
-            clicks = abs(level_clicks)
-            _log(f"Step 3: Clicking minus button {clicks} times at {MINUS_BUTTON_CLICK}")
-            for i in range(clicks):
-                adb.tap(*MINUS_BUTTON_CLICK, source="flow:elite_zombie:minus_button")
-                time.sleep(PLUS_CLICK_DELAY)
+        elif level_clicks != 0:
+            if level_clicks > 0:
+                button_template = "plus_button_4k.png"
+                button_name = "plus"
+                clicks = level_clicks
+            else:
+                button_template = "minus_button_4k.png"
+                button_name = "minus"
+                clicks = abs(level_clicks)
+
+            # Template match to find the button
+            frame = win.get_screenshot_cv2()
+            found, score, button_pos = match_template(frame, button_template, threshold=0.1)
+            if found and button_pos:
+                _log(f"Step 3: Found {button_name} button at {button_pos} (score={score:.4f})")
+                _log(f"Step 3: Clicking {button_name} button {clicks} times")
+                for i in range(clicks):
+                    adb.tap(*button_pos, source=f"flow:elite_zombie:{button_name}_button")
+                    time.sleep(PLUS_CLICK_DELAY)
+            else:
+                _log(f"Step 3: WARNING - {button_name} button not found (score={score:.4f}), using fallback")
+                fallback_pos = PLUS_BUTTON_CLICK if level_clicks > 0 else MINUS_BUTTON_CLICK
+                for i in range(clicks):
+                    adb.tap(*fallback_pos, source=f"flow:elite_zombie:{button_name}_button_fallback")
+                    time.sleep(PLUS_CLICK_DELAY)
         else:
             _log("Step 3: No level adjustment (level_clicks=0)")
 
