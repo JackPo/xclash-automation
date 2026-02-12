@@ -166,6 +166,7 @@ from flows.community_click_flow import community_click_flow
 from flows.royal_city_attack_flow import royal_city_attack_flow
 from flows.union_coal_flow import union_coal_flow
 from flows.union_furnace_flow import union_furnace_flow
+from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -184,6 +185,7 @@ from config import (
     STAMINA_OCR_INTERVAL,
     ELITE_ZOMBIE_STAMINA_THRESHOLD,
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
+    ELITE_ZOMBIE_TARGET_LEVEL,
     AFK_REWARDS_COOLDOWN,
     UNION_GIFTS_COOLDOWN,
     UNION_TECHNOLOGY_COOLDOWN,
@@ -307,6 +309,7 @@ class IconDaemon:
     flow_lock: threading.Lock
     critical_flow_active: bool
     critical_flow_name: str | None
+    critical_flow_start_time: float | None
     command_server: DaemonWebSocketServer | None
     paused: bool
     vs_chest_triggered: set[int]
@@ -365,6 +368,8 @@ class IconDaemon:
         # Critical flow protection - blocks all other daemon actions
         self.critical_flow_active = False
         self.critical_flow_name = None
+        self.critical_flow_start_time: float | None = None
+        self.CRITICAL_FLOW_TIMEOUT = 120  # Auto-clear after 2 minutes
 
         # Idle town view switching (values from config)
         self.last_idle_check_time = 0
@@ -665,6 +670,11 @@ class IconDaemon:
         self.adb = ADBHelper(on_action=mark_daemon_action)
         print(f"  Connected to device: {self.adb.device}")
 
+        # Kill other apps (Play Store, BlueStacks bloatware, etc.)
+        killed = self.adb.kill_other_apps()
+        if killed:
+            print(f"  Killed other apps: {', '.join(killed)}")
+
         # Windows screenshot helper
         self.windows_helper = WindowsScreenshotHelper()
         print("  Windows screenshot helper initialized")
@@ -880,6 +890,7 @@ class IconDaemon:
                     with self.flow_lock:
                         self.critical_flow_active = True
                         self.critical_flow_name = flow_name
+                        self.critical_flow_start_time = time.time()
                     self.logger.info(f"CRITICAL FLOW START: {flow_name}")
                 else:
                     self.logger.info(f"FLOW START: {flow_name}")
@@ -927,6 +938,7 @@ class IconDaemon:
                     if critical and self.critical_flow_name == flow_name:
                         self.critical_flow_active = False
                         self.critical_flow_name = None
+                        self.critical_flow_start_time = None
 
         with self.flow_lock:
             if flow_name in self.active_flows:
@@ -1456,6 +1468,7 @@ class IconDaemon:
             'flows.tavern_quest_flow',
             'flows.faction_trials_flow',
             'flows.community_click_flow',
+            'flows.marshall_speedup_all_flow',
             'flows',
         ]
 
@@ -1473,7 +1486,7 @@ class IconDaemon:
         global stamina_claim_flow, stamina_use_flow, soldier_training_flow
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
         global tavern_quest_claim_flow, run_tavern_quest_flow, faction_trials_flow
-        global zombie_attack_flow, community_click_flow
+        global zombie_attack_flow, community_click_flow, marshall_speedup_all_flow, apply_marshall_and_verify
 
         from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
@@ -1486,6 +1499,7 @@ class IconDaemon:
         from flows.faction_trials_flow import faction_trials_flow
         from flows.zombie_attack_flow import zombie_attack_flow
         from flows.community_click_flow import community_click_flow
+        from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
 
@@ -1510,7 +1524,7 @@ class IconDaemon:
             "soldier_training": (lambda adb: soldier_training_flow(adb, debug=False), True),
             "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, debug=False), True),
             "healing": (healing_flow, False),
-            "elite_zombie": (elite_zombie_flow, False),
+            "elite_zombie": (lambda adb: elite_zombie_flow(adb, target_level=ELITE_ZOMBIE_TARGET_LEVEL), False),
             "handshake": (handshake_flow, False),
             "treasure_map": (treasure_map_flow, True),
             "corn_harvest": (corn_harvest_flow, False),
@@ -1529,6 +1543,9 @@ class IconDaemon:
             "royal_city_attack": (lambda adb: royal_city_attack_flow(adb, self.windows_helper), False),
             "union_coal": (union_coal_flow, False),
             "union_furnace": (union_furnace_flow, False),
+            "marshall_speedup": (lambda adb: marshall_speedup_all_flow(adb, self.windows_helper, debug=True), True),
+            "apply_marshall": (lambda adb: apply_marshall_and_verify(adb, self.windows_helper, debug=True), True),
+            "speedup_barracks": (lambda adb: marshall_speedup_all_flow(adb, self.windows_helper, skip_marshall=True, debug=True), True),
         }
 
     def get_status(self) -> dict[str, Any]:
@@ -1679,9 +1696,28 @@ class IconDaemon:
 
                 # Skip all daemon checks if critical flow is active
                 if self.critical_flow_active:
-                    self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
-                    time.sleep(self.interval)
-                    continue
+                    # Check for timeout - auto-clear stuck critical flows
+                    # Treasure flows get 10 min timeout, others get 2 min
+                    if self.critical_flow_start_time is not None:
+                        elapsed = time.time() - self.critical_flow_start_time
+                        is_treasure = self.critical_flow_name and "treasure" in self.critical_flow_name.lower()
+                        timeout = 600 if is_treasure else self.CRITICAL_FLOW_TIMEOUT  # 10 min vs 2 min
+                        if elapsed > timeout:
+                            self.logger.error(f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} stuck for {elapsed:.0f}s - force clearing!")
+                            with self.flow_lock:
+                                self.active_flows.discard(self.critical_flow_name)
+                                self.critical_flow_active = False
+                                self.critical_flow_name = None
+                                self.critical_flow_start_time = None
+                            # Don't continue - proceed with normal daemon checks
+                        else:
+                            self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name}, {elapsed:.0f}s)")
+                            time.sleep(self.interval)
+                            continue
+                    else:
+                        self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
+                        time.sleep(self.interval)
+                        continue
 
                 # =================================================================
                 # VIEW STATE DETECTION - Run FIRST to know what checks to do
@@ -1905,9 +1941,9 @@ class IconDaemon:
                         reason=f"score={harvest_score:.4f}"
                     ))
 
-                # Tavern Quest claim - check if completion is imminent (within 5 seconds)
+                # Tavern Quest claim - check if completion is imminent (within 11 seconds)
                 # Uses CLAIM mode - just clicks Claim buttons, no OCR, no Go buttons
-                if self.scheduler.is_tavern_completion_imminent():
+                if self.scheduler.is_tavern_completion_imminent(buffer_seconds=11):
                     flow_candidates.append(FlowCandidate(
                         name="tavern_claim",
                         flow_func=partial(run_tavern_quest_flow, mode="claim"),
@@ -2653,12 +2689,14 @@ class IconDaemon:
                         zombie_rally_triggered = True
                         # Select appropriate flow based on mode
                         if standalone_mode_config["flow"] == "elite_zombie":
-                            standalone_flow_func = elite_zombie_flow
+                            _target = self._get_config('ELITE_ZOMBIE_TARGET_LEVEL', ELITE_ZOMBIE_TARGET_LEVEL)
+                            standalone_flow_func = lambda adb, _t=_target: elite_zombie_flow(adb, target_level=_t)
                             standalone_flow_name = "elite_zombie"
                         else:
                             zt = standalone_mode_config.get("zombie_type", "gold")
+                            tl = standalone_mode_config.get("target_level")  # OCR-based
                             lc = standalone_mode_config.get("level_clicks", standalone_mode_config.get("plus_clicks", 0))
-                            standalone_flow_func = lambda adb, _zt=zt, _lc=lc: zombie_attack_flow(adb, zombie_type=_zt, level_clicks=_lc)
+                            standalone_flow_func = lambda adb, _zt=zt, _tl=tl, _lc=lc: zombie_attack_flow(adb, zombie_type=_zt, target_level=_tl, level_clicks=_lc)
                             standalone_flow_name = f"zombie_attack_{zt}"
                         flow_candidates.append(FlowCandidate(
                             name=standalone_flow_name,
@@ -2906,22 +2944,19 @@ class IconDaemon:
                         # Create wrapper based on zombie mode
                         beast_rally_wrapper: Callable[[Any], Any]
                         if zombie_mode == "elite":
-                            def _elite_rally_wrapper(adb: Any) -> Any:
-                                import config
-                                original_clicks = getattr(config, 'ELITE_ZOMBIE_LEVEL_CLICKS', 0)
-                                config.ELITE_ZOMBIE_LEVEL_CLICKS = 0
-                                try:
-                                    return elite_zombie_flow(adb)
-                                finally:
-                                    config.ELITE_ZOMBIE_LEVEL_CLICKS = original_clicks
+                            # Use OCR-based target_level for elite zombie
+                            _target_level = self._get_config('ELITE_ZOMBIE_TARGET_LEVEL', ELITE_ZOMBIE_TARGET_LEVEL)
+                            def _elite_rally_wrapper(adb: Any, _tl: int = _target_level) -> Any:
+                                return elite_zombie_flow(adb, target_level=_tl)
                             beast_rally_wrapper = _elite_rally_wrapper
                         else:
                             # Zombie attack mode (gold/food/iron_mine)
                             zombie_type = str(mode_config.get("zombie_type", "gold"))
+                            target_level = mode_config.get("target_level")  # OCR-based (optional)
                             raw_level = mode_config.get("level_clicks", mode_config.get("plus_clicks", 0))
                             level_clicks = int(raw_level) if isinstance(raw_level, (int, float, str)) else 0
-                            def _zombie_attack_wrapper(adb: Any, zt: str = zombie_type, lc: int = level_clicks) -> Any:
-                                return zombie_attack_flow(adb, zombie_type=zt, level_clicks=lc)
+                            def _zombie_attack_wrapper(adb: Any, zt: str = zombie_type, tl: int | None = target_level, lc: int = level_clicks) -> Any:
+                                return zombie_attack_flow(adb, zombie_type=zt, target_level=tl, level_clicks=lc)
                             beast_rally_wrapper = _zombie_attack_wrapper
 
                         beast_rally_candidate = True

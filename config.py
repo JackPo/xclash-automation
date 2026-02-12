@@ -52,7 +52,8 @@ DASHBOARD_PORT = 8080              # Dashboard runs at http://localhost:8080
 # Elite Zombie rally
 ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally
 ELITE_ZOMBIE_CONSECUTIVE_REQUIRED = 3  # Consecutive valid OCR reads required
-ELITE_ZOMBIE_LEVEL_CLICKS = 0          # Signed: +N = plus clicks, -N = minus clicks (e.g., -2, -1, 0, +1, +2)
+ELITE_ZOMBIE_LEVEL_CLICKS = 0          # DEPRECATED - use ELITE_ZOMBIE_TARGET_LEVEL instead
+ELITE_ZOMBIE_TARGET_LEVEL = 30         # Target level for elite zombie rallies (uses OCR + slider)
 
 # =============================================================================
 # ARMS RACE EVENT AUTOMATION
