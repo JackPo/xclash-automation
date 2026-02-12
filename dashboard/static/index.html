@@ -714,6 +714,23 @@
                         </button>
                     </div>
 
+                    <!-- Arms Race Speedup -->
+                    <div class="flex items-center gap-3">
+                        <div class="w-24 text-sm text-gray-400">Speedup</div>
+                        <button @click="runFlow('apply_marshall')"
+                                class="px-4 py-2 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-sm font-medium transition">
+                            Apply Marshall
+                        </button>
+                        <button @click="runFlow('speedup_barracks')"
+                                class="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-sm font-medium transition">
+                            Speedup Barracks
+                        </button>
+                        <button @click="runFlow('marshall_speedup')"
+                                class="px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-sm font-medium transition">
+                            Marshall + Speedup
+                        </button>
+                    </div>
+
                     <!-- Zombie Burst Mode -->
                     <div class="mt-4 pt-4 border-t border-gray-700/50">
                         <div class="flex items-center gap-2 mb-3">
@@ -870,19 +887,19 @@
                             <div class="text-xs text-gray-500">Default: 118</div>
                         </div>
 
-                        <!-- Plus Clicks -->
+                        <!-- Target Level (OCR-based) -->
                         <div>
                             <div class="flex items-center justify-between mb-2">
-                                <div class="text-sm">Plus Clicks</div>
+                                <div class="text-sm">Target Level</div>
                                 <div class="flex items-center gap-2">
-                                    <span x-show="configs.ELITE_ZOMBIE_PLUS_CLICKS?.overridden" class="text-xs text-orange-400"
-                                          x-text="formatOverrideTime(configs.ELITE_ZOMBIE_PLUS_CLICKS?.expires_in)"></span>
-                                    <input type="number" x-model.number="plusClicks"
-                                           min="0" max="15"
+                                    <span x-show="configs.ELITE_ZOMBIE_TARGET_LEVEL?.overridden" class="text-xs text-orange-400"
+                                          x-text="formatOverrideTime(configs.ELITE_ZOMBIE_TARGET_LEVEL?.expires_in)"></span>
+                                    <input type="number" x-model.number="targetLevel"
+                                           min="1" max="70"
                                            class="w-20 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-right">
                                 </div>
                             </div>
-                            <div class="text-xs text-gray-500">Default: 5</div>
+                            <div class="text-xs text-gray-500">Default: 30 (uses OCR + slider)</div>
                         </div>
 
                         <!-- Apply Stamina Overrides Button -->
@@ -1390,7 +1407,7 @@
                 activeOverrides: {},
                 overrideDuration: '120',  // Default 2 hours
                 staminaThreshold: 118,
-                plusClicks: 5,
+                targetLevel: 30,
                 // Arms Race score check
                 armsRaceScore: { current_points: null, chest3_target: null, points_to_chest3: null, last_checked: null, error: null },
                 armsRaceScoreLoading: false,
@@ -2256,8 +2273,8 @@
                         if (this.configs.ELITE_ZOMBIE_STAMINA_THRESHOLD) {
                             this.staminaThreshold = this.configs.ELITE_ZOMBIE_STAMINA_THRESHOLD.value;
                         }
-                        if (this.configs.ELITE_ZOMBIE_PLUS_CLICKS) {
-                            this.plusClicks = this.configs.ELITE_ZOMBIE_PLUS_CLICKS.value;
+                        if (this.configs.ELITE_ZOMBIE_TARGET_LEVEL) {
+                            this.targetLevel = this.configs.ELITE_ZOMBIE_TARGET_LEVEL.value;
                         }
 
                         // Build active overrides list
@@ -2310,12 +2327,12 @@
                             });
                         }
 
-                        // Apply plus clicks override
-                        if (this.plusClicks !== 5) {
-                            await fetch('/api/config/ELITE_ZOMBIE_PLUS_CLICKS/override', {
+                        // Apply target level override
+                        if (this.targetLevel !== 30) {
+                            await fetch('/api/config/ELITE_ZOMBIE_TARGET_LEVEL/override', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ value: this.plusClicks, duration_minutes: duration })
+                                body: JSON.stringify({ value: this.targetLevel, duration_minutes: duration })
                             });
                         }
 

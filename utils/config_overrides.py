@@ -38,13 +38,13 @@ CONFIG_DEFINITIONS = {
         "category": "stamina",
         "description": "Minimum stamina to trigger Elite Zombie rally",
     },
-    "ELITE_ZOMBIE_PLUS_CLICKS": {
-        "default": 5,
+    "ELITE_ZOMBIE_TARGET_LEVEL": {
+        "default": 30,
         "type": "int",
-        "min": 0,
-        "max": 15,
+        "min": 1,
+        "max": 70,
         "category": "stamina",
-        "description": "Times to click plus button (increases zombie level)",
+        "description": "Target level for Elite Zombie rallies (uses OCR + slider)",
     },
     # Cooldowns
     "BAG_FLOW_COOLDOWN": {
@@ -126,6 +126,21 @@ CONFIG_DEFINITIONS = {
         "type": "bool",
         "category": "barracks",
         "description": "Auto-claim trained soldiers from barracks (turn off to bank soldiers)",
+    },
+    # Royal City Settings
+    "ROYAL_CITY_REINFORCE_ENABLED": {
+        "default": True,
+        "type": "bool",
+        "category": "royal_city",
+        "description": "Auto-reinforce Royal City on Fridays 6:15-9:00 AM PT",
+    },
+    "ROYAL_CITY_REINFORCE_COOLDOWN": {
+        "default": 900,
+        "type": "int",
+        "min": 300,
+        "max": 3600,
+        "category": "royal_city",
+        "description": "Cooldown between reinforce attempts in seconds (default 15 min)",
     },
 }
 
