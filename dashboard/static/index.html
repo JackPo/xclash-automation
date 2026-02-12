@@ -687,7 +687,13 @@
                             <option value="zombie_attack_food">Food Farm (10 stamina)</option>
                             <option value="zombie_attack_iron_mine">Iron Mine (10 stamina)</option>
                         </select>
-                        <button @click="runFlow(runZombieSelection)"
+                        <div class="flex items-center gap-1">
+                            <span class="text-xs text-gray-500">Lv</span>
+                            <input type="number" x-model.number="targetLevel"
+                                   min="1" max="70"
+                                   class="w-14 bg-dark-800 border border-gray-700 rounded px-2 py-2 text-sm text-center focus:border-red-500">
+                        </div>
+                        <button @click="runZombieWithLevel()"
                                 class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-medium transition">
                             Run
                         </button>
@@ -1998,6 +2004,38 @@
                         const res = await fetch(`/api/flows/${name}/run`, { method: 'POST' });
                         const data = await res.json();
                         this.showToast(data.success ? `Started ${this.formatFlowName(name)}` : `Failed: ${data.detail}`, data.success ? 'success' : 'error');
+                        await this.refreshFlows();
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async runZombieWithLevel() {
+                    try {
+                        const selection = this.runZombieSelection;
+                        const level = this.targetLevel;
+                        let endpoint, body;
+
+                        if (selection === 'elite_zombie') {
+                            endpoint = '/api/ws/command';
+                            body = { cmd: 'run_elite_zombie', args: { target_level: level } };
+                        } else {
+                            // zombie_attack_gold, zombie_attack_food, zombie_attack_iron_mine
+                            const zombieType = selection.replace('zombie_attack_', '');
+                            endpoint = '/api/ws/command';
+                            body = { cmd: 'run_zombie_attack', args: { zombie_type: zombieType, target_level: level } };
+                        }
+
+                        this.showToast(`Running ${this.formatFlowName(selection)} at level ${level}...`, 'info');
+                        const res = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body)
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast(`Started ${this.formatFlowName(selection)} (Lv ${level})`, 'success');
+                        } else {
+                            this.showToast(`Failed: ${data.error || data.detail}`, 'error');
+                        }
                         await this.refreshFlows();
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },

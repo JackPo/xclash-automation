@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -579,6 +579,20 @@ async def send_daemon_command(cmd: str, args: dict[str, Any] | None = None) -> d
             return response
     except Exception as e:
         return {'success': False, 'error': str(e)}
+
+
+@app.post("/api/ws/command")
+async def api_ws_command(request: Request) -> dict[str, Any]:
+    """Forward arbitrary command to daemon via WebSocket."""
+    body = await request.json()
+    cmd = body.get('cmd')
+    args = body.get('args')
+
+    if not cmd:
+        raise HTTPException(status_code=400, detail="Missing 'cmd' field")
+
+    response = await send_daemon_command(cmd, args)
+    return response
 
 
 @app.post("/api/flows/{flow_name}/run")
