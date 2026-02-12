@@ -51,6 +51,7 @@ from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
+from utils.zombie_level_helper import set_zombie_level, read_zombie_level
 from config import DEBUG_ZOMBIE_ATTACK_FLOW
 
 # Setup logger
@@ -114,6 +115,16 @@ ATTACK_BUTTON_CLICK = (1916, 1682)  # center
 MARCH_BUTTON_POS = (1738, 1578)  # top-left
 MARCH_BUTTON_SIZE = (372, 141)
 MARCH_BUTTON_CLICK = (1924, 1648)  # center
+
+# Unfreeze button - appears when zombie is frozen (uses masked template)
+# Search in bottom-center area where it appears
+UNFREEZE_BUTTON_REGION = (1600, 1200, 500, 600)  # x, y, w, h - bottom center
+UNFREEZE_BUTTON_THRESHOLD = 0.05  # Masked SQDIFF
+
+# Level button search regions (4K) - constrain search to LEFT or RIGHT of slider
+# This prevents finding the wrong button since plus/minus look similar
+MINUS_BUTTON_REGION = (1400, 1800, 300, 150)  # x, y, w, h - LEFT side of slider
+PLUS_BUTTON_REGION = (2050, 1800, 300, 150)   # x, y, w, h - RIGHT side of slider
 
 # Poll settings
 MAX_POLL_ATTEMPTS = 10
@@ -197,20 +208,72 @@ def _poll_for_template(
     return False, score, None, frame
 
 
-def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', level_clicks: int = 0) -> bool:
+def _check_and_click_unfreeze(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+) -> str:
+    """
+    Check if unfreeze button is visible and click it if so.
+
+    This happens when the zombie is frozen - we need to unfreeze before attacking.
+
+    Returns:
+        "unfreeze_to_march" - unfreeze clicked and march screen opened
+        "unfreeze_retry" - unfreeze clicked but need to retry search
+        "none" - no unfreeze button found
+    """
+    frame = win.get_screenshot_cv2()
+    found, score, center = match_template(
+        frame, "unfreeze_button_4k.png",
+        search_region=UNFREEZE_BUTTON_REGION,
+        threshold=UNFREEZE_BUTTON_THRESHOLD
+    )
+
+    if found and center is not None:
+        _log(f"  FROZEN ZOMBIE: Unfreeze button found (score={score:.4f}), clicking...")
+        _save_debug_screenshot(frame, "unfreeze_detected", click_pos=center)
+        adb.tap(*center, source="flow:zombie_attack:unfreeze")
+        time.sleep(2.0)  # Wait for unfreeze animation
+
+        # Check if march screen opened (for unfreezing attack)
+        frame = win.get_screenshot_cv2()
+        march_found, march_score, march_loc = match_template(
+            frame, "march_button_4k.png",
+            search_region=(1500, 1400, 900, 500),
+            threshold=0.08
+        )
+        if march_found:
+            _log(f"  Unfreeze opened march screen (March at {march_loc}, score={march_score:.4f})")
+            return "unfreeze_to_march"
+
+        return "unfreeze_retry"
+
+    return "none"
+
+
+def zombie_attack_flow(
+    adb: ADBHelper,
+    zombie_type: str = 'iron_mine',
+    level_clicks: int = 0,
+    target_level: int | None = None
+) -> bool:
     """
     Execute the zombie attack flow.
 
     Args:
         adb: ADBHelper instance
         zombie_type: 'iron_mine', 'food', or 'gold'
-        level_clicks: Signed int for level adjustment (+N = plus clicks, -N = minus clicks)
+        level_clicks: Signed int for level adjustment (+N = plus clicks, -N = minus clicks).
+                      Ignored if target_level is provided.
+        target_level: If provided, use OCR to read current level and adjust to this target.
+                      Takes precedence over level_clicks.
 
     Returns:
         bool: True if flow completed successfully, False otherwise
     """
     flow_start = time.time()
-    _log(f"=== ZOMBIE ATTACK FLOW START (type={zombie_type}, level_clicks={level_clicks}) ===")
+    level_mode = f"target={target_level}" if target_level is not None else f"clicks={level_clicks}"
+    _log(f"=== ZOMBIE ATTACK FLOW START (type={zombie_type}, {level_mode}) ===")
 
     if zombie_type not in ZOMBIE_CARDS:
         _log(f"FAILED: Invalid zombie_type '{zombie_type}'. Must be: iron_mine, food, gold")
@@ -309,46 +372,123 @@ def zombie_attack_flow(adb: ADBHelper, zombie_type: str = 'iron_mine', level_cli
         # Wait for slider to be ready before clicking minus/plus
         time.sleep(0.5)
 
-        # Step 5: Adjust level (positive = plus, negative = minus)
-        if level_clicks > 0:
+        # Step 5: Adjust level
+        # If target_level provided, use OCR-based targeting
+        # Otherwise, use level_clicks for relative adjustment
+        if target_level is not None:
+            _log(f"Step 5: Setting level to {target_level} via OCR...")
+            if set_zombie_level(adb, win, target_level, debug=DEBUG_ZOMBIE_ATTACK_FLOW):
+                _log(f"Step 5: Level set to {target_level}")
+            else:
+                _log(f"Step 5: WARNING - Could not confirm level {target_level}, continuing anyway")
+            button_name = f"target_{target_level}"
+        elif level_clicks > 0:
             button_template = "plus_button_4k.png"
             button_name = "plus"
             clicks = level_clicks
-        elif level_clicks < 0:
-            button_template = "minus_button_4k.png"
-            button_name = "minus"
-            clicks = abs(level_clicks)
-        else:
-            clicks = 0
-            button_name = "none"
-            button_template = None
-
-        if clicks > 0 and button_template:
-            # Template match to find the button
+            # Template match to find the button WITH CONSTRAINED SEARCH REGION
+            search_region = PLUS_BUTTON_REGION
             frame = win.get_screenshot_cv2()
-            found, score, button_pos = match_template(frame, button_template, threshold=0.1)
+            found, score, button_pos = match_template(
+                frame, button_template,
+                search_region=search_region,
+                threshold=0.15
+            )
             if found and button_pos:
-                _log(f"Step 5: Found {button_name} button at {button_pos} (score={score:.4f})")
+                _log(f"Step 5: Found {button_name} button at {button_pos} (score={score:.4f}) in region {search_region}")
                 _log(f"Step 5: Clicking {button_name} button {clicks} times")
+                _save_debug_screenshot(frame, f"05_CLICKING_{button_name}_button", click_pos=button_pos)
                 for i in range(clicks):
                     adb.tap(*button_pos, source=f"flow:zombie_attack:{button_name}_button")
                     time.sleep(PLUS_CLICK_DELAY)
             else:
-                _log(f"Step 5: WARNING - {button_name} button not found (score={score:.4f}), using fallback position")
-                fallback_pos = PLUS_BUTTON_CLICK if level_clicks > 0 else MINUS_BUTTON_CLICK
+                _log(f"Step 5: WARNING - {button_name} button not found (score={score:.4f}) in region {search_region}, using fallback position")
+                fallback_pos = PLUS_BUTTON_CLICK
+                _save_debug_screenshot(frame, f"05_FALLBACK_{button_name}_button", click_pos=fallback_pos)
+                for i in range(clicks):
+                    adb.tap(*fallback_pos, source=f"flow:zombie_attack:{button_name}_button_fallback")
+                    time.sleep(PLUS_CLICK_DELAY)
+        elif level_clicks < 0:
+            button_template = "minus_button_4k.png"
+            button_name = "minus"
+            clicks = abs(level_clicks)
+            # Template match to find the button WITH CONSTRAINED SEARCH REGION
+            search_region = MINUS_BUTTON_REGION
+            frame = win.get_screenshot_cv2()
+            found, score, button_pos = match_template(
+                frame, button_template,
+                search_region=search_region,
+                threshold=0.15
+            )
+            if found and button_pos:
+                _log(f"Step 5: Found {button_name} button at {button_pos} (score={score:.4f}) in region {search_region}")
+                _log(f"Step 5: Clicking {button_name} button {clicks} times")
+                _save_debug_screenshot(frame, f"05_CLICKING_{button_name}_button", click_pos=button_pos)
+                for i in range(clicks):
+                    adb.tap(*button_pos, source=f"flow:zombie_attack:{button_name}_button")
+                    time.sleep(PLUS_CLICK_DELAY)
+            else:
+                _log(f"Step 5: WARNING - {button_name} button not found (score={score:.4f}) in region {search_region}, using fallback position")
+                fallback_pos = MINUS_BUTTON_CLICK
+                _save_debug_screenshot(frame, f"05_FALLBACK_{button_name}_button", click_pos=fallback_pos)
                 for i in range(clicks):
                     adb.tap(*fallback_pos, source=f"flow:zombie_attack:{button_name}_button_fallback")
                     time.sleep(PLUS_CLICK_DELAY)
         else:
             _log("Step 5: No level adjustment (level_clicks=0)")
+            button_name = "none"
 
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, f"04_after_{button_name}_clicks")
 
-        # Step 6: Click Search button
-        _log(f"Step 6: Clicking search button at {SEARCH_BUTTON_CLICK}")
-        adb.tap(*SEARCH_BUTTON_CLICK, source="flow:zombie_attack:search_button")
-        time.sleep(SEARCH_RESULT_DELAY)
+        # Step 6: Click Search button (with unfreeze retry logic)
+        max_search_attempts = 3
+        for search_attempt in range(max_search_attempts):
+            _log(f"Step 6: Clicking search button at {SEARCH_BUTTON_CLICK} (attempt {search_attempt + 1})")
+            adb.tap(*SEARCH_BUTTON_CLICK, source="flow:zombie_attack:search_button")
+            time.sleep(SEARCH_RESULT_DELAY)
+
+            # Check if unfreeze button appeared (frozen zombie)
+            unfreeze_result = _check_and_click_unfreeze(adb, win)
+            if unfreeze_result == "unfreeze_to_march":
+                # Click march to unfreeze, then reopen search panel
+                _log("  Clicking March to unfreeze zombie...")
+                frame = win.get_screenshot_cv2()
+                found, score, loc = match_template(
+                    frame, "march_button_4k.png",
+                    search_region=(1500, 1400, 900, 500),
+                    threshold=0.08
+                )
+                if found and loc:
+                    _save_debug_screenshot(frame, "unfreeze_march", click_pos=loc)
+                    adb.tap(*loc, source="flow:zombie_attack:march_to_unfreeze")
+                    time.sleep(3.0)  # Wait for march
+                    _log("  Zombie unfrozen, reopening search panel...")
+                    return_to_base_view(adb, win, debug=False)
+                    time.sleep(1.0)
+                    # Reopen search panel
+                    adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:zombie_attack:magnifying_glass_retry")
+                    time.sleep(SCREEN_TRANSITION_DELAY)
+                    # Re-apply level clicks if any
+                    if level_clicks != 0:
+                        button_name = "plus" if level_clicks > 0 else "minus"
+                        clicks = abs(level_clicks)
+                        fallback_pos = PLUS_BUTTON_CLICK if level_clicks > 0 else MINUS_BUTTON_CLICK
+                        _log(f"  Re-applying {clicks} {button_name} clicks...")
+                        time.sleep(0.5)
+                        for i in range(clicks):
+                            adb.tap(*fallback_pos, source=f"flow:zombie_attack:{button_name}_retry")
+                            time.sleep(PLUS_CLICK_DELAY)
+                        time.sleep(0.3)
+                    continue  # Retry search
+                else:
+                    _log("FAILED: March button not found after unfreeze")
+                    return_to_base_view(adb, win, debug=False)
+                    return False
+            elif unfreeze_result == "unfreeze_retry":
+                _log("  Unfreeze clicked, retrying search...")
+                continue  # Retry search after unfreeze
+            break  # No unfreeze, proceed to attack
 
         # Step 7: Poll for Attack button at FIXED position (masked template)
         # search_region = (x, y, w, h) where (x,y) is top-left
@@ -463,13 +603,23 @@ if __name__ == "__main__":
                         help="Zombie type to attack")
     parser.add_argument("--level-clicks", type=int, default=0,
                         help="Level adjustment: positive=plus, negative=minus (e.g., -2, -1, 0, +1, +2)")
+    parser.add_argument("--target-level", type=int, default=None,
+                        help="Target level (1-50). Uses OCR to read current and adjust. Takes precedence over --level-clicks")
     args = parser.parse_args()
 
     adb = ADBHelper()
-    print(f"Testing Zombie Attack Flow (type={args.type}, level_clicks={args.level_clicks})...")
+    if args.target_level is not None:
+        print(f"Testing Zombie Attack Flow (type={args.type}, target_level={args.target_level})...")
+    else:
+        print(f"Testing Zombie Attack Flow (type={args.type}, level_clicks={args.level_clicks})...")
     print("=" * 50)
 
-    success = zombie_attack_flow(adb, zombie_type=args.type, level_clicks=args.level_clicks)
+    success = zombie_attack_flow(
+        adb,
+        zombie_type=args.type,
+        level_clicks=args.level_clicks,
+        target_level=args.target_level
+    )
 
     print("=" * 50)
     if success:

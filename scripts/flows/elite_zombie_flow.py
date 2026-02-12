@@ -42,6 +42,7 @@ from utils.hero_selector import HeroSelector
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
 from utils.debug_screenshot import save_debug_screenshot
+from utils.zombie_level_helper import set_zombie_level, read_zombie_level
 from config import ELITE_ZOMBIE_LEVEL_CLICKS, DEBUG_ELITE_ZOMBIE_FLOW
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -99,9 +100,18 @@ SEARCH_BUTTON_THRESHOLD = 0.05
 RALLY_BUTTON_THRESHOLD = 0.08
 TEAM_UP_THRESHOLD = 0.05
 
+# Unfreeze button - appears when zombie is frozen (uses masked template)
+UNFREEZE_BUTTON_REGION = (1600, 1200, 500, 600)  # x, y, w, h - bottom center
+UNFREEZE_BUTTON_THRESHOLD = 0.05  # Masked SQDIFF
+
 # Poll settings for verification
 MAX_POLL_ATTEMPTS = 10
 POLL_INTERVAL = 0.3  # seconds between poll attempts
+
+# Level button search regions (4K) - constrain search to LEFT or RIGHT of slider
+# This prevents finding the wrong button since plus/minus templates look similar
+MINUS_BUTTON_REGION = (1400, 1800, 300, 150)  # x, y, w, h - LEFT side of slider
+PLUS_BUTTON_REGION = (2050, 1800, 300, 150)   # x, y, w, h - RIGHT side of slider
 
 # Klass Rally detection - FIXED position
 KLASS_EVENT_BOX_POSITION = (1754, 1170)
@@ -245,12 +255,117 @@ def _save_unknown_panel(frame: NDArray) -> None:
     _log(f"  Saved unknown panel to {path}")
 
 
-def elite_zombie_flow(adb: ADBHelper) -> bool:
+def _apply_level_adjustment(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    level_clicks: int | None = None,
+    target_level: int | None = None,
+) -> None:
+    """Apply level adjustment to the search panel slider.
+
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        level_clicks: Relative adjustment (+N = plus, -N = minus)
+        target_level: Absolute target level (uses OCR)
+    """
+    # If target_level provided, use OCR-based adjustment
+    if target_level is not None:
+        _log(f"  Re-applying level via OCR (target={target_level})")
+        set_zombie_level(adb, win, target_level, debug=DEBUG_ELITE_ZOMBIE_FLOW)
+        return
+
+    # Otherwise use level_clicks
+    if level_clicks is None or level_clicks == 0:
+        return
+
+    if level_clicks > 0:
+        button_template = "plus_button_4k.png"
+        button_name = "plus"
+        clicks = level_clicks
+    else:
+        button_template = "minus_button_4k.png"
+        button_name = "minus"
+        clicks = abs(level_clicks)
+
+    search_region = MINUS_BUTTON_REGION if level_clicks < 0 else PLUS_BUTTON_REGION
+    frame = win.get_screenshot_cv2()
+    found, score, button_pos = match_template(
+        frame, button_template,
+        search_region=search_region,
+        threshold=0.15
+    )
+    if found and button_pos:
+        _log(f"  Re-applying {clicks} {button_name} clicks at {button_pos}")
+        for i in range(clicks):
+            adb.tap(*button_pos, source=f"flow:elite_zombie:{button_name}_button_retry")
+            time.sleep(PLUS_CLICK_DELAY)
+    else:
+        fallback_pos = PLUS_BUTTON_CLICK if level_clicks > 0 else MINUS_BUTTON_CLICK
+        _log(f"  Re-applying {clicks} {button_name} clicks at fallback {fallback_pos}")
+        for i in range(clicks):
+            adb.tap(*fallback_pos, source=f"flow:elite_zombie:{button_name}_button_fallback_retry")
+            time.sleep(PLUS_CLICK_DELAY)
+
+
+def _check_and_click_unfreeze(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+) -> str:
+    """
+    Check if unfreeze button is visible and click it if so.
+
+    This happens when the zombie is frozen - we need to unfreeze before rallying.
+
+    Returns:
+        "unfreeze_to_rally" - unfreeze clicked and rally panel opened (skip to rally step)
+        "unfreeze_retry" - unfreeze clicked but need to retry search
+        "none" - no unfreeze button found
+    """
+    frame = win.get_screenshot_cv2()
+    found, score, center = match_template(
+        frame, "unfreeze_button_4k.png",
+        search_region=UNFREEZE_BUTTON_REGION,
+        threshold=UNFREEZE_BUTTON_THRESHOLD
+    )
+
+    if found and center is not None:
+        _log(f"  FROZEN ZOMBIE: Unfreeze button found (score={score:.4f}), clicking...")
+        _save_debug_screenshot(frame, "unfreeze_detected", click_pos=center)
+        adb.tap(*center, source="flow:elite_zombie:unfreeze")
+        time.sleep(2.0)  # Wait for unfreeze animation
+
+        # Check if march button visible (unfreeze goes straight to march screen)
+        frame = win.get_screenshot_cv2()
+        march_found, march_score, march_loc = match_template(
+            frame, "march_button_4k.png",
+            search_region=(1500, 1400, 900, 500),
+            threshold=0.08
+        )
+        if march_found:
+            _log(f"  Unfreeze opened march screen directly (March at {march_loc}, score={march_score:.4f})")
+            return "unfreeze_to_march"
+
+        return "unfreeze_retry"
+
+    return "none"
+
+
+def elite_zombie_flow(
+    adb: ADBHelper,
+    level_clicks: int | None = None,
+    target_level: int | None = None
+) -> bool:
     """
     Execute the elite zombie rally flow with template verification at each step.
 
     Args:
         adb: ADBHelper instance
+        level_clicks: Signed int for level adjustment (+N = plus clicks, -N = minus clicks).
+                      If None, uses ELITE_ZOMBIE_LEVEL_CLICKS from config.
+                      Ignored if target_level is provided.
+        target_level: If provided, use OCR to read current level and adjust to this target.
+                      Takes precedence over level_clicks.
 
     Returns:
         bool: True if flow completed successfully, False otherwise
@@ -354,88 +469,181 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
         # Wait for slider to be ready before clicking minus/plus
         time.sleep(0.5)
 
-        # Step 3: Adjust level (positive = plus, negative = minus, skip if Klass Rally)
-        level_clicks = _get_level_clicks()
+        # Step 3: Adjust level
+        # Priority: target_level (OCR) > level_clicks > config default
+        # Skip if Klass Rally is active
         if is_klass:
             _log("Step 3: Skipping level adjustment (Klass Rally)")
-        elif level_clicks != 0:
+        elif target_level is not None:
+            _log(f"Step 3: Setting level to {target_level} via OCR...")
+            if set_zombie_level(adb, win, target_level, debug=DEBUG_ELITE_ZOMBIE_FLOW):
+                _log(f"Step 3: Level set to {target_level}")
+            else:
+                _log(f"Step 3: WARNING - Could not confirm level {target_level}, continuing anyway")
+        else:
+            # Use level_clicks (from param or config)
+            if level_clicks is None:
+                level_clicks = _get_level_clicks()
+
             if level_clicks > 0:
                 button_template = "plus_button_4k.png"
                 button_name = "plus"
                 clicks = level_clicks
-            else:
+                search_region = PLUS_BUTTON_REGION
+                frame = win.get_screenshot_cv2()
+                found, score, button_pos = match_template(
+                    frame, button_template,
+                    search_region=search_region,
+                    threshold=0.15
+                )
+                if found and button_pos:
+                    _log(f"Step 3: Found {button_name} button at {button_pos} (score={score:.4f}) in region {search_region}")
+                    _log(f"Step 3: Clicking {button_name} button {clicks} times")
+                    _save_debug_screenshot(frame, f"03_CLICKING_{button_name}_button", click_pos=button_pos)
+                    for i in range(clicks):
+                        adb.tap(*button_pos, source=f"flow:elite_zombie:{button_name}_button")
+                        time.sleep(PLUS_CLICK_DELAY)
+                else:
+                    _log(f"Step 3: WARNING - {button_name} button not found (score={score:.4f}) in region {search_region}, using fallback")
+                    fallback_pos = PLUS_BUTTON_CLICK
+                    _save_debug_screenshot(frame, f"03_FALLBACK_{button_name}_button", click_pos=fallback_pos)
+                    for i in range(clicks):
+                        adb.tap(*fallback_pos, source=f"flow:elite_zombie:{button_name}_button_fallback")
+                        time.sleep(PLUS_CLICK_DELAY)
+            elif level_clicks < 0:
                 button_template = "minus_button_4k.png"
                 button_name = "minus"
                 clicks = abs(level_clicks)
-
-            # Template match to find the button
-            frame = win.get_screenshot_cv2()
-            found, score, button_pos = match_template(frame, button_template, threshold=0.1)
-            if found and button_pos:
-                _log(f"Step 3: Found {button_name} button at {button_pos} (score={score:.4f})")
-                _log(f"Step 3: Clicking {button_name} button {clicks} times")
-                for i in range(clicks):
-                    adb.tap(*button_pos, source=f"flow:elite_zombie:{button_name}_button")
-                    time.sleep(PLUS_CLICK_DELAY)
+                search_region = MINUS_BUTTON_REGION
+                frame = win.get_screenshot_cv2()
+                found, score, button_pos = match_template(
+                    frame, button_template,
+                    search_region=search_region,
+                    threshold=0.15
+                )
+                if found and button_pos:
+                    _log(f"Step 3: Found {button_name} button at {button_pos} (score={score:.4f}) in region {search_region}")
+                    _log(f"Step 3: Clicking {button_name} button {clicks} times")
+                    _save_debug_screenshot(frame, f"03_CLICKING_{button_name}_button", click_pos=button_pos)
+                    for i in range(clicks):
+                        adb.tap(*button_pos, source=f"flow:elite_zombie:{button_name}_button")
+                        time.sleep(PLUS_CLICK_DELAY)
+                else:
+                    _log(f"Step 3: WARNING - {button_name} button not found (score={score:.4f}) in region {search_region}, using fallback")
+                    fallback_pos = MINUS_BUTTON_CLICK
+                    _save_debug_screenshot(frame, f"03_FALLBACK_{button_name}_button", click_pos=fallback_pos)
+                    for i in range(clicks):
+                        adb.tap(*fallback_pos, source=f"flow:elite_zombie:{button_name}_button_fallback")
+                        time.sleep(PLUS_CLICK_DELAY)
             else:
-                _log(f"Step 3: WARNING - {button_name} button not found (score={score:.4f}), using fallback")
-                fallback_pos = PLUS_BUTTON_CLICK if level_clicks > 0 else MINUS_BUTTON_CLICK
-                for i in range(clicks):
-                    adb.tap(*fallback_pos, source=f"flow:elite_zombie:{button_name}_button_fallback")
-                    time.sleep(PLUS_CLICK_DELAY)
-        else:
-            _log("Step 3: No level adjustment (level_clicks=0)")
+                _log("Step 3: No level adjustment (level_clicks=0)")
 
         frame = win.get_screenshot_cv2()
         if frame is not None:
-            dir_str = "plus" if level_clicks > 0 else ("minus" if level_clicks < 0 else "no")
+            if target_level is not None:
+                dir_str = f"target_{target_level}"
+            elif level_clicks is not None and level_clicks > 0:
+                dir_str = "plus"
+            elif level_clicks is not None and level_clicks < 0:
+                dir_str = "minus"
+            else:
+                dir_str = "no"
             _save_debug_screenshot(frame, f"03_after_{dir_str}_clicks")
 
-        # Step 4: VERIFY rally search button still visible, then click it
-        _log(f"Step 4: Verifying and clicking search button...")
-        frame = win.get_screenshot_cv2()
-        found, score, loc = _verify_template(
-            frame, "rally_search_button_4k.png",
-            threshold=SEARCH_BUTTON_THRESHOLD,
-            search_region=(1600, 1800, 700, 400)
-        )
-        if not found:
-            _log(f"FAILED: Search button not visible (score={score:.4f})")
-            _save_debug_screenshot(frame, "04_search_button_not_found")
-            return_to_base_view(adb, win, debug=False)
-            return False
+        # Step 4: VERIFY rally search button still visible, then click it (with unfreeze retry)
+        max_search_attempts = 3
+        rally_button_found = False
+        rally_button_loc = None
+        rally_button_score = 0.0
+        skip_to_team_up = False  # Set if unfreeze opens rally panel directly
 
-        _log(f"  Search button at {loc} (score={score:.4f}), clicking...")
-        assert loc is not None  # Guaranteed by found == True check above
-        adb.tap(*loc, source="flow:elite_zombie:search_button")  # Click detected location of rally_search_button
+        for search_attempt in range(max_search_attempts):
+            _log(f"Step 4: Verifying and clicking search button (attempt {search_attempt + 1})...")
+            frame = win.get_screenshot_cv2()
+            found, score, loc = _verify_template(
+                frame, "rally_search_button_4k.png",
+                threshold=SEARCH_BUTTON_THRESHOLD,
+                search_region=(1600, 1800, 700, 400)
+            )
+            if not found:
+                _log(f"FAILED: Search button not visible (score={score:.4f})")
+                _save_debug_screenshot(frame, "04_search_button_not_found")
+                return_to_base_view(adb, win, debug=False)
+                return False
 
-        # Wait for search to complete and camera to pan to zombie
-        time.sleep(SEARCH_RESULT_DELAY)
+            _log(f"  Search button at {loc} (score={score:.4f}), clicking...")
+            assert loc is not None  # Guaranteed by found == True check above
+            adb.tap(*loc, source="flow:elite_zombie:search_button")
 
-        # Poll for rally button to appear (proves search completed and zombie found)
-        # Search in CENTER of screen where zombie appears, not right side where flags are
-        _log("  Waiting for search results...")
-        found, score, loc, frame = _poll_for_template(
-            win, "rally_button_4k.png",
-            # rally_button has mask - uses default SQDIFF threshold 0.05
-            # Search region centered on screen where zombie appears
-            search_region=(1500, 1000, 800, 900),
-            max_attempts=15  # Give extra time for search
-        )
-        if frame is not None:
-            # Save with detected rally button position annotated
-            _save_debug_screenshot(frame, "04_after_search", click_pos=loc)
-        if not found:
-            _log("FAILED: Rally button not found after search (no zombie found?)")
-            return_to_base_view(adb, win, debug=False)
-            return False
+            # Wait for search to complete and camera to pan to zombie
+            time.sleep(SEARCH_RESULT_DELAY)
 
-        # Step 5: Click rally button (use detected location)
-        _log(f"Step 5: Rally button at {loc} (score={score:.4f}), clicking...")
-        assert loc is not None  # Guaranteed by found == True check above
-        # Save BEFORE click with annotated position
-        _save_debug_screenshot(frame, "04b_CLICKING_rally", click_pos=loc)
-        adb.tap(*loc, source="flow:elite_zombie:rally_button")
+            # Check if unfreeze button appeared (frozen zombie)
+            unfreeze_result = _check_and_click_unfreeze(adb, win)
+            if unfreeze_result == "unfreeze_to_march":
+                # Unfreeze shows march screen - click march to unfreeze, then retry search for rally
+                _log("  Unfreeze opened march screen, clicking March to unfreeze...")
+                frame = win.get_screenshot_cv2()
+                found, score, loc = match_template(
+                    frame, "march_button_4k.png",
+                    search_region=(1500, 1400, 900, 500),
+                    threshold=0.08
+                )
+                if found and loc:
+                    _save_debug_screenshot(frame, "unfreeze_march", click_pos=loc)
+                    adb.tap(*loc, source="flow:elite_zombie:march_to_unfreeze")
+                    time.sleep(3.0)  # Wait for march to complete unfreezing
+                    _log("  Zombie unfrozen, need to search again for rally...")
+                    # Go back to world view and restart search
+                    return_to_base_view(adb, win, debug=False)
+                    time.sleep(1.0)
+                    # Click magnifying glass again
+                    adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:elite_zombie:magnifying_glass_retry")
+                    time.sleep(SCREEN_TRANSITION_DELAY)
+                    # Re-apply level adjustment (panel reset to default)
+                    if target_level is not None or (level_clicks is not None and level_clicks != 0):
+                        time.sleep(0.5)  # Wait for slider to be ready
+                        _apply_level_adjustment(adb, win, level_clicks, target_level)
+                        time.sleep(0.3)
+                    continue  # Retry search
+                else:
+                    _log("FAILED: March button not found after unfreeze")
+                    return_to_base_view(adb, win, debug=False)
+                    return False
+            elif unfreeze_result == "unfreeze_retry":
+                _log("  Unfreeze clicked, retrying search...")
+                continue  # Retry search after unfreeze
+
+            # Poll for rally button to appear (proves search completed and zombie found)
+            _log("  Waiting for search results...")
+            rally_button_found, rally_button_score, rally_button_loc, frame = _poll_for_template(
+                win, "rally_button_4k.png",
+                search_region=(1500, 1000, 800, 900),
+                max_attempts=15
+            )
+            if frame is not None:
+                _save_debug_screenshot(frame, "04_after_search", click_pos=rally_button_loc)
+            break  # Exit retry loop
+
+        # Skip rally button click if unfreeze already opened the panel
+        if skip_to_team_up:
+            _log("Step 5: Skipped (unfreeze opened rally panel directly)")
+        else:
+            if not rally_button_found:
+                _log("FAILED: Rally button not found after search (no zombie found?)")
+                return_to_base_view(adb, win, debug=False)
+                return False
+
+            # Use the found rally button location
+            loc = rally_button_loc
+            score = rally_button_score
+
+            # Step 5: Click rally button (use detected location)
+            _log(f"Step 5: Rally button at {loc} (score={score:.4f}), clicking...")
+            assert loc is not None  # Guaranteed by found == True check above
+            # Save BEFORE click with annotated position
+            _save_debug_screenshot(frame, "04b_CLICKING_rally", click_pos=loc)
+            adb.tap(*loc, source="flow:elite_zombie:rally_button")
 
         # Poll for Team Up button to appear (proves rally screen loaded)
         _log("  Waiting for rally screen to load...")
@@ -524,14 +732,30 @@ def elite_zombie_flow(adb: ADBHelper) -> bool:
 
 
 if __name__ == "__main__":
-    # Test the flow manually
+    import argparse
     from utils.adb_helper import ADBHelper
 
+    parser = argparse.ArgumentParser(description="Elite Zombie Rally Flow")
+    parser.add_argument("--level-clicks", type=int, default=None,
+                        help="Level adjustment: positive=plus, negative=minus (e.g., -2, -1, 0, +1, +2)")
+    parser.add_argument("--target-level", type=int, default=None,
+                        help="Target level (1-50). Uses OCR to read current and adjust. Takes precedence over --level-clicks")
+    args = parser.parse_args()
+
     adb = ADBHelper()
-    print("Testing Elite Zombie Flow...")
+    if args.target_level is not None:
+        print(f"Testing Elite Zombie Flow (target_level={args.target_level})...")
+    elif args.level_clicks is not None:
+        print(f"Testing Elite Zombie Flow (level_clicks={args.level_clicks})...")
+    else:
+        print("Testing Elite Zombie Flow (using config defaults)...")
     print("=" * 50)
 
-    success = elite_zombie_flow(adb)
+    success = elite_zombie_flow(
+        adb,
+        level_clicks=args.level_clicks,
+        target_level=args.target_level
+    )
 
     print("=" * 50)
     if success:

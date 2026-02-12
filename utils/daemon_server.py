@@ -175,6 +175,7 @@ class DaemonWebSocketServer:
             "clear_zombie_mode": self._cmd_clear_zombie_mode,
             # Flow with arguments
             "run_zombie_attack": self._cmd_run_zombie_attack,
+            "run_elite_zombie": self._cmd_run_elite_zombie,
             "faction_trial": self._cmd_faction_trial,
             # Stamina commands
             "use_stamina": self._cmd_use_stamina,
@@ -736,9 +737,12 @@ class DaemonWebSocketServer:
         Args:
             zombie_type: "gold", "food", or "iron_mine" (default: "gold")
             level_clicks: Signed int for level adjustment (+N = plus, -N = minus)
+            target_level: Target level (1-50). Uses OCR to read current level and adjust.
+                          Takes precedence over level_clicks if provided.
 
         Example:
             {"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "level_clicks": -2}}
+            {"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "target_level": 25}}
         """
         from scripts.flows.zombie_attack_flow import zombie_attack_flow
 
@@ -747,18 +751,31 @@ class DaemonWebSocketServer:
 
         zombie_type: str = args.get("zombie_type", "gold")
         level_clicks_val = args.get("level_clicks", args.get("plus_clicks", 0))  # backward compat
+        target_level_val = args.get("target_level")
 
         # Validate zombie_type
         valid_types = ["gold", "food", "iron_mine"]
         if zombie_type not in valid_types:
             raise ValueError(f"Invalid zombie_type: {zombie_type}. Valid: {valid_types}")
 
+        # Parse level_clicks
         try:
             level_clicks = int(level_clicks_val)
         except (TypeError, ValueError):
             raise ValueError(f"Invalid level_clicks value: {level_clicks_val}")
 
-        logger.info(f"Running zombie_attack_flow(zombie_type={zombie_type}, level_clicks={level_clicks})")
+        # Parse target_level (optional)
+        target_level: int | None = None
+        if target_level_val is not None:
+            try:
+                target_level = int(target_level_val)
+                if not (1 <= target_level <= 50):
+                    raise ValueError(f"target_level must be 1-50, got: {target_level}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid target_level value: {target_level_val}") from e
+
+        level_str = f"target_level={target_level}" if target_level else f"level_clicks={level_clicks}"
+        logger.info(f"Running zombie_attack_flow(zombie_type={zombie_type}, {level_str})")
 
         # Mark as flow to prevent daemon interference
         flow_name = f"zombie_attack_{zombie_type}"
@@ -769,22 +786,112 @@ class DaemonWebSocketServer:
             flow_result: bool = zombie_attack_flow(
                 self.daemon.adb,
                 zombie_type=zombie_type,
-                level_clicks=level_clicks
+                level_clicks=level_clicks,
+                target_level=target_level
             )
-            return {
+            result: dict[str, Any] = {
                 "success": True,
                 "zombie_type": zombie_type,
-                "level_clicks": level_clicks,
                 "result": flow_result
             }
+            if target_level is not None:
+                result["target_level"] = target_level
+            else:
+                result["level_clicks"] = level_clicks
+            return result
         except Exception as e:
             logger.error(f"zombie_attack_flow failed: {e}")
-            return {
+            result = {
                 "success": False,
                 "zombie_type": zombie_type,
-                "level_clicks": level_clicks,
                 "error": str(e)
             }
+            if target_level is not None:
+                result["target_level"] = target_level
+            else:
+                result["level_clicks"] = level_clicks
+            return result
+        finally:
+            self.daemon.active_flows.discard(flow_name)
+
+    def _cmd_run_elite_zombie(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Run elite zombie flow with custom parameters.
+
+        Args:
+            level_clicks: Signed int for level adjustment (+N = plus, -N = minus).
+                          If None, uses config default.
+            target_level: Target level (1-50). Uses OCR to read current level and adjust.
+                          Takes precedence over level_clicks if provided.
+
+        Example:
+            {"cmd": "run_elite_zombie", "args": {"level_clicks": -2}}
+            {"cmd": "run_elite_zombie", "args": {"target_level": 41}}
+        """
+        from scripts.flows.elite_zombie_flow import elite_zombie_flow
+
+        if self.daemon.adb is None:
+            raise RuntimeError("Daemon not initialized")
+
+        level_clicks_val = args.get("level_clicks")
+        target_level_val = args.get("target_level")
+
+        # Parse level_clicks (optional)
+        level_clicks: int | None = None
+        if level_clicks_val is not None:
+            try:
+                level_clicks = int(level_clicks_val)
+            except (TypeError, ValueError):
+                raise ValueError(f"Invalid level_clicks value: {level_clicks_val}")
+
+        # Parse target_level (optional)
+        target_level: int | None = None
+        if target_level_val is not None:
+            try:
+                target_level = int(target_level_val)
+                if not (1 <= target_level <= 50):
+                    raise ValueError(f"target_level must be 1-50, got: {target_level}")
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Invalid target_level value: {target_level_val}") from e
+
+        if target_level is not None:
+            level_str = f"target_level={target_level}"
+        elif level_clicks is not None:
+            level_str = f"level_clicks={level_clicks}"
+        else:
+            level_str = "using config default"
+        logger.info(f"Running elite_zombie_flow({level_str})")
+
+        # Mark as flow to prevent daemon interference
+        flow_name = "elite_zombie"
+        self.daemon.active_flows.add(flow_name)
+
+        try:
+            flow_result: bool = elite_zombie_flow(
+                self.daemon.adb,
+                level_clicks=level_clicks,
+                target_level=target_level
+            )
+            result: dict[str, Any] = {
+                "success": True,
+                "result": flow_result
+            }
+            if target_level is not None:
+                result["target_level"] = target_level
+            elif level_clicks is not None:
+                result["level_clicks"] = level_clicks
+            return result
+        except Exception as e:
+            logger.error(f"elite_zombie_flow failed: {e}")
+            result = {
+                "success": False,
+                "error": str(e)
+            }
+            if target_level is not None:
+                result["target_level"] = target_level
+            elif level_clicks is not None:
+                result["level_clicks"] = level_clicks
+            return result
         finally:
             self.daemon.active_flows.discard(flow_name)
 

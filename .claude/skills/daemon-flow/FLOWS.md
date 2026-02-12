@@ -43,22 +43,126 @@ Harvest actions (corn, gold, iron, gem, cabbage, equipment) require ALL of:
 1. Navigate to WORLD view
 2. Click magnifying glass → **POLL** for `rally_search_button_4k.png`
 3. Click Elite Zombie tab → **VERIFY** `elite_zombie_tab_4k.png`
-4. Click plus button N times (level, via ELITE_ZOMBIE_PLUS_CLICKS)
+4. Set level via OCR (`target_level`) OR click plus/minus N times (`level_clicks`)
 5. **VERIFY** `rally_search_button_4k.png`, click detected location
-6. **POLL** for `rally_button_4k.png` → click detected location
-7. **POLL** for `team_up_button_4k.png`
-8. Select LEFTMOST idle hero (with Zz icon)
-9. **VERIFY** and click `team_up_button_4k.png`
+6. Check for **frozen zombie** (see below)
+7. **POLL** for `rally_button_4k.png` → click detected location
+8. **POLL** for `team_up_button_4k.png`
+9. Select LEFTMOST idle hero (with Zz icon)
+10. **VERIFY** and click `team_up_button_4k.png`
 
 **Templates**:
 - `rally_search_button_4k.png` (368x126, threshold 0.05)
 - `elite_zombie_tab_4k.png` (284x97, threshold 0.1)
 - `rally_button_4k.png` (153x177, threshold 0.08)
 - `team_up_button_4k.png` (368x134, threshold 0.05)
+- `unfreeze_button_4k.png` + mask (153x162, threshold 0.05) - Season 1
 
 **Hero Selection**:
 - Elite Zombie: LEFTMOST idle hero
 - Treasure Map: RIGHTMOST idle hero
+
+**Level Control** (two methods):
+
+1. **OCR-based targeting** (`target_level`) - RECOMMENDED:
+   - Reads current level via OCR from "Level XX" text
+   - Taps slider at calculated X position
+   - Fine-tunes with plus/minus if needed (max 10 clicks)
+   - Verifies final level matches target
+
+2. **Relative clicks** (`level_clicks`):
+   - Clicks plus/minus button N times from current position
+   - No verification of actual level reached
+
+**API**:
+```python
+# OCR-based targeting (recommended)
+elite_zombie_flow(adb, target_level=30)  # Set to exactly level 30
+
+# Relative clicks (legacy)
+elite_zombie_flow(adb, level_clicks=0)   # No level change
+elite_zombie_flow(adb, level_clicks=5)   # 5 plus clicks
+elite_zombie_flow(adb, level_clicks=-3)  # 3 minus clicks
+elite_zombie_flow(adb)                   # Uses ELITE_ZOMBIE_LEVEL_CLICKS config
+```
+
+**CLI**:
+```bash
+python scripts/flows/elite_zombie_flow.py --target-level 30
+python scripts/flows/elite_zombie_flow.py --level-clicks -5
+```
+
+**WebSocket API**:
+```json
+{"cmd": "run_elite_zombie", "args": {"target_level": 30}}
+{"cmd": "run_elite_zombie", "args": {"level_clicks": -5}}
+```
+
+### Season 1: Frozen Zombie Handling
+
+In Season 1, zombies can be **frozen** and must be unfrozen before rallying.
+
+**Detection**: After clicking Search, check for `unfreeze_button_4k.png` (hexagonal blue icon)
+
+**Unfreeze Flow**:
+1. Search finds frozen zombie → Unfreeze button appears
+2. Click Unfreeze → March screen opens (attack to break ice)
+3. Click March → Zombie is unfrozen
+4. Return to base view, click magnifying glass again
+5. **Re-apply level clicks** (search panel resets to default level)
+6. Search again → Now find SAME level unfrozen zombie → Rally normally
+
+**Important**: Level clicks are re-applied after reopening the search panel to ensure we search for the SAME zombie we just unfroze. Otherwise we'd unfreeze level 45 but search for level 50.
+
+**Retry Logic**: Up to 3 search attempts with unfreeze handling
+
+**Templates**:
+- `unfreeze_button_4k.png` - Blue hexagon with pickaxe icon
+- `unfreeze_button_4k_mask.png` - Mask for background-independent matching (72% coverage)
+- `march_button_4k.png` - Used after unfreeze to attack and break ice
+
+---
+
+## Zombie Attack Flow (Non-Elite)
+
+**Trigger**: Zombie mode set to gold/food/iron_mine (not elite)
+
+**Sequence**:
+1. Navigate to WORLD view
+2. Click magnifying glass
+3. Click Zombie tab (not Elite Zombie)
+4. Select zombie type (gold/food/iron_mine)
+5. Set level via OCR (`target_level`) OR click plus/minus (`level_clicks`)
+6. Click Search
+7. Click Attack button
+8. Select hero, click March
+
+**Zombie Types**:
+- `gold` - Gold zombie (points for Beast Training)
+- `food` - Food zombie
+- `iron_mine` - Iron mine zombie
+
+**Level Control** (same as Elite Zombie):
+- `target_level`: OCR-based, taps slider at exact position
+- `level_clicks`: Relative plus/minus clicks
+
+**API**:
+```python
+zombie_attack_flow(adb, zombie_type='gold', target_level=25)
+zombie_attack_flow(adb, zombie_type='gold', level_clicks=-2)
+```
+
+**CLI**:
+```bash
+python scripts/flows/zombie_attack_flow.py --type gold --target-level 25
+python scripts/flows/zombie_attack_flow.py --type food --level-clicks -3
+```
+
+**WebSocket API**:
+```json
+{"cmd": "run_zombie_attack", "args": {"zombie_type": "gold", "target_level": 25}}
+{"cmd": "run_zombie_attack", "args": {"zombie_type": "iron_mine", "level_clicks": -2}}
+```
 
 ---
 
