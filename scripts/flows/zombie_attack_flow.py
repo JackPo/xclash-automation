@@ -539,12 +539,12 @@ def zombie_attack_flow(
                 idle_str = "Zz PRESENT (idle)" if status['is_idle'] else "NO Zz (busy)"
                 _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
 
-            # Find RIGHTMOST soldier WITH Zz (idle hero, available to send)
-            idle_slot = hero_selector.find_rightmost_idle(frame, zz_mode='require')
+            # Find LEFTMOST soldier WITH Zz (strongest idle hero, available to send)
+            idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='require')
 
             if idle_slot:
                 click_pos = idle_slot['click']
-                _log(f"  Clicking rightmost slot {idle_slot['id']} at {click_pos}")
+                _log(f"  Clicking leftmost slot {idle_slot['id']} at {click_pos}")
                 _save_debug_screenshot(frame, "07b_CLICKING_soldier", click_pos=click_pos)
                 adb.tap(*click_pos, source="flow:zombie_attack:select_soldier")
                 time.sleep(CLICK_DELAY)
