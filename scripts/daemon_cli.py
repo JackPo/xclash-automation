@@ -36,8 +36,8 @@ Stamina Commands:
 Zombie Attack Commands:
     python daemon_cli.py run_zombie_attack iron_mine         # Attack iron mine zombie
     python daemon_cli.py run_zombie_attack gold              # Attack gold zombie
-    python daemon_cli.py run_zombie_attack food              # Attack food zombie
-    python daemon_cli.py run_zombie_attack iron_mine --plus 15  # Custom plus clicks
+    python daemon_cli.py run_zombie_attack gold --level 30   # Attack gold zombie at level 30 (OCR+slider)
+    python daemon_cli.py run_zombie_attack food --level-clicks 5  # Custom +5 level clicks
     python daemon_cli.py set_zombie_mode iron_mine 4         # Set mode for 4 hours
     python daemon_cli.py get_zombie_mode                     # Check current mode
     python daemon_cli.py clear_zombie_mode                   # Reset to elite
@@ -253,12 +253,17 @@ def main():
             i += 1
 
     elif cmd == "run_zombie_attack":
-        # Usage: daemon_cli.py run_zombie_attack <type> [--level-clicks N]
+        # Usage: daemon_cli.py run_zombie_attack <type> [--level N] [--level-clicks N]
         if len(sys.argv) < 3:
             print("Error: run_zombie_attack requires a zombie type")
-            print("Usage: daemon_cli.py run_zombie_attack <iron_mine|gold|food> [--level-clicks N]")
+            print("Usage: daemon_cli.py run_zombie_attack <iron_mine|gold|food> [--level N] [--level-clicks N]")
             sys.exit(1)
         args["zombie_type"] = sys.argv[2]
+        # Check for --level argument (target level using OCR + slider)
+        if "--level" in sys.argv:
+            idx = sys.argv.index("--level")
+            if idx + 1 < len(sys.argv):
+                args["target_level"] = int(sys.argv[idx + 1])
         # Check for --level-clicks argument (positive=plus, negative=minus)
         if "--level-clicks" in sys.argv:
             idx = sys.argv.index("--level-clicks")
