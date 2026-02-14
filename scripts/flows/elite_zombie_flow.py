@@ -560,11 +560,18 @@ def elite_zombie_flow(
         for search_attempt in range(max_search_attempts):
             _log(f"Step 4: Verifying and clicking search button (attempt {search_attempt + 1})...")
             frame = win.get_screenshot_cv2()
-            found, score, loc = _verify_template(
-                frame, "rally_search_button_4k.png",
-                threshold=SEARCH_BUTTON_THRESHOLD,
-                search_region=(1600, 1800, 700, 400)
-            )
+
+            # Try both regular and ice-themed templates
+            found = False
+            for search_template in ["rally_search_button_4k.png", "rally_search_button_ice_4k.png"]:
+                found, score, loc = _verify_template(
+                    frame, search_template,
+                    threshold=SEARCH_BUTTON_THRESHOLD,
+                    search_region=(1600, 1800, 700, 400)
+                )
+                if found:
+                    break
+
             if not found:
                 _log(f"FAILED: Search button not visible (score={score:.4f})")
                 _save_debug_screenshot(frame, "04_search_button_not_found")
