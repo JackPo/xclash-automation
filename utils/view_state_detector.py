@@ -79,6 +79,7 @@ def detect_view(frame: npt.NDArray[Any], debug: bool = False) -> tuple[ViewState
         ("world_button_4k.png", ViewState.TOWN),
         ("town_button_4k.png", ViewState.WORLD),
         ("town_button_zoomed_out_4k.png", ViewState.WORLD),
+        ("town_button_ice_4k.png", ViewState.WORLD),  # Winter/ice theme
     ]
 
     for template_name, state in templates:
@@ -168,7 +169,7 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
         if current == ViewState.TOWN and target == ViewState.WORLD:
             if debug:
                 print(f"TOWN->WORLD, clicking toggle at {TOGGLE_BUTTON_CLICK}")
-            adb.tap(*TOGGLE_BUTTON_CLICK)
+            adb.tap(*TOGGLE_BUTTON_CLICK, source="util:view_state:go_world")
             time.sleep(1.0)
             continue
 
@@ -176,7 +177,7 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
         if current == ViewState.WORLD and target == ViewState.TOWN:
             if debug:
                 print(f"WORLD->TOWN, clicking toggle at {TOGGLE_BUTTON_CLICK}")
-            adb.tap(*TOGGLE_BUTTON_CLICK)
+            adb.tap(*TOGGLE_BUTTON_CLICK, source="util:view_state:go_town")
             time.sleep(1.0)
             continue
 
@@ -186,10 +187,10 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
             from utils.safe_ground_matcher import find_safe_ground
             from utils.template_matcher import match_template
 
-            # FIRST: Check for back button with HIGH CERTAINTY (masked template)
+            # FIRST: Check for back button (masked template - SQDIFF lower=better)
             # This catches dialogs/menus that need back button to close
             back_found, back_score, back_pos = match_template(
-                frame, "back_button_union_4k.png", threshold=0.98
+                frame, "back_button_union_4k.png", threshold=0.05
             )
             if back_found:
                 if debug:
@@ -203,7 +204,7 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
             if grass_pos:
                 if debug:
                     print(f"UNKNOWN state, grass detected (WORLD) - clicking at {grass_pos} to dismiss popup")
-                adb.tap(*grass_pos)
+                adb.tap(*grass_pos, source="util:view_state:dismiss_grass")
                 time.sleep(0.5)
                 continue
 
@@ -211,7 +212,7 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
             if ground_pos:
                 if debug:
                     print(f"UNKNOWN state, ground detected (TOWN) - clicking at {ground_pos} to dismiss popup")
-                adb.tap(*ground_pos)
+                adb.tap(*ground_pos, source="util:view_state:dismiss_ground")
                 time.sleep(0.5)
                 continue
 
