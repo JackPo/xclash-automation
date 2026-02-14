@@ -33,9 +33,9 @@ if TYPE_CHECKING:
 # Type alias for numpy arrays
 NDArray = npt.NDArray[Any]
 
-# Thresholds - different for masked vs non-masked templates
-SQDIFF_THRESHOLD = 0.1   # For non-masked templates (lower=better)
-CCORR_THRESHOLD = 0.95   # For masked templates (higher=better)
+# Thresholds - all SQDIFF (lower=better)
+SQDIFF_THRESHOLD = 0.1   # For non-masked templates
+MASKED_THRESHOLD = 0.05  # For masked templates (stricter)
 POLL_TIMEOUT = 3.0
 POLL_INTERVAL = 0.3
 
@@ -51,7 +51,7 @@ MARK_TAB_REGION: tuple[int, int, int, int] = (
 
 def _get_threshold(template_name: str) -> float:
     """Get appropriate threshold based on whether template has a mask."""
-    return CCORR_THRESHOLD if has_mask(template_name) else SQDIFF_THRESHOLD
+    return MASKED_THRESHOLD if has_mask(template_name) else SQDIFF_THRESHOLD
 
 
 def _poll_for_template(
@@ -148,13 +148,27 @@ def go_to_mark_flow(
         go_to_world(adb)
         time.sleep(0.5)
 
-        # Step 1: Find and click search button
+        # Step 1: Find and click search button (try both template variants)
         if debug:
             print("  Step 1: Finding search button...")
         frame = win.get_screenshot_cv2()
+
+        # Try original template first
         found, score, pos = match_template(frame, "search_button_4k.png", threshold=_get_threshold("search_button_4k.png"))
         if debug:
-            print(f"    Search button: found={found}, score={score:.4f}, pos={pos}")
+            print(f"    Search button (v1): found={found}, score={score:.4f}, pos={pos}")
+
+        # If not found, try v2 template (different brightness state)
+        if not found:
+            found, score, pos = match_template(frame, "search_button_4k_v2.png", threshold=_get_threshold("search_button_4k_v2.png"))
+            if debug:
+                print(f"    Search button (v2): found={found}, score={score:.4f}, pos={pos}")
+
+        # If not found, try ice-themed template (winter theme)
+        if not found:
+            found, score, pos = match_template(frame, "search_button_ice_4k.png", threshold=_get_threshold("search_button_ice_4k.png"))
+            if debug:
+                print(f"    Search button (ice): found={found}, score={score:.4f}, pos={pos}")
 
         if not found or pos is None:
             print("  ERROR: Search button not found")
@@ -162,7 +176,7 @@ def go_to_mark_flow(
 
         if debug:
             print(f"    Clicking search button at {pos}")
-        adb.tap(pos[0], pos[1])
+        adb.tap(pos[0], pos[1], source="flow:go_to_mark:search_button")
         time.sleep(0.5)
 
         # Verify: Poll for Mark tab at FIXED position (proves search panel opened)
@@ -180,7 +194,7 @@ def go_to_mark_flow(
         else:
             if debug:
                 print(f"  Step 2: Clicking Mark tab at FIXED position {MARK_TAB_CLICK}")
-            adb.tap(MARK_TAB_CLICK[0], MARK_TAB_CLICK[1])
+            adb.tap(MARK_TAB_CLICK[0], MARK_TAB_CLICK[1], source="flow:go_to_mark:mark_tab")
             time.sleep(0.5)
 
             # Verify: Poll for Mark tab to become active at fixed position
@@ -207,7 +221,7 @@ def go_to_mark_flow(
 
         if debug:
             print(f"    Clicking Special tab at {special_pos}")
-        adb.tap(special_pos[0], special_pos[1])
+        adb.tap(special_pos[0], special_pos[1], source="flow:go_to_mark:special_tab")
         time.sleep(0.5)
 
         # Step 4: Find and click Go button
@@ -222,7 +236,7 @@ def go_to_mark_flow(
 
         if debug:
             print(f"    Clicking Go button at {go_pos}")
-        adb.tap(go_pos[0], go_pos[1])
+        adb.tap(go_pos[0], go_pos[1], source="flow:go_to_mark:go_button")
         time.sleep(2.0)  # Wait for navigation
 
         if debug:
