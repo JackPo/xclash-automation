@@ -5,14 +5,11 @@ Uses template_matcher to find back buttons anywhere in the bottom portion.
 Tries multiple templates to handle different button styles.
 
 Templates:
-- back_button_4k.png - Standard back button (SQDIFF - no mask)
-- back_button_light_4k.png - Light colored variant (SQDIFF - no mask)
-- back_button_union_4k.png - Union panel back button (CCORR - has mask)
+- back_button_4k.png - Standard back button
+- back_button_light_4k.png - Light colored variant
+- back_button_union_4k.png - Union panel back button (has mask)
 
-IMPORTANT: Templates use different matching methods based on mask presence:
-- SQDIFF (no mask): lower score = better match, ~0.0 is perfect
-- CCORR (with mask): higher score = better match, ~1.0 is perfect
-
+All templates use TM_SQDIFF_NORMED: lower score = better match, ~0.0 is perfect.
 This matcher normalizes scores to a common 0-1 range where higher is always better.
 """
 from __future__ import annotations
@@ -22,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
-from utils.template_matcher import match_template, has_mask
+from utils.template_matcher import match_template
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -33,22 +30,25 @@ class BackButtonMatcher:
     Search-based detector for back buttons.
     Finds back button anywhere in search region and returns click position.
 
-    Handles mixed SQDIFF/CCORR templates by normalizing scores.
+    All templates use SQDIFF_NORMED (lower=better). Normalizes scores for comparison.
     """
 
     # Templates to try (in order)
     TEMPLATES = [
-        "back_button_union_4k.png",   # Has mask - uses CCORR
-        "back_button_4k.png",          # No mask - uses SQDIFF
-        "back_button_light_4k.png",    # No mask - uses SQDIFF
+        "back_button_union_4k.png",       # Has mask - uses SQDIFF with mask
+        "back_button_union_ice_4k.png",   # Ice theme variant (has mask)
+        "back_button_4k.png",              # No mask - uses SQDIFF
+        "back_button_light_4k.png",        # No mask - uses SQDIFF
     ]
 
-    # Search in bottom half of screen where back buttons typically appear
-    SEARCH_REGION = (0, 1080, 3840, 1080)  # x, y, w, h - bottom half
+    # Search in LEFT portion of bottom half only - back buttons are typically on the left
+    # Position 1407 is the typical back button X coordinate
+    # Restricting to left 1600px avoids false positives from center-screen popups
+    # (Union Center, building popups, etc.)
+    SEARCH_REGION = (0, 1080, 1600, 1080)  # x, y, w, h - left side of bottom half
 
     def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
-        # Don't enforce a single threshold - let template_matcher use method-appropriate defaults
-        # SQDIFF uses 0.1, CCORR uses 0.90 by default
+        # Let template_matcher use default threshold (0.1 for non-masked, 0.05 for masked)
         self.threshold = threshold
 
     def find(self, frame: npt.NDArray[Any]) -> tuple[bool, float, tuple[int, int] | None, str | None]:
@@ -80,12 +80,8 @@ class BackButtonMatcher:
 
             if found:
                 # Normalize score to 0-1 where higher is better
-                if has_mask(template_name):
-                    # CCORR: already 0-1, higher is better
-                    normalized = raw_score
-                else:
-                    # SQDIFF: invert so higher is better
-                    normalized = 1.0 - raw_score
+                # All templates use SQDIFF: invert so higher is better
+                normalized = 1.0 - raw_score
 
                 # Pick best match in normalized space
                 if normalized > best_normalized:
@@ -147,4 +143,4 @@ class BackButtonMatcher:
             detected_pos: Optional (x, y) position from find(). If None, uses fixed fallback.
         """
         pos = detected_pos if detected_pos else (1407, 2055)
-        adb_helper.tap(*pos)
+        adb_helper.tap(*pos, source="matcher:back_button:click")
