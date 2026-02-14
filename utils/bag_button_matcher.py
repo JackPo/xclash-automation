@@ -34,7 +34,11 @@ class BagButtonMatcher:
     CLICK_X = 3732
     CLICK_Y = 1633
 
-    TEMPLATE_NAME = "bag_button_4k.png"
+    # Templates to try (regular and ice-themed)
+    TEMPLATES = [
+        "bag_button_4k.png",
+        "bag_button_ice_4k.png",
+    ]
     DEFAULT_THRESHOLD = 0.1
 
     def __init__(self, threshold: float | None = None) -> None:
@@ -44,11 +48,17 @@ class BagButtonMatcher:
         if frame is None or frame.size == 0:
             return False, 1.0
 
-        is_present, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(self.ICON_X, self.ICON_Y, self.ICON_WIDTH, self.ICON_HEIGHT),
-            threshold=self.threshold
-        )
+        # Try each template (regular and ice-themed)
+        for template_name in self.TEMPLATES:
+            is_present, score, _ = match_template(
+                frame, template_name,
+                search_region=(self.ICON_X, self.ICON_Y, self.ICON_WIDTH, self.ICON_HEIGHT),
+                threshold=self.threshold
+            )
+            if is_present:
+                return True, score
 
-        return is_present, score
+        return False, 1.0
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:bag_button:click")

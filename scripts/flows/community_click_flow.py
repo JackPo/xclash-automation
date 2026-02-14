@@ -90,8 +90,11 @@ def _send_arrow_key(direction: str) -> None:
     win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
-# Templates
-COMMUNITY_ICON_TEMPLATE = "community_icon_4k.png"
+# Templates (regular and ice-themed variants)
+COMMUNITY_ICON_TEMPLATES = [
+    "community_icon_4k.png",
+    "community_icon_ice_4k.png",
+]
 DAILY_SIG_TEMPLATE = "daily_sig_icon_4k.png"
 LOADING_BEAR_TEMPLATE = "daily_signin_loading_bear_4k.png"
 CHECKIN_BUTTON_TEMPLATE = "daily_signin_checkin_button_4k.png"
@@ -202,10 +205,11 @@ def community_click_flow(
     if win is None:
         win = WindowsScreenshotHelper()
 
-    # Check if already done today
+    # Check if already done today - return success WITHOUT skipped flag
+    # to get full cooldown (skipped=True only gets 5-min cooldown)
     if not force and _is_already_checked_in_today():
-        logger.info("[COMMUNITY] Already checked in today, SKIPPING flow")
-        result["skipped"] = True
+        logger.info("[COMMUNITY] Already checked in today, returning success (full cooldown)")
+        result["already_done"] = True
         result["success"] = True
         return result
 
@@ -218,19 +222,23 @@ def community_click_flow(
     go_to_town(adb)
     time.sleep(0.5)
 
-    # Step 1: Find and click Community icon
+    # Step 1: Find and click Community icon (try regular and ice-themed)
     frame = win.get_screenshot_cv2()
     _save_debug(frame, "01_before_community_icon")
 
-    threshold = _get_threshold(COMMUNITY_ICON_TEMPLATE)
-    found, score, pos = match_template(
-        frame,
-        COMMUNITY_ICON_TEMPLATE,
-        threshold=threshold,
-    )
-
-    if debug:
-        print(f"[COMMUNITY] Community icon: found={found}, score={score:.4f}, pos={pos}")
+    found = False
+    pos = None
+    for template_name in COMMUNITY_ICON_TEMPLATES:
+        threshold = _get_threshold(template_name)
+        found, score, pos = match_template(
+            frame,
+            template_name,
+            threshold=threshold,
+        )
+        if debug:
+            print(f"[COMMUNITY] {template_name}: found={found}, score={score:.4f}, pos={pos}")
+        if found and pos is not None:
+            break
 
     if not found or pos is None:
         _save_debug(frame, "01_community_icon_NOT_FOUND")
