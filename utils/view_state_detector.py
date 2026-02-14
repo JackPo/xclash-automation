@@ -77,6 +77,7 @@ def detect_view(frame: npt.NDArray[Any], debug: bool = False) -> tuple[ViewState
     # Templates to check for main view
     templates = [
         ("world_button_4k.png", ViewState.TOWN),
+        ("world_button_ice_4k.png", ViewState.TOWN),  # Winter/ice theme
         ("town_button_4k.png", ViewState.WORLD),
         ("town_button_zoomed_out_4k.png", ViewState.WORLD),
         ("town_button_ice_4k.png", ViewState.WORLD),  # Winter/ice theme
