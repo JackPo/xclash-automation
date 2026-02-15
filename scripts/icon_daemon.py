@@ -1963,17 +1963,18 @@ class IconDaemon:
 
                     if march_present and march_match is not None:
                         march_x, march_y, _ = march_match
-                        # Check prerequisites: cooldown elapsed
-                        # NOTE: View check removed - if march button is visible, we're in a valid rally panel
-                        # NOTE: Idle check removed - rally panels are time-sensitive, join immediately
+                        # Check prerequisites: TOWN or WORLD view, idle, cooldown
+                        view_state, _ = detect_view(frame)
+                        # Use filtered idle (excludes daemon's own clicks) - consistent with rest of daemon
+                        rally_effective_idle = get_user_idle_seconds()
 
                         # Union Boss mode: faster cooldown (15s instead of 30s)
                         in_union_boss_mode = current_time < self.union_boss_mode_until
                         rally_cooldown = UNION_BOSS_RALLY_COOLDOWN if in_union_boss_mode else RALLY_MARCH_BUTTON_COOLDOWN
                         rally_cooldown_elapsed = (current_time - self.last_rally_march_click) >= rally_cooldown
 
-                        rally_idle_ok = True  # March button visible = join immediately
-                        rally_view_ok = True  # March button visible = valid rally state
+                        rally_idle_ok = rally_effective_idle >= IDLE_THRESHOLD
+                        rally_view_ok = view_state in [ViewState.TOWN, ViewState.WORLD]
 
                         # Log Union Boss mode status
                         if in_union_boss_mode:
