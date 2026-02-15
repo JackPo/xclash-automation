@@ -678,6 +678,42 @@ async def api_run_zombie_attack(zombie_type: str = "gold", plus_clicks: int = 10
 
 
 # ============================================================================
+# Reinforce Mode Endpoints
+# ============================================================================
+
+@app.get("/api/reinforce-mode")
+async def api_get_reinforce_mode() -> dict[str, Any]:
+    """Get current reinforce loop mode status."""
+    response = await send_daemon_command('get_reinforce_status')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+class ReinforceStartRequest(BaseModel):
+    """Request to start reinforce loop."""
+    interval: int = 10  # Seconds between runs
+
+
+@app.post("/api/reinforce-mode/start")
+async def api_start_reinforce(request: ReinforceStartRequest) -> dict[str, Any]:
+    """Start reinforce loop mode."""
+    response = await send_daemon_command('start_reinforce', {'interval': request.interval})
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/reinforce-mode/stop")
+async def api_stop_reinforce() -> dict[str, Any]:
+    """Stop reinforce loop mode."""
+    response = await send_daemon_command('stop_reinforce')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
 # Config Override Endpoints
 # ============================================================================
 
