@@ -126,7 +126,7 @@ def drag_slider_to_max(adb: ADBHelper, frame: npt.NDArray[Any], debug: bool = Fa
     if debug:
         print(f"  Plus button at ({plus_x}, {plus_y}), clicking track right edge ({track_right_x}, {plus_y})...")
 
-    adb.tap(track_right_x, plus_y)
+    adb.tap(track_right_x, plus_y, source="util:soldier_slider:set_max")
     return True
 
 
@@ -149,9 +149,9 @@ def drag_slider_to_position(adb: ADBHelper, frame: npt.NDArray[Any], target_x: i
         return False
 
     if debug:
-        print(f"  Slider at ({circle_x}, {circle_y}), dragging to ({target_x}, {circle_y})...")
+        print(f"  Slider at ({circle_x}, {circle_y}), clicking at ({target_x}, {circle_y})...")
 
-    adb.swipe(circle_x, circle_y, target_x, circle_y, duration=500)
+    adb.tap(target_x, circle_y, source="util:soldier_slider:set_position")
     return True
 
 

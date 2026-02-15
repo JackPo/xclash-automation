@@ -218,9 +218,9 @@ def drag_slider_to_min(
     target_x = get_slider_min_x(plus_x)
 
     if debug:
-        print(f"  Dragging from ({circle_x}, {slider_y}) to ({target_x}, {slider_y})")
+        print(f"  Clicking slider at min position ({target_x}, {slider_y})")
 
-    adb.swipe(circle_x, slider_y, target_x, slider_y, duration=500)
+    adb.tap(target_x, slider_y, source="util:hospital_slider:set_min")
     return True
 
 
@@ -232,21 +232,15 @@ def drag_slider_to_max(
     debug: bool = False,
 ) -> bool:
     """
-    Drag slider to maximum (rightmost) position.
+    Click slider at maximum (rightmost) position.
     """
-    circle_x, score = find_slider_circle(frame, plus_x, plus_y, debug=False)
-    if circle_x is None:
-        if debug:
-            print(f"  Slider not found (score={score:.4f})")
-        return False
-
     slider_y = get_slider_y(plus_y)
     target_x = get_slider_max_x(plus_x)
 
     if debug:
-        print(f"  Dragging from ({circle_x}, {slider_y}) to ({target_x}, {slider_y})")
+        print(f"  Clicking slider at max position ({target_x}, {slider_y})")
 
-    adb.swipe(circle_x, slider_y, target_x, slider_y, duration=500)
+    adb.tap(target_x, slider_y, source="util:hospital_slider:set_max")
     return True
 
 
@@ -259,20 +253,14 @@ def drag_slider_to_position(
     debug: bool = False,
 ) -> bool:
     """
-    Drag slider to a specific X position.
+    Click slider at a specific X position.
     """
-    circle_x, score = find_slider_circle(frame, plus_x, plus_y, debug=False)
-    if circle_x is None:
-        if debug:
-            print(f"  Slider not found (score={score:.4f})")
-        return False
-
     slider_y = get_slider_y(plus_y)
 
     if debug:
-        print(f"  Dragging from ({circle_x}, {slider_y}) to ({target_x}, {slider_y})")
+        print(f"  Clicking slider at position ({target_x}, {slider_y})")
 
-    adb.swipe(circle_x, slider_y, target_x, slider_y, duration=500)
+    adb.tap(target_x, slider_y, source="util:hospital_slider:set_position")
     return True
 
 
@@ -376,7 +364,7 @@ def click_healing_button(adb: ADBHelper, debug: bool = False) -> None:
     x, y = HEALING_BUTTON_CLICK
     if debug:
         print(f"  Clicking Healing button at ({x}, {y})")
-    adb.tap(x, y)
+    adb.tap(x, y, source="util:hospital_panel:click_healing")
 
 
 def scroll_panel_down(adb: ADBHelper, debug: bool = False) -> None:

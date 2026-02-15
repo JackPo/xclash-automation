@@ -300,11 +300,11 @@ def drag_slider_to_position(
 
     if debug:
         print(f"  Circle found at X={circle_x}")
-        print(f"  Dragging: ({circle_x}, {SLIDER_Y}) -> ({target_x}, {SLIDER_Y})")
+        print(f"  Clicking slider at target position ({target_x}, {SLIDER_Y})")
 
-    # Swipe FROM the circle's actual position TO the target
+    # Click at target position on slider track
     # Visual coords work directly as ADB coords (1:1 mapping verified)
-    adb.swipe(circle_x, SLIDER_Y, target_x, SLIDER_Y, duration=500)
+    adb.tap(target_x, SLIDER_Y, source="util:training_slider:set_position")
     time.sleep(0.3)
 
 
@@ -348,11 +348,8 @@ def set_training_quantity(
     if debug:
         print("Step 1: Reading full training time (slider at max)...")
 
-    # First drag slider to MIN (far left), then to MAX (far right) to ensure we're at max
-    # This handles case where slider starts in middle
-    adb.swipe(SLIDER_RIGHT_X, SLIDER_Y, SLIDER_LEFT_X, SLIDER_Y, duration=300)  # Go to min first
-    time.sleep(0.3)
-    adb.swipe(SLIDER_LEFT_X, SLIDER_Y, SLIDER_RIGHT_X, SLIDER_Y, duration=300)  # Then to max
+    # Click at MAX position to ensure slider is at max
+    adb.tap(SLIDER_RIGHT_X, SLIDER_Y, source="util:training_slider:set_max")
     time.sleep(0.5)
 
     # Take screenshot and read time (do it twice for reliability)
@@ -421,12 +418,12 @@ def set_training_quantity(
         # Fine-tune with +/- buttons
         if diff > 0:
             # Training time too high, reduce quantity
-            adb.tap(MINUS_BUTTON_CENTER[0], MINUS_BUTTON_CENTER[1])
+            adb.tap(MINUS_BUTTON_CENTER[0], MINUS_BUTTON_CENTER[1], source="util:training_slider:minus")
             if debug:
                 print("  Clicked minus")
         else:
             # Training time too low, increase quantity
-            adb.tap(PLUS_BUTTON_CENTER[0], PLUS_BUTTON_CENTER[1])
+            adb.tap(PLUS_BUTTON_CENTER[0], PLUS_BUTTON_CENTER[1], source="util:training_slider:plus")
             if debug:
                 print("  Clicked plus")
 
