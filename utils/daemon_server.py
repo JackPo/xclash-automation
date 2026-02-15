@@ -173,6 +173,10 @@ class DaemonWebSocketServer:
             "set_zombie_mode": self._cmd_set_zombie_mode,
             "get_zombie_mode": self._cmd_get_zombie_mode,
             "clear_zombie_mode": self._cmd_clear_zombie_mode,
+            # Reinforce mode commands
+            "start_reinforce": self._cmd_start_reinforce,
+            "stop_reinforce": self._cmd_stop_reinforce,
+            "get_reinforce_status": self._cmd_get_reinforce_status,
             # Flow with arguments
             "run_zombie_attack": self._cmd_run_zombie_attack,
             "run_elite_zombie": self._cmd_run_elite_zombie,
@@ -725,6 +729,60 @@ class DaemonWebSocketServer:
             "mode": "elite",
             "message": "Zombie mode cleared, reverted to elite zombie rallies"
         }
+
+    # =========================================================================
+    # Reinforce Mode Commands (loop reinforce camp, block other flows)
+    # =========================================================================
+
+    def _cmd_start_reinforce(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Start reinforce loop mode. Blocks other flows except handshake."""
+        hours = args.get("hours")  # None = until manually stopped
+        interval = args.get("interval", 10)  # Seconds between runs, default 10
+
+        expires = self.daemon.scheduler.set_reinforce_mode(hours)
+
+        # Store interval in daemon state
+        self.daemon.reinforce_interval = interval
+
+        result: dict[str, Any] = {
+            "active": True,
+            "interval": interval,
+            "message": f"Reinforce loop started (interval: {interval}s)"
+        }
+
+        if expires:
+            result["expires"] = expires.isoformat()
+            result["hours"] = hours
+
+        return result
+
+    def _cmd_stop_reinforce(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Stop reinforce loop mode."""
+        self.daemon.scheduler.clear_reinforce_mode()
+        self.daemon.reinforce_interval = None
+        return {
+            "active": False,
+            "message": "Reinforce loop stopped"
+        }
+
+    def _cmd_get_reinforce_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get current reinforce mode status."""
+        active, expires = self.daemon.scheduler.get_reinforce_mode()
+        interval = getattr(self.daemon, 'reinforce_interval', 10)
+
+        result: dict[str, Any] = {
+            "active": active,
+            "interval": interval,
+        }
+
+        if expires:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            remaining = (expires - now).total_seconds() / 3600
+            result["expires"] = expires.isoformat()
+            result["hours_remaining"] = round(remaining, 2)
+
+        return result
 
     # =========================================================================
     # Parameterized Flow Commands

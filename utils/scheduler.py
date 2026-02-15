@@ -247,7 +247,7 @@ class DaemonScheduler:
                 pass
         return result
 
-    def set_tavern_completions(self, completions: list[datetime], dedup_threshold: int = 15) -> None:
+    def set_tavern_completions(self, completions: list[datetime], dedup_threshold: int = 2) -> None:
         """
         Set tavern quest completion times, deduplicating within threshold.
 
@@ -314,6 +314,24 @@ class DaemonScheduler:
         if not future:
             return None
         return min(future)
+
+    def get_last_tavern_dispatch(self) -> datetime | None:
+        """Get last tavern quest dispatch time."""
+        ts = self.schedule.get("tavern_quests", {}).get("last_dispatch")
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return None
+
+    def record_tavern_dispatch(self) -> None:
+        """Record that a tavern quest was dispatched now."""
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+        self.schedule["tavern_quests"]["last_dispatch"] = datetime.now().isoformat()
+        self.save()
+        logger.info("[SCHEDULER] Recorded tavern dispatch")
 
     # =========================================================================
     # Daily Limits (Rally Exhaustion)
@@ -516,6 +534,72 @@ class DaemonScheduler:
         self.schedule.pop("zombie_mode", None)
         self.save()
         logger.info("Zombie mode cleared, reverted to elite")
+
+    # =========================================================================
+    # REINFORCE MODE - Loop reinforce camp, block other flows except handshake
+    # =========================================================================
+
+    def get_reinforce_mode(self) -> tuple[bool, datetime | None]:
+        """
+        Get current reinforce mode status.
+
+        Returns:
+            (active, expires) tuple. active=True if looping reinforce.
+            expires is None if not set or permanent.
+        """
+        state = self.schedule.get("reinforce_mode", {})
+        active = state.get("active", False)
+        expires_str = state.get("expires")
+
+        if not active:
+            return False, None
+
+        if expires_str:
+            try:
+                expires = datetime.fromisoformat(expires_str)
+                now = datetime.now(timezone.utc)
+                if now > expires:
+                    # Expired, clear mode
+                    self.clear_reinforce_mode()
+                    logger.info("Reinforce mode expired")
+                    return False, None
+                return True, expires
+            except (ValueError, TypeError):
+                return False, None
+        return active, None
+
+    def set_reinforce_mode(self, hours: float | None = None) -> datetime | None:
+        """
+        Enable reinforce mode for N hours.
+
+        Args:
+            hours: Duration in hours. None = until manually stopped.
+
+        Returns:
+            Expiry datetime, or None if permanent.
+        """
+        expires = None
+        if hours:
+            expires = datetime.now(timezone.utc) + timedelta(hours=hours)
+            self.schedule["reinforce_mode"] = {
+                "active": True,
+                "expires": expires.isoformat(),
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
+        else:
+            self.schedule["reinforce_mode"] = {
+                "active": True,
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
+        self.save()
+        logger.info(f"Reinforce mode enabled (expires: {expires})")
+        return expires
+
+    def clear_reinforce_mode(self) -> None:
+        """Clear reinforce mode, stop looping."""
+        self.schedule.pop("reinforce_mode", None)
+        self.save()
+        logger.info("Reinforce mode cleared")
 
     def record_arms_race_progress(self, event: str, points: int, chest3_target: int | None, block_start: str) -> None:
         """

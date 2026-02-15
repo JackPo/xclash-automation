@@ -42,6 +42,11 @@ Zombie Attack Commands:
     python daemon_cli.py get_zombie_mode                     # Check current mode
     python daemon_cli.py clear_zombie_mode                   # Reset to elite
 
+Reinforce Camp Loop:
+    python daemon_cli.py start_reinforce                     # Start reinforce loop (until stopped)
+    python daemon_cli.py start_reinforce 2                   # Start for 2 hours
+    python daemon_cli.py stop_reinforce                      # Stop reinforce loop
+
 Examples:
     python daemon_cli.py run_flow bag_flow
     python daemon_cli.py set_config IDLE_THRESHOLD 600
@@ -279,6 +284,11 @@ def main():
         args["mode"] = sys.argv[2]
         if len(sys.argv) >= 4:
             args["hours"] = float(sys.argv[3])
+
+    elif cmd == "start_reinforce":
+        # Usage: daemon_cli.py start_reinforce [hours]
+        if len(sys.argv) >= 3:
+            args["hours"] = float(sys.argv[2])
 
     # Send command and print response
     result = asyncio.run(send_command(cmd, args))

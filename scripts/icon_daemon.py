@@ -590,6 +590,10 @@ class IconDaemon:
         self.command_server = None
         self.paused = False  # Can be toggled via API
 
+        # Reinforce loop mode
+        self.reinforce_interval: int | None = None  # Seconds between reinforce runs
+        self.last_reinforce_time: float = 0  # Last time reinforce was run
+
         # State persistence tracking
         self.state_save_interval = 60  # Save state every N iterations (~3 min at 3s interval)
 
@@ -1898,6 +1902,20 @@ class IconDaemon:
                         self._run_flow("handshake", handshake_flow)
                         self._last_handshake_click = now
                         continue  # Skip rest of iteration, start fresh
+
+                # =================================================================
+                # REINFORCE MODE - Loop reinforce camp, block other flows
+                # =================================================================
+                reinforce_active, _ = self.scheduler.get_reinforce_mode()
+                if reinforce_active and self._can_run_flow():
+                    interval = self.reinforce_interval or 10
+                    now = time.time()
+                    if now - self.last_reinforce_time >= interval:
+                        self.logger.info(f"[{iteration}] REINFORCE MODE: Running reinforce_camp_star (interval={interval}s)")
+                        from scripts.flows.reinforce_camp_star_flow import reinforce_camp_star_flow
+                        self._run_flow("reinforce_camp", lambda: reinforce_camp_star_flow(self.adb, self.win, debug=False))
+                        self.last_reinforce_time = now
+                    continue  # Skip all other flows when reinforce mode is active
 
                 # =================================================================
                 # SCHEDULED FLOWS - Royal City Reinforce (Fridays 6:15-9:00 AM PT)
