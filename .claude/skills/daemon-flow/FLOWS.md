@@ -18,6 +18,7 @@ Detailed documentation for all automated flows in the icon daemon.
 | Hero Upgrade | Enhance Hero event | last N min + idle | (2272, 2038) | `hero_upgrade_arms_race_flow` |
 | Bag | Idle trigger | 5 min idle + 1 hr cooldown | (3725, 1624) | `bag_flow` |
 | Royal City | Scheduled | User-specified time | N/A | `royal_city_flow` |
+| Reinforce Camp | Manual/Loop | Star icon click | N/A | `reinforce_camp_star` |
 
 ---
 
@@ -354,6 +355,32 @@ RALLY_MONSTERS = [
 python scripts/flows/royal_city_flow.py scout --debug
 python scripts/flows/royal_city_flow.py attack --debug
 python scripts/flows/royal_city_flow.py rally --debug
+```
+
+---
+
+## Reinforce Camp Flow
+
+**Trigger**: Manual or loop mode via CLI
+
+**Purpose**: Reinforce a marked siege camp by clicking star icon and sending troops.
+
+**Sequence**:
+1. Go to WORLD view
+2. Find and click star icon (template: `mark_star_icon_4k.png`)
+3. Click Reinforce button on camp popup (template: `royal_city_reinforce_button_4k.png`)
+4. Click Reinforce button on panel (template: `reinforce_panel_button_4k.png`)
+5. Click leftmost hero slot (fixed: 1467, 1869)
+6. Click March button (template: `march_button_4k.png`, search_region constrained)
+
+**Templates**:
+- `mark_star_icon_4k.png` - Star marker on world map
+- `royal_city_reinforce_button_4k.png` - Reinforce button on camp popup
+- `reinforce_panel_button_4k.png` - Blue Reinforce button on panel
+
+**Testing**:
+```bash
+python scripts/flows/reinforce_camp_star_flow.py --debug
 ```
 
 ---
