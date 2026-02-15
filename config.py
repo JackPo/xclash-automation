@@ -369,7 +369,7 @@ ROYAL_CITY_BUTTON_SIZE = (153, 177)
 # Automatically join Union War rallies based on monster type and level.
 
 # Rally joining enable/disable
-RALLY_JOIN_ENABLED = False  # Set to True to enable rally joining
+RALLY_JOIN_ENABLED = True  # Enable rally joining
 RALLY_MARCH_BUTTON_COOLDOWN = 30  # Seconds between march button clicks
 
 # Rally daily limit override
