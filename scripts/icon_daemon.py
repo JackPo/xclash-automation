@@ -1923,7 +1923,7 @@ class IconDaemon:
                         self.logger.info(f"[{iteration}] REINFORCE LOOP: Running reinforce_camp_star (interval={interval}s)")
                         from scripts.flows.reinforce_camp_star_flow import reinforce_camp_star_flow
                         try:
-                            reinforce_camp_star_flow(self.adb, self.win, debug=False)
+                            reinforce_camp_star_flow(self.adb, self.windows_helper, debug=False)
                         except Exception as e:
                             self.logger.error(f"[{iteration}] REINFORCE LOOP failed: {e}")
                         self.last_reinforce_time = now
