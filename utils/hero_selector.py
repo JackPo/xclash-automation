@@ -42,8 +42,9 @@ class SlotStatus(TypedDict):
 class HeroSelector:
     """Select rightmost idle hero based on Zz icon detection."""
 
-    TEMPLATE_NAME = "zz_icon_template_4k.png"
-    THRESHOLD = 0.1
+    ZZ_TEMPLATE = "zz_icon_template_4k.png"
+    RETURN_ARROW_TEMPLATE = "return_arrow_4k.png"
+    THRESHOLD = 0.05  # Tightened from 0.1 to reduce false positives
 
     SLOTS: list[SlotInfo] = [
         {'id': 3, 'pos': (1946, 1851), 'size': (40, 36), 'click': (1966, 1869)},
@@ -58,21 +59,29 @@ class HeroSelector:
         """
         Check if a slot has Zz icon (hero is idle).
 
+        Compares Zz template vs Return Arrow template. Only idle if:
+        1. Zz score passes threshold (< 0.1)
+        2. Zz score is LOWER than Return Arrow score (Zz is better match)
+
         Args:
             frame: BGR numpy array (4K screenshot)
             slot: Slot dict with 'pos' and 'size'
 
         Returns:
-            (is_idle, score) - is_idle=True if Zz present, score for debugging
+            (is_idle, score) - is_idle=True if Zz wins, score is the Zz score
         """
         x, y = slot['pos']
         w, h = slot['size']
+        region = (x, y, w, h)
 
-        found, score, _ = match_template(frame, self.TEMPLATE_NAME, search_region=(x, y, w, h),
-            threshold=self.THRESHOLD
-        )
+        # Check both templates
+        _, zz_score, _ = match_template(frame, self.ZZ_TEMPLATE, search_region=region, threshold=self.THRESHOLD)
+        _, arrow_score, _ = match_template(frame, self.RETURN_ARROW_TEMPLATE, search_region=region, threshold=self.THRESHOLD)
 
-        return found, score
+        # Idle only if Zz passes threshold AND Zz score < arrow score (Zz is better match)
+        is_idle = (zz_score < self.THRESHOLD) and (zz_score < arrow_score)
+
+        return is_idle, zz_score
 
     def find_rightmost_idle(self, frame: npt.NDArray[Any], zz_mode: str = 'require') -> SlotInfo | None:
         """
