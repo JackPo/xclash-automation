@@ -42,7 +42,7 @@ TEMPLATES_DIR = "union_cities"
 
 # Fixed click coordinates (4K resolution)
 UNION_BUTTON_CLICK = (3165, 2033)  # Union button on bottom bar
-UNION_CITY_CLICK = (2173, 1007)    # Union City button in Union menu
+UNION_CITY_CLICK = (2175, 1759)    # Union City button in Union menu (Gemini detected)
 COAL_OUTPUT_TAB_CLICK = (1670, 185)  # Coal Output tab
 CLAIM_ALL_CLICK = (1914, 2036)     # Claim All button
 
