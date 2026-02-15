@@ -1699,7 +1699,8 @@ class IconDaemon:
                         self.logger.error(f"[{iteration}] Shield inventory check failed: {e}")
 
                 # Skip all daemon checks if critical flow is active
-                if self.critical_flow_active:
+                # EXCEPTION: reinforce_loop is a looping critical flow - let it fall through
+                if self.critical_flow_active and self.critical_flow_name != "reinforce_loop":
                     # Check for timeout - auto-clear stuck critical flows
                     # Treasure flows get 10 min timeout, others get 2 min
                     if self.critical_flow_start_time is not None:
@@ -1904,18 +1905,38 @@ class IconDaemon:
                         continue  # Skip rest of iteration, start fresh
 
                 # =================================================================
-                # REINFORCE MODE - Loop reinforce camp, block other flows
+                # REINFORCE MODE - Loop reinforce camp as critical flow
                 # =================================================================
                 reinforce_active, _ = self.scheduler.get_reinforce_mode()
-                if reinforce_active and self._can_run_flow():
+                if reinforce_active:
+                    # Set critical flow to block everything
+                    if not self.critical_flow_active:
+                        self.critical_flow_active = True
+                        self.critical_flow_name = "reinforce_loop"
+                        self.critical_flow_start_time = time.time()
+                        self.logger.info(f"[{iteration}] REINFORCE LOOP: Activated as critical flow")
+
+                    # Run reinforce flow if interval elapsed
                     interval = self.reinforce_interval or 10
                     now = time.time()
                     if now - self.last_reinforce_time >= interval:
-                        self.logger.info(f"[{iteration}] REINFORCE MODE: Running reinforce_camp_star (interval={interval}s)")
+                        self.logger.info(f"[{iteration}] REINFORCE LOOP: Running reinforce_camp_star (interval={interval}s)")
                         from scripts.flows.reinforce_camp_star_flow import reinforce_camp_star_flow
-                        self._run_flow("reinforce_camp", lambda: reinforce_camp_star_flow(self.adb, self.win, debug=False))
+                        try:
+                            reinforce_camp_star_flow(self.adb, self.win, debug=False)
+                        except Exception as e:
+                            self.logger.error(f"[{iteration}] REINFORCE LOOP failed: {e}")
                         self.last_reinforce_time = now
-                    continue  # Skip all other flows when reinforce mode is active
+
+                    time.sleep(self.interval)
+                    continue
+                else:
+                    # Clear critical flow if reinforce mode was just disabled
+                    if self.critical_flow_active and self.critical_flow_name == "reinforce_loop":
+                        self.critical_flow_active = False
+                        self.critical_flow_name = None
+                        self.critical_flow_start_time = None
+                        self.logger.info(f"[{iteration}] REINFORCE LOOP: Deactivated")
 
                 # =================================================================
                 # SCHEDULED FLOWS - Royal City Reinforce (Fridays 6:15-9:00 AM PT)
