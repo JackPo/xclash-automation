@@ -758,6 +758,8 @@ class DaemonWebSocketServer:
 
     def _cmd_stop_reinforce(self, args: dict[str, Any]) -> dict[str, Any]:
         """Stop reinforce loop mode."""
+        import traceback
+        logger.warning(f"STOP_REINFORCE called! Stack trace:\n{''.join(traceback.format_stack())}")
         self.daemon.scheduler.clear_reinforce_mode()
         self.daemon.reinforce_interval = None
         return {
