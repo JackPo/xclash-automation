@@ -74,7 +74,8 @@ MIN_DISTANCE_BETWEEN_MATCHES = 50  # Pixels, to avoid duplicate detections
 
 # Timing constants
 CLICK_DELAY = 0.5
-SCREEN_TRANSITION_DELAY = 1.5
+POLL_INTERVAL = 0.1  # Poll every 100ms
+MAX_POLL_TIME = 2.0  # Max wait time when polling
 LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
 
 def _is_on_technology_panel(frame: npt.NDArray[Any]) -> tuple[bool, float]:
@@ -126,6 +127,56 @@ def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     return save_debug_screenshot(frame, "union_technology", name)
 
 
+def _poll_for_panel(win: WindowsScreenshotHelper, max_time: float = MAX_POLL_TIME) -> tuple[bool, npt.NDArray[Any] | None]:
+    """
+    Poll until Union Technology panel header is visible.
+
+    Returns:
+        (found, frame) - True if panel detected, along with the frame
+    """
+    polls = int(max_time / POLL_INTERVAL)
+    for i in range(polls):
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            time.sleep(POLL_INTERVAL)
+            continue
+
+        found, score = _is_on_technology_panel(frame)
+        if found:
+            return True, frame
+
+        time.sleep(POLL_INTERVAL)
+
+    # Return last frame even if not found
+    return False, frame
+
+
+def _poll_for_donate_dialog(win: WindowsScreenshotHelper, max_time: float = MAX_POLL_TIME) -> tuple[bool, bool, npt.NDArray[Any] | None]:
+    """
+    Poll until donate dialog is visible (active or inactive button).
+
+    Returns:
+        (found, is_active, frame) - True if dialog detected, whether active, and the frame
+    """
+    polls = int(max_time / POLL_INTERVAL)
+    for i in range(polls):
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            time.sleep(POLL_INTERVAL)
+            continue
+
+        is_active, active_score = _is_donate_dialog_active(frame)
+        is_inactive, inactive_score = _is_donate_dialog_inactive(frame)
+
+        if is_active or is_inactive:
+            return True, is_active, frame
+
+        time.sleep(POLL_INTERVAL)
+
+    # Return last frame even if not found
+    return False, False, frame
+
+
 def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
@@ -149,24 +200,21 @@ def union_technology_flow(adb: ADBHelper) -> bool:
 
     # Step 1: Click Union button
     _log(f"Step 1: Clicking Union button at {UNION_BUTTON_CLICK}")
-    adb.tap(*UNION_BUTTON_CLICK)
-    time.sleep(SCREEN_TRANSITION_DELAY)
-
-    frame = win.get_screenshot_cv2()
-    if frame is not None:
-        _save_debug_screenshot(frame, "01_after_union_click")
+    adb.tap(*UNION_BUTTON_CLICK, source="flow:union_technology:union_button")
+    time.sleep(0.3)  # Brief delay for tap to register
 
     # Step 2: Click Union Technology
     _log(f"Step 2: Clicking Union Technology at {UNION_TECHNOLOGY_CLICK}")
-    adb.tap(*UNION_TECHNOLOGY_CLICK)
-    time.sleep(SCREEN_TRANSITION_DELAY)
+    adb.tap(*UNION_TECHNOLOGY_CLICK, source="flow:union_technology:technology_menu")
 
-    frame = win.get_screenshot_cv2()
+    # Step 3: Poll for Technology panel header (instead of blind wait)
+    is_on_panel, frame = _poll_for_panel(win)
     if frame is not None:
-        _save_debug_screenshot(frame, "02_after_technology_click")
+        _save_debug_screenshot(frame, "03_panel_check")
 
-    # Step 3: Validate we're on Technology panel
-    is_on_panel, header_score = _is_on_technology_panel(frame)
+    header_score = 0.0
+    if frame is not None:
+        _, header_score = _is_on_technology_panel(frame)
     _log(f"Step 3: Header validation - on_panel={is_on_panel}, score={header_score:.4f}")
 
     if not is_on_panel:
@@ -189,17 +237,19 @@ def union_technology_flow(adb: ADBHelper) -> bool:
 
     # Step 5: Click the badge
     _log(f"Step 5: Clicking badge at ({badge_x}, {badge_y})")
-    adb.tap(badge_x, badge_y)
-    time.sleep(SCREEN_TRANSITION_DELAY)
+    adb.tap(badge_x, badge_y, source="flow:union_technology:click_badge")
 
-    frame = win.get_screenshot_cv2()
+    # Step 6: Poll for donate dialog (instead of blind wait)
+    dialog_found, is_active, frame = _poll_for_donate_dialog(win)
     if frame is not None:
-        _save_debug_screenshot(frame, "05_after_badge_click")
+        _save_debug_screenshot(frame, "06_donate_dialog")
 
-    # Step 6: Check donate dialog state (active vs inactive)
-    is_active, active_score = _is_donate_dialog_active(frame)
-    is_inactive, inactive_score = _is_donate_dialog_inactive(frame)
-    _log(f"Step 6: Donate dialog - active={is_active} ({active_score:.4f}), inactive={is_inactive} ({inactive_score:.4f})")
+    active_score, inactive_score = 0.0, 0.0
+    is_inactive = False
+    if frame is not None:
+        is_active, active_score = _is_donate_dialog_active(frame)
+        is_inactive, inactive_score = _is_donate_dialog_inactive(frame)
+    _log(f"Step 6: Donate dialog - found={dialog_found}, active={is_active} ({active_score:.4f}), inactive={is_inactive} ({inactive_score:.4f})")
 
     if is_inactive:
         _log("Donate button is INACTIVE (gray) - nothing to donate, skipping")
