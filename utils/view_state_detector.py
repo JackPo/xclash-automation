@@ -171,7 +171,7 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
             if debug:
                 print(f"TOWN->WORLD, clicking toggle at {TOGGLE_BUTTON_CLICK}")
             adb.tap(*TOGGLE_BUTTON_CLICK, source="util:view_state:go_world")
-            time.sleep(1.0)
+            time.sleep(0.5)
             continue
 
         # In WORLD, want TOWN - click toggle button
@@ -179,7 +179,7 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
             if debug:
                 print(f"WORLD->TOWN, clicking toggle at {TOGGLE_BUTTON_CLICK}")
             adb.tap(*TOGGLE_BUTTON_CLICK, source="util:view_state:go_town")
-            time.sleep(1.0)
+            time.sleep(0.5)
             continue
 
         # UNKNOWN state - likely a dialog/popup blocking the view
@@ -230,13 +230,23 @@ def navigate_to(adb: ADBHelper, target: ViewState, max_attempts: int = 5, debug:
 
 
 def go_to_town(adb: ADBHelper, debug: bool = False) -> bool:
-    """Navigate to TOWN view."""
-    return navigate_to(adb, ViewState.TOWN, debug=debug)
+    """
+    Navigate to TOWN view.
+
+    This is a convenience wrapper around return_to_base_view(target=ViewState.TOWN).
+    """
+    from utils.return_to_base_view import return_to_base_view
+    return return_to_base_view(adb, debug=debug, target=ViewState.TOWN)
 
 
 def go_to_world(adb: ADBHelper, debug: bool = False) -> bool:
-    """Navigate to WORLD view."""
-    return navigate_to(adb, ViewState.WORLD, debug=debug)
+    """
+    Navigate to WORLD view.
+
+    This is a convenience wrapper around return_to_base_view(target=ViewState.WORLD).
+    """
+    from utils.return_to_base_view import return_to_base_view
+    return return_to_base_view(adb, debug=debug, target=ViewState.WORLD)
 
 
 def exit_chat(adb: ADBHelper, debug: bool = False) -> ViewState:

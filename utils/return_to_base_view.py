@@ -151,6 +151,13 @@ def _start_app(adb: ADBHelper, debug: bool = False) -> None:
     )
     time.sleep(2)
 
+    # Kill other apps (Play Store, Game Center, etc.)
+    if debug:
+        print("    [RETURN] Killing other apps...")
+    killed = adb.kill_other_apps()
+    if debug and killed:
+        print(f"    [RETURN] Killed: {', '.join(killed)}")
+
     if debug:
         print("    [RETURN] Starting xclash...")
     subprocess.run(
@@ -256,14 +263,66 @@ def _try_zoom_out_recovery(win: WindowsScreenshotHelper, debug: bool = False) ->
     return False
 
 
-def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None,
-                        debug: bool = False, respect_idle: bool = True) -> bool:
+def _ensure_target_view(adb: ADBHelper, win: WindowsScreenshotHelper, current: ViewState,
+                        target: ViewState | None, debug: bool = False) -> bool:
     """
-    Return to TOWN or WORLD view.
+    Ensure we're at the target view. If current != target, toggle.
 
     Args:
+        current: Current ViewState (must be TOWN or WORLD)
+        target: Target ViewState (TOWN, WORLD, or None for any)
+
+    Returns:
+        True if at target (or target is None), False if toggle failed
+    """
+    if target is None:
+        return True
+
+    if current == target:
+        return True
+
+    # Need to toggle
+    if debug:
+        print(f"    [RETURN] At {current.value}, need {target.value} - toggling")
+
+    from config import TOGGLE_BUTTON_CLICK
+    adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_to_target")
+
+    # Poll until view changes (max 1s)
+    for poll in range(10):
+        time.sleep(0.1)
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            continue
+        poll_state, _ = detect_view(frame)
+        if poll_state == target:
+            if debug:
+                print(f"    [RETURN] Toggled to {target.value}")
+            return True
+
+    if debug:
+        print(f"    [RETURN] Failed to toggle to {target.value}")
+    return False
+
+
+def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None,
+                        debug: bool = False, respect_idle: bool = True,
+                        target: ViewState | None = None) -> bool:
+    """
+    Return to TOWN or WORLD view. THE unified navigation/recovery function.
+
+    Args:
+        adb: ADBHelper instance
+        screenshot_helper: Optional WindowsScreenshotHelper (created if not provided)
+        debug: Print debug info
         respect_idle: If True (default), skip recovery if user is active (idle < threshold).
                      Set to False for startup recovery or critical situations.
+        target: Optional specific view to navigate to (ViewState.TOWN or ViewState.WORLD).
+                If None, returns True when reaching either TOWN or WORLD.
+                If specified, will toggle to that view after reaching base view.
+
+    Returns:
+        True if successfully reached target view (or any base view if target=None)
     """
     global _consecutive_restarts  # Track restart count across recursive calls
 
@@ -282,6 +341,105 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 return True  # Assume user is handling it
         except Exception:
             pass  # If idle check fails, proceed with recovery
+
+    # =========================================================================
+    # FAST PATH: Try simple navigation FIRST (no subprocess calls)
+    # This handles the common case: we're in a menu, just need to click back
+    # =========================================================================
+    from utils.ui_helpers import click_back
+
+    for fast_attempt in range(5):
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            break
+
+        # Check if already at TOWN/WORLD
+        view_state, view_score = detect_view(frame)
+        if view_state in (ViewState.TOWN, ViewState.WORLD):
+            _consecutive_restarts = 0
+            if debug:
+                print(f"    [RETURN] Fast path: At {view_state.value} (attempt {fast_attempt + 1})")
+            if _ensure_target_view(adb, win, view_state, target, debug):
+                return True
+            continue  # Toggle failed, retry
+
+        # Check for back button
+        back_present, back_score, back_pos, matched_template = back_matcher.find(frame)
+        if back_present and back_pos:
+            if debug:
+                print(f"    [RETURN] Fast path: Back button at {back_pos}, clicking (attempt {fast_attempt + 1})")
+            adb.tap(*back_pos, source="rtb:fast_back")
+
+            # Poll until back button gone or view changed (max 1s)
+            for poll in range(10):
+                time.sleep(0.1)
+                poll_frame = win.get_screenshot_cv2()
+                if poll_frame is None:
+                    continue
+
+                # Check if reached TOWN/WORLD
+                poll_state, _ = detect_view(poll_frame)
+                if poll_state in (ViewState.TOWN, ViewState.WORLD):
+                    _consecutive_restarts = 0
+                    if debug:
+                        print(f"    [RETURN] Fast path: Reached {poll_state.value} after {(poll+1)*0.1:.1f}s")
+                    if _ensure_target_view(adb, win, poll_state, target, debug):
+                        return True
+                    break  # At base view but wrong target, continue outer loop
+
+                # Check if that specific back button is gone
+                if matched_template and not back_matcher.is_template_present(poll_frame, matched_template, near_pos=back_pos, tolerance=30):
+                    if debug:
+                        print(f"    [RETURN] Fast path: Back button dismissed after {(poll+1)*0.1:.1f}s")
+                    break
+            continue
+
+        # Check for CHAT state
+        if view_state == ViewState.CHAT:
+            if debug:
+                print(f"    [RETURN] Fast path: In CHAT, clicking back (attempt {fast_attempt + 1})")
+            click_back(adb)
+
+            # Poll until view changes (max 1s)
+            for poll in range(10):
+                time.sleep(0.1)
+                poll_frame = win.get_screenshot_cv2()
+                if poll_frame is None:
+                    continue
+                poll_state, _ = detect_view(poll_frame)
+                if poll_state in (ViewState.TOWN, ViewState.WORLD):
+                    _consecutive_restarts = 0
+                    if debug:
+                        print(f"    [RETURN] Fast path: Exited CHAT to {poll_state.value} after {(poll+1)*0.1:.1f}s")
+                    if _ensure_target_view(adb, win, poll_state, target, debug):
+                        return True
+                    break  # At base view but wrong target, continue outer loop
+                if poll_state != ViewState.CHAT:
+                    break  # State changed, continue outer loop
+            continue
+
+        # UNKNOWN state with no back button - fast path can't handle, break to full recovery
+        if debug:
+            print(f"    [RETURN] Fast path: UNKNOWN state, no back button - escalating to full recovery")
+        break
+
+    # Check one more time after fast path
+    frame = win.get_screenshot_cv2()
+    if frame is not None:
+        view_state, _ = detect_view(frame)
+        if view_state in (ViewState.TOWN, ViewState.WORLD):
+            _consecutive_restarts = 0
+            if debug:
+                print(f"    [RETURN] Fast path succeeded: {view_state.value}")
+            if _ensure_target_view(adb, win, view_state, target, debug):
+                return True
+
+    # =========================================================================
+    # SLOW PATH: Full recovery with subprocess checks (app/resolution/restart)
+    # Only runs if fast path failed
+    # =========================================================================
+    if debug:
+        print("    [RETURN] Fast path failed, starting full recovery...")
 
     # ALWAYS capture entry screenshot for debugging
     entry_frame = win.get_screenshot_cv2()
@@ -318,7 +476,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             frame = win.get_screenshot_cv2()
             _save_rtb_debug(frame, "STEP1_after_dismiss_popups")
 
-    # STEP 2: Try to get to TOWN/WORLD (5 attempts)
+    # STEP 2: Try to get to TOWN/WORLD (full recovery attempts)
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
         if debug:
             print(f"    [RETURN] Attempt {attempt + 1}/{MAX_RECOVERY_ATTEMPTS}")
