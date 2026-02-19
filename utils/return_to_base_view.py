@@ -288,9 +288,9 @@ def _ensure_target_view(adb: ADBHelper, win: WindowsScreenshotHelper, current: V
     from config import TOGGLE_BUTTON_CLICK
     adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_to_target")
 
-    # Poll until view changes (max 1s)
-    for poll in range(10):
-        time.sleep(0.1)
+    # Poll until view changes (max 1.5s)
+    for poll in range(5):
+        time.sleep(0.3)
         frame = win.get_screenshot_cv2()
         if frame is None:
             continue
@@ -370,9 +370,9 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 print(f"    [RETURN] Fast path: Back button at {back_pos}, clicking (attempt {fast_attempt + 1})")
             adb.tap(*back_pos, source="rtb:fast_back")
 
-            # Poll until back button gone or view changed (max 1s)
-            for poll in range(10):
-                time.sleep(0.1)
+            # Poll until back button gone or view changed (max 1.5s)
+            for poll in range(5):
+                time.sleep(0.3)
                 poll_frame = win.get_screenshot_cv2()
                 if poll_frame is None:
                     continue
@@ -382,7 +382,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if poll_state in (ViewState.TOWN, ViewState.WORLD):
                     _consecutive_restarts = 0
                     if debug:
-                        print(f"    [RETURN] Fast path: Reached {poll_state.value} after {(poll+1)*0.1:.1f}s")
+                        print(f"    [RETURN] Fast path: Reached {poll_state.value} after {(poll+1)*0.3:.1f}s")
                     if _ensure_target_view(adb, win, poll_state, target, debug):
                         return True
                     break  # At base view but wrong target, continue outer loop
@@ -390,7 +390,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 # Check if that specific back button is gone
                 if matched_template and not back_matcher.is_template_present(poll_frame, matched_template, near_pos=back_pos, tolerance=30):
                     if debug:
-                        print(f"    [RETURN] Fast path: Back button dismissed after {(poll+1)*0.1:.1f}s")
+                        print(f"    [RETURN] Fast path: Back button dismissed after {(poll+1)*0.3:.1f}s")
                     break
             continue
 
@@ -400,9 +400,9 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 print(f"    [RETURN] Fast path: In CHAT, clicking back (attempt {fast_attempt + 1})")
             click_back(adb)
 
-            # Poll until view changes (max 1s)
-            for poll in range(10):
-                time.sleep(0.1)
+            # Poll until view changes (max 1.5s)
+            for poll in range(5):
+                time.sleep(0.3)
                 poll_frame = win.get_screenshot_cv2()
                 if poll_frame is None:
                     continue
@@ -410,7 +410,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if poll_state in (ViewState.TOWN, ViewState.WORLD):
                     _consecutive_restarts = 0
                     if debug:
-                        print(f"    [RETURN] Fast path: Exited CHAT to {poll_state.value} after {(poll+1)*0.1:.1f}s")
+                        print(f"    [RETURN] Fast path: Exited CHAT to {poll_state.value} after {(poll+1)*0.3:.1f}s")
                     if _ensure_target_view(adb, win, poll_state, target, debug):
                         return True
                     break  # At base view but wrong target, continue outer loop
@@ -511,8 +511,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 back_clicks += 1
 
                 # Poll for THAT SPECIFIC template at THAT position to be gone
-                for poll in range(15):  # Up to 1.5s (15 x 0.1s) - fast polling with 9ms screenshots
-                    time.sleep(0.1)
+                for poll in range(5):  # Up to 1.5s (5 x 0.3s)
+                    time.sleep(0.3)
                     poll_frame = win.get_screenshot_cv2()
                     if poll_frame is None:
                         continue  # type: ignore[unreachable]
@@ -686,15 +686,15 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     print(f"    [RETURN] BACK BUTTON at {back_pos} - clicking to exit dialog...")
                 adb.tap(*back_pos, source="rtb:back_button")
                 # Poll for back button to disappear (same as Phase 1)
-                for poll in range(10):
-                    time.sleep(0.1)
+                for poll in range(5):
+                    time.sleep(0.3)
                     poll_frame = win.get_screenshot_cv2()
                     if poll_frame is not None:
                         poll_state, _ = detect_view(poll_frame)
                         if poll_state in (ViewState.TOWN, ViewState.WORLD):
                             _consecutive_restarts = 0
                             if debug:
-                                print(f"    [RETURN] SUCCESS after back click ({(poll+1)*0.1:.1f}s)")
+                                print(f"    [RETURN] SUCCESS after back click ({(poll+1)*0.3:.1f}s)")
                             return True
                 continue
 
