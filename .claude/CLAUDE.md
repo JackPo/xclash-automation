@@ -95,23 +95,24 @@ Two-step resolution (required): 3088x1440 → 3840x2160 → 560 DPI
 
 ---
 
-## View State Detection
+## View State Detection & Navigation
 
 ```python
-from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
-
-state, score = detect_view(frame)  # TOWN/WORLD/CHAT/WEBVIEW/UNKNOWN
-go_to_town(adb)   # Navigate from anywhere
-go_to_world(adb)
-```
-
-## Flow Recovery
-
-```python
+from utils.view_state_detector import detect_view, ViewState
 from utils.return_to_base_view import return_to_base_view
 
-success = return_to_base_view(adb, win)  # Keeps trying until TOWN/WORLD
+# Detect current view
+state, score = detect_view(frame)  # TOWN/WORLD/CHAT/WEBVIEW/UNKNOWN
+
+# Navigate to base view (TOWN or WORLD) - THE unified function
+return_to_base_view(adb)  # Fast path first, full recovery if needed
+
+# Navigate to specific view
+return_to_base_view(adb, target=ViewState.TOWN)   # Go to TOWN specifically
+return_to_base_view(adb, target=ViewState.WORLD)  # Go to WORLD specifically
 ```
+
+**Note**: `go_to_town()`/`go_to_world()` are convenience wrappers around `return_to_base_view(target=...)`
 
 ---
 
@@ -120,7 +121,7 @@ success = return_to_base_view(adb, win)  # Keeps trying until TOWN/WORLD
 | Control | Method | Implementation |
 |---------|--------|----------------|
 | Screenshots | Windows API | `WindowsScreenshotHelper` |
-| View Toggle | ADB tap | `view_state_detector.go_to_town/world()` |
+| Navigation | ADB tap | `return_to_base_view(target=ViewState.TOWN/WORLD)` |
 | UI Clicking | ADB tap | `adb_helper.tap(x, y)` |
 | Arrow Keys | Win32 API | `send_arrow_proper.py` (focus required) |
 | Zoom | Win32 API | `send_zoom.py` (Shift+A/Z, focus required) |
