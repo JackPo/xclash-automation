@@ -246,7 +246,7 @@ def go_to_world(adb: ADBHelper, debug: bool = False) -> bool:
     This is a convenience wrapper around return_to_base_view(target=ViewState.WORLD).
     """
     from utils.return_to_base_view import return_to_base_view
-    return return_to_base_view(adb, debug=debug, target=ViewState.WORLD)
+    return return_to_base_view(adb, debug=debug, target=ViewState.WORLD, respect_idle=False)
 
 
 def exit_chat(adb: ADBHelper, debug: bool = False) -> ViewState:

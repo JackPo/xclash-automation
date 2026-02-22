@@ -31,7 +31,7 @@ import numpy.typing as npt
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
 from utils.return_to_base_view import return_to_base_view
-from utils.view_state_detector import go_to_town
+# go_to_world no longer needed - go_to_mark_flow handles view switching
 from utils.template_matcher import match_template
 
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -43,12 +43,14 @@ with open(DATA_DIR / "kingdom_titles.json") as f:
 
 # Fixed click positions (4K)
 STAR_ICON_CLICK = (1919, 1285)
-MANAGE_BUTTON_CLICK = (2230, 881)
+MANAGE_BUTTON_CLICK = (2230, 881)        # Position on OTHER Royal Cities
+MANAGE_BUTTON_CLICK_OWN = (2230, 731)    # Position on YOUR Royal City (has Reinforce/Garrison buttons)
 TITLE_ASSIGNMENT_CLICK = (1650, 976)
 APPLY_BUTTON_CLICK = (1914, 1844)
 
 # Template positions for validation
-ROYAL_CITY_HEADER_POS = (1463, 328)
+ROYAL_CITY_HEADER_POS = (1463, 328)           # Position on OTHER Royal Cities
+ROYAL_CITY_HEADER_POS_OWN = (1463, 471)       # Position on YOUR Royal City
 ROYAL_CITY_HEADER_SIZE = (902, 93)
 
 ROYAL_CITY_MGMT_HEADER_POS = (1336, 0)
@@ -215,6 +217,13 @@ def title_management_flow(
     """
     win = screenshot_helper or WindowsScreenshotHelper()
 
+    # Must be in WORLD view and at Royal City to apply titles
+    from scripts.flows.go_to_mark_flow import go_to_mark_flow
+    if not go_to_mark_flow(adb, win, debug=debug):
+        print("  ERROR: Failed to navigate to marked Royal City")
+        return False
+    time.sleep(0.5)
+
     # Validate title name
     titles = TITLE_DATA.get("titles", {})
     if title_name not in titles:
@@ -250,29 +259,44 @@ def title_management_flow(
                 print(f"    Star icon found at {star_pos} (score={score:.4f})")
         adb.tap(*star_pos, source="flow:title_management:click_star")
 
-        # Poll for Royal City header
-        if debug:
-            print("    Polling for Royal City header...")
-        matched, _ = _poll_for_template(
-            win, TEMPLATE_DIR / "mark_royal_city_header_4k.png",
-            ROYAL_CITY_HEADER_POS, ROYAL_CITY_HEADER_SIZE, debug=debug
-        )
+        # Poll for Royal City header (try both positions - OTHER city and OWN city)
+        header_positions = [ROYAL_CITY_HEADER_POS_OWN, ROYAL_CITY_HEADER_POS]  # Own city first, then other
+        matched = False
+        for i, header_pos in enumerate(header_positions):
+            if debug:
+                pos_name = "OWN city" if i == 0 else "OTHER city"
+                print(f"    Polling for Royal City header at {header_pos} ({pos_name})...")
+            matched, _ = _poll_for_template(
+                win, TEMPLATE_DIR / "mark_royal_city_header_4k.png",
+                header_pos, ROYAL_CITY_HEADER_SIZE, debug=debug
+            )
+            if matched:
+                break
         if not matched:
             print("  ERROR: Royal City header not found")
             return False
 
-        # Step 2: Click Manage button
-        if debug:
-            print(f"  Step 2: Clicking Manage at {MANAGE_BUTTON_CLICK}")
-        adb.tap(*MANAGE_BUTTON_CLICK, source="flow:title_management:manage_button")
+        # Step 2: Click Manage button (try both positions)
+        manage_positions = [MANAGE_BUTTON_CLICK_OWN, MANAGE_BUTTON_CLICK]  # Own city first, then other
+        matched = False
+        for i, manage_pos in enumerate(manage_positions):
+            if debug:
+                pos_name = "OWN city" if i == 0 else "OTHER city"
+                print(f"  Step 2: Clicking Manage at {manage_pos} ({pos_name})")
+            adb.tap(*manage_pos, source="flow:title_management:manage_button")
 
-        # Poll for Royal City Management header
-        if debug:
-            print("    Polling for Royal City Management header...")
-        matched, _ = _poll_for_template(
-            win, TEMPLATE_DIR / "mark_royal_city_mgmt_header_4k.png",
-            ROYAL_CITY_MGMT_HEADER_POS, ROYAL_CITY_MGMT_HEADER_SIZE, debug=debug
-        )
+            # Poll for Royal City Management header
+            if debug:
+                print("    Polling for Royal City Management header...")
+            matched, _ = _poll_for_template(
+                win, TEMPLATE_DIR / "mark_royal_city_mgmt_header_4k.png",
+                ROYAL_CITY_MGMT_HEADER_POS, ROYAL_CITY_MGMT_HEADER_SIZE, debug=debug
+            )
+            if matched:
+                break
+            if debug and i < len(manage_positions) - 1:
+                print("    Not found, trying alternate position...")
+
         if not matched:
             print("  ERROR: Royal City Management header not found")
             return False
@@ -390,9 +414,9 @@ def title_management_flow(
     finally:
         if return_to_base:
             if debug:
-                print("  Returning to TOWN...")
+                print("  Returning to WORLD...")
             return_to_base_view(adb, win, debug=debug)
-            go_to_town(adb)
+            go_to_world(adb)
         else:
             if debug:
                 print("  Staying on screen (--no-return)")

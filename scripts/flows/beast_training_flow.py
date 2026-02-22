@@ -351,6 +351,195 @@ def check_progress_quick(
 
 
 # =============================================================================
+# AGGRESSIVE BEAST TRAINING FLOW
+# =============================================================================
+
+ELITE_STAMINA_COST = 24  # Stamina per elite rally
+POINTS_PER_RALLY = 2000  # 20 stamina * 100 pts/stamina (actually 24 stamina but same points)
+
+
+class AggressiveResult(TypedDict):
+    """Result from aggressive_beast_training_flow."""
+
+    success: bool
+    rallies_done: int
+    current_points: int | None
+    rallies_needed: int
+    error: str | None
+
+
+def aggressive_beast_training_flow(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+    scheduler: DaemonScheduler | None = None,
+) -> AggressiveResult:
+    """
+    Aggressive beast training with VERIFICATION LOOP.
+
+    Instead of trusting upfront calculations, uses a feedback loop:
+    1. Check current score
+    2. If score >= 30,000: DONE (verified)
+    3. Calculate deficit, get stamina, do rallies
+    4. GOTO 1 (re-check score)
+
+    Only exits when chest3 is VERIFIED achieved.
+
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        debug: Enable debug logging
+        scheduler: Optional Scheduler instance to get zombie mode
+
+    Returns:
+        AggressiveResult with success, rallies_done, current_points, rallies_needed, error
+    """
+    from math import ceil
+    from scripts.flows.elite_zombie_flow import elite_zombie_flow
+    from scripts.flows.stamina_use_flow import stamina_get
+    from config import ELITE_ZOMBIE_TARGET_LEVEL
+    from utils.ocr_client import OCRClient
+
+    result: AggressiveResult = {
+        "success": False,
+        "rallies_done": 0,
+        "current_points": None,
+        "rallies_needed": 0,
+        "error": None,
+    }
+
+    MAX_ITERATIONS = 5  # Safety limit to prevent infinite loop
+    ocr = OCRClient()
+    total_rallies_done = 0
+
+    try:
+        logger.info("=" * 60)
+        logger.info("=== AGGRESSIVE BEAST TRAINING - VERIFICATION LOOP ===")
+        logger.info("=" * 60)
+
+        for iteration in range(1, MAX_ITERATIONS + 1):
+            logger.info(f"\n--- ITERATION {iteration}/{MAX_ITERATIONS} ---")
+
+            # Step 1: Check Arms Race progress (VERIFY current score)
+            logger.info("Step 1: Checking Arms Race progress...")
+            progress = check_beast_training_progress(adb, win, debug=debug, scheduler=scheduler)
+
+            if not progress["success"]:
+                logger.error("Failed to check Arms Race progress")
+                result["error"] = "Failed to check progress"
+                break
+
+            current_pts = progress["current_points"] or 0
+            result["current_points"] = current_pts
+
+            # Step 2: Check if chest3 is VERIFIED achieved
+            if current_pts >= CHEST3_TARGET:
+                logger.info(f"VERIFIED: Score {current_pts} >= {CHEST3_TARGET} - CHEST3 ACHIEVED!")
+                result["success"] = True
+                result["rallies_needed"] = 0
+                break
+
+            # Step 3: Calculate actual deficit
+            deficit = CHEST3_TARGET - current_pts
+            rallies_needed = max(0, ceil(deficit / POINTS_PER_RALLY))
+            result["rallies_needed"] = rallies_needed
+
+            logger.info(f"  Progress: {current_pts}/{CHEST3_TARGET} pts")
+            logger.info(f"  Deficit: {deficit} pts")
+            logger.info(f"  Rallies needed: {rallies_needed}")
+
+            # Step 4: Do the rallies for this iteration
+            logger.info(f"Step 2: Doing {rallies_needed} rallies...")
+            rallies_done_this_iteration = 0
+
+            for i in range(rallies_needed):
+                logger.info(f"  Rally {i+1}/{rallies_needed}...")
+
+                # Check current stamina
+                frame = win.get_screenshot_cv2()
+                stamina = get_current_stamina(frame, ocr)
+                logger.info(f"    Current stamina: {stamina}")
+
+                # Get stamina if needed
+                attempts = 0
+                max_attempts = 3
+                while stamina < ELITE_STAMINA_COST and attempts < max_attempts:
+                    attempts += 1
+                    logger.info(f"    Stamina {stamina} < {ELITE_STAMINA_COST}, getting more (attempt {attempts})...")
+
+                    use_result = stamina_get(adb, win, ocr, target=ELITE_STAMINA_COST, dry_run=False, time_remaining_mins=0)
+                    obtained = use_result.get("obtained", 0)
+
+                    if obtained > 0:
+                        logger.info(f"    Got {obtained} stamina (plan: {use_result.get('plan', {}).get('reasoning', 'N/A')})")
+                        time.sleep(0.5)
+                        frame = win.get_screenshot_cv2()
+                        stamina = get_current_stamina(frame, ocr)
+                    else:
+                        logger.warning(f"    No stamina obtained: {use_result.get('plan', {}).get('reasoning', 'unknown')}")
+                        break
+
+                if stamina < ELITE_STAMINA_COST:
+                    logger.warning(f"    Cannot get enough stamina ({stamina} < {ELITE_STAMINA_COST}), stopping rallies")
+                    break
+
+                # Return to base view before rally
+                return_to_base_view(adb, win, debug=debug)
+                time.sleep(0.3)
+
+                # Do the rally
+                logger.info(f"    Executing elite zombie rally...")
+                rally_success = elite_zombie_flow(adb, target_level=ELITE_ZOMBIE_TARGET_LEVEL)
+
+                if rally_success:
+                    rallies_done_this_iteration += 1
+                    total_rallies_done += 1
+                    logger.info(f"    Rally complete! (total: {total_rallies_done})")
+                else:
+                    logger.warning(f"    Rally failed, continuing...")
+
+                time.sleep(1)
+
+            logger.info(f"  Iteration {iteration}: {rallies_done_this_iteration} rallies done")
+
+            # If no rallies done this iteration and still short, we have a problem
+            if rallies_done_this_iteration == 0 and rallies_needed > 0:
+                logger.error("No rallies done but still need more - out of stamina?")
+                result["error"] = "Out of stamina"
+                break
+
+            # Wait for marches to complete before re-checking score
+            # Score doesn't update until march finishes (~1 min)
+            logger.info("Waiting 60s for marches to complete and points to register...")
+            time.sleep(60)
+
+        else:
+            # Exhausted MAX_ITERATIONS without reaching target
+            logger.warning(f"Exhausted {MAX_ITERATIONS} iterations without reaching chest3")
+            result["error"] = f"Max iterations ({MAX_ITERATIONS}) reached"
+
+        result["rallies_done"] = total_rallies_done
+        logger.info("=" * 60)
+        logger.info(f"=== AGGRESSIVE BEAST TRAINING COMPLETE ===")
+        logger.info(f"  Total rallies: {total_rallies_done}")
+        logger.info(f"  Final score: {result['current_points']}")
+        logger.info(f"  Success: {result['success']}")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"Aggressive beast training error: {e}", exc_info=True)
+        result["error"] = str(e)
+
+    finally:
+        try:
+            return_to_base_view(adb, win, debug=debug)
+        except Exception as e:
+            logger.warning(f"Failed to return to base view: {e}")
+
+    return result
+
+
+# =============================================================================
 # CLI TEST
 # =============================================================================
 

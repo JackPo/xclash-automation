@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 # Timing constants
 CLAIM_POLL_INTERVAL = 0.5  # seconds between polls
-PRE_ARRIVAL_BUFFER = 7     # seconds before completion to navigate to tavern
+PRE_ARRIVAL_BUFFER = 5     # seconds before completion to navigate to tavern
 SHORT_TIMER_THRESHOLD = 30 # seconds - timer considered "about to complete"
 
 # Template paths (absolute paths from project root)
@@ -335,7 +335,7 @@ def find_quest_timers(frame: npt.NDArray[Any], ocr: OCRClient | None = None) -> 
     return timers
 
 
-def scan_quest_timers(frame: npt.NDArray[Any], ocr: OCRClient) -> list[datetime]:
+def scan_quest_timers(frame: npt.NDArray[Any], ocr: OCRClient, screenshot_time: datetime | None = None) -> list[datetime]:
     """
     Scan tavern screen, OCR all timers, calculate completion times (COLOR matching).
     Does NOT save - caller should accumulate and save once at the end.
@@ -343,24 +343,31 @@ def scan_quest_timers(frame: npt.NDArray[Any], ocr: OCRClient) -> list[datetime]
     Args:
         frame: Screenshot of tavern screen (BGR numpy array)
         ocr: OCR client instance (e.g., OCRClient)
+        screenshot_time: When the screenshot was taken (for accurate timing).
+                         If None, uses current time (less accurate due to OCR delay).
 
     Returns:
         List of datetime objects for when each quest will complete
     """
     timers = find_quest_timers(frame, ocr=ocr)
-    now = datetime.now()
+
+    # Use screenshot time if provided, otherwise use current time (introduces drift)
+    base_time = screenshot_time if screenshot_time is not None else datetime.now()
+    if screenshot_time is not None:
+        drift = (datetime.now() - screenshot_time).total_seconds()
+        logger.debug(f"Using screenshot_time, OCR took {drift:.1f}s")
 
     completions = []
     for t in timers:
         if t['seconds'] is not None:
-            completion_time = now + timedelta(seconds=t['seconds'])
+            completion_time = base_time + timedelta(seconds=t['seconds'])
             completions.append(completion_time)
             logger.info(f"Quest timer: {t['timer_text']} -> completes at {completion_time.strftime('%H:%M:%S')}")
 
     return completions
 
 
-def scan_and_schedule_quest_completions(frame: npt.NDArray[Any], ocr: OCRClient) -> list[datetime]:
+def scan_and_schedule_quest_completions(frame: npt.NDArray[Any], ocr: OCRClient, screenshot_time: datetime | None = None) -> list[datetime]:
     """
     Scan tavern screen, OCR all timers, calculate completion times, and save.
     Use scan_quest_timers() if you need to accumulate across multiple screens.
@@ -368,11 +375,12 @@ def scan_and_schedule_quest_completions(frame: npt.NDArray[Any], ocr: OCRClient)
     Args:
         frame: Screenshot of tavern screen (BGR numpy array)
         ocr: OCR client instance (e.g., OCRClient)
+        screenshot_time: When the screenshot was taken (for accurate timing)
 
     Returns:
         List of datetime objects for when each quest will complete
     """
-    completions = scan_quest_timers(frame, ocr)
+    completions = scan_quest_timers(frame, ocr, screenshot_time=screenshot_time)
     save_quest_schedule(completions)
     return completions
 
@@ -391,7 +399,7 @@ def check_tab_active(frame: npt.NDArray[Any], template: npt.NDArray[Any], region
     result = cv2.matchTemplate(roi, template_resized, cv2.TM_SQDIFF_NORMED)
     score = result[0, 0]
 
-    return score < 0.02, score  # Active if score < 0.02
+    return score < 0.03, score  # Active if score < 0.03 (relaxed from 0.02)
 
 
 def find_claim_buttons(frame: npt.NDArray[Any], template: npt.NDArray[Any]) -> list[tuple[int, int]]:
@@ -399,16 +407,29 @@ def find_claim_buttons(frame: npt.NDArray[Any], template: npt.NDArray[Any]) -> l
     Find all Claim buttons by scanning column (X: 2100-2500, full Y) (COLOR matching).
     Returns list of (x, y) click positions.
     """
+    buttons, _ = find_claim_buttons_with_score(frame, template)
+    return buttons
+
+
+def find_claim_buttons_with_score(frame: npt.NDArray[Any], template: npt.NDArray[Any]) -> tuple[list[tuple[int, int]], float]:
+    """
+    Find all Claim buttons by scanning column (X: 2100-2500, full Y) (COLOR matching).
+    Returns (list of (x, y) click positions, best_score).
+    best_score is the minimum score found (lower = better match for SQDIFF_NORMED).
+    """
     # Extract column ROI
     column_roi = frame[:, CLAIM_X_START:CLAIM_X_END]
 
     result = cv2.matchTemplate(column_roi, template, cv2.TM_SQDIFF_NORMED)
 
+    # Get best score in the entire search region (for debugging)
+    best_score = float(result.min())
+
     # Find all matches below threshold
     locations = np.where(result < CLAIM_THRESHOLD)
 
     if len(locations[0]) == 0:
-        return []
+        return [], best_score
 
     # Get template dimensions for click center calculation
     th, tw = template.shape[:2]
@@ -440,7 +461,7 @@ def find_claim_buttons(frame: npt.NDArray[Any], template: npt.NDArray[Any]) -> l
         if is_distinct:
             filtered.append((full_x, full_y))
 
-    return filtered
+    return filtered, best_score
 
 
 def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
@@ -654,6 +675,10 @@ def is_in_tavern(frame: npt.NDArray[Any]) -> tuple[bool, str | None]:
     ally_quests_visible = ally_active or ally_inactive
 
     if not (my_quests_visible and ally_quests_visible):
+        # Log WARNINGS when failing so we can diagnose
+        logger.warning(f"[TAVERN] Detection FAILED - my_visible={my_quests_visible}, ally_visible={ally_quests_visible}")
+        logger.warning(f"[TAVERN] Scores: my_active={my_active_score:.4f}, my_inactive={my_inactive_score:.4f}, "
+                      f"ally_active={ally_active_score:.4f}, ally_inactive={ally_inactive_score:.4f}")
         return False, None
 
     # Determine which tab is active
@@ -716,6 +741,471 @@ def wait_for_tavern_tabs(adb: ADBHelper, win: WindowsScreenshotHelper,
     return False
 
 
+def wait_for_tavern_open(win: WindowsScreenshotHelper, max_attempts: int = 10,
+                          poll_interval: float = 0.2, debug: bool = False) -> tuple[bool, str | None]:
+    """
+    Poll until tavern UI is visible after clicking tavern button.
+
+    Unlike wait_for_tavern_tabs, this doesn't click back - just waits for UI to load.
+
+    Args:
+        win: WindowsScreenshotHelper instance
+        max_attempts: Maximum number of polls (default 10 = 2s max wait)
+        poll_interval: Seconds between polls (default 0.2s)
+        debug: Enable debug logging
+
+    Returns:
+        Tuple of (in_tavern, active_tab) - same as is_in_tavern()
+    """
+    for attempt in range(max_attempts):
+        frame = win.get_screenshot_cv2()
+        in_tavern, active_tab = is_in_tavern(frame)
+
+        if in_tavern:
+            if debug or attempt > 0:
+                logger.info(f"Tavern opened after {attempt + 1} polls ({(attempt + 1) * poll_interval:.1f}s)")
+            return True, active_tab
+
+        if attempt < max_attempts - 1:
+            time.sleep(poll_interval)
+
+    logger.warning(f"Tavern did not open after {max_attempts} polls ({max_attempts * poll_interval:.1f}s)")
+    return False, None
+
+
+# =============================================================================
+# TAVERN OPEN HELPER
+# =============================================================================
+
+TAVERN_BUTTON_CLICK = (80, 1220)
+
+
+def _open_tavern(adb: ADBHelper, win: WindowsScreenshotHelper, target_tab: str = "my_quests", debug: bool = False) -> bool:
+    """
+    Navigate to TOWN and open tavern to specified tab.
+
+    Args:
+        adb: ADBHelper instance
+        win: WindowsScreenshotHelper instance
+        target_tab: "my_quests" or "ally_quests"
+        debug: Enable debug screenshots
+
+    Returns:
+        True if tavern opened successfully, False otherwise
+    """
+    from utils.view_state_detector import go_to_town
+    from utils.return_to_base_view import return_to_base_view
+
+    # Dismiss any blocking popups first (promo, webview, etc.)
+    return_to_base_view(adb, win, debug=False)
+    time.sleep(0.3)
+
+    # Retry loop - try up to 3 times with recovery between attempts
+    in_tavern = False
+    active_tab = None
+    max_attempts = 3
+
+    for attempt in range(max_attempts):
+        # Navigate to TOWN first
+        if not go_to_town(adb, debug=debug):
+            logger.warning(f"Failed to navigate to TOWN (attempt {attempt + 1}/{max_attempts})")
+            return_to_base_view(adb, win, debug=False)
+            time.sleep(0.5)
+            continue
+
+        # Click tavern button
+        logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK} (attempt {attempt + 1}/{max_attempts})")
+        adb.tap(*TAVERN_BUTTON_CLICK, source="flow:tavern_quest:open_tavern")
+
+        # Small delay to let animation start before polling
+        time.sleep(0.3)
+
+        # Poll for tavern to open (increased from 2s to 4s to handle slow animations)
+        in_tavern, active_tab = wait_for_tavern_open(win, max_attempts=20, poll_interval=0.2, debug=debug)
+
+        if in_tavern:
+            break
+
+        # Failed - recover and retry
+        logger.warning(f"Tavern did not open (attempt {attempt + 1}/{max_attempts}), recovering...")
+        return_to_base_view(adb, win, debug=False)
+        time.sleep(0.5)
+
+    if not in_tavern:
+        logger.warning(f"Tavern failed to open after {max_attempts} attempts")
+        return False
+
+    # Switch tab if needed
+    if target_tab == "my_quests" and active_tab != "my_quests":
+        logger.info("Switching to My Quests tab")
+        adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests")
+        time.sleep(0.5)
+    elif target_tab == "ally_quests" and active_tab != "ally_quests":
+        logger.info("Switching to Ally Quests tab")
+        adb.tap(*ALLY_QUESTS_CLICK, source="flow:tavern_quest:switch_ally_quests")
+        time.sleep(0.5)
+
+    return True
+
+
+# =============================================================================
+# MODE: CLAIM - Click Claim buttons only, no OCR, no Go buttons
+# =============================================================================
+
+def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
+    """
+    CLAIM mode: Find and click Claim buttons only.
+
+    Does NOT: Click Go buttons, OCR timers
+
+    Returns:
+        {"claims": N, "mode": "claim"}
+    """
+    logger.info("=== TAVERN CLAIM MODE ===")
+
+    if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
+        return {"claims": 0, "mode": "claim", "error": "tavern_open_failed"}
+
+    # Check for visible timers to decide scroll strategy
+    frame = win.get_screenshot_cv2()
+    timers = find_quest_timers(frame, ocr=None)  # Just detect, no OCR needed
+    _save_debug(frame, "claim_00_initial")
+
+    if timers:
+        logger.info(f"[CLAIM] Found {len(timers)} timer(s) visible - staying at top to poll")
+    else:
+        logger.info("[CLAIM] No timers visible - scrolling to bottom where completed quests are")
+        for _ in range(3):
+            adb.swipe(1920, 1400, 1920, 900, duration=300)
+            time.sleep(0.2)
+
+    claim_template = load_template_color(CLAIM_BUTTON_TEMPLATE)
+    logger.info(f"[CLAIM] Template size: {claim_template.shape[1]}x{claim_template.shape[0]}")
+    total_claims = 0
+    no_action_count = 0
+    max_no_action = 2
+    poll_iteration = 0
+
+    while no_action_count < max_no_action:
+        frame = win.get_screenshot_cv2()
+
+        # Verify still in tavern
+        in_tavern, active_tab = is_in_tavern(frame)
+        if not in_tavern:
+            logger.warning("[CLAIM] Lost tavern view - aborting claim mode")
+            _save_debug(frame, "claim_LOST_TAVERN")
+            break
+
+        # Switch to My Quests if needed
+        if active_tab != "my_quests":
+            logger.info(f"[CLAIM] Switching from {active_tab} to my_quests")
+            adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests")
+            time.sleep(0.5)
+            continue
+
+        # Poll rapidly for claim button
+        poll_timeout = 10.0
+        poll_start = time.time()
+        claim_buttons = []
+        poll_count = 0
+        best_score = 1.0  # Track best match score during polling
+
+        logger.info(f"[CLAIM] Starting poll loop (timeout={poll_timeout}s, attempt={no_action_count+1}/{max_no_action})")
+
+        while time.time() - poll_start < poll_timeout:
+            frame = win.get_screenshot_cv2()
+            claim_buttons, match_score = find_claim_buttons_with_score(frame, claim_template)
+            poll_count += 1
+
+            if match_score < best_score:
+                best_score = match_score
+
+            if claim_buttons:
+                logger.info(f"[CLAIM] Found {len(claim_buttons)} claim button(s) after {poll_count} polls ({time.time()-poll_start:.1f}s), best_score={best_score:.4f}")
+                break
+            # No sleep - poll as fast as possible
+
+        poll_iteration += 1
+        elapsed = time.time() - poll_start
+
+        if claim_buttons:
+            x, y = claim_buttons[0]
+            logger.info(f"[CLAIM] Clicking Claim at ({x}, {y})")
+            _save_debug(frame, f"claim_{poll_iteration:02d}_FOUND_at_{x}_{y}")
+
+            # Retry tap up to 3 times with verification
+            tap_verified = False
+            for tap_attempt in range(3):
+                adb.tap(x, y, source="flow:tavern_quest:claim")
+                time.sleep(0.3)  # Short wait for UI to respond
+
+                # Verify: check if button is still there at same position
+                verify_frame = win.get_screenshot_cv2()
+                verify_buttons, _ = find_claim_buttons_with_score(verify_frame, claim_template)
+
+                # If button gone or moved significantly, tap worked
+                if not verify_buttons:
+                    logger.info(f"[CLAIM] Tap verified (button gone) on attempt {tap_attempt + 1}")
+                    tap_verified = True
+                    break
+                elif abs(verify_buttons[0][1] - y) > 50:
+                    logger.info(f"[CLAIM] Tap verified (button moved) on attempt {tap_attempt + 1}")
+                    tap_verified = True
+                    break
+                else:
+                    logger.warning(f"[CLAIM] Tap may have missed (button still at {verify_buttons[0]}) attempt {tap_attempt + 1}/3, retrying...")
+                    _save_debug(verify_frame, f"claim_{poll_iteration:02d}_TAP_MISS_attempt_{tap_attempt + 1}")
+
+            if not tap_verified:
+                # Button still there after 3 taps = quest not ready yet (shows "Quest not yet completed")
+                # Keep polling until timeout - outer loop will retry
+                logger.warning(f"[CLAIM] Quest not ready yet (button still at {x}, {y}) - continuing to poll...")
+                _save_debug(verify_frame, f"claim_{poll_iteration:02d}_NOT_READY_YET")
+                continue  # Go back to polling until poll_timeout expires
+
+            time.sleep(0.2)  # Remaining wait for popup
+            total_claims += 1
+            no_action_count = 0
+
+            # Dismiss popup - wait for it to appear and dismiss
+            time.sleep(0.5)  # Wait for popup to fully render
+            if not wait_for_tavern_tabs(adb, win, max_attempts=15, debug=debug):
+                logger.warning("[CLAIM] Could not return to tavern after claim popup")
+                frame = win.get_screenshot_cv2()
+                _save_debug(frame, f"claim_{poll_iteration:02d}_POPUP_STUCK")
+                break
+
+            # Save state after returning to tavern
+            frame = win.get_screenshot_cv2()
+            _save_debug(frame, f"claim_{poll_iteration:02d}_after_popup")
+            continue
+
+        # No claims found - save screenshot and log details
+        logger.warning(f"[CLAIM] NO claim button found after {poll_count} polls ({elapsed:.1f}s), best_score={best_score:.4f} (threshold={CLAIM_THRESHOLD})")
+        _save_debug(frame, f"claim_{poll_iteration:02d}_NOT_FOUND_score_{best_score:.4f}")
+
+        no_action_count += 1
+        if no_action_count < max_no_action:
+            logger.info(f"[CLAIM] Scrolling to check for more quests...")
+            adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
+            time.sleep(0.5)
+
+    # Exit tavern
+    return_to_base_view(adb, win, debug=debug, respect_idle=False)
+
+    logger.info(f"[CLAIM] === CLAIM MODE COMPLETE: {total_claims} claims ===")
+    return {"claims": total_claims, "mode": "claim"}
+
+
+# =============================================================================
+# MODE: SCAN - OCR timers only, no clicking
+# =============================================================================
+
+def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient, debug: bool = False) -> dict[str, Any]:
+    """
+    SCAN mode: Scroll through quests and OCR timers only.
+
+    Does NOT: Click anything
+
+    Returns:
+        {"completions": [datetime, ...], "mode": "scan"}
+    """
+    logger.info("=== TAVERN SCAN MODE ===")
+
+    if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
+        return {"completions": [], "mode": "scan", "error": "tavern_open_failed"}
+
+    frames_for_ocr: list[tuple[npt.NDArray[Any], datetime]] = []  # (frame, screenshot_time)
+    scroll_count = 0
+    max_scrolls = 3  # Scroll down 3 times to capture all quests
+
+    # Capture initial frame with timestamp
+    screenshot_time = datetime.now()
+    frame = win.get_screenshot_cv2()
+    in_tavern, _ = is_in_tavern(frame)
+    if in_tavern:
+        frames_for_ocr.append((frame.copy(), screenshot_time))
+
+    # Scroll and capture
+    while scroll_count < max_scrolls and in_tavern:
+        adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
+        time.sleep(0.5)
+        scroll_count += 1
+
+        screenshot_time = datetime.now()
+        frame = win.get_screenshot_cv2()
+        in_tavern, _ = is_in_tavern(frame)
+        if in_tavern:
+            frames_for_ocr.append((frame.copy(), screenshot_time))
+
+    # OCR all collected frames (using screenshot_time for accurate completion times)
+    all_completions: list[datetime] = []
+    logger.info(f"OCR scanning {len(frames_for_ocr)} frames...")
+    for saved_frame, frame_time in frames_for_ocr:
+        completions = scan_quest_timers(saved_frame, ocr, screenshot_time=frame_time)
+        if completions:
+            all_completions.extend(completions)
+
+    # Save to scheduler
+    if all_completions:
+        save_quest_schedule(all_completions)
+        logger.info(f"Saved {len(all_completions)} timer completion(s) to scheduler")
+        # Exit tavern
+        return_to_base_view(adb, win, debug=debug, respect_idle=False)
+        logger.info(f"SCAN mode complete: {len(all_completions)} timers found")
+        return {"completions": all_completions, "mode": "scan"}
+    else:
+        # NO TIMERS = empty quest slots -> run dispatch to fill them
+        logger.info("No active quest timers - running DISPATCH to fill empty slots")
+        return_to_base_view(adb, win, debug=debug, respect_idle=False)
+        dispatch_result = _run_dispatch_mode(adb, win, debug=debug)
+        return {"completions": [], "mode": "scan", "dispatch_triggered": True, **dispatch_result}
+
+
+# =============================================================================
+# MODE: DISPATCH - Click Go buttons only, no OCR, no Claims
+# =============================================================================
+
+def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
+    """
+    DISPATCH mode: Find and click Go buttons to start new quests.
+
+    Does NOT: Click Claim buttons, OCR timers
+
+    Returns:
+        {"dispatches": N, "mode": "dispatch"}
+    """
+    logger.info("=== TAVERN DISPATCH MODE ===")
+
+    # Check time restriction
+    if not _is_after_quest_start_time():
+        logger.info("Before quest start time - skipping dispatch")
+        return {"dispatches": 0, "mode": "dispatch", "skipped": "before_start_time"}
+
+    # Check dispatch gap (10 minutes between dispatches)
+    from config import TAVERN_MIN_DISPATCH_GAP_MINUTES
+    scheduler = _get_scheduler()
+    last_dispatch = scheduler.get_last_tavern_dispatch()
+    if last_dispatch:
+        minutes_since = (datetime.now() - last_dispatch).total_seconds() / 60
+        if minutes_since < TAVERN_MIN_DISPATCH_GAP_MINUTES:
+            logger.info(f"Skipping dispatch: only {minutes_since:.0f} min since last dispatch (need {TAVERN_MIN_DISPATCH_GAP_MINUTES})")
+            return {"dispatches": 0, "mode": "dispatch", "skipped": "too_soon"}
+
+    if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
+        return {"dispatches": 0, "mode": "dispatch", "error": "tavern_open_failed"}
+
+    total_dispatches = 0
+    no_action_count = 0
+    max_no_action = 2
+
+    while no_action_count < max_no_action:
+        frame = win.get_screenshot_cv2()
+
+        # Verify still in tavern
+        in_tavern, active_tab = is_in_tavern(frame)
+        if not in_tavern:
+            logger.warning("Lost tavern view - aborting dispatch mode")
+            break
+
+        # Switch to My Quests if needed
+        if active_tab != "my_quests":
+            adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests")
+            time.sleep(0.5)
+            continue
+
+        # Find Go buttons (gold scroll quests)
+        gold_go_buttons = find_gold_scroll_go_buttons(frame)
+
+        # Find Go buttons (question mark quests)
+        question_go_buttons = []
+        if _should_start_question_mark_quests():
+            question_go_buttons = find_question_mark_go_buttons(frame)
+
+        # Click gold scroll Go first
+        if gold_go_buttons:
+            x, y = gold_go_buttons[0]
+            logger.info(f"Clicking Go for gold scroll quest at ({x}, {y})")
+            adb.tap(x, y, source="flow:tavern_quest:go_gold")
+            time.sleep(1.0)
+
+            # Handle Bounty Quest dialog
+            if handle_bounty_quest_dialog(adb, win, debug):
+                total_dispatches += 1
+                scheduler.record_tavern_dispatch()  # Record dispatch time
+                no_action_count = 0
+                time.sleep(0.5)
+                continue
+            else:
+                logger.warning("Bounty Quest dialog not detected")
+                break
+
+        # Click question mark Go
+        elif question_go_buttons:
+            x, y = question_go_buttons[0]
+            logger.info(f"Clicking Go for question mark quest at ({x}, {y})")
+            adb.tap(x, y, source="flow:tavern_quest:go_question")
+            time.sleep(1.0)
+
+            if handle_bounty_quest_dialog(adb, win, debug):
+                total_dispatches += 1
+                scheduler.record_tavern_dispatch()  # Record dispatch time
+                no_action_count = 0
+                time.sleep(0.5)
+                continue
+            else:
+                logger.warning("Bounty Quest dialog not detected")
+                break
+
+        # No Go buttons found - scroll
+        no_action_count += 1
+        if no_action_count < max_no_action:
+            adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
+            time.sleep(0.5)
+
+    # Exit tavern
+    return_to_base_view(adb, win, debug=debug, respect_idle=False)
+
+    logger.info(f"DISPATCH mode complete: {total_dispatches} quests started")
+    return {"dispatches": total_dispatches, "mode": "dispatch"}
+
+
+# =============================================================================
+# MODE: ALLY - Assist ally quests, skip if 5/5
+# =============================================================================
+
+def _run_ally_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
+    """
+    ALLY mode: Assist gold 5-star ally quests.
+
+    Checks if 5/5 BEFORE opening tavern - skips entirely if maxed.
+
+    Returns:
+        {"assists": N, "mode": "ally", "skipped": bool}
+    """
+    from utils.current_state import is_tavern_assists_maxed
+
+    logger.info("=== TAVERN ALLY MODE ===")
+
+    # Check if already maxed BEFORE opening tavern
+    if is_tavern_assists_maxed():
+        logger.info("Ally assists already maxed (5/5) - skipping entirely")
+        return {"assists": 0, "mode": "ally", "skipped": True}
+
+    if not _open_tavern(adb, win, target_tab="ally_quests", debug=debug):
+        return {"assists": 0, "mode": "ally", "error": "tavern_open_failed"}
+
+    # Delegate to existing ally quests flow
+    ally_result = run_ally_quests_flow(adb, win, debug=debug)
+
+    # Exit tavern
+    return_to_base_view(adb, win, debug=debug, respect_idle=False)
+
+    assists = ally_result.get("assists", 0)
+    logger.info(f"ALLY mode complete: {assists} assists")
+    return {"assists": assists, "mode": "ally", "skipped": False}
+
+
 def handle_bounty_quest_dialog(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> bool:
     """
     Handle the Bounty Quest dialog that appears after clicking Go on a gold scroll quest (COLOR matching).
@@ -770,16 +1260,24 @@ def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCR
         Number of claims made
     """
     claim_template = load_template_color(CLAIM_BUTTON_TEMPLATE)
+    logger.info(f"[POLL] Starting claim poll, template size: {claim_template.shape[1]}x{claim_template.shape[0]}")
     claims_made = 0
+    poll_count = 0
+
+    # Save initial state
+    frame = win.get_screenshot_cv2()
+    _save_debug(frame, "poll_00_initial")
 
     while True:
         frame = win.get_screenshot_cv2()
+        poll_count += 1
 
         # Check for Claim button FIRST (COLOR)
-        claim_buttons = find_claim_buttons(frame, claim_template)
+        claim_buttons, best_score = find_claim_buttons_with_score(frame, claim_template)
         if claim_buttons:
             x, y = claim_buttons[0]
-            logger.info(f"[POLL] Claim button found at ({x}, {y}), clicking!")
+            logger.info(f"[POLL] Claim button found at ({x}, {y}) after {poll_count} polls, score={best_score:.4f}, clicking!")
+            _save_debug(frame, f"poll_{claims_made+1:02d}_FOUND_at_{x}_{y}")
             adb.tap(x, y, source="flow:tavern_quest:poll_claim")
             claims_made += 1
             time.sleep(0.5)  # Wait for rewards popup to appear
@@ -789,20 +1287,25 @@ def poll_for_claim_button(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCR
             if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
                 # Exited Tavern or couldn't dismiss - abort
                 logger.warning("[POLL] Could not return to Tavern after claim, aborting")
+                frame = win.get_screenshot_cv2()
+                _save_debug(frame, f"poll_{claims_made:02d}_POPUP_STUCK")
                 return claims_made
 
+            # Save state after returning
+            frame = win.get_screenshot_cv2()
+            _save_debug(frame, f"poll_{claims_made:02d}_after_popup")
             continue  # Keep polling for more claims
 
         # Check for timers < 30s - exit if none (COLOR)
         timers = find_quest_timers(frame, ocr=ocr)
         has_short_timer = any(t['seconds'] is not None and t['seconds'] < SHORT_TIMER_THRESHOLD for t in timers)
 
-        if debug:
-            timer_strs = [f"{t['timer_text']}({t['seconds']}s)" for t in timers if t['seconds'] is not None]
-            logger.debug(f"[POLL] Timers: {timer_strs}, has_short={has_short_timer}")
+        timer_strs = [f"{t['timer_text']}({t['seconds']}s)" for t in timers if t['seconds'] is not None]
+        logger.info(f"[POLL] #{poll_count}: No claim (best_score={best_score:.4f}), timers: {timer_strs}, has_short={has_short_timer}")
 
         if not has_short_timer:
             logger.info(f"[POLL] No timers < {SHORT_TIMER_THRESHOLD}s, exiting poll loop. Claims made: {claims_made}")
+            _save_debug(frame, f"poll_EXIT_no_short_timer")
             return claims_made
 
         time.sleep(CLAIM_POLL_INTERVAL)
@@ -856,14 +1359,31 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
     no_action_count = 0
     max_no_action = 2  # Stop after 2 consecutive scrolls with no actions
     all_completions: list[datetime] = []  # Accumulate timer completions for scheduler
-    frames_for_ocr: list[npt.NDArray[Any]] = []  # Collect frames for deferred OCR
+    frames_for_ocr: list[tuple[npt.NDArray[Any], datetime]] = []  # (frame, screenshot_time) for deferred OCR
+
+    def _process_deferred_ocr() -> None:
+        """Process all saved frames for OCR and add to all_completions."""
+        nonlocal all_completions
+        if frames_for_ocr:
+            logger.info(f"Processing {len(frames_for_ocr)} frames for timer OCR...")
+            for saved_frame, frame_time in frames_for_ocr:
+                completions = scan_quest_timers(saved_frame, ocr, screenshot_time=frame_time)
+                if completions:
+                    all_completions.extend(completions)
+            if all_completions:
+                logger.info(f"Found {len(all_completions)} timer completion(s)")
 
     iteration = 0
     while no_action_count < max_no_action:
         iteration += 1
-        # Take screenshot
+        # Take screenshot with timestamp for accurate timer calculation
+        screenshot_time = datetime.now()
         frame = win.get_screenshot_cv2()
         _save_debug(frame, f"myq_iter{iteration:02d}_scan")
+
+        # Save frame + timestamp for deferred OCR BEFORE checking for actions
+        # This ensures we capture all timer data regardless of whether we find claim/go buttons
+        frames_for_ocr.append((frame.copy(), screenshot_time))
 
         # FIRST: Verify we're in Tavern (COLOR)
         in_tavern, active_tab = is_in_tavern(frame)
@@ -871,6 +1391,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
         if not in_tavern:
             logger.warning("Not in Tavern! Aborting My Quests flow.")
             _save_debug(frame, f"myq_iter{iteration:02d}_NOT_IN_TAVERN")
+            _process_deferred_ocr()
             return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": total_claims > 0, "completions": all_completions}
 
         # Check if My Quests tab is active
@@ -913,6 +1434,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
             if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
                 # Exited Tavern or couldn't dismiss - abort
                 logger.warning("Could not return to Tavern after claim, aborting")
+                _process_deferred_ocr()
                 return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True, "completions": all_completions}
 
             # Continue loop to re-scan for more claims
@@ -940,6 +1462,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
             else:
                 # Dialog not detected - might have navigated elsewhere
                 logger.warning("Bounty Quest dialog not detected after clicking Go")
+                _process_deferred_ocr()
                 return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
         elif gold_scroll_go_buttons:
             # Gold scroll quests found but before start time
@@ -967,6 +1490,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
             else:
                 # Dialog not detected - might have navigated elsewhere
                 logger.warning("Bounty Quest dialog not detected after clicking Go")
+                _process_deferred_ocr()
                 return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
         elif question_mark_go_buttons:
             # Question mark quests found but before start time
@@ -990,14 +1514,12 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
                     frame = win.get_screenshot_cv2()
                     _save_debug(frame, f"myq_iter{iteration:02d}_after_claim_retry")
                     if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
+                        _process_deferred_ocr()
                         return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True, "completions": all_completions}
                     break
             # If claim found on retry, continue to re-scan
             if claim_buttons:
                 continue
-
-        # Save frame for deferred OCR (don't block the flow)
-        frames_for_ocr.append(frame.copy())
 
         # No actions found - scroll
         logger.info("No actionable buttons found (Claim/Go), scrolling...")
@@ -1012,14 +1534,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
         _save_debug(frame, f"myq_iter{iteration:02d}_after_scroll")
 
     # Deferred OCR: Process all collected frames for timer scanning
-    if frames_for_ocr:
-        logger.info(f"Post-processing {len(frames_for_ocr)} frames for timer OCR...")
-        for saved_frame in frames_for_ocr:
-            completions = scan_quest_timers(saved_frame, ocr)
-            if completions:
-                all_completions.extend(completions)
-        if all_completions:
-            logger.debug(f"Found {len(all_completions)} total timer completion(s)")
+    _process_deferred_ocr()
 
     logger.info(f"My Quests flow complete. Claims: {total_claims}, Go clicks: {total_go_clicks}, Timers: {len(all_completions)}")
     return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": False, "completions": all_completions}
@@ -1067,14 +1582,23 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
 
     logger.info("Starting Ally Quests flow")
 
-    # Take screenshot and read counter
-    frame = win.get_screenshot_cv2()
+    # Take screenshot and verify tavern with retries
+    in_tavern = False
+    active_tab = None
+    for retry in range(3):
+        frame = win.get_screenshot_cv2()
+        in_tavern, active_tab = is_in_tavern(frame)
+        if in_tavern:
+            break
+        if retry < 2:
+            logger.info(f"[ALLY] Tavern detection retry {retry + 1}/3")
+            time.sleep(0.3)
+
     _save_debug(frame, "ally_00_initial")
 
-    # Verify we're in tavern
-    in_tavern, active_tab = is_in_tavern(frame)
     if not in_tavern:
-        logger.warning("Not in Tavern for Ally Quests flow")
+        _save_debug(frame, "ally_TAVERN_DETECTION_FAILED")
+        logger.warning("Not in Tavern for Ally Quests flow after 3 retries")
         return {"assists": 0, "reason": "not_in_tavern"}
 
     # Check each counter SEPARATELY - only OCR if not already maxed for today
@@ -1194,18 +1718,31 @@ def run_ally_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
     return {"assists": assists_made, "reason": reason}
 
 
-def run_tavern_quest_flow(adb: ADBHelper | None = None, win: WindowsScreenshotHelper | None = None, debug: bool = False) -> dict[str, Any]:
+def run_tavern_quest_flow(
+    adb: ADBHelper | None = None,
+    win: WindowsScreenshotHelper | None = None,
+    ocr: OCRClient | None = None,
+    mode: str = "claim",
+    debug: bool = False
+) -> dict[str, Any]:
     """
-    Main tavern quest flow with double-pass strategy.
+    Main tavern quest flow with mode-based operation.
 
-    Opens tavern from TOWN, claims quests, and if any claim is made,
-    exits completely and re-runs the flow. This avoids UI display glitches
-    that can cause missed claims.
+    Modes:
+        "claim"    - Click Claim buttons only, no OCR, no Go buttons
+        "scan"     - Scroll and OCR timers only, no clicking
+        "dispatch" - Click Go buttons to start quests, no OCR, no Claims
+        "ally"     - Assist ally quests, skips if already 5/5
 
-    Does TWO passes back-to-back to ensure nothing is missed.
-    Also scans quest timers and saves to scheduler for rush-claim triggering.
+    Args:
+        adb: ADBHelper instance (created if None)
+        win: WindowsScreenshotHelper instance (created if None)
+        ocr: OCRClient instance (created if None, only needed for scan mode)
+        mode: Operation mode - "claim", "scan", "dispatch", or "ally"
+        debug: Enable debug screenshots
 
-    Returns dict with claim counts and go clicks.
+    Returns:
+        Dict with mode-specific results
     """
     from utils.adb_helper import ADBHelper as ADBHelperClass
     from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinSSHelper
@@ -1215,106 +1752,33 @@ def run_tavern_quest_flow(adb: ADBHelper | None = None, win: WindowsScreenshotHe
     if win is None:
         win = WinSSHelper()
 
-    # Initialize OCR for timer scanning
-    from utils.ocr_client import OCRClient
-    ocr = OCRClient()
+    logger.info(f"Tavern Quest Flow - mode={mode}")
 
-    from utils.view_state_detector import go_to_town
+    if mode == "claim":
+        result = _run_claim_mode(adb, win, debug=debug)
+        # Record claims to scheduler for tracking
+        claims = result.get("claims", 0)
+        if claims > 0:
+            from utils.scheduler import DaemonScheduler
+            scheduler = DaemonScheduler()
+            scheduler.record_tavern_claims(claims)
+        return result
 
-    results: dict[str, Any] = {
-        "my_quests_claims": 0,
-        "my_quests_go_clicks": 0,
-        "ally_quests_assists": 0,
-    }
+    elif mode == "scan":
+        if ocr is None:
+            from utils.ocr_client import OCRClient
+            ocr = OCRClient()
+        return _run_scan_mode(adb, win, ocr, debug=debug)
 
-    # Accumulate timer completions across all passes
-    all_completions: list[datetime] = []
+    elif mode == "dispatch":
+        return _run_dispatch_mode(adb, win, debug=debug)
 
-    TAVERN_BUTTON_CLICK = (80, 1220)
-    MAX_PASSES = 2  # Run flow twice back-to-back
+    elif mode == "ally":
+        return _run_ally_mode(adb, win, debug=debug)
 
-    for pass_num in range(1, MAX_PASSES + 1):
-        logger.info(f"=== TAVERN QUEST FLOW PASS {pass_num}/{MAX_PASSES} ===")
-
-        # Step 1: Navigate to TOWN
-        logger.info("Navigating to TOWN view")
-        if not go_to_town(adb, debug=debug):
-            logger.warning("Failed to navigate to TOWN! Aborting.")
-            return results
-
-        # DEBUG: Screenshot after go_to_town
-        frame = win.get_screenshot_cv2()
-        _save_debug(frame, f"p{pass_num}_01_after_go_to_town")
-
-        # Step 2: Click tavern button to open
-        logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
-        adb.tap(*TAVERN_BUTTON_CLICK, source="flow:tavern_quest:open_tavern")
-        time.sleep(0.5)  # Wait for tavern to open
-
-        # DEBUG: Screenshot after tavern click
-        frame = win.get_screenshot_cv2()
-        _save_debug(frame, f"p{pass_num}_02_after_tavern_click")
-
-        # Step 3: Verify we're in Tavern (COLOR)
-        in_tavern, active_tab = is_in_tavern(frame)
-        logger.info(f"Tavern check: in_tavern={in_tavern}, active_tab={active_tab}")
-        if not in_tavern:
-            logger.warning("Not in Tavern after clicking button! Aborting pass.")
-            _save_debug(frame, f"p{pass_num}_02b_NOT_IN_TAVERN")
-            return_to_base_view(adb, win, debug=debug)
-            continue  # Try next pass
-
-        # Switch to My Quests if needed
-        if active_tab != "my_quests":
-            logger.info(f"Switching to My Quests tab (current: {active_tab})")
-            adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests_main")
-            time.sleep(0.5)
-            frame = win.get_screenshot_cv2()
-            _save_debug(frame, f"p{pass_num}_03_after_tab_switch")
-
-        # Step 4: Run My Quests flow (with timer scanning)
-        my_quests_result = run_my_quests_flow(adb, win, ocr=ocr, debug=debug)
-        results["my_quests_claims"] += my_quests_result["claims"]
-        results["my_quests_go_clicks"] += my_quests_result["go_clicks"]
-
-        # Collect timer completions from this pass
-        pass_completions = my_quests_result.get("completions", [])
-        all_completions.extend(pass_completions)
-
-        # Step 5: Exit tavern completely after this pass
-        logger.info(f"Pass {pass_num} complete - returning to base view")
-        return_to_base_view(adb, win, debug=debug)
-
-        # If a claim was made, the next pass will catch any remaining claims
-        if my_quests_result.get("claimed", False):
-            logger.info("Claim was made - next pass will verify nothing was missed")
-
-    # Run Ally Quests flow - re-open tavern and assist gold 5-star quests
-    logger.info("=== ALLY QUESTS FLOW ===")
-    logger.info("Navigating to TOWN for ally quests")
-    if go_to_town(adb, debug=debug):
-        logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK}")
-        adb.tap(*TAVERN_BUTTON_CLICK, source="flow:tavern_quest:open_tavern_ally")
-        time.sleep(0.5)
-
-        ally_result = run_ally_quests_flow(adb, win, debug=debug)
-        results["ally_quests_assists"] = ally_result.get("assists", 0)
-
-        # Exit tavern after ally quests
-        return_to_base_view(adb, win, debug=debug)
     else:
-        logger.warning("Failed to navigate to TOWN for ally quests")
-
-    # Save all collected timer completions to scheduler
-    # This enables is_tavern_completion_imminent() to trigger rush claims
-    if all_completions:
-        save_quest_schedule(all_completions)
-        logger.info(f"Saved {len(all_completions)} timer completion(s) to scheduler")
-    else:
-        logger.info("No active quest timers found")
-
-    logger.info(f"=== TAVERN QUEST FLOW COMPLETE === Total claims: {results['my_quests_claims']}, Scheduled: {len(all_completions)}")
-    return results
+        logger.error(f"Unknown tavern mode: {mode}")
+        return {"error": f"unknown_mode:{mode}"}
 
 
 if __name__ == "__main__":
@@ -1327,16 +1791,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Tavern Quest Flow")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
-    parser.add_argument("--my-quests-only", action="store_true", help="Only run My Quests flow")
+    parser.add_argument("--mode", choices=["claim", "scan", "dispatch", "ally"],
+                        default="claim", help="Flow mode (default: claim)")
     args = parser.parse_args()
 
     from utils.adb_helper import ADBHelper
     adb = ADBHelper()
     win = WindowsScreenshotHelper()
 
-    if args.my_quests_only:
-        claims = run_my_quests_flow(adb, win, debug=args.debug)
-        print(f"My Quests claims: {claims}")
-    else:
-        results = run_tavern_quest_flow(adb, win, debug=args.debug)
-        print(f"Results: {results}")
+    results = run_tavern_quest_flow(adb, win, mode=args.mode, debug=args.debug)
+    print(f"Results: {results}")

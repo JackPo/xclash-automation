@@ -196,7 +196,7 @@ def open_arms_race_panel(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         return False
 
     logger.info(f"Events icon found at {click_pos} (score={score:.4f}), clicking...")
-    adb.tap(click_pos[0], click_pos[1])
+    adb.tap(click_pos[0], click_pos[1], source="util:arms_race_panel:events_icon_click")
     time.sleep(1.5)
 
     # Step 3: Check ACTIVE first - panel might already be open
@@ -214,7 +214,7 @@ def open_arms_race_panel(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
         is_inactive, score_inactive, click_pos = is_arms_race_icon_visible(frame, use_active=False)
         if is_inactive:
             logger.info(f"Arms Race icon found (score={score_inactive:.4f}) at {click_pos}, clicking...")
-            adb.tap(*click_pos)
+            adb.tap(*click_pos, source="util:arms_race_panel:icon_click")
             time.sleep(1.5)
 
             # Verify panel opened by checking ACTIVE
@@ -226,7 +226,7 @@ def open_arms_race_panel(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bo
 
             # Retry click once
             logger.warning("Panel not open after click, retrying...")
-            adb.tap(*click_pos)
+            adb.tap(*click_pos, source="util:arms_race_panel:icon_retry_click")
             time.sleep(1.5)
 
             frame = win.get_screenshot_cv2()
@@ -341,8 +341,8 @@ def check_beast_training_progress(
         current_points = get_current_points_verified(win, retries=3)
         if current_points is None:
             logger.warning("Failed to OCR current points (no consensus after 3 attempts)")
-            # Return to base view before failing
-            return_to_base_view(adb, win, debug=debug)
+            # Return to base view before failing - don't respect idle, we MUST exit panels
+            return_to_base_view(adb, win, debug=debug, respect_idle=False)
             return result
 
         result["current_points"] = current_points
@@ -359,15 +359,19 @@ def check_beast_training_progress(
             f"[mode={zombie_mode}]"
         )
 
+        # Save to current_state so frontend can access it
+        from utils.current_state import update_arms_race_score
+        update_arms_race_score(current_points, CHEST3_TARGET, "Mystic Beast Training")
+
         result["success"] = True
 
     except Exception as e:
         logger.error(f"Error checking beast training progress: {e}")
 
     finally:
-        # Always return to base view
+        # Always return to base view - don't respect idle, we MUST exit panels
         try:
-            return_to_base_view(adb, win, debug=debug)
+            return_to_base_view(adb, win, debug=debug, respect_idle=False)
         except Exception as e:
             logger.warning(f"Failed to return to base view: {e}")
 
@@ -436,6 +440,9 @@ def check_arms_race_progress(adb: ADBHelper, win: WindowsScreenshotHelper, debug
                     if chest3:
                         result["points_to_chest3"] = max(0, chest3 - current_points)
                         logger.info(f"Chest3: {chest3}, need {result['points_to_chest3']} more points")
+                        # Save to current_state so frontend can access it
+                        from utils.current_state import update_arms_race_score
+                        update_arms_race_score(current_points, chest3, detected_event)
                 except Exception as e:
                     logger.warning(f"Could not get metadata for {detected_event}: {e}")
 
@@ -461,9 +468,9 @@ def check_arms_race_progress(adb: ADBHelper, win: WindowsScreenshotHelper, debug
         logger.error(f"Error checking arms race progress: {e}")
 
     finally:
-        # Always return to base view
+        # Always return to base view - don't respect idle, we MUST exit panels
         try:
-            return_to_base_view(adb, win, debug=debug)
+            return_to_base_view(adb, win, debug=debug, respect_idle=False)
         except Exception as e:
             logger.warning(f"Failed to return to base view: {e}")
 

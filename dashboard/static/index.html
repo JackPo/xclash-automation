@@ -175,6 +175,19 @@
                         <div class="text-sm text-gray-400" x-text="lastUpdate"></div>
                         <div class="text-xs text-gray-500 uppercase tracking-wide">Updated</div>
                     </div>
+                    <div class="w-px h-8 bg-gray-700"></div>
+                    <!-- Screenshot Button -->
+                    <button @click="takeScreenshot()"
+                            class="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-red-500 hover:from-pink-600 hover:to-red-600 text-white font-bold transition-all shadow-lg hover:shadow-pink-500/30"
+                            :class="{ 'opacity-50 cursor-wait': screenshotLoading }"
+                            :disabled="screenshotLoading"
+                            title="Take debug screenshot">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        <span x-text="screenshotLoading ? 'Capturing...' : 'Screenshot'"></span>
+                    </button>
                 </div>
             </div>
 
@@ -321,6 +334,44 @@
                         <div class="text-[10px] text-gray-500" x-text="tavernQuests.plunder_others?.current >= 5 ? 'Maxed' : 'Available'"></div>
                     </div>
                 </div>
+
+                <!-- Claims Today -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                    <div class="text-center min-w-[40px]">
+                        <div class="text-lg font-bold stat-value text-yellow-400"
+                             x-text="(status.tavern_claims_today ?? 0)"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-yellow-400">Claims Today</div>
+                        <div class="text-[10px] text-gray-500">Since reset</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Quests with Countdown -->
+            <div class="mt-3 pt-3 border-t border-gray-700/50" x-show="pendingQuests.length > 0">
+                <div class="text-xs font-medium text-gray-400 mb-2">Pending Quests</div>
+                <div class="flex flex-wrap gap-2">
+                    <template x-for="(quest, index) in pendingQuests" :key="index">
+                        <div class="flex items-center gap-2 px-3 py-2 rounded-lg"
+                             :class="quest.remaining_seconds <= 30 ? 'bg-green-500/20 border border-green-500/50 animate-pulse' : 'bg-purple-500/10 border border-purple-500/30'">
+                            <div class="text-center">
+                                <div class="text-sm font-mono font-bold"
+                                     :class="quest.remaining_seconds <= 30 ? 'text-green-400' : 'text-purple-400'"
+                                     x-text="formatCountdown(quest.remaining_seconds)"></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-400" x-text="'Quest ' + (index + 1)"></div>
+                                <div class="text-[10px]"
+                                     :class="quest.remaining_seconds <= 30 ? 'text-green-500' : 'text-gray-500'"
+                                     x-text="quest.remaining_seconds <= 30 ? 'READY!' : formatTime(quest.completion_time)"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-gray-700/50 text-center text-xs text-gray-600" x-show="pendingQuests.length === 0">
+                No pending quests
             </div>
         </section>
 
@@ -639,7 +690,7 @@
                         <div class="text-xs text-gray-400">Home</div>
                     </button>
 
-                    <button @click="refreshStatus(); refreshFlows(); refreshArmsRace(); refreshBlocks(); refreshEvents();"
+                    <button @click="refreshStatus(); refreshFlows(); refreshArmsRace(); refreshPendingQuests(); refreshBlocks(); refreshEvents();"
                             class="p-4 rounded-xl bg-gray-700/30 border border-gray-600/30 hover:bg-gray-600/30 transition-all duration-200 hover:scale-[1.02]">
                         <div class="text-2xl mb-1">R</div>
                         <div class="text-xs text-gray-400">Refresh</div>
@@ -1441,6 +1492,7 @@
                 toast: { show: false, message: '', type: 'info' },
                 dailyCheckin: { checked_in: false, timestamp: null },
                 tavernQuests: { assist_allies: { current: null, max: 5 }, plunder_others: { current: null, max: 5 }, timestamp: null },
+                pendingQuests: [],
                 lastUpdate: '--:--',
                 pollInterval: null,
                 countdownInterval: null,
@@ -1456,6 +1508,9 @@
                 // Shield inventory
                 shieldInventory: { '8hr': null, '12hr': null, '24hr': null, timestamp: null },
                 shieldRefreshing: false,
+                // Screenshot
+                screenshotLoading: false,
+                lastScreenshot: null,
                 // Shield scheduling
                 showShieldScheduleModal: false,
                 scheduleShieldType: '8hr',
@@ -1516,6 +1571,7 @@
                         this.refreshStatus(),
                         this.refreshFlows(),
                         this.refreshArmsRace(),
+                        this.refreshPendingQuests(),
                         this.loadTitles(),
                         this.loadZombieMode(),
                         this.loadReinforceMode(),
@@ -1532,6 +1588,11 @@
                         this.refreshUnderAttack();
                         // Refresh scheduled shield
                         this.refreshScheduledShield();
+                        // Refresh pending quests every 30s
+                        if (!this._lastPendingQuestsRefresh || Date.now() - this._lastPendingQuestsRefresh > 30000) {
+                            this.refreshPendingQuests();
+                            this._lastPendingQuestsRefresh = Date.now();
+                        }
                         // Refresh blocks every 30s (not every 3s)
                         if (!this.blocks.lastRefresh || Date.now() - this.blocks.lastRefresh > 30000) {
                             this.refreshBlocks();
@@ -1557,6 +1618,10 @@
                                 this.bloodlust.active = false; // Clear when expired
                             }
                         }
+                        // Decrement pending quest countdowns
+                        this.pendingQuests.forEach(q => q.remaining_seconds--);
+                        // Remove completed quests (remaining_seconds <= -60 means 1 minute past completion)
+                        this.pendingQuests = this.pendingQuests.filter(q => q.remaining_seconds > -60);
                     }, 1000);
                     // Auto score check every hour (3600000ms)
                     this.scoreCheckInterval = setInterval(() => {
@@ -1618,6 +1683,14 @@
                         const res = await fetch('/api/arms-race');
                         this.armsRace = await res.json();
                     } catch (e) { console.error('Arms race fetch failed:', e); }
+                },
+
+                async refreshPendingQuests() {
+                    try {
+                        const res = await fetch('/api/tavern-quests');
+                        const data = await res.json();
+                        this.pendingQuests = data.quests || [];
+                    } catch (e) { console.error('Pending quests fetch failed:', e); }
                 },
 
                 async loadPersistedState() {
@@ -1904,6 +1977,25 @@
                         this.showToast(`Error: ${e.message}`, 'error');
                     } finally {
                         this.shieldRefreshing = false;
+                    }
+                },
+
+                async takeScreenshot() {
+                    if (this.screenshotLoading) return;
+                    this.screenshotLoading = true;
+                    try {
+                        const res = await fetch('/api/screenshot');
+                        const data = await res.json();
+                        if (data.success) {
+                            this.lastScreenshot = data;
+                            this.showToast(`Screenshot saved: ${data.filename}`, 'success');
+                        } else {
+                            this.showToast(data.detail || 'Screenshot failed', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast(`Error: ${e.message}`, 'error');
+                    } finally {
+                        this.screenshotLoading = false;
                     }
                 },
 
@@ -2377,6 +2469,11 @@
                         return `${hours}h ${mins}m ago`;
                     }
                     return new Date(isoDate).toLocaleString();
+                },
+
+                formatTime(isoDate) {
+                    if (!isoDate) return '';
+                    return new Date(isoDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                 },
 
                 // =============================================

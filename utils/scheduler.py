@@ -34,6 +34,13 @@ FLOW_CONFIGS = {
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 0},  # 4hr cooldown, NO idle (time-critical)
+    # Harvest flows - 10s cooldown to prevent spam-clicking same bubble
+    "corn_harvest": {"cooldown": 10, "idle_required": 0},
+    "gold_coin": {"cooldown": 10, "idle_required": 0},
+    "iron_bar": {"cooldown": 10, "idle_required": 0},
+    "gem": {"cooldown": 10, "idle_required": 0},
+    "cabbage": {"cooldown": 10, "idle_required": 0},
+    "equipment_enhancement": {"cooldown": 10, "idle_required": 0},
     # Beast Training phases - no cooldown (block-based tracking in arms_race_state)
     "beast_training_hour_mark": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},  # 5 min idle
     "beast_training_last_hour": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},    # 5 min idle
@@ -332,6 +339,37 @@ class DaemonScheduler:
         self.schedule["tavern_quests"]["last_dispatch"] = datetime.now().isoformat()
         self.save()
         logger.info("[SCHEDULER] Recorded tavern dispatch")
+
+    def record_tavern_claims(self, count: int) -> None:
+        """Record tavern quest claims. Adds to today's total."""
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+
+        # Check if we need to reset (new day)
+        claims_date = self.schedule["tavern_quests"].get("claims_date")
+        today = date.today().isoformat()
+
+        if claims_date != today:
+            # New day - reset counter
+            self.schedule["tavern_quests"]["claims_today"] = 0
+            self.schedule["tavern_quests"]["claims_date"] = today
+
+        # Add to today's count
+        current = self.schedule["tavern_quests"].get("claims_today", 0)
+        self.schedule["tavern_quests"]["claims_today"] = current + count
+        self.save()
+        logger.info(f"[SCHEDULER] Recorded {count} tavern claim(s), today total: {current + count}")
+
+    def get_tavern_claims_today(self) -> int:
+        """Get number of tavern quests claimed today."""
+        tavern_data = self.schedule.get("tavern_quests", {})
+        claims_date = tavern_data.get("claims_date")
+
+        # Check if it's still today
+        if claims_date != date.today().isoformat():
+            return 0
+
+        return tavern_data.get("claims_today", 0)
 
     # =========================================================================
     # Daily Limits (Rally Exhaustion)
