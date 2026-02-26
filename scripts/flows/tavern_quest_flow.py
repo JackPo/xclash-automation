@@ -69,7 +69,6 @@ ALLY_QUESTS_ACTIVE_TEMPLATE = str(TEMPLATE_DIR / "tavern_ally_quests_active_4k.p
 CLAIM_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "claim_button_tavern_4k.png")
 GOLD_SCROLL_TEMPLATE = str(TEMPLATE_DIR / "gold_scroll_4k.png")
 GOLD_SCROLL_MASK = str(TEMPLATE_DIR / "gold_scroll_mask_4k.png")
-GO_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "go_button_4k.png")
 QUESTION_MARK_TILE_TEMPLATE = str(TEMPLATE_DIR / "quest_question_tile_4k.png")
 
 # Bounty Quest dialog templates
@@ -102,10 +101,7 @@ CLAIM_THRESHOLD = 0.02  # Strict threshold to avoid false positives
 
 # Gold scroll and Go button detection (masked matching - any level)
 GOLD_SCROLL_THRESHOLD = 0.95  # TM_CCORR_NORMED with mask - higher is better
-GO_BUTTON_THRESHOLD = 0.02
-GO_BUTTON_X_START = 2100  # Go buttons are in same column as Claim
-GO_BUTTON_X_END = 2500
-Y_TOLERANCE = 80  # Y tolerance for matching scroll with Go button on same row
+GO_BUTTON_CLICK_X = 2320  # Fixed Go button column center in 4K Tavern list
 
 # Question mark tile detection
 QUESTION_MARK_THRESHOLD = 0.02  # Similar to gold scroll
@@ -466,17 +462,15 @@ def find_claim_buttons_with_score(frame: npt.NDArray[Any], template: npt.NDArray
 
 def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
     """
-    Find Go buttons for quests that have Gold Scroll rewards (any level, COLOR matching with mask).
+    Find Go click targets for quests that have Gold Scroll rewards (any level, COLOR matching with mask).
 
     Logic:
     1. Find all Gold Scroll icons using masked matching (ignores level text)
-    2. Find all Go buttons in the rightmost column
-    3. Match scrolls with Go buttons on the same Y-axis (within tolerance)
-    4. Return click positions for matched Go buttons
+    2. Use quest row Y from each scroll with fixed Go column X
+    3. Return click positions sorted top-to-bottom
     """
     gold_scroll_template = load_template_color(GOLD_SCROLL_TEMPLATE)
     gold_scroll_mask = cv2.imread(GOLD_SCROLL_MASK, cv2.IMREAD_GRAYSCALE)
-    go_button_template = load_template_color(GO_BUTTON_TEMPLATE)
 
     # Find all gold scroll positions using masked matching (TM_CCORR_NORMED - higher is better)
     scroll_result = cv2.matchTemplate(frame, gold_scroll_template, cv2.TM_CCORR_NORMED, mask=gold_scroll_mask)
@@ -506,49 +500,7 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
 
     logger.debug(f"Found {len(filtered_scrolls)} Gold Scroll icons (any level)")
 
-    # Find all Go buttons in the right column (COLOR)
-    column_roi = frame[:, GO_BUTTON_X_START:GO_BUTTON_X_END]
-    go_result = cv2.matchTemplate(column_roi, go_button_template, cv2.TM_SQDIFF_NORMED)
-    go_locations = np.where(go_result < GO_BUTTON_THRESHOLD)
-
-    go_h, go_w = go_button_template.shape[:2]
-    go_buttons: list[tuple[int, int, Any]] = []
-    for y, x in zip(go_locations[0], go_locations[1]):
-        score = go_result[y, x]
-        # Convert to full frame coords
-        full_x = GO_BUTTON_X_START + x + go_w // 2
-        center_y = y + go_h // 2
-        go_buttons.append((full_x, center_y, score))
-
-    # Non-maximum suppression for Go buttons
-    go_buttons.sort(key=lambda g: g[2])
-    filtered_go_gold: list[tuple[int, int, Any]] = []
-    for x, y, score in go_buttons:
-        is_distinct = True
-        for fx, fy, _ in filtered_go_gold:
-            if abs(y - fy) < 80:
-                is_distinct = False
-                break
-        if is_distinct:
-            filtered_go_gold.append((x, y, score))
-
-    if not filtered_go_gold:
-        return []
-
-    logger.debug(f"Found {len(filtered_go_gold)} Go buttons")
-
-    # Match scrolls with Go buttons on same row (Y within tolerance)
-    matched_go_buttons: list[tuple[int, int]] = []
-    logger.debug(f"Matching {len(filtered_scrolls)} scrolls with {len(filtered_go_gold)} Go buttons (tolerance={Y_TOLERANCE})")
-    for scroll_x, scroll_y, _ in filtered_scrolls:
-        logger.debug(f"  Scroll at Y={scroll_y}")
-        for go_x, go_y, _ in filtered_go_gold:
-            logger.debug(f"    Go at Y={go_y}, diff={abs(scroll_y - go_y)}")
-            if abs(scroll_y - go_y) <= Y_TOLERANCE:
-                # Found a match! Add Go button click position
-                matched_go_buttons.append((go_x, go_y))
-                logger.debug(f"    MATCHED: Scroll Y={scroll_y} with Go Y={go_y}")
-                break  # One Go per scroll
+    matched_go_buttons = [(GO_BUTTON_CLICK_X, int(scroll_y)) for _, scroll_y, _ in filtered_scrolls]
 
     # Sort by Y position (top to bottom)
     matched_go_buttons.sort(key=lambda b: b[1])
@@ -558,21 +510,18 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
 
 def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
     """
-    Find Go buttons for quests that have question mark reward tiles (COLOR matching).
+    Find Go click targets for quests that have question mark reward tiles (COLOR matching).
 
-    Logic (same as gold scroll):
+    Logic:
     1. Find all question mark tiles in the frame
-    2. Find all Go buttons in the rightmost column
-    3. Match tiles with Go buttons on the same Y-axis (within tolerance)
-    4. Return click positions for matched Go buttons
+    2. Use quest row Y from each tile with fixed Go column X
+    3. Return click positions sorted top-to-bottom
     """
     try:
         question_mark_template = load_template_color(QUESTION_MARK_TILE_TEMPLATE)
     except FileNotFoundError:
         logger.warning("Question mark tile template not found")
         return []
-
-    go_button_template = load_template_color(GO_BUTTON_TEMPLATE)
 
     # Find all question mark tile positions (COLOR)
     tile_result = cv2.matchTemplate(frame, question_mark_template, cv2.TM_SQDIFF_NORMED)
@@ -602,46 +551,7 @@ def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, in
 
     logger.debug(f"Found {len(filtered_tiles)} question mark tiles")
 
-    # Find all Go buttons in the right column (COLOR)
-    column_roi = frame[:, GO_BUTTON_X_START:GO_BUTTON_X_END]
-    go_result = cv2.matchTemplate(column_roi, go_button_template, cv2.TM_SQDIFF_NORMED)
-    go_locations = np.where(go_result < GO_BUTTON_THRESHOLD)
-
-    go_h, go_w = go_button_template.shape[:2]
-    go_buttons_qmark: list[tuple[int, int, Any]] = []
-    for y, x in zip(go_locations[0], go_locations[1]):
-        score = go_result[y, x]
-        # Convert to full frame coords
-        full_x = GO_BUTTON_X_START + x + go_w // 2
-        center_y = y + go_h // 2
-        go_buttons_qmark.append((full_x, center_y, score))
-
-    # Non-maximum suppression for Go buttons
-    go_buttons_qmark.sort(key=lambda g: g[2])
-    filtered_go_qmark: list[tuple[int, int, Any]] = []
-    for x, y, score in go_buttons_qmark:
-        is_distinct = True
-        for fx, fy, _ in filtered_go_qmark:
-            if abs(y - fy) < 80:
-                is_distinct = False
-                break
-        if is_distinct:
-            filtered_go_qmark.append((x, y, score))
-
-    if not filtered_go_qmark:
-        return []
-
-    logger.debug(f"Found {len(filtered_go_qmark)} Go buttons")
-
-    # Match tiles with Go buttons on same row (Y within tolerance)
-    matched_go_buttons_qmark: list[tuple[int, int]] = []
-    for tile_x, tile_y, _ in filtered_tiles:
-        for go_x, go_y, _ in filtered_go_qmark:
-            if abs(tile_y - go_y) <= Y_TOLERANCE:
-                # Found a match! Add Go button click position
-                matched_go_buttons_qmark.append((go_x, go_y))
-                logger.debug(f"Matched: Question mark Y={tile_y} with Go Y={go_y}")
-                break  # One Go per tile
+    matched_go_buttons_qmark = [(GO_BUTTON_CLICK_X, int(tile_y)) for _, tile_y, _ in filtered_tiles]
 
     # Sort by Y position (top to bottom)
     matched_go_buttons_qmark.sort(key=lambda b: b[1])
@@ -866,21 +776,50 @@ def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
     if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
         return {"claims": 0, "mode": "claim", "error": "tavern_open_failed"}
 
-    # Check for visible timers to decide scroll strategy
-    frame = win.get_screenshot_cv2()
-    timers = find_quest_timers(frame, ocr=None)  # Just detect, no OCR needed
-    _save_debug(frame, "claim_00_initial")
-
-    if timers:
-        logger.info(f"[CLAIM] Found {len(timers)} timer(s) visible - staying at top to poll")
-    else:
-        logger.info("[CLAIM] No timers visible - scrolling to bottom where completed quests are")
-        for _ in range(3):
-            adb.swipe(1920, 1400, 1920, 900, duration=300)
-            time.sleep(0.2)
-
     claim_template = load_template_color(CLAIM_BUTTON_TEMPLATE)
     logger.info(f"[CLAIM] Template size: {claim_template.shape[1]}x{claim_template.shape[0]}")
+
+    # First priority: directly check for visible Claim buttons at the current (top) position.
+    # Do not scroll until we've actually looked for claim buttons.
+    frame = win.get_screenshot_cv2()
+    _save_debug(frame, "claim_00_initial")
+
+    top_poll_timeout = 2.0
+    top_poll_start = time.time()
+    top_claim_buttons: list[tuple[int, int]] = []
+    top_best_score = 1.0
+    top_polls = 0
+    while time.time() - top_poll_start < top_poll_timeout:
+        frame = win.get_screenshot_cv2()
+        top_claim_buttons, top_score = find_claim_buttons_with_score(frame, claim_template)
+        top_polls += 1
+        if top_score < top_best_score:
+            top_best_score = top_score
+        if top_claim_buttons:
+            break
+
+    if top_claim_buttons:
+        logger.info(
+            f"[CLAIM] Top check found {len(top_claim_buttons)} claim button(s) "
+            f"after {top_polls} polls ({time.time() - top_poll_start:.1f}s), "
+            f"best_score={top_best_score:.4f}"
+        )
+    else:
+        # If no immediate claim buttons, use timers only to choose where to begin polling.
+        timers = find_quest_timers(frame, ocr=None)  # Just detect, no OCR needed
+        if timers:
+            logger.info(
+                f"[CLAIM] Top check found no claim buttons (best_score={top_best_score:.4f}); "
+                f"timers visible={len(timers)} so staying near top"
+            )
+        else:
+            logger.info(
+                f"[CLAIM] Top check found no claim buttons (best_score={top_best_score:.4f}) "
+                "and no timers visible - scrolling down to search completed quests"
+            )
+            for _ in range(3):
+                adb.swipe(1920, 1400, 1920, 900, duration=300)
+                time.sleep(0.2)
     total_claims = 0
     no_action_count = 0
     max_no_action = 2
