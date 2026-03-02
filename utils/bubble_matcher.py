@@ -129,7 +129,7 @@ class BubbleMatcher:
 
     def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED bubble center position."""
-        adb_helper.tap(self.click_x, self.click_y)
+        adb_helper.tap(self.click_x, self.click_y, source="matcher:bubble:click")
 
 
 def create_bubble_matcher(config_key: str, threshold: float | None = None) -> BubbleMatcher:

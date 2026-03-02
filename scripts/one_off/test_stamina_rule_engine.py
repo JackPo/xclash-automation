@@ -12,7 +12,7 @@ Tests all edge cases:
 import sys
 sys.path.insert(0, "C:\\Users\\mail\\xclash")
 
-from utils.claude_cli_helper import calculate_optimal_stamina
+from scripts.flows.stamina_use_flow import calculate_optimal_stamina
 import random
 
 

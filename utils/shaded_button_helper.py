@@ -110,7 +110,7 @@ def dismiss_popups(adb: ADBHelper, win: WindowsScreenshotHelper, max_clicks: int
         if debug:
             print(f"Button shaded (score={score:.4f}), clicking to dismiss popup {i+1}/{max_clicks}")
 
-        adb.tap(*BUTTON_CLICK)
+        adb.tap(*BUTTON_CLICK, source="util:shaded_button:dismiss")
         time.sleep(0.5)
 
     if debug:

@@ -246,6 +246,29 @@ async def api_current_state() -> dict[str, Any]:
     return get_full_state()
 
 
+@app.get("/api/tavern-quests")
+async def api_tavern_quests() -> dict[str, Any]:
+    """Get pending tavern quest completion times."""
+    scheduler = get_scheduler()
+    completions = scheduler.get_tavern_completions()
+    now = datetime.now()
+
+    quests = []
+    for completion in completions:
+        if completion > now:
+            remaining = (completion - now).total_seconds()
+            quests.append({
+                "completion_time": completion.isoformat(),
+                "remaining_seconds": remaining,
+            })
+
+    return {
+        "quests": quests,
+        "count": len(quests),
+        "timestamp": now.isoformat(),
+    }
+
+
 @app.get("/api/arms-race")
 async def api_arms_race() -> dict[str, Any]:
     """Get Arms Race status including next occurrence times for all events."""
@@ -632,6 +655,33 @@ async def api_return_to_base() -> dict[str, Any]:
     raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
 
 
+@app.get("/api/screenshot")
+async def api_screenshot() -> dict[str, Any]:
+    """Take a screenshot and save to debug folder. Returns the file path."""
+    import cv2
+    try:
+        from utils.windows_screenshot_helper import WindowsScreenshotHelper
+        win = WindowsScreenshotHelper()
+        frame = win.get_screenshot_cv2()
+
+        # Save to debug folder with timestamp
+        debug_dir = PROJECT_ROOT / "screenshots" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"manual_screenshot_{timestamp}.png"
+        filepath = debug_dir / filename
+        cv2.imwrite(str(filepath), frame)
+
+        return {
+            "success": True,
+            "filename": filename,
+            "path": str(filepath),
+            "timestamp": timestamp
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Screenshot failed: {str(e)}")
+
+
 @app.get("/api/titles")
 async def api_list_titles() -> dict[str, Any]:
     """Get list of available kingdom titles."""
@@ -761,6 +811,45 @@ async def api_list_overrides() -> dict[str, Any]:
     if response.get('success'):
         return response.get('data', {})
     raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.get("/api/rally/monsters")
+async def api_rally_monsters() -> dict[str, Any]:
+    """
+    Get recognized rally monster types and per-monster daily-limit override state.
+    """
+    from config import RALLY_MONSTERS
+    from utils.config_overrides import get_rally_ignore_daily_limit_key
+
+    cfg_response = await send_daemon_command('get_config')
+    if not cfg_response.get('success'):
+        raise HTTPException(status_code=503, detail=cfg_response.get('error', 'Daemon error'))
+
+    configs = cfg_response.get('data', {}).get('configs', {})
+    monsters: list[dict[str, Any]] = []
+    for monster in RALLY_MONSTERS:
+        name = str(monster.get("name", "")).strip()
+        if not name:
+            continue
+        override_key = get_rally_ignore_daily_limit_key(name)
+        override_state = configs.get(override_key, {})
+
+        monsters.append({
+            "name": name,
+            "auto_join": bool(monster.get("auto_join", True)),
+            "max_level": monster.get("max_level"),
+            "level_range": monster.get("level_range"),
+            "track_daily_limit": bool(monster.get("track_daily_limit", True)),
+            "ignore_override_key": override_key,
+            "ignore_daily_limit": {
+                "value": bool(override_state.get("value", False)),
+                "default": bool(override_state.get("default", False)),
+                "overridden": bool(override_state.get("overridden", False)),
+                "expires_in": override_state.get("expires_in"),
+            },
+        })
+
+    return {"monsters": monsters, "count": len(monsters)}
 
 
 # ============================================================================

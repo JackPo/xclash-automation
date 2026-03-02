@@ -35,7 +35,7 @@ def click_back(adb: ADBHelper) -> None:
     Args:
         adb: ADBHelper instance
     """
-    adb.tap(*BACK_BUTTON_CLICK)
+    adb.tap(*BACK_BUTTON_CLICK, source="util:ui_helpers:click_back")
 
 
 def close_popup(adb: ADBHelper, clicks: int = 1, delay: float = 0.3) -> None:
@@ -66,4 +66,4 @@ def click_toggle(adb: ADBHelper) -> None:
     Args:
         adb: ADBHelper instance
     """
-    adb.tap(*TOGGLE_BUTTON_CLICK)
+    adb.tap(*TOGGLE_BUTTON_CLICK, source="util:ui_helpers:click_toggle")

@@ -78,12 +78,34 @@
         {"name": "Gold Mine Output Speed Increase", "value": "+100%"}
       ],
       "best_for": ["resources", "gathering"]
+    },
+    "grand_chancellor": {
+      "display_name": "Grand Chancellor",
+      "click_position": [2108, 633],
+      "template": "mark_title_grand_chancellor_4k.png",
+      "event_title": true,
+      "buffs": [
+        {"name": "Building Speed Up", "value": "+25%"},
+        {"name": "Technology Research Speed Up", "value": "+25%"}
+      ],
+      "best_for": ["building", "research"]
+    },
+    "military_commander": {
+      "display_name": "Military Commander",
+      "click_position": [1729, 632],
+      "template": "mark_title_military_commander_4k.png",
+      "event_title": true,
+      "buffs": [
+        {"name": "Soldier Training Speed Increase", "value": "+25%"},
+        {"name": "Barrack Training Capacity Increase", "value": "+10%"}
+      ],
+      "best_for": ["training"]
     }
   },
 
   "event_titles": {
-    "_comment": "Event-specific titles that appear during special events - add as discovered",
-    "examples": []
+    "_comment": "Event-specific titles - now included in main titles dict with event_title: true",
+    "examples": ["grand_chancellor", "military_commander"]
   },
 
   "ui_positions": {

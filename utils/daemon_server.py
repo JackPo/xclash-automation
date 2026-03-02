@@ -153,6 +153,7 @@ class DaemonWebSocketServer:
             "status": self._cmd_status,
             "list_flows": self._cmd_list_flows,
             "get_state": self._cmd_get_state,
+            "set_tavern_claims": self._cmd_set_tavern_claims,
             "set_config": self._cmd_set_config,
             "pause": self._cmd_pause,
             "resume": self._cmd_resume,
@@ -272,6 +273,22 @@ class DaemonWebSocketServer:
         """Get full daemon state."""
         result: dict[str, Any] = self.daemon.scheduler.get_daemon_state()
         return result
+
+    def _cmd_set_tavern_claims(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Force-set today's tavern claims counter."""
+        count_raw = args.get("count")
+        if count_raw is None:
+            raise ValueError("Missing 'count' argument")
+        try:
+            count = int(count_raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid count: {count_raw}")
+        if count < 0:
+            raise ValueError("count must be >= 0")
+
+        self.daemon.scheduler.set_tavern_claims_today(count)
+        self.broadcast("tavern_claims_set", {"count": count, "date": datetime.now().date().isoformat()})
+        return {"tavern_claims_today": self.daemon.scheduler.get_tavern_claims_today()}
 
     def _cmd_set_config(self, args: dict[str, Any]) -> dict[str, Any]:
         """Dynamically update a config value."""

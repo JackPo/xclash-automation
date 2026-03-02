@@ -9,6 +9,8 @@ Flow:
    - If not visible → scroll right until found, then click
 
 Scroll mechanism: Hold-drag left on leftmost visible tile to scroll right.
+
+All matching uses template_matcher with COLOR images (no grayscale).
 """
 
 from __future__ import annotations
@@ -20,27 +22,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import time
 from typing import TYPE_CHECKING, Any
 
-import cv2
-import numpy as np
 import numpy.typing as npt
 
 from config import BARRACKS_POSITIONS, BARRACKS_CLICK_OFFSETS, SOLDIER_TRAINING_DEFAULT_LEVEL
 from utils.return_to_base_view import return_to_base_view
+from utils.template_matcher import match_template
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
-# Template paths for panel verification (absolute paths from project root)
-TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
-SOLDIER_TRAINING_HEADER_TEMPLATE = str(TEMPLATE_DIR / "soldier_training_header_4k.png")
-TRAIN_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "train_button_4k.png")
-
 # Fixed positions for templates (4K)
 HEADER_REGION = (1678, 315, 480, 54)  # x, y, w, h
 TRAIN_BUTTON_REGION = (1969, 1397, 369, 65)  # cropped button without timer
 TRAIN_BUTTON_CLICK = (2153, 1462)
+
+# Thresholds - SQDIFF (lower is better)
+PANEL_THRESHOLD = 0.02
+TRAIN_BUTTON_THRESHOLD = 0.02
+
 from utils.barracks_state_matcher import BarrackState, get_matcher as get_barracks_matcher
 from utils.soldier_tile_matcher import find_visible_soldiers, find_soldier_level, get_leftmost_visible, get_rightmost_visible
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
@@ -50,52 +51,32 @@ from utils.windows_screenshot_helper import WindowsScreenshotHelper
 
 def is_soldier_training_panel_open(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
-    Check if the Soldier Training panel is open by matching header template.
+    Check if the Soldier Training panel is open by matching header template (COLOR).
 
     Returns:
         (is_open, score) tuple
     """
-    template = cv2.imread(SOLDIER_TRAINING_HEADER_TEMPLATE, cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        return False, 1.0  # type: ignore[unreachable]
-
-    frame_gray: npt.NDArray[Any] = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    x, y, w, h = HEADER_REGION
-    roi: npt.NDArray[Any] = frame_gray[y:y+h, x:x+w]
-
-    # Resize template if needed
-    if roi.shape != template.shape:
-        template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
-
-    result: npt.NDArray[Any] = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    score: float = float(result[0, 0])
-
-    return score < 0.02, score
+    is_open, score, _ = match_template(
+        frame, "soldier_training_header_4k.png",
+        search_region=HEADER_REGION,
+        threshold=PANEL_THRESHOLD
+    )
+    return is_open, score
 
 
 def is_train_button_visible(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """
-    Check if the Train button is visible by matching template.
+    Check if the Train button is visible by matching template (COLOR).
 
     Returns:
         (is_visible, score) tuple
     """
-    template = cv2.imread(TRAIN_BUTTON_TEMPLATE, cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        return False, 1.0  # type: ignore[unreachable]
-
-    frame_gray: npt.NDArray[Any] = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    x, y, w, h = TRAIN_BUTTON_REGION
-    roi: npt.NDArray[Any] = frame_gray[y:y+h, x:x+w]
-
-    # Resize template if needed
-    if roi.shape != template.shape:
-        template = cv2.resize(template, (roi.shape[1], roi.shape[0]))
-
-    result: npt.NDArray[Any] = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    score: float = float(result[0, 0])
-
-    return score < 0.02, score
+    is_visible, score, _ = match_template(
+        frame, "train_button_4k.png",
+        search_region=TRAIN_BUTTON_REGION,
+        threshold=TRAIN_BUTTON_THRESHOLD
+    )
+    return is_visible, score
 
 
 def wait_for_panel_open(
@@ -149,7 +130,7 @@ def collect_ready_soldiers(
             click_x, click_y = get_barrack_click_position(i)
             if debug:
                 print(f"  Collecting soldiers from barrack {i+1} at ({click_x}, {click_y})")
-            adb.tap(click_x, click_y)
+            adb.tap(click_x, click_y, source="flow:soldier_training:collect_ready")
             time.sleep(0.5)
             collected += 1
 
@@ -243,7 +224,7 @@ def find_and_click_soldier_level(
             click_x, click_y = target_info['center']
             if debug:
                 print(f"  Found Lv{target_level} at ({click_x}, {click_y}), clicking...")
-            adb.tap(click_x, click_y)
+            adb.tap(click_x, click_y, source="flow:soldier_training:select_level")
             return True
 
         # Target not visible, determine scroll direction
@@ -347,7 +328,7 @@ def train_soldier_at_barrack(
     click_x, click_y = get_barrack_click_position(barrack_index)
     if debug:
         print(f"  Opening training panel for barrack {barrack_index+1} at ({click_x}, {click_y})")
-    adb.tap(click_x, click_y)
+    adb.tap(click_x, click_y, source="flow:soldier_training:open_panel")
 
     # VERIFY: Wait for panel to actually open
     if not wait_for_panel_open(win, timeout=3.0, debug=debug):
@@ -391,7 +372,7 @@ def train_soldier_at_barrack(
             # Click the Train button
             if debug:
                 print(f"  Clicking Train button at {TRAIN_BUTTON_CLICK}")
-            adb.tap(*TRAIN_BUTTON_CLICK)
+            adb.tap(*TRAIN_BUTTON_CLICK, source="flow:soldier_training:train_button")
             time.sleep(0.5)
 
             # Check for resource replenishment AFTER clicking Train
@@ -413,7 +394,7 @@ def train_soldier_at_barrack(
                 # Click Train button again
                 if debug:
                     print(f"  Clicking Train button again at {TRAIN_BUTTON_CLICK}")
-                adb.tap(*TRAIN_BUTTON_CLICK)
+                adb.tap(*TRAIN_BUTTON_CLICK, source="flow:soldier_training:train_button_retry")
                 time.sleep(0.5)
 
             if debug:
@@ -484,20 +465,37 @@ def soldier_training_flow(
             print(f"  Queue: READY={ready_barracks}, PENDING={pending_barracks}")
 
         # Step 2: Click ALL READY barracks rapidly (no re-detection)
-        for i in ready_barracks:
-            click_x, click_y = get_barrack_click_position(i)
-            if debug:
-                print(f"  Collecting from barrack {i+1}")
-            adb.tap(click_x, click_y)
-            time.sleep(0.3)  # Brief delay for animation
-            results['collected'] += 1
+        # Check override for claim enabled
+        claim_enabled = True
+        try:
+            from utils.config_overrides import get_override_manager
+            manager = get_override_manager()
+            claim_enabled, is_overridden = manager.get_effective('BARRACKS_CLAIM_ENABLED', True)
+            if is_overridden and not claim_enabled:
+                if debug:
+                    print(f"  BARRACKS_CLAIM_ENABLED override active: skipping soldier collection")
+        except ImportError:
+            pass
 
-        # After collecting, READY barracks become PENDING - add to queue
-        if ready_barracks:
-            time.sleep(0.3)  # Wait for state change
-            pending_barracks.extend(ready_barracks)
-            if debug:
-                print(f"  READY→PENDING, new queue: {pending_barracks}")
+        if claim_enabled:
+            for i in ready_barracks:
+                click_x, click_y = get_barrack_click_position(i)
+                if debug:
+                    print(f"  Collecting from barrack {i+1}")
+                adb.tap(click_x, click_y, source="flow:soldier_training:collect_soldiers")
+                time.sleep(0.3)  # Brief delay for animation
+                results['collected'] += 1
+
+            # After collecting, READY barracks become PENDING - add to queue
+            if ready_barracks:
+                time.sleep(0.3)  # Wait for state change
+                pending_barracks.extend(ready_barracks)
+                if debug:
+                    print(f"  READY→PENDING, new queue: {pending_barracks}")
+        else:
+            # Skip collection - READY barracks stay READY, don't add to pending queue
+            if debug and ready_barracks:
+                print(f"  Skipped collecting from {len(ready_barracks)} READY barracks (claim disabled)")
 
         # Step 3: Train ALL PENDING barracks (no re-detection between each)
         for i in pending_barracks:

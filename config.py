@@ -34,6 +34,10 @@ GPU_TEMPLATE_MATCHING = True       # Use GPU (CUDA) for template matching (20x f
 # Debug screenshots
 DEBUG_SCREENSHOTS_ENABLED = False  # Set to True to save debug screenshots (fills disk quickly!)
 
+# Daemon frame capture (VERY expensive: writes 4K PNGs to disk continuously)
+DAEMON_FRAME_CAPTURE_ENABLED = False      # Keep False in normal operation
+DAEMON_FRAME_CAPTURE_EVERY_N = 1          # Capture every N daemon iterations when enabled
+
 # Per-flow debug flags (override global setting for specific flows)
 DEBUG_ELITE_ZOMBIE_FLOW = True     # Elite zombie rally flow
 DEBUG_ZOMBIE_ATTACK_FLOW = True    # Regular zombie attack flow
@@ -227,7 +231,7 @@ EQUIPMENT_BUBBLE = {
 THRESHOLDS_MASKED = {
     'corn': 0.05,       # corn_harvest_bubble_mask_4k.png
     'gold': 0.05,       # gold_coin_tight_mask_4k.png
-    'iron': 0.05,       # iron_bar_tight_mask_4k.png
+    'iron': 0.01,       # iron_bar_tight_mask_4k.png
     'gem': 0.05,        # gem_tight_mask_4k.png
 }
 

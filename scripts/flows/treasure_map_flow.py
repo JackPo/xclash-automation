@@ -37,9 +37,9 @@ from utils.treasure_dig_matchers import (
 )
 from utils.back_button_matcher import BackButtonMatcher
 from utils.hero_selector import HeroSelector
-from utils.debug_screenshot import save_debug_screenshot
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from config import DEBUG_TREASURE_FLOW
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -58,14 +58,24 @@ CLICK_Y = 1621
 INITIAL_DELAY = 1.0
 CHECK_INTERVAL = 0.5
 MAX_ATTEMPTS = 15
-MARCH_PROGRESS_CHECK_INTERVAL = 1.0  # Check every 1 second during march - RUSH to get it!
+MARCH_PROGRESS_CHECK_INTERVAL = 0.1  # Check every 0.1 second for fast reaction
 MAX_MARCH_WAIT_SECONDS = 600  # 10 minutes max wait for march
 BACK_BUTTON_MAX_CLICKS = 5  # Max back button clicks to exit
 
 
 def _save_debug_screenshot(frame: npt.NDArray[Any], name: str) -> str:
     """Save screenshot for debugging. Returns path."""
-    return save_debug_screenshot(frame, FLOW_NAME, name)
+    if not DEBUG_TREASURE_FLOW:
+        return ""
+    from pathlib import Path
+    from datetime import datetime
+    import cv2
+    debug_dir = Path(__file__).parent.parent.parent / "screenshots" / "debug" / FLOW_NAME
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+    filepath = debug_dir / f"{timestamp}_{name}.png"
+    cv2.imwrite(str(filepath), frame)
+    return str(filepath)
 
 
 def _log(msg: str) -> None:

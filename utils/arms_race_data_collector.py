@@ -152,7 +152,7 @@ def navigate_to_arms_race(adb: ADBHelper, win: WindowsScreenshotHelper, debug: b
 
     # Click Events icon to open events panel
     logger.info(f"Clicking Events icon at {EVENTS_ICON_CLICK}")
-    adb.tap(*EVENTS_ICON_CLICK)
+    adb.tap(*EVENTS_ICON_CLICK, source="util:arms_race_data_collector:events_icon_click")
     time.sleep(1.5)
 
     # Take screenshot and check if we need to click Arms Race
@@ -165,7 +165,7 @@ def navigate_to_arms_race(adb: ADBHelper, win: WindowsScreenshotHelper, debug: b
 
     # Click Arms Race icon on bottom bar
     logger.info(f"Clicking Arms Race icon at {ARMS_RACE_ICON_CLICK}")
-    adb.tap(*ARMS_RACE_ICON_CLICK)
+    adb.tap(*ARMS_RACE_ICON_CLICK, source="util:arms_race_data_collector:arms_race_icon_click")
     time.sleep(1.5)
 
     # Verify

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
 
-def cabbage_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool:
+def cabbage_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> bool | dict[str, object]:
     """Click the cabbage bubble if present.
 
     Args:
@@ -41,5 +41,21 @@ def cabbage_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None) -> 
 
     matcher.click(adb)
     time.sleep(0.3)
-    print(f"    [CABBAGE] Clicked harvest bubble (score={score:.3f})")
+
+    # Verify the click actually changed state; if not, back off instead of repeating spam clicks.
+    after = win.get_screenshot_cv2()
+    still_present, after_score = matcher.is_present(after)
+    if still_present:
+        print(
+            f"    [CABBAGE] No visible change after click "
+            f"(before={score:.3f}, after={after_score:.3f}) - backing off"
+        )
+        return {
+            "skipped": True,
+            "reason": "cabbage_no_effect_after_click",
+            "before_score": float(score),
+            "after_score": float(after_score),
+        }
+
+    print(f"    [CABBAGE] Clicked harvest bubble (score={score:.3f} -> {after_score:.3f})")
     return True

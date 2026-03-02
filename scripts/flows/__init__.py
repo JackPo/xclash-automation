@@ -28,7 +28,7 @@ from .rally_join_flow import rally_join_flow
 from .healing_flow import healing_flow
 from .bag_flow import bag_flow
 from .gift_box_flow import gift_box_flow
-from .beast_training_flow import run_hour_mark_phase, run_beast_training_phase, check_progress_quick
+from .beast_training_flow import run_hour_mark_phase, run_beast_training_phase, check_progress_quick, aggressive_beast_training_flow
 from .marshall_speedup_all_flow import marshall_speedup_all_flow
 
-__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'cabbage_flow', 'equipment_enhancement_flow', 'back_from_chat_flow', 'elite_zombie_flow', 'afk_rewards_flow', 'union_gifts_flow', 'union_technology_flow', 'hero_upgrade_arms_race_flow', 'stamina_claim_flow', 'stamina_use_flow', 'soldier_training_flow', 'soldier_upgrade_flow', 'rally_join_flow', 'healing_flow', 'bag_flow', 'gift_box_flow', 'run_hour_mark_phase', 'run_beast_training_phase', 'check_progress_quick', 'marshall_speedup_all_flow']
+__all__ = ['handshake_flow', 'treasure_map_flow', 'harvest_box_flow', 'corn_harvest_flow', 'gold_coin_flow', 'iron_bar_flow', 'gem_flow', 'cabbage_flow', 'equipment_enhancement_flow', 'back_from_chat_flow', 'elite_zombie_flow', 'afk_rewards_flow', 'union_gifts_flow', 'union_technology_flow', 'hero_upgrade_arms_race_flow', 'stamina_claim_flow', 'stamina_use_flow', 'soldier_training_flow', 'soldier_upgrade_flow', 'rally_join_flow', 'healing_flow', 'bag_flow', 'gift_box_flow', 'run_hour_mark_phase', 'run_beast_training_phase', 'check_progress_quick', 'aggressive_beast_training_flow', 'marshall_speedup_all_flow']

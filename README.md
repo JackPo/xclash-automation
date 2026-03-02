@@ -1,4 +1,4 @@
-# xclash-automation
+﻿# xclash-automation
 
 Automation daemon for X-Clash (com.xman.na.gp) running on BlueStacks. Uses Windows screenshots, OpenCV template matching, OCR, and ADB input to drive in-game flows.
 
@@ -27,19 +27,23 @@ Notes:
 
 ## Quick start
 1. Install Python 3.12+, BlueStacks 5, and optional CUDA (for OCR).
-2. Install dependencies:
+2. Install CUDA-enabled PyTorch (recommended for RTX 50 series):
+   ```bash
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+   ```
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Set BlueStacks to 3840x2160:
+4. Set BlueStacks to 3840x2160:
    ```bash
    python scripts/setup_bluestacks.py
    ```
-4. Copy config overrides:
+5. Copy config overrides:
    ```bash
    cp config_local.py.example config_local.py
    ```
-5. Run the daemon:
+6. Run the daemon:
    ```bash
    python scripts/icon_daemon.py
    ```
@@ -50,3 +54,107 @@ Notes:
 
 ## Docs
 See `docs/README.md` for the full documentation map and deep dives. For a game primer, start with `docs/game_overview.md`.
+
+## Change Log Since Last Commit
+<!-- CHANGELOG-SINCE-LAST-COMMIT:START -->
+Base commit: `a88e371` 
+
+Generated: 2026-03-02 05:16:02 -08:00
+
+This list includes all version-controlled file changes currently present since the base commit.
+
+```text
+M	.claude/skills/daemon-flow/FLOWS.md
+M	README.md
+M	SUGGESTIONS.MD
+M	config.py
+M	config_local.py.example
+M	dashboard/server.py
+M	dashboard/static/index.html
+M	data/kingdom_titles.json
+M	requirements.txt
+M	scripts/daemon_cli.py
+M	scripts/demo_4_hours.py
+M	scripts/flows/__init__.py
+M	scripts/flows/afk_rewards_flow.py
+M	scripts/flows/bag_hero_flow.py
+M	scripts/flows/bag_resources_flow.py
+M	scripts/flows/bag_special_flow.py
+M	scripts/flows/barrack_speedup_flow.py
+M	scripts/flows/barracks_training_flow.py
+M	scripts/flows/beast_training_flow.py
+M	scripts/flows/cabbage_flow.py
+M	scripts/flows/elite_zombie_flow.py
+M	scripts/flows/faction_trials_flow.py
+M	scripts/flows/gift_box_flow.py
+M	scripts/flows/gold_coin_flow.py
+M	scripts/flows/handshake_flow.py
+M	scripts/flows/harvest_box_flow.py
+M	scripts/flows/hero_upgrade_arms_race_flow.py
+M	scripts/flows/hospital_healing_flow.py
+M	scripts/flows/marshall_speedup_all_flow.py
+M	scripts/flows/rally_join_flow.py
+M	scripts/flows/reinforce_camp_star_flow.py
+M	scripts/flows/royal_city_attack_flow.py
+M	scripts/flows/royal_city_flow.py
+M	scripts/flows/snowman_flow.py
+M	scripts/flows/soldier_speedup_flow.py
+M	scripts/flows/soldier_training_flow.py
+M	scripts/flows/soldier_upgrade_flow.py
+M	scripts/flows/stamina_claim_flow.py
+M	scripts/flows/tavern_quest_flow.py
+M	scripts/flows/treasure_map_flow.py
+M	scripts/flows/union_gifts_flow.py
+M	scripts/flows/union_technology_flow.py
+M	scripts/icon_daemon.py
+M	scripts/one_off/test_stamina_rule_engine.py
+M	services/ocr_server.py
+D	templates/ground_truth/bag_button_4k.png.template.png
+D	templates/ground_truth/bag_shield_5_4k.png
+D	templates/ground_truth/bag_shield_blue_5_4k.png
+D	templates/ground_truth/bag_shield_green_4_4k.png
+D	templates/ground_truth/bag_shield_purple_4_4k.png
+D	templates/ground_truth/treasure_chat_notification_4k.png
+D	templates/ground_truth/treasure_digging_marker_4k.png
+D	templates/ground_truth/treasure_map_4k.png
+D	templates/ground_truth/treasure_not_ready_circle_4k.png
+D	templates/ground_truth/treasure_not_ready_circle_mask_4k.png
+D	templates/ground_truth/treasure_ready_circle_4k.png
+D	templates/ground_truth/treasure_ready_circle_mask_4k.png
+M	templates/ground_truth/use_button_4k.png
+M	tests/test_templates.py
+M	tests/unit/test_template_matcher.py
+M	utils/adb_helper.py
+M	utils/afk_rewards_matcher.py
+M	utils/ally_quest_scanner.py
+M	utils/arms_race_data_collector.py
+M	utils/barracks_state_matcher.py
+M	utils/bubble_matcher.py
+M	utils/cabbage_matcher.py
+M	utils/config_overrides.py
+M	utils/corn_harvest_matcher.py
+M	utils/daemon_server.py
+M	utils/equipment_enhancement_matcher.py
+M	utils/events_icon_matcher.py
+M	utils/gem_matcher.py
+M	utils/gold_coin_matcher.py
+M	utils/handshake_icon_matcher.py
+M	utils/harvest_box_matcher.py
+M	utils/iron_bar_matcher.py
+M	utils/ocr_client.py
+D	utils/qwen_ocr.py
+M	utils/rally_march_button_matcher.py
+M	utils/replenish_all_helper.py
+M	utils/return_to_base_view.py
+M	utils/scheduler.py
+M	utils/shaded_button_helper.py
+M	utils/snowman_chat_matcher.py
+M	utils/snowman_matcher.py
+M	utils/soldier_tile_matcher.py
+M	utils/stamina_popup_helper.py
+M	utils/template_matcher.py
+M	utils/ui_helpers.py
+M	utils/user_idle_tracker.py
+```
+<!-- CHANGELOG-SINCE-LAST-COMMIT:END -->
+

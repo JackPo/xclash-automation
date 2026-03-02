@@ -7,12 +7,29 @@ with automatic expiry and persistence across daemon restarts.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
 
 T = TypeVar('T')
+
+try:
+    from config import RALLY_MONSTERS as _RALLY_MONSTERS
+except Exception:
+    _RALLY_MONSTERS: list[dict[str, Any]] = []
+
+
+def normalize_rally_monster_name(monster_name: str) -> str:
+    """Normalize monster names for stable override keys."""
+    return re.sub(r"[^A-Z0-9]+", "_", str(monster_name).upper()).strip("_")
+
+
+def get_rally_ignore_daily_limit_key(monster_name: str) -> str:
+    """Get config override key for per-monster daily-limit ignore."""
+    normalized = normalize_rally_monster_name(monster_name)
+    return f"RALLY_IGNORE_DAILY_LIMIT_{normalized}"
 
 # Config definitions: key -> {default, type, min, max, category, description}
 CONFIG_DEFINITIONS = {
@@ -143,6 +160,20 @@ CONFIG_DEFINITIONS = {
         "description": "Cooldown between reinforce attempts in seconds (default 15 min)",
     },
 }
+
+# Per-monster daily-limit override keys (generated from configured rally monsters).
+# Example: RALLY_IGNORE_DAILY_LIMIT_ELITE_ZOMBIE
+for _monster in _RALLY_MONSTERS:
+    _name = str(_monster.get("name", "")).strip()
+    if not _name:
+        continue
+    _key = get_rally_ignore_daily_limit_key(_name)
+    CONFIG_DEFINITIONS[_key] = {
+        "default": False,
+        "type": "bool",
+        "category": "rally",
+        "description": f"Ignore daily rally limit for {_name}",
+    }
 
 
 class ConfigOverrideManager:

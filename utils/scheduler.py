@@ -60,6 +60,8 @@ class DaemonScheduler:
     """
 
     SCHEDULE_FILE = Path(__file__).parent.parent / "data" / "daemon_schedule.json"
+    MAX_FLOW_HISTORY_SIZE = 5000      # Per-flow cap to prevent unbounded growth
+    FLOW_HISTORY_MAX_AGE_DAYS = 2     # Keep a small recent buffer only
 
     def __init__(self, config_overrides: dict[str, Any] | None = None) -> None:
         """
@@ -370,6 +372,20 @@ class DaemonScheduler:
             return 0
 
         return tavern_data.get("claims_today", 0)
+
+    def set_tavern_claims_today(self, count: int) -> None:
+        """Force-set today's tavern claims counter to an exact value."""
+        if count < 0:
+            raise ValueError("count must be >= 0")
+
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+
+        today = date.today().isoformat()
+        self.schedule["tavern_quests"]["claims_date"] = today
+        self.schedule["tavern_quests"]["claims_today"] = int(count)
+        self.save()
+        logger.info(f"[SCHEDULER] Force-set tavern claims for {today} to {count}")
 
     # =========================================================================
     # Daily Limits (Rally Exhaustion)
@@ -890,6 +906,79 @@ class DaemonScheduler:
 
             self.schedule["history_date"] = today
             self.save()
+
+    def _prune_flow_histories(self) -> int:
+        """
+        Prune invalid/stale/oversized per-flow history arrays.
+
+        Returns:
+            Number of history entries removed across all flows.
+        """
+        flows = self.schedule.get("flows", {})
+        if not isinstance(flows, dict):
+            return 0
+
+        cutoff = datetime.now() - timedelta(days=self.FLOW_HISTORY_MAX_AGE_DAYS)
+        removed_entries = 0
+
+        for _, flow_data in flows.items():
+            if not isinstance(flow_data, dict):
+                continue
+
+            history = flow_data.get("history", [])
+            if not isinstance(history, list) or not history:
+                continue
+
+            pruned_history: list[str] = []
+            for dt_str in history:
+                if not isinstance(dt_str, str):
+                    removed_entries += 1
+                    continue
+                try:
+                    dt = datetime.fromisoformat(dt_str)
+                except (ValueError, TypeError):
+                    removed_entries += 1
+                    continue
+
+                if dt < cutoff:
+                    removed_entries += 1
+                    continue
+
+                pruned_history.append(dt_str)
+
+            if len(pruned_history) > self.MAX_FLOW_HISTORY_SIZE:
+                overflow = len(pruned_history) - self.MAX_FLOW_HISTORY_SIZE
+                removed_entries += overflow
+                pruned_history = pruned_history[-self.MAX_FLOW_HISTORY_SIZE:]
+
+            if pruned_history != history:
+                flow_data["history"] = pruned_history
+
+        return removed_entries
+
+    def run_periodic_maintenance(self) -> dict[str, int | bool]:
+        """
+        Run lightweight scheduler maintenance for long-lived daemon processes.
+
+        Returns:
+            {"day_reset": bool, "pruned_entries": int}
+        """
+        previous_history_date = self.schedule.get("history_date")
+        today = date.today().isoformat()
+        day_reset = previous_history_date != today
+
+        if day_reset:
+            self._check_daily_reset()
+
+        pruned_entries = self._prune_flow_histories()
+        if pruned_entries > 0:
+            self.save()
+            logger.info(f"[SCHEDULER] Pruned {pruned_entries} old/invalid flow history entries")
+
+        return {
+            "day_reset": day_reset,
+            "pruned_entries": pruned_entries,
+        }
 
     def _get_flow_config(self, flow_name: str) -> dict[str, Any] | None:
         """Get flow configuration (overrides take precedence)."""

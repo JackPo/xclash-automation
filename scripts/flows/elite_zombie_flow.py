@@ -566,6 +566,24 @@ def elite_zombie_flow(
                 search_region=(1600, 1800, 700, 400)
             )
             if not found:
+                # Recovery: if search panel collapsed but Rally is already visible on world map,
+                # proceed using Rally instead of hard-failing this run.
+                rally_visible, rally_score, rally_loc = _verify_template(
+                    frame, "rally_button_4k.png",
+                    threshold=RALLY_BUTTON_THRESHOLD,
+                    search_region=(1500, 1000, 800, 900)
+                )
+                if rally_visible and rally_loc is not None:
+                    _log(
+                        f"  Search button missing, but Rally already visible at {rally_loc} "
+                        f"(score={rally_score:.4f})"
+                    )
+                    rally_button_found = True
+                    rally_button_score = rally_score
+                    rally_button_loc = rally_loc
+                    _save_debug_screenshot(frame, "04_search_missing_but_rally_visible", click_pos=rally_button_loc)
+                    break
+
                 _log(f"FAILED: Search button not visible (score={score:.4f})")
                 _save_debug_screenshot(frame, "04_search_button_not_found")
                 return_to_base_view(adb, win, debug=False)
@@ -577,6 +595,20 @@ def elite_zombie_flow(
 
             # Wait for search to complete and camera to pan to zombie
             time.sleep(SEARCH_RESULT_DELAY)
+
+            # Prefer Rally detection first; this avoids false unfreeze matches when Rally is already visible.
+            _log("  Checking for Rally button first...")
+            rally_button_found, rally_button_score, rally_button_loc, frame = _poll_for_template(
+                win, "rally_button_4k.png",
+                threshold=RALLY_BUTTON_THRESHOLD,
+                search_region=(1500, 1000, 800, 900),
+                max_attempts=6,
+                interval=0.25
+            )
+            if rally_button_found:
+                if frame is not None:
+                    _save_debug_screenshot(frame, "04_after_search", click_pos=rally_button_loc)
+                break
 
             # Check if unfreeze button appeared (frozen zombie)
             unfreeze_result = _check_and_click_unfreeze(adb, win)
@@ -618,6 +650,7 @@ def elite_zombie_flow(
             _log("  Waiting for search results...")
             rally_button_found, rally_button_score, rally_button_loc, frame = _poll_for_template(
                 win, "rally_button_4k.png",
+                threshold=RALLY_BUTTON_THRESHOLD,
                 search_region=(1500, 1000, 800, 900),
                 max_attempts=15
             )
@@ -675,21 +708,20 @@ def elite_zombie_flow(
                 idle_str = "Zz PRESENT (idle)" if status['is_idle'] else "NO Zz (busy)"
                 _log(f"  Slot {status['id']}: score={status['score']:.4f} -> {idle_str}")
 
-            # Find LEFTMOST hero (IGNORE Zz status - force select leftmost regardless)
-            # Elite zombie = YOU start the rally as leader, troops commit when timer ends
-            # Safe to use busy hero since you're initiating, not joining
-            idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='ignore')
+            # Find LEFTMOST AVAILABLE hero (require Zz icon = idle/available)
+            # Elite zombie = YOU start the rally as leader
+            # Pick leftmost available hero so strongest heroes are used first
+            idle_slot = hero_selector.find_leftmost_idle(frame, zz_mode='require')
 
             if idle_slot:
                 click_pos = idle_slot['click']
-                _log(f"  Clicking leftmost slot {idle_slot['id']} at {click_pos}")
+                _log(f"  Clicking leftmost available slot {idle_slot['id']} at {click_pos}")
                 # Save BEFORE click with annotated position
                 _save_debug_screenshot(frame, "06b_CLICKING_hero", click_pos=click_pos)
                 adb.tap(*click_pos, source="flow:elite_zombie:hero_slot")
                 time.sleep(CLICK_DELAY)
             else:
-                # Should never happen with zz_mode='ignore'
-                _log("  ERROR: No hero slot found! (should not happen)")
+                _log("  ERROR: No available hero found (all heroes busy)")
 
         frame = win.get_screenshot_cv2()
         if frame is not None:

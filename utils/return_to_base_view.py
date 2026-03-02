@@ -26,6 +26,7 @@ from utils.back_button_matcher import BackButtonMatcher
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.adb_helper import ADBHelper
 from utils.send_zoom import send_zoom
+from utils.template_matcher import match_template
 
 # Import from centralized config
 from config import BACK_BUTTON_CLICK, EXPECTED_RESOLUTION
@@ -33,6 +34,8 @@ from config import BACK_BUTTON_CLICK, EXPECTED_RESOLUTION
 # Click positions
 MAP_DESELECT_CLICK = (500, 1000)  # Click on empty map area to deselect troops
 CENTER_SCREEN_CLICK = (1920, 1950)  # Click center-bottom for "Tap to Close" popups (below popup area)
+UNION_DONATE_DIALOG_REGION = (1973, 1470, 369, 130)
+UNION_DONATE_DIALOG_THRESHOLD = 0.05
 
 # Template paths for state detection
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "ground_truth"
@@ -82,6 +85,33 @@ def _detect_resource_bar(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:
     min_val: float
     min_val, _, _, _ = cv2.minMaxLoc(result)
     return min_val < 0.1, min_val
+
+
+def _detect_union_donate_dialog(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:
+    """
+    Detect Union Technology donate modal by matching active/inactive donate button states.
+
+    This modal can hide/disable normal back button detection and trap recovery in UNKNOWN.
+    """
+    if frame is None:
+        return False, 1.0
+
+    active_found, active_score, _ = match_template(
+        frame,
+        "tech_donate_200_button_active_4k.png",
+        search_region=UNION_DONATE_DIALOG_REGION,
+        threshold=UNION_DONATE_DIALOG_THRESHOLD,
+    )
+    inactive_found, inactive_score, _ = match_template(
+        frame,
+        "tech_donate_200_button_inactive_4k.png",
+        search_region=UNION_DONATE_DIALOG_REGION,
+        threshold=UNION_DONATE_DIALOG_THRESHOLD,
+    )
+
+    if active_found or inactive_found:
+        return True, min(active_score, inactive_score)
+    return False, 1.0
 
 
 def _is_xclash_in_foreground(adb: ADBHelper) -> bool:
@@ -329,18 +359,33 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     back_matcher = BackButtonMatcher()
 
-    # Check idle FIRST - if user is active, don't interfere with clicking
-    if respect_idle:
+    def _should_abort_for_user_activity(context: str) -> bool:
+        """
+        Return True when manual user activity should preempt automation.
+
+        When respect_idle=True we re-check continuously, not just once at entry.
+        This prevents return_to_base loops from fighting the user mid-navigation.
+        """
+        if not respect_idle:
+            return False
         try:
             from utils.user_idle_tracker import get_user_idle_seconds
             from config import IDLE_THRESHOLD
             idle_secs = get_user_idle_seconds()
             if idle_secs < IDLE_THRESHOLD:
                 if debug:
-                    print(f"    [RETURN] User is active (idle={idle_secs}s < {IDLE_THRESHOLD}s), skipping recovery")
+                    print(
+                        f"    [RETURN] User is active during {context} "
+                        f"(idle={idle_secs:.1f}s < {IDLE_THRESHOLD}s), stopping recovery"
+                    )
                 return True  # Assume user is handling it
         except Exception:
             pass  # If idle check fails, proceed with recovery
+        return False
+
+    # Check idle FIRST - if user is active, don't interfere with clicking
+    if _should_abort_for_user_activity("initial check"):
+        return True
 
     # =========================================================================
     # FAST PATH: Try simple navigation FIRST (no subprocess calls)
@@ -349,6 +394,9 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     from utils.ui_helpers import click_back
 
     for fast_attempt in range(5):
+        if _should_abort_for_user_activity("fast path"):
+            return True
+
         frame = win.get_screenshot_cv2()
         if frame is None:
             break
@@ -363,11 +411,27 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 return True
             continue  # Toggle failed, retry
 
+        # Check for known modal that needs blank-space dismissal before back buttons are visible
+        donate_popup, donate_score = _detect_union_donate_dialog(frame)
+        if donate_popup:
+            if debug:
+                print(
+                    f"    [RETURN] Fast path: Union donate popup detected "
+                    f"(score={donate_score:.3f}), clicking center to close"
+                )
+            if _should_abort_for_user_activity("fast path donate popup close"):
+                return True
+            adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen_donate_popup")
+            time.sleep(0.4)
+            continue
+
         # Check for back button
         back_present, back_score, back_pos, matched_template = back_matcher.find(frame)
         if back_present and back_pos:
             if debug:
                 print(f"    [RETURN] Fast path: Back button at {back_pos}, clicking (attempt {fast_attempt + 1})")
+            if _should_abort_for_user_activity("fast path before back tap"):
+                return True
             adb.tap(*back_pos, source="rtb:fast_back")
 
             # Poll until back button gone or view changed (max 1.5s)
@@ -398,6 +462,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if view_state == ViewState.CHAT:
             if debug:
                 print(f"    [RETURN] Fast path: In CHAT, clicking back (attempt {fast_attempt + 1})")
+            if _should_abort_for_user_activity("fast path before chat back"):
+                return True
             click_back(adb)
 
             # Poll until view changes (max 1.5s)
@@ -478,12 +544,18 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
     # STEP 2: Try to get to TOWN/WORLD (full recovery attempts)
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
+        if _should_abort_for_user_activity("full recovery attempt"):
+            return True
+
         if debug:
             print(f"    [RETURN] Attempt {attempt + 1}/{MAX_RECOVERY_ATTEMPTS}")
 
         # Phase 1: Click back button while visible
         back_clicks = 0
         while back_clicks < MAX_BACK_CLICKS:
+            if _should_abort_for_user_activity("full recovery back loop"):
+                return True
+
             frame = win.get_screenshot_cv2()
             if frame is None:
                 if debug:  # type: ignore[unreachable]
@@ -507,6 +579,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 _save_rtb_debug(frame, f"STEP2_back_found_a{attempt+1}", f"pos{back_pos[0]}_{back_pos[1]}")
                 if debug:
                     print(f"    [RETURN] Back button found at {back_pos} (score={back_score:.3f}, template={matched_template}), clicking...")
+                if _should_abort_for_user_activity("full recovery before back tap"):
+                    return True
                 adb.tap(*back_pos, source="rtb:back_button")
                 back_clicks += 1
 
@@ -567,6 +641,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 # Ground found - click it first to dismiss any floating panels
                 if debug:
                     print(f"    [RETURN] GROUND detected at {ground_pos} - clicking to dismiss panels")
+                if _should_abort_for_user_activity("ground dismiss"):
+                    return True
                 adb.tap(*ground_pos, source="rtb:ground_click")
                 time.sleep(0.5)
 
@@ -595,6 +671,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 # Grass found - click it first to dismiss any floating panels
                 if debug:
                     print(f"    [RETURN] GRASS detected at {grass_pos} - clicking to dismiss panels")
+                if _should_abort_for_user_activity("grass dismiss"):
+                    return True
                 adb.tap(*grass_pos, source="rtb:grass_click")
                 time.sleep(0.5)
 
@@ -620,6 +698,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             # Detect other states
             troop_selected, troop_score = _detect_troop_selected(frame)
             resource_bar, resource_score = _detect_resource_bar(frame)
+            donate_popup, donate_score = _detect_union_donate_dialog(frame)
             back_present, back_score, back_pos, _ = back_matcher.find(frame)
 
             if debug:
@@ -634,15 +713,28 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 print(f"      - View: UNKNOWN (score={view_score:.3f})")
                 print(f"      - Troop selected: {troop_selected} (score={troop_score:.3f})")
                 print(f"      - Resource bar: {resource_bar} (score={resource_score:.3f})")
+                print(f"      - Union donate popup: {donate_popup} (score={donate_score:.3f})")
                 print(f"      - Back button: {back_present} (score={back_score:.3f})")
                 print(f"    [RETURN] Saved debug screenshot: {debug_path.name}")
 
             # Decision logic based on detected state
-            if troop_selected:
+            if donate_popup:
+                _save_rtb_debug(frame, f"STEP3_union_donate_popup_a{attempt+1}")
+                if debug:
+                    print("    [RETURN] UNION DONATE POPUP detected - clicking center to dismiss...")
+                if _should_abort_for_user_activity("union donate popup dismiss"):
+                    return True
+                adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen_donate_popup")
+                time.sleep(0.5)
+                continue  # Retry detection
+
+            elif troop_selected:
                 # Troop is selected - click map to deselect
                 _save_rtb_debug(frame, f"STEP3_troop_selected_a{attempt+1}")
                 if debug:
                     print("    [RETURN] TROOP SELECTED state detected - clicking map to deselect...")
+                if _should_abort_for_user_activity("troop deselect"):
+                    return True
                 adb.tap(*MAP_DESELECT_CLICK, source="rtb:map_deselect")
                 time.sleep(0.5)
 
@@ -664,6 +756,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 _save_rtb_debug(frame, f"STEP3_resource_bar_a{attempt+1}")
                 if debug:
                     print("    [RETURN] RESOURCE BAR visible but World button hidden - trying center click...")
+                if _should_abort_for_user_activity("resource bar center click"):
+                    return True
                 adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen")
                 time.sleep(0.5)
 
@@ -684,6 +778,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 _save_rtb_debug(frame, f"STEP3_back_in_menu_a{attempt+1}")
                 if debug:
                     print(f"    [RETURN] BACK BUTTON at {back_pos} - clicking to exit dialog...")
+                if _should_abort_for_user_activity("step3 back button"):
+                    return True
                 adb.tap(*back_pos, source="rtb:back_button")
                 # Poll for back button to disappear (same as Phase 1)
                 for poll in range(5):
@@ -714,6 +810,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     _save_rtb_debug(frame, f"STEP3_grass_found_a{attempt+1}", f"pos{grass_pos[0]}_{grass_pos[1]}")
                     if debug:
                         print(f"    [RETURN] Grass detected (WORLD view) - clicking at {grass_pos}")
+                    if _should_abort_for_user_activity("unknown grass click"):
+                        return True
                     adb.tap(*grass_pos, source="rtb:grass_click")
                     time.sleep(0.5)
                     # Check if we're now in TOWN/WORLD
@@ -742,6 +840,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     _save_rtb_debug(frame, f"STEP3_ground_found_a{attempt+1}", f"pos{ground_pos[0]}_{ground_pos[1]}")
                     if debug:
                         print(f"    [RETURN] Ground detected (TOWN view) - clicking at {ground_pos}")
+                    if _should_abort_for_user_activity("unknown ground click"):
+                        return True
                     adb.tap(*ground_pos, source="rtb:ground_click")
                     time.sleep(0.5)
                     # Check if we're now in TOWN/WORLD
@@ -771,6 +871,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     _save_rtb_debug(frame, f"STEP3_fallback_back_a{attempt+1}", f"pos{back_pos2[0]}_{back_pos2[1]}")
                     if debug:
                         print(f"    [RETURN] Found back button at {back_pos2} (score={back_score2:.3f})")
+                    if _should_abort_for_user_activity("fallback back click"):
+                        return True
                     adb.tap(*back_pos2, source="rtb:back_button")
                     time.sleep(0.5)
                 else:
@@ -794,6 +896,8 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 _save_rtb_debug(frame, f"STEP3_trying_center_a{attempt+1}")
                 if debug:
                     print("    [RETURN] Trying center screen click...")
+                if _should_abort_for_user_activity("fallback center click"):
+                    return True
                 adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen")
                 time.sleep(0.5)
 

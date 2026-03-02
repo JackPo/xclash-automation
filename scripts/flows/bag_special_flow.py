@@ -56,10 +56,13 @@ CHEST_TEMPLATES = [
     "bag_chest_purple_4k.png",       # Purple chest with gold trim
     "bag_chest_question_4k.png",     # Mystery chest with question mark
     "bag_chest_wooden_4k.png",       # Wooden chest with question mark medallion
-    "bag_chest_blue_striped_4k.png", # Blue striped chest with purple gem
+    # "bag_chest_blue_striped_4k.png", # Disabled: false-positive/undesired trigger
     "bag_chest_gold_ornate_4k.png",  # Blue striped chest on blue background
     "bag_chest_purple_striped_4k.png",  # Gold/teal chest with blue gem
     "bag_giftbox_4k.png",            # Gift box (has quantity number below)
+    "bag_chest_gems_orange_4k.png",  # Chest with blue gems on orange background
+    "bag_chest_gems_purple_4k.png",  # Chest with blue gems on purple background
+    "bag_chest_gold_purple_4k.png",  # Gold ornate chest on purple background
 ]
 
 # Level chest templates (VS Wednesday only - Day 3)
@@ -163,7 +166,7 @@ def bag_special_flow(
         if debug:
             print(f"  Bag button verified (score={score:.4f}), clicking...")
 
-        adb.tap(*BAG_BUTTON_CLICK)
+        adb.tap(*BAG_BUTTON_CLICK, source="flow:bag_special:open_bag_button")
         time.sleep(1.5)  # Wait for bag to fully load
 
         # Verify bag opened
@@ -205,7 +208,7 @@ def bag_special_flow(
         # Click inactive tab to activate it (use detected center)
         if debug:
             print(f"  Clicking Special tab at {tab_center} to activate...")
-        adb.tap(*tab_center)
+        adb.tap(*tab_center, source="flow:bag_special:activate_special_tab")
         time.sleep(0.5)
 
         # Verify it's now ACTIVE
@@ -243,7 +246,7 @@ def bag_special_flow(
         # Click chest
         if debug:
             print("  Clicking chest...")
-        adb.tap(cx, cy)
+        adb.tap(cx, cy, source="flow:bag_special:click_chest")
         time.sleep(0.5)
 
         # Use the shared subflow for drag/use/back

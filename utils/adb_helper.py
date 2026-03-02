@@ -19,8 +19,34 @@ import subprocess
 import time
 import sys
 import argparse
+import logging
 from pathlib import Path
 from typing import Callable
+
+# Module-level click logger for debugging all tap actions
+_click_logger: logging.Logger | None = None
+
+
+def _get_click_logger() -> logging.Logger:
+    """Get or create the click audit logger."""
+    global _click_logger
+    if _click_logger is None:
+        _click_logger = logging.getLogger("click_audit")
+        _click_logger.setLevel(logging.DEBUG)
+        # Prevent propagation to root logger (no stdout spam)
+        _click_logger.propagate = False
+
+        # Only add handler if not already present (prevent duplicates)
+        if not _click_logger.handlers:
+            log_dir = Path(__file__).parent.parent / "logs"
+            log_dir.mkdir(exist_ok=True)
+            handler = logging.FileHandler(log_dir / "clicks.log")
+            handler.setFormatter(logging.Formatter(
+                "%(asctime)s.%(msecs)03d | %(message)s",
+                datefmt="%H:%M:%S"
+            ))
+            _click_logger.addHandler(handler)
+    return _click_logger
 
 
 class ADBHelper:
@@ -188,16 +214,21 @@ class ADBHelper:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Screenshot capture failed: {e.stderr.decode() if e.stderr else str(e)}")
 
-    def tap(self, x: int, y: int) -> None:
+    def tap(self, x: int, y: int, source: str = "unknown") -> None:
         """
         Tap at screen coordinates.
 
         Args:
             x: X coordinate (0-3840 for 4K)
             y: Y coordinate (0-2160 for 4K)
+            source: Identifier for what initiated this click (for debugging audit trail)
         """
         if not self.ensure_connected():
             raise RuntimeError("No ADB device connected")
+
+        # Log click to dedicated audit file
+        logger = _get_click_logger()
+        logger.debug(f"TAP ({x:4d}, {y:4d}) | {source}")
 
         # Notify tracker before action (for idle detection)
         if self._on_action:
@@ -226,6 +257,21 @@ class ADBHelper:
             str(x1), str(y1), str(x2), str(y2), str(duration)
         ])
 
+    def key_event(self, keycode: int) -> None:
+        """
+        Send a key event.
+
+        Args:
+            keycode: Android keycode (e.g., 20 for DPAD_DOWN, 19 for DPAD_UP)
+        """
+        if not self.ensure_connected():
+            raise RuntimeError("No ADB device connected")
+
+        if self._on_action:
+            self._on_action()
+
+        self._run_adb(["shell", "input", "keyevent", str(keycode)])
+
     def get_screen_size(self) -> tuple[int, int] | None:
         """
         Get current screen resolution.
@@ -249,6 +295,59 @@ class ADBHelper:
                             return (int(w), int(h))
 
         return None
+
+    def kill_other_apps(self, keep_package: str = "com.xman.na.gp") -> list[str]:
+        """
+        Force-stop all non-essential apps except the game.
+
+        Kills BlueStacks bloatware (Game Center, etc.) while keeping
+        system apps and the game running.
+
+        Args:
+            keep_package: Package name to keep running (default: game)
+
+        Returns:
+            List of package names that were killed
+        """
+        if not self.ensure_connected():
+            return []
+
+        # Packages to always kill (BlueStacks bloatware)
+        kill_list = [
+            "com.bluestacks.gamecenter",
+            "com.bluestacks.filemanager",
+            "com.bluestacks.settings",
+            "com.android.vending",  # Play Store
+        ]
+
+        # Get running activities to find more packages
+        success, stdout, _ = self._run_adb([
+            "shell", "dumpsys", "activity", "activities"
+        ])
+
+        if success:
+            import re
+            # Find all package names in TaskRecord entries
+            for match in re.finditer(r'TaskRecord\{[^}]+ A=([a-zA-Z0-9_.]+)', stdout):
+                pkg = match.group(1)
+                # Skip system apps and the game
+                if pkg.startswith("com.android."):
+                    continue
+                if pkg.startswith("com.uncube."):  # BlueStacks launcher - keep
+                    continue
+                if pkg == keep_package:
+                    continue
+                if pkg not in kill_list:
+                    kill_list.append(pkg)
+
+        # Kill each package
+        killed = []
+        for pkg in kill_list:
+            success, _, _ = self._run_adb(["shell", "am", "force-stop", pkg])
+            if success:
+                killed.append(pkg)
+
+        return killed
 
 
 def main() -> None:

@@ -78,7 +78,7 @@ class BarracksStateMatcher:
 
         Returns:
             dict with 'stopwatch', 'yellow', 'white' each containing (found, score)
-            - found: True if template matches (threshold-aware, handles both SQDIFF and CCORR)
+            - found: True if template matches (SQDIFF threshold - lower=better)
             - score: Raw score for debugging
         """
         default = {'stopwatch': (False, 1.0), 'yellow': (False, 1.0), 'white': (False, 1.0)}
@@ -90,7 +90,7 @@ class BarracksStateMatcher:
         tw, th = TEMPLATE_SIZE
 
         # Match each template at this position - USE the found result from template_matcher
-        # template_matcher handles SQDIFF vs CCORR correctly based on mask presence
+        # All templates use SQDIFF_NORMED (lower=better)
         stopwatch_found, stopwatch_score, _ = match_template(frame, self.STOPWATCH_TEMPLATE, search_region=(x, y, tw, th),
             threshold=MATCH_THRESHOLD
         )
@@ -141,8 +141,8 @@ class BarracksStateMatcher:
         4. If yellow/white is best → use yellow pixel counting for READY vs PENDING
         5. No template matches → UNKNOWN
 
-        Note: Uses `found` from template_matcher which correctly handles
-        both SQDIFF (no mask) and CCORR (with mask) matching methods.
+        Note: Uses `found` from template_matcher which uses SQDIFF_NORMED
+        for all templates (lower score = better match).
         """
         if barrack_index < 0 or barrack_index >= len(BARRACKS_POSITIONS):
             return BarrackState.UNKNOWN, 1.0

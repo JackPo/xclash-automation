@@ -65,7 +65,7 @@ class EventsIconMatcher:
         """Find and click the events icon."""
         found, score, click_pos = self.find(frame)
         if found and click_pos:
-            adb_helper.tap(*click_pos)
+            adb_helper.tap(*click_pos, source="matcher:events_icon:click")
             return True
         return False
 

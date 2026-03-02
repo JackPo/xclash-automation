@@ -96,7 +96,7 @@ def check_enhance_hero_progress(
     try:
         # Click Events button
         logger.info(f"Opening Events panel at {EVENTS_BUTTON_CLICK}")
-        adb.tap(*EVENTS_BUTTON_CLICK)
+        adb.tap(*EVENTS_BUTTON_CLICK, source="flow:hero_upgrade_arms_race:events_button")
         time.sleep(1.5)
 
         # OCR current points with triple verification
@@ -190,7 +190,7 @@ def hero_upgrade_arms_race_flow(
 
     # Step 2: Click Fing Hero button
     logger.info(f"Step 2: Clicking Fing Hero button at {FING_HERO_BUTTON_CLICK}")
-    adb.tap(*FING_HERO_BUTTON_CLICK)
+    adb.tap(*FING_HERO_BUTTON_CLICK, source="flow:hero_upgrade_arms_race:fing_hero_button")
 
     # Step 3: Wait for hero grid to load
     time.sleep(1.5)
@@ -224,7 +224,7 @@ def hero_upgrade_arms_race_flow(
 
         # Click the tile
         logger.debug(f"Clicking tile at {click_pos}")
-        adb.tap(*click_pos)
+        adb.tap(*click_pos, source="flow:hero_upgrade_arms_race:hero_tile")
         time.sleep(1.0)
 
         # Take screenshot and check upgrade button
@@ -241,7 +241,7 @@ def hero_upgrade_arms_race_flow(
             # Click upgrade button
             upgrade_click = upgrade_matcher.get_click_position()
             logger.info(f"Upgrade AVAILABLE! Clicking at {upgrade_click}")
-            adb.tap(*upgrade_click)
+            adb.tap(*upgrade_click, source="flow:hero_upgrade_arms_race:upgrade_button")
             time.sleep(0.5)
             upgrades_done += 1
 

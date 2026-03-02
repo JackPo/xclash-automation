@@ -67,8 +67,8 @@ UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
 # BARRACKS_CLICK_OFFSETS imported from config
 
 # Soldier levels range
-MIN_LEVEL = 3
-MAX_LEVEL = 8
+MIN_LEVEL = 5
+MAX_LEVEL = 9
 
 # Template matching threshold
 MATCH_THRESHOLD = 0.1
@@ -276,7 +276,7 @@ def soldier_upgrade_flow(
             print(f"  Clicking at ({click_x}, {click_y})")
 
         _save_step_screenshot(frame, f"STEP3 CLICKING Lv{target_level} tile", f"pos=({click_x}, {click_y})")
-        adb.tap(click_x, click_y)
+        adb.tap(click_x, click_y, source="flow:soldier_upgrade:select_level")
         time.sleep(0.8)
 
         frame = win.get_screenshot_cv2()
@@ -307,7 +307,7 @@ def soldier_upgrade_flow(
             print("Step 4: Clicking Upgrade button...")
 
         _save_step_screenshot(frame, "STEP5 CLICKING Upgrade btn", f"pos={UPGRADE_BUTTON_CLICK}")
-        adb.tap(*UPGRADE_BUTTON_CLICK)
+        adb.tap(*UPGRADE_BUTTON_CLICK, source="flow:soldier_upgrade:upgrade_button")
         time.sleep(1.0)
 
         # Step 6: Verify Promote screen appeared
@@ -348,7 +348,7 @@ def soldier_upgrade_flow(
             print(f"Step 6: Clicking Promote button at {promote_center}...")
 
         _save_step_screenshot(frame, "STEP7 CLICKING Promote btn", f"pos={promote_center}")
-        adb.tap(*promote_center)
+        adb.tap(*promote_center, source="flow:soldier_upgrade:promote_button")
 
         time.sleep(0.3)
         frame = win.get_screenshot_cv2()
@@ -372,7 +372,7 @@ def soldier_upgrade_flow(
                 if debug:
                     print(f"  Clicking Promote button at {promote_center}...")
                 _save_step_screenshot(frame, "STEP8 CLICKING Promote after replenish", f"pos={promote_center}")
-                adb.tap(*promote_center)
+                adb.tap(*promote_center, source="flow:soldier_upgrade:promote_after_replenish")
                 time.sleep(0.5)
                 frame = win.get_screenshot_cv2()
                 _save_step_screenshot(frame, "STEP8 AFTER 2nd Promote click")
@@ -436,7 +436,7 @@ def upgrade_all_pending_barracks(adb: ADBHelper, debug: bool = False) -> int:
 
             # Click to open panel
             click_x, click_y = get_barrack_click_position(i)
-            adb.tap(click_x, click_y)
+            adb.tap(click_x, click_y, source="flow:soldier_upgrade:open_barrack")
             time.sleep(1.0)
 
             # Run upgrade flow

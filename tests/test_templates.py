@@ -91,7 +91,7 @@ class TestTemplateExistence:
 class TestMaskPairs:
     """Test that templates with masks have corresponding mask files."""
 
-    # Templates that should have masks (CCORR matching)
+    # Templates that should have masks (uses mask parameter with SQDIFF)
     MASKED_TEMPLATES = [
         'back_button_union_4k.png',
         'corn_harvest_bubble_4k.png',

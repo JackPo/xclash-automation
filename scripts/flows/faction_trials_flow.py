@@ -11,6 +11,8 @@ Sequence (repeated up to 20 times):
 4. Repeat until no buttons found or 20 iterations
 5. Return to base view
 
+All matching uses template_matcher with COLOR images (no grayscale).
+
 Run manually:
     python scripts/flows/faction_trials_flow.py
 """
@@ -19,18 +21,14 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-import numpy.typing as npt
+from typing import TYPE_CHECKING
 
 _script_dir = Path(__file__).parent.parent.parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
 
-import cv2
-import numpy as np
-
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.template_matcher import match_template
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -49,40 +47,8 @@ CAMCORDER_ICON_REGION = (1355, 1853, 115, 119)
 from utils.ui_helpers import click_back
 from config import BACK_BUTTON_CLICK
 
-# Templates
-TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
-
-# Threshold for template matching
+# Threshold for template matching - SQDIFF (lower is better)
 THRESHOLD = 0.1
-
-
-def _load_template(name: str) -> npt.NDArray[Any] | None:
-    """Load template image in grayscale."""
-    path = TEMPLATES_DIR / name
-    if not path.exists():
-        print(f"  ERROR: Template not found: {path}")
-        return None
-    return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-
-
-def _check_at_region(
-    frame_gray: npt.NDArray[Any],
-    template: npt.NDArray[Any],
-    region: tuple[int, int, int, int],
-    threshold: float = THRESHOLD,
-) -> tuple[bool, float]:
-    """Check if template is present at fixed region."""
-    x, y, w, h = region
-    roi = frame_gray[y:y+h, x:x+w]
-
-    # Handle size mismatch
-    th, tw = template.shape
-    if roi.shape[0] < th or roi.shape[1] < tw:
-        return False, 1.0
-
-    result = cv2.matchTemplate(roi, template, cv2.TM_SQDIFF_NORMED)
-    min_val, _, _, _ = cv2.minMaxLoc(result)
-    return min_val <= threshold, min_val
 
 
 def faction_trials_flow(
@@ -110,26 +76,20 @@ def faction_trials_flow(
         from utils.windows_screenshot_helper import WindowsScreenshotHelper as WinScreenshotClass
         win = WinScreenshotClass()
 
-    # Load templates
-    challenge_template = _load_template("challenge_button_4k.png")
-    deploy_template = _load_template("deploy_button_4k.png")
-    camcorder_template = _load_template("camcorder_icon_4k.png")
-
-    if challenge_template is None or deploy_template is None or camcorder_template is None:
-        print("ERROR: Missing templates")
-        return 0
-
     battles_completed = 0
 
     for i in range(max_iterations):
         if debug:
             print(f"\n=== Battle {i + 1}/{max_iterations} ===")
 
-        # Step 1: Check for Challenge button
+        # Step 1: Check for Challenge button (COLOR matching)
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        is_present, score = _check_at_region(frame_gray, challenge_template, CHALLENGE_BUTTON_REGION)
+        is_present, score, _ = match_template(
+            frame, "challenge_button_4k.png",
+            search_region=CHALLENGE_BUTTON_REGION,
+            threshold=THRESHOLD
+        )
         if debug:
             print(f"  Challenge button: {'found' if is_present else 'not found'} (score={score:.4f})")
 
@@ -141,14 +101,17 @@ def faction_trials_flow(
         # Click Challenge
         if debug:
             print(f"  Clicking Challenge at {CHALLENGE_BUTTON_CLICK}")
-        adb.tap(*CHALLENGE_BUTTON_CLICK)
+        adb.tap(*CHALLENGE_BUTTON_CLICK, source="flow:faction_trials:challenge_button")
         time.sleep(1.5)
 
-        # Step 2: Check for Deploy button
+        # Step 2: Check for Deploy button (COLOR matching)
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        is_present, score = _check_at_region(frame_gray, deploy_template, DEPLOY_BUTTON_REGION)
+        is_present, score, _ = match_template(
+            frame, "deploy_button_4k.png",
+            search_region=DEPLOY_BUTTON_REGION,
+            threshold=THRESHOLD
+        )
         if debug:
             print(f"  Deploy button: {'found' if is_present else 'not found'} (score={score:.4f})")
 
@@ -160,14 +123,17 @@ def faction_trials_flow(
         # Click Deploy
         if debug:
             print(f"  Clicking Deploy at {DEPLOY_BUTTON_CLICK}")
-        adb.tap(*DEPLOY_BUTTON_CLICK)
+        adb.tap(*DEPLOY_BUTTON_CLICK, source="flow:faction_trials:deploy_button")
         time.sleep(2.0)  # Wait for battle to start
 
-        # Step 3: Check for camcorder icon (battle screen)
+        # Step 3: Check for camcorder icon (battle screen) (COLOR matching)
         frame = win.get_screenshot_cv2()
-        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        is_present, score = _check_at_region(frame_gray, camcorder_template, CAMCORDER_ICON_REGION)
+        is_present, score, _ = match_template(
+            frame, "camcorder_icon_4k.png",
+            search_region=CAMCORDER_ICON_REGION,
+            threshold=THRESHOLD
+        )
         if debug:
             print(f"  Camcorder icon: {'found' if is_present else 'not found'} (score={score:.4f})")
 

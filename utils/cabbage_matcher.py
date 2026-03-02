@@ -49,4 +49,4 @@ class CabbageMatcher:
         return is_present, score
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:cabbage:click")

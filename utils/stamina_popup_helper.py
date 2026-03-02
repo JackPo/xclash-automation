@@ -1,7 +1,16 @@
 """
 Stamina popup helper for parsing and claiming stamina items.
 
-Coordinates verified from screenshot (4K resolution).
+DEPRECATED: All functions have been moved to scripts/flows/stamina_use_flow.py
+Use the following imports instead:
+    from scripts.flows.stamina_use_flow import (
+        open_stamina_popup, close_stamina_popup,
+        get_inventory_snapshot, get_cooldown_seconds, get_owned_counts,
+        claim_free_50, use_10_stamina, use_50_stamina,
+        execute_claim_decision, stamina_get
+    )
+
+This file is kept for backwards compatibility but will be removed in a future version.
 """
 from __future__ import annotations
 
@@ -40,14 +49,14 @@ POPUP_CLOSE_CLICK = (500, 500)
 def open_stamina_popup(adb: ADBHelper) -> None:
     """Click stamina display to open recovery popup."""
     logger.info(f"Opening stamina popup at {STAMINA_DISPLAY_CLICK}")
-    adb.tap(*STAMINA_DISPLAY_CLICK)
+    adb.tap(*STAMINA_DISPLAY_CLICK, source="util:stamina_popup:open")
     time.sleep(1.0)
 
 
 def close_stamina_popup(adb: ADBHelper) -> None:
     """Close the popup by tapping blank space."""
     logger.info("Closing stamina popup")
-    adb.tap(*POPUP_CLOSE_CLICK)
+    adb.tap(*POPUP_CLOSE_CLICK, source="util:stamina_popup:close")
     time.sleep(0.5)
 
 
@@ -151,7 +160,7 @@ def get_owned_counts(frame: npt.NDArray[Any]) -> dict[str, int]:
 def claim_free_50(adb: ADBHelper) -> None:
     """Click the free 50 stamina claim button."""
     logger.info(f"Claiming free 50 stamina at {ROW1_CLAIM_BUTTON_CLICK}")
-    adb.tap(*ROW1_CLAIM_BUTTON_CLICK)
+    adb.tap(*ROW1_CLAIM_BUTTON_CLICK, source="util:stamina_popup:claim_free_50")
     time.sleep(0.5)
 
 
@@ -159,7 +168,7 @@ def use_10_stamina(adb: ADBHelper, count: int = 1) -> None:
     """Click Use button for 10 stamina item N times."""
     for i in range(count):
         logger.info(f"Using 10 stamina item ({i+1}/{count})")
-        adb.tap(*ROW3_USE_BUTTON_CLICK)
+        adb.tap(*ROW3_USE_BUTTON_CLICK, source="util:stamina_popup:use_10")
         time.sleep(0.3)
 
 
@@ -167,7 +176,7 @@ def use_50_stamina(adb: ADBHelper, count: int = 1) -> None:
     """Click Use button for 50 stamina item N times."""
     for i in range(count):
         logger.info(f"Using 50 stamina item ({i+1}/{count})")
-        adb.tap(*ROW4_USE_BUTTON_CLICK)
+        adb.tap(*ROW4_USE_BUTTON_CLICK, source="util:stamina_popup:use_50")
         time.sleep(0.3)
 
 

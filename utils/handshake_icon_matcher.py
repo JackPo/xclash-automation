@@ -90,4 +90,4 @@ class HandshakeIconMatcher:
 
     def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED handshake icon center position."""
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:handshake_icon:click")

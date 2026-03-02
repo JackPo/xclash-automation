@@ -63,4 +63,4 @@ class SnowmanMatcher:
 
     def click(self, adb_helper: ADBHelper, found_position: tuple[int, int]) -> None:
         """Click on the snowman center."""
-        adb_helper.tap(*found_position)
+        adb_helper.tap(*found_position, source="matcher:snowman:click")

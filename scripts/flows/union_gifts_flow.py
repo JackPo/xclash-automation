@@ -67,7 +67,7 @@ BACK_BUTTON_X = 1345
 BACK_BUTTON_Y = 2002
 BACK_BUTTON_WIDTH = 107
 BACK_BUTTON_HEIGHT = 111
-BACK_BUTTON_THRESHOLD = 0.95  # CCORR (has mask) - higher is better
+BACK_BUTTON_THRESHOLD = 0.05  # SQDIFF (with mask) - lower is better
 
 
 def _is_back_button_present(frame: npt.NDArray[Any]) -> tuple[bool, float]:
@@ -113,7 +113,7 @@ def union_gifts_flow(adb: ADBHelper) -> bool:
 
     # Step 1: Click Union button
     _log(f"Step 1: Clicking Union button at {UNION_BUTTON_CLICK}")
-    adb.tap(*UNION_BUTTON_CLICK)
+    adb.tap(*UNION_BUTTON_CLICK, source="flow:union_gifts:union_button")
     time.sleep(SCREEN_TRANSITION_DELAY)
 
     frame = win.get_screenshot_cv2()
@@ -122,7 +122,7 @@ def union_gifts_flow(adb: ADBHelper) -> bool:
 
     # Step 2: Click Union Rally Gifts
     _log(f"Step 2: Clicking Union Rally Gifts at {UNION_RALLY_GIFTS_CLICK}")
-    adb.tap(*UNION_RALLY_GIFTS_CLICK)
+    adb.tap(*UNION_RALLY_GIFTS_CLICK, source="flow:union_gifts:rally_gifts")
     time.sleep(SCREEN_TRANSITION_DELAY)
 
     frame = win.get_screenshot_cv2()
@@ -131,7 +131,7 @@ def union_gifts_flow(adb: ADBHelper) -> bool:
 
     # Step 3: Click Loot Chest tab
     _log(f"Step 3: Clicking Loot Chest tab at {LOOT_CHEST_TAB_CLICK}")
-    adb.tap(*LOOT_CHEST_TAB_CLICK)
+    adb.tap(*LOOT_CHEST_TAB_CLICK, source="flow:union_gifts:loot_chest_tab")
     time.sleep(CLICK_DELAY)
 
     frame = win.get_screenshot_cv2()
@@ -140,7 +140,7 @@ def union_gifts_flow(adb: ADBHelper) -> bool:
 
     # Step 4: Click Claim All (for loot chests)
     _log(f"Step 4: Clicking Claim All at {LOOT_CHEST_CLAIM_ALL_CLICK}")
-    adb.tap(*LOOT_CHEST_CLAIM_ALL_CLICK)
+    adb.tap(*LOOT_CHEST_CLAIM_ALL_CLICK, source="flow:union_gifts:claim_all_loot")
     time.sleep(CLAIM_DELAY)
 
     frame = win.get_screenshot_cv2()
@@ -149,10 +149,10 @@ def union_gifts_flow(adb: ADBHelper) -> bool:
 
     # Step 5: Click Rare Gifts tab TWICE (required to activate)
     _log(f"Step 5a: Clicking Rare Gifts tab (1st click) at {RARE_GIFTS_TAB_CLICK}")
-    adb.tap(*RARE_GIFTS_TAB_CLICK)
+    adb.tap(*RARE_GIFTS_TAB_CLICK, source="flow:union_gifts:rare_gifts_tab_1")
     time.sleep(1.0)  # Longer delay between clicks
     _log(f"Step 5b: Clicking Rare Gifts tab (2nd click) at {RARE_GIFTS_TAB_CLICK}")
-    adb.tap(*RARE_GIFTS_TAB_CLICK)
+    adb.tap(*RARE_GIFTS_TAB_CLICK, source="flow:union_gifts:rare_gifts_tab_2")
     time.sleep(CLICK_DELAY)
 
     frame = win.get_screenshot_cv2()
@@ -161,7 +161,7 @@ def union_gifts_flow(adb: ADBHelper) -> bool:
 
     # Step 6: Click Claim All ONCE (for rare gifts)
     _log(f"Step 6: Clicking Claim All at {RARE_GIFTS_CLAIM_ALL_CLICK}")
-    adb.tap(*RARE_GIFTS_CLAIM_ALL_CLICK)
+    adb.tap(*RARE_GIFTS_CLAIM_ALL_CLICK, source="flow:union_gifts:claim_all_rare")
     time.sleep(CLAIM_DELAY)
 
     frame = win.get_screenshot_cv2()

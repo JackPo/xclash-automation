@@ -89,7 +89,7 @@ def snowman_flow(adb: ADBHelper) -> bool:
     # TODO: Add claim bubble detection and clicking when template is available
     # For now, just click on the snowman position to attempt interaction
     _log(f"  Clicking snowman at {snowman_pos} (placeholder action)")
-    adb.tap(*snowman_pos)
+    adb.tap(*snowman_pos, source="flow:snowman:click_snowman")
     time.sleep(1.0)
 
     # Take debug screenshot after clicking
@@ -121,7 +121,7 @@ def _wait_and_click_chat_message(adb: ADBHelper, win: WindowsScreenshotHelper) -
             # found_pos is already the center of the message
             click_x, click_y = found_pos
             _log(f"  Chat message FOUND at {found_pos}, clicking at ({click_x}, {click_y})")
-            adb.tap(click_x, click_y)
+            adb.tap(click_x, click_y, source="flow:snowman:click_chat_message")
             return True
 
         time.sleep(CHECK_INTERVAL)

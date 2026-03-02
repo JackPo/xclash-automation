@@ -75,6 +75,7 @@ from utils.return_to_base_view import return_to_base_view, _get_current_resoluti
 from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states, format_barracks_states_detailed
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
+from utils.union_war_panel_detector import UnionWarPanelDetector
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
 from utils.debug_screenshot import get_daemon_debug, cleanup_old_screenshots
 from utils.ui_helpers import click_back
@@ -158,7 +159,7 @@ def _save_daemon_frame(frame: Any, view_state: str, stamina: int | None) -> None
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, run_hour_mark_phase, run_beast_training_phase, check_progress_quick, marshall_speedup_all_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from flows.zombie_attack_flow import zombie_attack_flow
@@ -167,6 +168,7 @@ from flows.royal_city_attack_flow import royal_city_attack_flow
 from flows.union_coal_flow import union_coal_flow
 from flows.union_furnace_flow import union_furnace_flow
 from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
+from flows.beast_training_flow import aggressive_beast_training_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -183,6 +185,8 @@ from config import (
     IDLE_THRESHOLD,
     IDLE_CHECK_INTERVAL,
     STAMINA_OCR_INTERVAL,
+    DAEMON_FRAME_CAPTURE_ENABLED,
+    DAEMON_FRAME_CAPTURE_EVERY_N,
     ELITE_ZOMBIE_STAMINA_THRESHOLD,
     ELITE_ZOMBIE_CONSECUTIVE_REQUIRED,
     ELITE_ZOMBIE_TARGET_LEVEL,
@@ -226,6 +230,7 @@ from config import (
     # Resolution check
     RESOLUTION_CHECK_INTERVAL,
     EXPECTED_RESOLUTION,
+    BACK_BUTTON_CLICK,
     # Tavern quest scan
     TAVERN_SCAN_COOLDOWN,
     TAVERN_QUEST_START_HOUR,
@@ -275,6 +280,15 @@ class FlowCandidate:
     record_to_scheduler: bool = False  # If True, records cooldown after execution
 
 
+@dataclass
+class QueuedFlow:
+    """
+    Deferred flow entry for later execution when user becomes idle.
+    """
+    candidate: FlowCandidate
+    queued_at: float
+
+
 class IconDaemon:
     """
     Daemon that detects icons and triggers non-blocking flows.
@@ -305,6 +319,8 @@ class IconDaemon:
     afk_rewards_matcher: AfkRewardsMatcher | None
     barracks_matcher: BarracksStateMatcher | None
     rally_march_matcher: RallyMarchButtonMatcher | None
+    union_war_panel_detector: UnionWarPanelDetector
+    deferred_flow_queue: list[QueuedFlow]
     active_flows: set[str]
     flow_lock: threading.Lock
     critical_flow_active: bool
@@ -360,6 +376,8 @@ class IconDaemon:
         self.afk_rewards_matcher = None
         self.barracks_matcher = None
         self.rally_march_matcher = None
+        self.union_war_panel_detector = UnionWarPanelDetector()
+        self.deferred_flow_queue = []
 
         # Track active flows to prevent re-triggering
         self.active_flows: set[str] = set()
@@ -370,6 +388,7 @@ class IconDaemon:
         self.critical_flow_name = None
         self.critical_flow_start_time: float | None = None
         self.CRITICAL_FLOW_TIMEOUT = 120  # Auto-clear after 2 minutes
+        self.DEFERRED_FLOW_TTL = 1800  # 30 min: drop stale deferred flows
 
         # Idle town view switching (values from config)
         self.last_idle_check_time = 0
@@ -743,6 +762,9 @@ class IconDaemon:
         # Rally joining tracking
         self.last_rally_march_click: float = 0  # Timestamp of last march button click
         self.union_boss_mode_until: float = 0   # Timestamp when Union Boss mode expires (faster rally joining)
+        self.rally_march_suppress_until: float = 0  # Suppress repeated rally march retries after no-action outcomes
+        self.last_union_war_panel_back_click: float = 0
+        self.UNION_WAR_PANEL_BACK_COOLDOWN = 2.0
 
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
@@ -839,7 +861,91 @@ class IconDaemon:
         Returns:
             Name of the flow that was started, or None if no flow could run
         """
-        if not candidates:
+        now_ts = time.time()
+
+        # Drop stale deferred queue items
+        if self.deferred_flow_queue:
+            kept: list[QueuedFlow] = []
+            dropped = 0
+            for queued in self.deferred_flow_queue:
+                if now_ts - queued.queued_at <= self.DEFERRED_FLOW_TTL:
+                    kept.append(queued)
+                else:
+                    dropped += 1
+            self.deferred_flow_queue = kept
+            if dropped > 0:
+                self.logger.info(
+                    f"[{iteration}] Deferred queue cleanup: dropped {dropped} stale item(s)"
+                )
+
+        if not candidates and not self.deferred_flow_queue:
+            return None
+
+        # Treasure map is time-sensitive and should run immediately on detection.
+        # It bypasses idle/deferred queue gating to avoid stale delayed executions.
+        treasure_candidate = next((c for c in candidates if c.name == "treasure_map"), None)
+        if treasure_candidate is not None:
+            queued_before = len(self.deferred_flow_queue)
+            self.deferred_flow_queue = [
+                q for q in self.deferred_flow_queue if q.candidate.name != "treasure_map"
+            ]
+            removed = queued_before - len(self.deferred_flow_queue)
+            if removed > 0:
+                self.logger.info(
+                    f"[{iteration}] Removed {removed} stale deferred treasure_map item(s)"
+                )
+
+            self.logger.info(
+                f"[{iteration}] TREASURE IMMEDIATE: executing treasure_map now "
+                f"(score/ctx: {treasure_candidate.reason})"
+            )
+            if self._run_flow(
+                treasure_candidate.name,
+                treasure_candidate.flow_func,
+                critical=treasure_candidate.critical,
+                record_to_scheduler=treasure_candidate.record_to_scheduler,
+            ):
+                return treasure_candidate.name
+
+            # Do not queue treasure_map if immediate execution failed this iteration.
+            candidates = [c for c in candidates if c.name != "treasure_map"]
+            if not candidates and not self.deferred_flow_queue:
+                return None
+
+        # Global safety gate: never run auto flows while user is actively interacting.
+        # Some candidates are time-based and may not have local idle checks.
+        # This central gate prevents any automated clicks from interrupting manual play.
+        current_idle = get_user_idle_seconds()
+        if current_idle < self.IDLE_THRESHOLD:
+            if candidates:
+                # Queue highest-priority candidate for idle execution (dedup by flow name).
+                candidates.sort(key=lambda c: c.priority, reverse=True)
+                best_pending = candidates[0]
+                if not any(q.candidate.name == best_pending.name for q in self.deferred_flow_queue):
+                    self.deferred_flow_queue.append(QueuedFlow(candidate=best_pending, queued_at=now_ts))
+                    self.logger.info(
+                        f"[{iteration}] FLOW DEFERRED: queued {best_pending.name} "
+                        f"(priority={best_pending.priority.name}) until idle "
+                        f"(queue_size={len(self.deferred_flow_queue)})"
+                    )
+            self.logger.debug(
+                f"[{iteration}] FLOW BLOCKED: user active (idle={current_idle:.1f}s < {self.IDLE_THRESHOLD}s), "
+                f"skipping {len(candidates)} candidate(s)"
+            )
+            return None
+
+        # User is idle: drain deferred queue first (FIFO).
+        if self.deferred_flow_queue:
+            queued = self.deferred_flow_queue[0]
+            q = queued.candidate
+            self.logger.info(
+                f"[{iteration}] FLOW QUEUE RUN: {q.name} "
+                f"(priority={q.priority.name}, queued_for={int(now_ts - queued.queued_at)}s)"
+            )
+            if self._run_flow(q.name, q.flow_func, critical=q.critical,
+                              record_to_scheduler=q.record_to_scheduler):
+                self.deferred_flow_queue.pop(0)
+                return q.name
             return None
 
         # Check if we can run any flow
@@ -865,8 +971,9 @@ class IconDaemon:
 
         # Execute the best flow
         # Note: scheduler recording now happens inside _run_flow thread (only if flow doesn't skip)
-        if self._run_flow(best.name, best.flow_func, critical=best.critical,
-                          record_to_scheduler=best.record_to_scheduler):
+        started = self._run_flow(best.name, best.flow_func, critical=best.critical,
+                                 record_to_scheduler=best.record_to_scheduler)
+        if started:
             return best.name
         return None
 
@@ -1246,6 +1353,7 @@ class IconDaemon:
         self.beast_training_rally_count = state.get("beast_training_rally_count", 0)
         self.last_rally_march_click = state.get("last_rally_march_click", 0)
         self.union_boss_mode_until = state.get("union_boss_mode_until", 0)
+        self.rally_march_suppress_until = state.get("rally_march_suppress_until", 0)
         self.paused = state.get("paused", False)
 
         self.logger.info(f"STARTUP: Loaded daemon state (paused={self.paused}, stamina_history={len(self.stamina_reader.history)} readings)")
@@ -1272,6 +1380,7 @@ class IconDaemon:
             beast_training_rally_count=self.beast_training_rally_count,
             last_rally_march_click=self.last_rally_march_click,
             union_boss_mode_until=self.union_boss_mode_until,
+            rally_march_suppress_until=self.rally_march_suppress_until,
             paused=self.paused,
         )
 
@@ -1314,6 +1423,103 @@ class IconDaemon:
     def _is_user_idle(self) -> bool:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
         return get_user_idle_seconds() >= self.IDLE_THRESHOLD
+
+    def _run_tavern_scan_twice(self, adb: Any) -> dict[str, Any]:
+        """
+        Run Tavern SCAN mode twice back-to-back.
+
+        This improves reliability when the first pass lands during UI transitions
+        or stale panel state.
+        """
+        self.logger.info("TAVERN SCAN x2: starting pass 1/2")
+        pass1_result: Any
+        pass2_result: Any
+
+        try:
+            pass1_result = run_tavern_quest_flow(adb, mode="scan")
+        except Exception as e:
+            self.logger.error(f"TAVERN SCAN x2: pass 1 failed: {e}")
+            pass1_result = {"error": str(e)}
+
+        # Small settle delay before second pass
+        time.sleep(1.0)
+
+        self.logger.info("TAVERN SCAN x2: starting pass 2/2")
+        try:
+            pass2_result = run_tavern_quest_flow(adb, mode="scan")
+        except Exception as e:
+            self.logger.error(f"TAVERN SCAN x2: pass 2 failed: {e}")
+            pass2_result = {"error": str(e)}
+
+        pass1_skipped = isinstance(pass1_result, dict) and bool(pass1_result.get("skipped"))
+        pass2_skipped = isinstance(pass2_result, dict) and bool(pass2_result.get("skipped"))
+
+        return {
+            "pass1": pass1_result,
+            "pass2": pass2_result,
+            # Preserve scheduler semantics: only mark skipped if both passes skipped
+            "skipped": pass1_skipped and pass2_skipped,
+        }
+
+    def _run_tavern_claim_with_retries(self, adb: Any) -> dict[str, Any]:
+        """
+        Run Tavern CLAIM mode with bounded retries.
+
+        Behavior:
+        - Up to 5 attempts.
+        - Stop early once at least one claim is completed.
+        - Force return-to-town between attempts to clear stale UI/panels.
+        """
+        max_attempts = 5
+        total_claims = 0
+        attempts: list[dict[str, Any]] = []
+
+        for attempt in range(1, max_attempts + 1):
+            self.logger.info(f"TAVERN CLAIM RETRY: attempt {attempt}/{max_attempts}")
+
+            try:
+                result_raw = run_tavern_quest_flow(adb, mode="claim")
+            except Exception as e:
+                self.logger.error(f"TAVERN CLAIM RETRY: attempt {attempt} failed with exception: {e}")
+                result_raw = {"claims": 0, "mode": "claim", "error": str(e)}
+
+            result = result_raw if isinstance(result_raw, dict) else {"claims": int(bool(result_raw))}
+            attempts.append(result)
+
+            claims = int(result.get("claims", 0) or 0)
+            total_claims += max(0, claims)
+
+            if claims > 0:
+                self.logger.info(
+                    f"TAVERN CLAIM RETRY: success on attempt {attempt} (claims={claims}, total={total_claims})"
+                )
+                return {
+                    "success": True,
+                    "claims": total_claims,
+                    "attempts_used": attempt,
+                    "attempts": attempts,
+                }
+
+            if attempt < max_attempts:
+                self.logger.info(
+                    f"TAVERN CLAIM RETRY: no claims on attempt {attempt}; forcing return_to_base_view before retry"
+                )
+                try:
+                    return_to_base_view(adb, self.windows_helper, debug=self.debug, respect_idle=False)
+                except Exception as e:
+                    self.logger.warning(f"TAVERN CLAIM RETRY: return_to_base_view failed between attempts: {e}")
+                time.sleep(1.0)
+
+        self.logger.warning(
+            f"TAVERN CLAIM RETRY: exhausted {max_attempts} attempts with no claim"
+        )
+        return {
+            "success": False,
+            "claims": total_claims,
+            "attempts_used": max_attempts,
+            "attempts": attempts,
+            "exhausted": True,
+        }
 
     def _is_royal_city_window(self) -> bool:
         """
@@ -1469,6 +1675,7 @@ class IconDaemon:
             'flows.bag_hero_flow',
             'flows.bag_resources_flow',
             'flows.bag_flow',
+            'flows.union_technology_flow',
             'flows.tavern_quest_flow',
             'flows.faction_trials_flow',
             'flows.community_click_flow',
@@ -1516,8 +1723,8 @@ class IconDaemon:
         return {
             # Tavern modes - each does ONE thing
             "tavern_quest": (partial(run_tavern_quest_flow, mode="claim"), True),  # Legacy name - now just claim
-            "tavern_claim": (partial(run_tavern_quest_flow, mode="claim"), True),
-            "tavern_scan": (partial(run_tavern_quest_flow, mode="scan"), True),
+            "tavern_claim": (self._run_tavern_claim_with_retries, True),
+            "tavern_scan": (self._run_tavern_scan_twice, True),
             "tavern_dispatch": (partial(run_tavern_quest_flow, mode="dispatch"), True),
             "tavern_ally": (partial(run_tavern_quest_flow, mode="ally"), True),
             "bag_flow": (bag_flow, True),
@@ -1543,6 +1750,7 @@ class IconDaemon:
             "stamina_use": (lambda adb: stamina_use_flow(adb, self.windows_helper), False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
             "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),  # type: ignore[arg-type]
+            "beast_training": (lambda adb: aggressive_beast_training_flow(adb, self.windows_helper), True),
             "community_checkin": (lambda adb: community_click_flow(adb, self.windows_helper), False),
             "royal_city_attack": (lambda adb: royal_city_attack_flow(adb, self.windows_helper), False),
             "union_coal": (union_coal_flow, False),
@@ -1571,6 +1779,7 @@ class IconDaemon:
                 "day": arms_race.get("day"),
                 "time_remaining": str(arms_race.get("time_remaining", "")),
             },
+            "tavern_claims_today": self.scheduler.get_tavern_claims_today(),
             "server_port": DAEMON_SERVER_PORT,
         }
 
@@ -1660,6 +1869,16 @@ class IconDaemon:
                     released = clear_gpu_cache()
                     if released > 0:
                         self.logger.debug(f"[{iteration}] Released {released} GPU objects")
+                    # Periodic scheduler maintenance:
+                    # - Day rollover (if daemon runs across midnight)
+                    # - Prune old/invalid flow history entries
+                    maintenance = self.scheduler.run_periodic_maintenance()
+                    if maintenance["day_reset"] or maintenance["pruned_entries"] > 0:
+                        self.logger.info(
+                            f"[{iteration}] Scheduler maintenance: "
+                            f"day_reset={maintenance['day_reset']} "
+                            f"pruned_entries={maintenance['pruned_entries']}"
+                        )
 
                 # Check if xclash is running and in foreground
                 if not self._is_xclash_in_foreground():
@@ -1675,7 +1894,35 @@ class IconDaemon:
                         self.logger.debug(f"[{iteration}] xclash not in foreground, user active (idle={idle_secs_early:.1f}s) - skipping recovery")
                     continue  # Skip this iteration, start fresh
 
-                # Take single screenshot for all checks
+                # =================================================================
+                # BLOCKED CHECK - Must happen BEFORE screenshot to avoid race condition
+                # Both daemon and flow threads use windows_helper - concurrent access crashes
+                # =================================================================
+                if self.critical_flow_active and self.critical_flow_name != "reinforce_loop":
+                    # Check for timeout - auto-clear stuck critical flows
+                    # Treasure flows get 10 min timeout, others get 2 min
+                    if self.critical_flow_start_time is not None:
+                        elapsed = time.time() - self.critical_flow_start_time
+                        is_treasure = self.critical_flow_name and "treasure" in self.critical_flow_name.lower()
+                        timeout = 600 if is_treasure else self.CRITICAL_FLOW_TIMEOUT  # 10 min vs 2 min
+                        if elapsed > timeout:
+                            self.logger.error(f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} stuck for {elapsed:.0f}s - force clearing!")
+                            with self.flow_lock:
+                                self.active_flows.discard(self.critical_flow_name)
+                                self.critical_flow_active = False
+                                self.critical_flow_name = None
+                                self.critical_flow_start_time = None
+                            # Fall through to take screenshot and continue
+                        else:
+                            self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name}, {elapsed:.0f}s)")
+                            time.sleep(self.interval)
+                            continue  # Skip WITHOUT taking screenshot
+                    else:
+                        self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
+                        time.sleep(self.interval)
+                        continue  # Skip WITHOUT taking screenshot
+
+                # Take single screenshot for all checks (only when NOT blocked)
                 frame = self.windows_helper.get_screenshot_cv2()
 
                 # Periodic screenshot cleanup (every 6 hours)
@@ -1698,38 +1945,35 @@ class IconDaemon:
                     except Exception as e:
                         self.logger.error(f"[{iteration}] Shield inventory check failed: {e}")
 
-                # Skip all daemon checks if critical flow is active
-                # EXCEPTION: reinforce_loop is a looping critical flow - let it fall through
-                if self.critical_flow_active and self.critical_flow_name != "reinforce_loop":
-                    # Check for timeout - auto-clear stuck critical flows
-                    # Treasure flows get 10 min timeout, others get 2 min
-                    if self.critical_flow_start_time is not None:
-                        elapsed = time.time() - self.critical_flow_start_time
-                        is_treasure = self.critical_flow_name and "treasure" in self.critical_flow_name.lower()
-                        timeout = 600 if is_treasure else self.CRITICAL_FLOW_TIMEOUT  # 10 min vs 2 min
-                        if elapsed > timeout:
-                            self.logger.error(f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} stuck for {elapsed:.0f}s - force clearing!")
-                            with self.flow_lock:
-                                self.active_flows.discard(self.critical_flow_name)
-                                self.critical_flow_active = False
-                                self.critical_flow_name = None
-                                self.critical_flow_start_time = None
-                            # Don't continue - proceed with normal daemon checks
-                        else:
-                            self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name}, {elapsed:.0f}s)")
-                            time.sleep(self.interval)
-                            continue
-                    else:
-                        self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name})")
-                        time.sleep(self.interval)
-                        continue
-
                 # =================================================================
                 # VIEW STATE DETECTION - Run FIRST to know what checks to do
                 # =================================================================
                 view_state_enum, view_score = detect_view(frame)
                 view_state_str = view_state_enum.value.upper()  # "TOWN", "WORLD", "CHAT", "UNKNOWN"
                 self.last_view_state = view_state_str  # Store for dashboard API
+
+                # =================================================================
+                # UNION WAR PANEL GUARD - If stale panel is open, exit when user is idle
+                # =================================================================
+                # Avoid interfering with active flows that intentionally use this panel.
+                # Also avoid interfering with manual user actions.
+                if not self.active_flows and idle_secs_early >= self.IDLE_THRESHOLD:
+                    panel_present, panel_score = self.union_war_panel_detector.is_union_war_panel(frame)
+                    if panel_present:
+                        now_ts = time.time()
+                        if now_ts - self.last_union_war_panel_back_click >= self.UNION_WAR_PANEL_BACK_COOLDOWN:
+                            back_found, back_score, back_pos, back_template = self.back_button_matcher.find(frame)
+                            click_pos = back_pos if back_found and back_pos is not None else BACK_BUTTON_CLICK
+                            self.logger.warning(
+                                f"[{iteration}] UNION WAR PANEL GUARD: panel detected (score={panel_score:.4f}) "
+                                f"- clicking back at {click_pos} "
+                                f"(template={back_template or 'fallback'}, score={back_score:.4f})"
+                            )
+                            mark_daemon_action()
+                            self.adb.tap(*click_pos, source="daemon:union_war_panel_guard")
+                            self.last_union_war_panel_back_click = now_ts
+                            time.sleep(1.0)
+                            continue
 
                 # =================================================================
                 # UNDER ATTACK DETECTION - Check if player is being attacked
@@ -1868,10 +2112,12 @@ class IconDaemon:
                         })
 
                 # =================================================================
-                # DAEMON FRAME DEBUG - Save every frame for debugging
+                # DAEMON FRAME DEBUG - optional (disabled by default)
                 # =================================================================
-                last_stam = self.stamina_reader.history[-1] if self.stamina_reader.history else None
-                _save_daemon_frame(frame, view_state_str, last_stam)
+                if DAEMON_FRAME_CAPTURE_ENABLED and DAEMON_FRAME_CAPTURE_EVERY_N > 0:
+                    if iteration % DAEMON_FRAME_CAPTURE_EVERY_N == 0:
+                        last_stam = self.stamina_reader.history[-1] if self.stamina_reader.history else None
+                        _save_daemon_frame(frame, view_state_str, last_stam)
 
                 # =================================================================
                 # FLOW CANDIDATE COLLECTION
@@ -1982,10 +2228,10 @@ class IconDaemon:
 
                 # Tavern Quest claim - check if completion is imminent (within 11 seconds)
                 # Uses CLAIM mode - just clicks Claim buttons, no OCR, no Go buttons
-                if self.scheduler.is_tavern_completion_imminent(buffer_seconds=11):
+                if self.scheduler.is_tavern_completion_imminent(buffer_seconds=7):
                     flow_candidates.append(FlowCandidate(
                         name="tavern_claim",
-                        flow_func=partial(run_tavern_quest_flow, mode="claim"),
+                        flow_func=self._run_tavern_claim_with_retries,
                         priority=FlowPriority.CRITICAL,  # Imminent completion is time-critical
                         critical=True,
                         reason="completion imminent"
@@ -2014,25 +2260,56 @@ class IconDaemon:
 
                         rally_idle_ok = rally_effective_idle >= IDLE_THRESHOLD
                         rally_view_ok = view_state in [ViewState.TOWN, ViewState.WORLD]
+                        rally_suppressed = current_time < self.rally_march_suppress_until
 
                         # Log Union Boss mode status
                         if in_union_boss_mode:
                             remaining = int(self.union_boss_mode_until - current_time)
                             self.logger.debug(f"[{iteration}] UNION BOSS MODE: {remaining}s remaining, cooldown={rally_cooldown}s")
 
-                        if rally_idle_ok and rally_view_ok and rally_cooldown_elapsed:
+                        if rally_suppressed:
+                            remaining = int(self.rally_march_suppress_until - current_time)
+                            self.logger.debug(f"[{iteration}] RALLY: Suppressed for {remaining}s after no-action outcome")
+                        elif rally_idle_ok and rally_view_ok and rally_cooldown_elapsed:
                             # Check if another flow is running BEFORE clicking
                             if not self._can_run_flow():
                                 self.logger.debug(f"[{iteration}] RALLY: Skipping - another flow is active")
                             else:
                                 mode_str = " [BOSS MODE]" if in_union_boss_mode else ""
                                 self.logger.info(f"[{iteration}] RALLY MARCH button detected at ({march_x}, {march_y}), score={march_score:.4f}{mode_str}")
-                                # Click the march button to open Union War panel
+
+                                # Click march button and verify panel opened (may need multiple clicks if arrow toggled)
+                                panel_detector = UnionWarPanelDetector()
+                                panel_opened = False
                                 click_x, click_y = self.rally_march_matcher.get_click_position(march_x, march_y)
-                                mark_daemon_action()
-                                self.adb.tap(click_x, click_y, source="daemon:rally_march")
+
+                                for attempt in range(3):
+                                    # Check if panel is already open BEFORE clicking
+                                    verify_frame = self.windows_helper.get_screenshot_cv2()
+                                    panel_present, panel_score = panel_detector.is_union_war_panel(verify_frame)
+
+                                    # Save debug screenshot
+                                    ts = datetime.now().strftime("%H%M%S")
+                                    debug_path = Path("screenshots/debug") / f"rally_march_{ts}_attempt{attempt+1}_panel{'_OPEN' if panel_present else '_CLOSED'}.png"
+                                    debug_path.parent.mkdir(parents=True, exist_ok=True)
+                                    cv2.imwrite(str(debug_path), verify_frame)
+
+                                    if panel_present:
+                                        self.logger.info(f"[{iteration}] Union War panel detected (attempt {attempt + 1}, score={panel_score:.4f})")
+                                        panel_opened = True
+                                        break
+
+                                    # Panel not open - click to open/toggle
+                                    self.logger.info(f"[{iteration}] Panel not open (attempt {attempt + 1}, score={panel_score:.4f}) - clicking")
+                                    mark_daemon_action()
+                                    self.adb.tap(click_x, click_y, source="daemon:rally_march")
+                                    time.sleep(0.5)  # Wait for panel/animation
+
                                 self.last_rally_march_click = current_time
-                                time.sleep(0.5)  # Brief wait for panel to start loading
+
+                                if not panel_opened:
+                                    self.logger.warning(f"[{iteration}] Failed to open Union War panel after 3 attempts - skipping")
+                                    continue  # Skip to next iteration
 
                                 # Run rally join flow via _run_flow_sync to get result AND coordinate with other flows
                                 flow_result = self._run_flow_sync(
@@ -2042,6 +2319,13 @@ class IconDaemon:
                                 )
                                 if flow_result.get("success"):
                                     result = flow_result.get("result", {})
+                                    abort_reason = result.get("abort_reason")
+                                    if abort_reason in ("no_rallies", "no_matching_monster"):
+                                        suppress_seconds = 120 if in_union_boss_mode else 180
+                                        self.rally_march_suppress_until = current_time + suppress_seconds
+                                        self.logger.info(
+                                            f"[{iteration}] RALLY: {abort_reason}, suppressing march retries for {suppress_seconds}s"
+                                        )
                                     # Check if Union Boss was joined - enter Union Boss mode
                                     if result.get('monster_name') == 'Union Boss':
                                         self.union_boss_mode_until = current_time + UNION_BOSS_MODE_DURATION
@@ -2219,7 +2503,11 @@ class IconDaemon:
                 # PRIORITY CHECK: Skip harvest flows if Beast Training rally is imminent
                 # Beast Training rallies are time-critical and should not be blocked by harvest flows
                 beast_training_priority = False
+                harvest_bubbles_enabled = self._get_config('HARVEST_BUBBLES_ENABLED', True)
                 beast_training_enabled = self._get_config('ARMS_RACE_BEAST_TRAINING_ENABLED', ARMS_RACE_BEAST_TRAINING_ENABLED)
+                # Require stronger certainty before any harvest click candidate is queued.
+                # This prevents borderline template matches from hijacking UI interactions.
+                HARVEST_STRONG_MATCH_MAX = 0.02
                 if (beast_training_enabled and
                     arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES and
@@ -2228,6 +2516,8 @@ class IconDaemon:
                     confirmed_stamina >= self.BEAST_TRAINING_STAMINA_THRESHOLD):
                     beast_training_priority = True
                     self.logger.debug(f"[{iteration}] BEAST TRAINING PRIORITY: Skipping harvest flows (stamina={confirmed_stamina}, event_remaining={arms_race_remaining_mins}min)")
+                if not harvest_bubbles_enabled:
+                    self.logger.debug(f"[{iteration}] HARVEST: Disabled by HARVEST_BUBBLES_ENABLED=False")
 
                 # Harvest/Hospital/Barracks conditions
                 harvest_idle_ok = effective_idle_secs >= self.IDLE_THRESHOLD
@@ -2243,52 +2533,64 @@ class IconDaemon:
                 # Corn, Gold, Iron, Gem, Cabbage, Equip - quick bubble clicks in TOWN
                 # Skip if Beast Training rally has priority (time-critical)
                 # Collect as flow candidates - execution happens via _execute_best_flow()
-                if corn_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                if (harvest_bubbles_enabled and corn_present and corn_score <= HARVEST_STRONG_MATCH_MAX and
+                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                     flow_candidates.append(FlowCandidate(
                         name="corn_harvest",
                         flow_func=corn_harvest_flow,
                         priority=FlowPriority.LOW,
-                        reason=f"score={corn_score:.4f}"
+                        reason=f"score={corn_score:.4f}",
+                        record_to_scheduler=True
                     ))
 
-                if gold_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                if (harvest_bubbles_enabled and gold_present and gold_score <= HARVEST_STRONG_MATCH_MAX and
+                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                     flow_candidates.append(FlowCandidate(
                         name="gold_coin",
                         flow_func=gold_coin_flow,
                         priority=FlowPriority.LOW,
-                        reason=f"score={gold_score:.4f}"
+                        reason=f"score={gold_score:.4f}",
+                        record_to_scheduler=True
                     ))
 
-                if iron_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                if (harvest_bubbles_enabled and iron_present and iron_score <= HARVEST_STRONG_MATCH_MAX and
+                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                     flow_candidates.append(FlowCandidate(
                         name="iron_bar",
                         flow_func=iron_bar_flow,
                         priority=FlowPriority.LOW,
-                        reason=f"score={iron_score:.4f}"
+                        reason=f"score={iron_score:.4f}",
+                        record_to_scheduler=True
                     ))
 
-                if gem_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                if (harvest_bubbles_enabled and gem_present and gem_score <= HARVEST_STRONG_MATCH_MAX and
+                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                     flow_candidates.append(FlowCandidate(
                         name="gem",
                         flow_func=gem_flow,
                         priority=FlowPriority.LOW,
-                        reason=f"score={gem_score:.4f}"
+                        reason=f"score={gem_score:.4f}",
+                        record_to_scheduler=True
                     ))
 
-                if cabbage_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                if (harvest_bubbles_enabled and cabbage_present and cabbage_score <= HARVEST_STRONG_MATCH_MAX and
+                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                     flow_candidates.append(FlowCandidate(
                         name="cabbage",
                         flow_func=cabbage_flow,
                         priority=FlowPriority.LOW,
-                        reason=f"score={cabbage_score:.4f}"
+                        reason=f"score={cabbage_score:.4f}",
+                        record_to_scheduler=True
                     ))
 
-                if equip_present and world_present and harvest_aligned and not beast_training_priority and self._is_user_idle():
+                if (harvest_bubbles_enabled and equip_present and equip_score <= HARVEST_STRONG_MATCH_MAX and
+                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                     flow_candidates.append(FlowCandidate(
                         name="equipment_enhancement",
                         flow_func=equipment_enhancement_flow,
                         priority=FlowPriority.LOW,
-                        reason=f"score={equip_score:.4f}"
+                        reason=f"score={equip_score:.4f}",
+                        record_to_scheduler=True
                     ))
 
                 # Hospital state detection with majority vote (same 60% rule as barracks)
@@ -2770,309 +3072,59 @@ class IconDaemon:
                     if self.beast_training_current_block != block_start:
                         self.beast_training_current_block = block_start
                         self.beast_training_rally_count = 0
-                        self.beast_training_use_count = 0  # Reset Use count for new block
-
-                        # Check stamina claim timer ONCE at block start (avoid repeated popup checks)
-                        from flows.stamina_claim_flow import check_claim_status
-                        from utils.current_state import update_stamina_claim_timer
-                        try:
-                            claim_status = check_claim_status(self.adb, self.windows_helper)
-                            update_stamina_claim_timer(
-                                seconds_remaining=claim_status.get("timer_seconds"),
-                                claim_available=claim_status.get("claim_available", False),
-                                block_start=block_start.isoformat() if block_start else None,
-                            )
-                            timer_info = f", free claim in {claim_status.get('timer_seconds', 0) // 60}min" if claim_status.get("timer_seconds") else ", claim available!" if claim_status.get("claim_available") else ""
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: Checked stamina timer at block start{timer_info}")
-                        except Exception as e:
-                            self.logger.warning(f"[{iteration}] BEAST TRAINING: Failed to check stamina timer: {e}")
-
-                        # Check if there's a pre-set target for this block
-                        arms_race_state = self.scheduler.get_arms_race_state()
-                        next_target = arms_race_state.get("beast_training_next_target_rallies")
-                        # Get zombie mode for logging
-                        block_zombie_mode, block_zombie_expires = self.scheduler.get_zombie_mode()
-                        mode_info = f", mode={block_zombie_mode}" if block_zombie_mode != "elite" else ""
-                        if next_target:
-                            # Copy next target to current target
-                            self.scheduler.update_arms_race_state(
-                                beast_training_target_rallies=next_target,
-                                beast_training_next_target_rallies=None,
-                                beast_training_rally_count=0
-                            )
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0, target={next_target} (from pre-set){mode_info}")
-                        else:
-                            self.scheduler.update_arms_race_state(beast_training_rally_count=0)
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: New block started, rally count reset to 0, use count reset to 0{mode_info}")
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: New block started")
 
                     # =========================================================
-                    # SMART BEAST TRAINING FLOW - With Claude CLI decision
-                    # Phase 1: Hour mark (60 min remaining) - inventory + progress + claim upfront
-                    # Phase 2: Last hour - re-check + claim remainder
-                    # Phase 3: Mid-check at 30 minutes
+                    # AGGRESSIVE BEAST TRAINING - DO ALL RALLIES AT CHECKPOINTS
+                    # 60-min mark: check progress, do ALL rallies
+                    # 30-min mark: re-check, do any remaining rallies
                     # =========================================================
+                    from scripts.flows.beast_training_flow import aggressive_beast_training_flow
 
-                    # PHASE 1: Hour Mark Check - retry until success (like union_technology)
-                    # Uses scheduler pattern: is_flow_ready() checks idle, record_flow_run() on success
-                    if self.scheduler.is_flow_ready("beast_training_hour_mark", idle_seconds=effective_idle_secs):
-                        # Check if already done for THIS block (block-based tracking)
-                        phase_state = self.scheduler.get_arms_race_state()
-                        hour_mark_block = phase_state.get("beast_training_hour_mark_block")
+                    # 60-MINUTE CHECKPOINT: Run aggressive flow (all rallies)
+                    # No idle requirement - this is a timed event, just do it
+                    phase_state = self.scheduler.get_arms_race_state()
+                    aggressive_60_block = phase_state.get("beast_training_aggressive_60_block")
 
-                        if hour_mark_block != str(block_start):  # Not done for this block
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Hour Mark Phase (Claude CLI)...")
-                            result = run_hour_mark_phase(self.adb, self.windows_helper, debug=self.debug)
+                    if aggressive_60_block != str(block_start):  # Not done for this block
+                        self.logger.info(f"[{iteration}] BEAST TRAINING: 60-MIN CHECKPOINT - Running aggressive flow...")
 
-                            if result["success"]:
-                                rallies_needed = result["rallies_needed"]
-                                current_pts = result.get("current_points")
-                                stamina_claimed = result.get("stamina_claimed", 0)
+                        result = aggressive_beast_training_flow(
+                            self.adb, self.windows_helper, debug=self.debug, scheduler=self.scheduler
+                        )
 
-                                self.logger.info(
-                                    f"[{iteration}] BEAST TRAINING: Hour Mark complete - "
-                                    f"Progress {current_pts}/30000 pts, need {rallies_needed} more rallies, "
-                                    f"claimed {stamina_claimed} stamina"
-                                )
-
-                                # ALWAYS reset rally_count and recalculate target from actual points
-                                # The POINTS are the source of truth, not our counter
-                                self.beast_training_rally_count = 0
-                                self.scheduler.update_arms_race_state(
-                                    beast_training_rally_count=0,
-                                    beast_training_target_rallies=rallies_needed
-                                )
-                                if rallies_needed == 0:
-                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 already reached! Skipping rallies.")
-                                else:
-                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Reset rally_count=0, target={rallies_needed} (from {current_pts}/30000 pts)")
-
-                                # Mark block as done and record flow run
-                                self.scheduler.update_arms_race_state(beast_training_hour_mark_block=str(block_start))
-                                self.scheduler.record_flow_run("beast_training_hour_mark")
-                            else:
-                                # Failed - DON'T mark as done, will retry next iteration
-                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Hour Mark phase failed, will retry...")
-
-                    # PHASE 2: Last Hour Re-check - retry until success
-                    # Track if we claimed stamina this iteration (to skip beast_stamina_use)
-                    last_hour_claimed_stamina_this_iteration = False
-                    if (arms_race_remaining_mins <= 60 and
-                        self.scheduler.is_flow_ready("beast_training_last_hour", idle_seconds=effective_idle_secs)):
-                        # Check if already done for THIS block
-                        phase_state = self.scheduler.get_arms_race_state()
-                        last_hour_block = phase_state.get("beast_training_last_hour_block")
-
-                        if last_hour_block != str(block_start):  # Not done for this block
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Last Hour Phase (60 min)...")
-                            result = run_beast_training_phase(self.adb, self.windows_helper, debug=self.debug)
-
-                            if result["success"]:
-                                rallies_needed = result["rallies_needed"]
-                                current_pts = result.get("current_points")
-                                stamina_claimed = result.get("stamina_claimed", 0)
-
-                                self.logger.info(
-                                    f"[{iteration}] BEAST TRAINING: Last Hour complete - "
-                                    f"Progress {current_pts}/30000 pts, need {rallies_needed} more rallies, "
-                                    f"claimed {stamina_claimed} stamina"
-                                )
-
-                                # Mark that we claimed stamina this iteration - skip beast_stamina_use
-                                if stamina_claimed > 0:
-                                    last_hour_claimed_stamina_this_iteration = True
-
-                                # ALWAYS reset rally_count and recalculate target from actual points
-                                # The POINTS are the source of truth, not our counter
-                                self.beast_training_rally_count = 0
-                                self.scheduler.update_arms_race_state(
-                                    beast_training_rally_count=0,
-                                    beast_training_target_rallies=rallies_needed
-                                )
-                                if rallies_needed == 0:
-                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Chest3 reached! Mission accomplished.")
-                                else:
-                                    self.logger.info(f"[{iteration}] BEAST TRAINING: Reset rally_count=0, target={rallies_needed} (from {current_pts}/30000 pts)")
-
-                                # Mark block as done and record flow run
-                                self.scheduler.update_arms_race_state(beast_training_last_hour_block=str(block_start))
-                                self.scheduler.record_flow_run("beast_training_last_hour")
-                            else:
-                                # Failed - DON'T mark as done, will retry next iteration
-                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Last Hour phase failed, will retry...")
-
-                    # PHASE 3: Mid-Check at 30 minutes - re-assess and run more rallies if behind
-                    if (arms_race_remaining_mins <= 30 and
-                        self.scheduler.is_flow_ready("beast_training_mid_check", idle_seconds=effective_idle_secs)):
-                        phase_state = self.scheduler.get_arms_race_state()
-                        mid_check_block = phase_state.get("beast_training_mid_check_block")
-
-                        if mid_check_block != str(block_start):  # Not done for this block
-                            self.logger.info(f"[{iteration}] BEAST TRAINING: Running Mid-Check Phase (30 min)...")
-                            result = run_beast_training_phase(self.adb, self.windows_helper, debug=self.debug)
-
-                            if result["success"]:
-                                rallies_needed = result["rallies_needed"]
-                                current_pts = result.get("current_points")
-                                stamina_claimed = result.get("stamina_claimed", 0)
-
-                                self.logger.info(
-                                    f"[{iteration}] BEAST TRAINING: Mid-Check complete - "
-                                    f"Progress {current_pts}/30000 pts, need {rallies_needed} more rallies, "
-                                    f"claimed {stamina_claimed} stamina"
-                                )
-
-                                # Mark that we claimed stamina this iteration
-                                if stamina_claimed > 0:
-                                    last_hour_claimed_stamina_this_iteration = True
-
-                                # Update rally target from actual points
-                                self.beast_training_rally_count = 0
-                                self.scheduler.update_arms_race_state(
-                                    beast_training_rally_count=0,
-                                    beast_training_target_rallies=rallies_needed
-                                )
-
-                                # Mark block as done and record flow run
-                                self.scheduler.update_arms_race_state(beast_training_mid_check_block=str(block_start))
-                                self.scheduler.record_flow_run("beast_training_mid_check")
-                            else:
-                                self.logger.warning(f"[{iteration}] BEAST TRAINING: Mid-Check phase failed, will retry...")
-
-                    # Get target from scheduler (or use MAX_RALLIES as default)
-                    # NOTE: Use "is None" check, NOT "or", because 0 is a valid target (chest3 reached)
-                    arms_race_state = self.scheduler.get_arms_race_state()
-                    rally_target = arms_race_state.get("beast_training_target_rallies")
-                    if rally_target is None:
-                        rally_target = self.BEAST_TRAINING_MAX_RALLIES
-
-                    # STEP 1: Stamina Claim candidate - if stamina < 60 AND red dot visible
-                    # Highest priority within beast training (get free stamina first)
-                    beast_claim_candidate = False
-                    if (stamina_confirmed and
-                        confirmed_stamina is not None and
-                        confirmed_stamina < self.STAMINA_CLAIM_THRESHOLD):
-                        # Check for red notification dot (indicates free claim available)
-                        has_dot, red_count = has_stamina_red_dot(frame, debug=self.debug)
-                        if has_dot:
-                            beast_claim_candidate = True
-                            flow_candidates.append(FlowCandidate(
-                                name="beast_stamina_claim",
-                                flow_func=stamina_claim_flow,
-                                priority=FlowPriority.CRITICAL,
-                                reason=f"beast training, stamina={confirmed_stamina}, red dot ({red_count}px)"
-                            ))
-                        elif self.debug:
-                            self.logger.debug(f"[{iteration}] BEAST TRAINING: Stamina {confirmed_stamina} < {self.STAMINA_CLAIM_THRESHOLD}, but no red dot ({red_count} pixels), skipping claim")
-
-                    # STEP 2: Rally candidate - if stamina >= threshold, cooldown ok, and under target
-                    # Only add if claim wasn't already a candidate (mutually exclusive)
-                    # Get current zombie mode (may be "elite", "gold", "food", or "iron_mine")
-                    zombie_mode, zombie_expires = self.scheduler.get_zombie_mode()
-                    mode_config = ZOMBIE_MODE_CONFIG.get(zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
-                    raw_stamina = mode_config.get("stamina", 20)
-                    stamina_threshold = int(raw_stamina) if isinstance(raw_stamina, (int, float, str)) else 20
-
-                    rally_cooldown_ok = (current_time - self.beast_training_last_rally) >= self.BEAST_TRAINING_RALLY_COOLDOWN
-                    beast_rally_candidate = False
-                    if (not beast_claim_candidate and
-                        stamina_confirmed and
-                        confirmed_stamina is not None and
-                        confirmed_stamina >= stamina_threshold and
-                        rally_cooldown_ok and
-                        self.beast_training_rally_count < rally_target):
-                        # Create wrapper based on zombie mode
-                        beast_rally_wrapper: Callable[[Any], Any]
-                        if zombie_mode == "elite":
-                            # Use OCR-based target_level for elite zombie
-                            _target_level = self._get_config('ELITE_ZOMBIE_TARGET_LEVEL', ELITE_ZOMBIE_TARGET_LEVEL)
-                            def _elite_rally_wrapper(adb: Any, _tl: int = _target_level) -> Any:
-                                return elite_zombie_flow(adb, target_level=_tl)
-                            beast_rally_wrapper = _elite_rally_wrapper
-                        else:
-                            # Zombie attack mode (gold/food/iron_mine)
-                            zombie_type = str(mode_config.get("zombie_type", "gold"))
-                            target_level = mode_config.get("target_level")  # OCR-based (optional)
-                            raw_level = mode_config.get("level_clicks", mode_config.get("plus_clicks", 0))
-                            level_clicks = int(raw_level) if isinstance(raw_level, (int, float, str)) else 0
-                            def _zombie_attack_wrapper(adb: Any, zt: str = zombie_type, tl: int | None = target_level, lc: int = level_clicks) -> Any:
-                                return zombie_attack_flow(adb, zombie_type=zt, target_level=tl, level_clicks=lc)
-                            beast_rally_wrapper = _zombie_attack_wrapper
-
-                        beast_rally_candidate = True
-                        remaining = rally_target - self.beast_training_rally_count - 1  # -1 because we're about to do one
-                        mode_str = f"[{zombie_mode}]" if zombie_mode != "elite" else ""
-                        flow_candidates.append(FlowCandidate(
-                            name="beast_training",
-                            flow_func=beast_rally_wrapper,
-                            priority=FlowPriority.CRITICAL,
-                            critical=True,
-                            reason=f"{mode_str}rally #{self.beast_training_rally_count+1}/{rally_target}, {remaining} remaining, {arms_race_remaining_mins:.0f}min left"
-                        ))
-
-                    # STEP 3: Use Button candidate - only if neither claim nor rally is a candidate
-                    # Conditions: idle 5+ min, rally count < target, stamina < threshold, Use clicks < 4, cooldown
-                    # SMART: Check claim timer first - if free claim will be available before event ends, WAIT
-                    # Note: stamina_threshold is already set from zombie mode (10 for zombie, 20 for elite)
-                    # SKIP if Last Hour phase already claimed stamina this iteration (confirmed_stamina is stale)
-                    use_cooldown_ok = (current_time - self.beast_training_last_use_time) >= self.BEAST_TRAINING_USE_COOLDOWN
-                    use_allowed_by_time = (self.beast_training_use_count < 2 or
-                                           arms_race_remaining_mins <= self.BEAST_TRAINING_USE_LAST_MINUTES)
-                    if (not beast_claim_candidate and
-                        not beast_rally_candidate and
-                        not last_hour_claimed_stamina_this_iteration and
-                        self.BEAST_TRAINING_USE_ENABLED and
-                        effective_idle_secs >= self.IDLE_THRESHOLD and
-                        stamina_confirmed and
-                        confirmed_stamina is not None and
-                        confirmed_stamina < stamina_threshold and
-                        self.beast_training_rally_count < rally_target and
-                        self.beast_training_use_count < self.BEAST_TRAINING_USE_MAX and
-                        use_cooldown_ok and
-                        use_allowed_by_time):
-
-                        # SMART CHECK: Will free claim be available before event ends?
-                        # If yes, WAIT for it instead of using recovery items
-                        # Read timer from state file (checked once at block start)
-                        from utils.current_state import get_full_state
-                        state = get_full_state()
-                        timer_data = state.get("stamina_claim_timer", {})
-                        timer_seconds: int | None = timer_data.get("seconds_remaining")
-                        claim_available = timer_data.get("claim_available", False)
-
-                        # Adjust for elapsed time since we checked at block start
-                        if timer_seconds is not None and timer_data.get("checked_at"):
-                            try:
-                                checked_at = datetime.fromisoformat(timer_data["checked_at"])
-                                elapsed = (datetime.now(timezone.utc) - checked_at).total_seconds()
-                                timer_seconds = max(0, timer_seconds - int(elapsed))
-                            except (ValueError, TypeError):
-                                pass  # Keep original timer_seconds if datetime parsing fails
-
-                        event_remaining_seconds = arms_race_remaining_mins * 60
-
-                        # Only wait if: timer will expire before event AND claim is actually available
-                        # If claim_available=false and timer=0, free claim was already used - don't wait
-                        should_wait = (timer_seconds is not None and
-                                      timer_seconds < event_remaining_seconds and
-                                      (timer_seconds > 0 or claim_available))
-
-                        if should_wait:
-                            # Free claim will be available before event ends - WAIT
-                            timer_mins = timer_seconds // 60
+                        if result["success"]:
                             self.logger.info(
-                                f"[{iteration}] BEAST TRAINING: Stamina low but free claim in {timer_mins}min "
-                                f"(event has {arms_race_remaining_mins:.0f}min left) - WAITING instead of using recovery item"
+                                f"[{iteration}] BEAST TRAINING: 60-min complete - "
+                                f"{result['rallies_done']}/{result['rallies_needed']} rallies done, "
+                                f"points: {result.get('current_points')}/30000"
                             )
+                            # Mark as done
+                            self.scheduler.update_arms_race_state(beast_training_aggressive_60_block=str(block_start))
                         else:
-                            # Timer won't expire in time OR OCR failed - add use candidate
-                            remaining = rally_target - self.beast_training_rally_count
-                            timer_reason = "timer OCR failed" if timer_seconds is None else f"timer {timer_seconds//60}min > event {arms_race_remaining_mins:.0f}min"
-                            flow_candidates.append(FlowCandidate(
-                                name="beast_stamina_use",
-                                flow_func=stamina_use_flow,
-                                priority=FlowPriority.CRITICAL,
-                                reason=f"recovery item ({timer_reason}), use #{self.beast_training_use_count+1}/{self.BEAST_TRAINING_USE_MAX}, rally #{self.beast_training_rally_count}/{rally_target}"
-                            ))
+                            self.logger.warning(f"[{iteration}] BEAST TRAINING: 60-min aggressive flow failed: {result.get('error')}")
+
+                    # 30-MINUTE CHECKPOINT: Re-check and do remaining rallies
+                    if arms_race_remaining_mins <= 30:
+                        aggressive_30_block = phase_state.get("beast_training_aggressive_30_block")
+
+                        if aggressive_30_block != str(block_start):  # Not done for this block
+                            self.logger.info(f"[{iteration}] BEAST TRAINING: 30-MIN CHECKPOINT - Re-checking progress...")
+
+                            result = aggressive_beast_training_flow(
+                                self.adb, self.windows_helper, debug=self.debug, scheduler=self.scheduler
+                            )
+
+                            if result["success"]:
+                                self.logger.info(
+                                    f"[{iteration}] BEAST TRAINING: 30-min complete - "
+                                    f"{result['rallies_done']}/{result['rallies_needed']} rallies done, "
+                                    f"points: {result.get('current_points')}/30000"
+                                )
+                                # Mark as done
+                                self.scheduler.update_arms_race_state(beast_training_aggressive_30_block=str(block_start))
+                            else:
+                                self.logger.warning(f"[{iteration}] BEAST TRAINING: 30-min aggressive flow failed: {result.get('error')}")
 
                 # Enhance Hero: last N minutes, runs once per block
                 # NO idle requirement - flow checks real-time progress and skips if chest3 reached
@@ -3428,7 +3480,7 @@ class IconDaemon:
                 elif self._is_user_idle() and self.scheduler.is_flow_ready("tavern_scan", idle_seconds=effective_idle_secs):
                     flow_candidates.append(FlowCandidate(
                         name="tavern_scan",
-                        flow_func=partial(run_tavern_quest_flow, mode="scan"),
+                        flow_func=self._run_tavern_scan_twice,
                         priority=FlowPriority.NORMAL,
                         critical=True,
                         reason=f"idle={idle_str}",
@@ -3551,7 +3603,8 @@ class IconDaemon:
                     self.logger.info(f"[{iteration}] View: WORLD (town button visible, score={view_score:.4f})")
 
             except Exception as e:
-                self.logger.error(f"[{iteration}] ERROR: {e}")
+                import traceback
+                self.logger.error(f"[{iteration}] ERROR: {e}\n{traceback.format_exc()}")
 
             time.sleep(self.interval)
 

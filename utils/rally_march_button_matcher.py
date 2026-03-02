@@ -26,7 +26,11 @@ class RallyMarchButtonMatcher:
     SEARCH_Y_START = 400
     SEARCH_Y_END = 1800
 
-    TEMPLATE_NAME = "rally_march_button_small_4k.png"
+    # Both templates are valid - one without arrow, one with down arrow overlay
+    TEMPLATE_NAMES = [
+        "rally_march_button_small_4k.png",
+        "rally_march_button_small_arrow_4k.png",
+    ]
     DEFAULT_THRESHOLD = 0.05
 
     def __init__(self, threshold: float | None = None) -> None:
@@ -36,7 +40,7 @@ class RallyMarchButtonMatcher:
         """
         Search Y-axis at fixed X for march button.
 
-        Uses a single large search region (fixed X, full Y range).
+        Tries both templates (with and without down arrow) and returns best match.
 
         Args:
             frame: BGR screenshot from WindowsScreenshotHelper
@@ -56,17 +60,23 @@ class RallyMarchButtonMatcher:
             self.SEARCH_Y_END - self.SEARCH_Y_START
         )
 
-        found, score, location = match_template(
-            frame,
-            self.TEMPLATE_NAME,
-            search_region=search_region,
-            threshold=self.threshold
-        )
+        best_match: tuple[int, int, float] | None = None
+        best_score = 1.0
 
-        if found and location:
-            return (location[0], location[1], score)
+        # Try all templates, keep best match
+        for template_name in self.TEMPLATE_NAMES:
+            found, score, location = match_template(
+                frame,
+                template_name,
+                search_region=search_region,
+                threshold=self.threshold
+            )
 
-        return None
+            if found and location and score < best_score:
+                best_match = (location[0], location[1], score)
+                best_score = score
+
+        return best_match
 
     def is_present(self, frame: npt.NDArray[Any]) -> tuple[bool, float]:
         """

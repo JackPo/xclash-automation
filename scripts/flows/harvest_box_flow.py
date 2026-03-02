@@ -32,8 +32,8 @@ from .back_from_chat_flow import back_from_chat_flow
 # Template for the dialog box (moves vertically)
 SURPRISE_BOX_TEMPLATE = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "harvest_surprise_box_4k.png"
 
-# Matching threshold for dialog - looser because text inside changes
-MATCH_THRESHOLD = 0.7
+# Matching threshold for dialog - SQDIFF (lower=better)
+MATCH_THRESHOLD = 0.3
 
 # Fixed click positions
 HARVEST_ICON_CLICK_X = 2177
@@ -61,7 +61,7 @@ def harvest_box_flow(
 
     # Step 1: Click the harvest box icon
     print(f"    [HARVEST] Step 1: Clicking icon at ({HARVEST_ICON_CLICK_X}, {HARVEST_ICON_CLICK_Y})")
-    adb.tap(HARVEST_ICON_CLICK_X, HARVEST_ICON_CLICK_Y)
+    adb.tap(HARVEST_ICON_CLICK_X, HARVEST_ICON_CLICK_Y, source="flow:harvest_box:harvest_icon")
 
     # Step 2: Wait for dialog to appear
     time.sleep(0.5)
@@ -77,33 +77,29 @@ def harvest_box_flow(
         print(f"    [HARVEST] Template not found: {SURPRISE_BOX_TEMPLATE}")
         return False
 
-    # Convert both to grayscale for matching
-    frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-    # Template matching with correlation (tolerates text changes)
-    result = cv2.matchTemplate(frame_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+    # Color template matching - SQDIFF (lower=better)
+    result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-    print(f"    [HARVEST] Step 2: Dialog match score: {max_val:.3f} (threshold: {MATCH_THRESHOLD})")
+    print(f"    [HARVEST] Step 2: Dialog match score: {min_val:.3f} (threshold: {MATCH_THRESHOLD})")
 
-    if max_val < MATCH_THRESHOLD:
-        print(f"    [HARVEST] Dialog not found (score {max_val:.3f} < {MATCH_THRESHOLD})")
+    if min_val > MATCH_THRESHOLD:
+        print(f"    [HARVEST] Dialog not found (score {min_val:.3f} > {MATCH_THRESHOLD})")
         return False
 
     # Found! Calculate click position (center of template)
-    template_h, template_w = template_gray.shape
-    top_left = max_loc
+    template_h, template_w = template.shape[:2]
+    top_left = min_loc
     center_x = top_left[0] + template_w // 2
     center_y = top_left[1] + template_h // 2
 
     print(f"    [HARVEST] Step 3: Clicking surprise box at ({center_x}, {center_y})")
-    adb.tap(center_x, center_y)
+    adb.tap(center_x, center_y, source="flow:harvest_box:surprise_box")
 
     # Step 4: Click Open button
     time.sleep(0.5)
     print(f"    [HARVEST] Step 4: Clicking Open at ({OPEN_BUTTON_X}, {OPEN_BUTTON_Y})")
-    adb.tap(OPEN_BUTTON_X, OPEN_BUTTON_Y)
+    adb.tap(OPEN_BUTTON_X, OPEN_BUTTON_Y, source="flow:harvest_box:open_button")
 
     # Step 5: Close all dialogs using back_from_chat_flow
     time.sleep(0.5)

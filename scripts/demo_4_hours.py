@@ -251,7 +251,7 @@ def main():
 
         # Still over 4 hours - click minus
         print(f"  [{i+1}] {current_str} = {current_secs}s (over by {diff}s / {diff/60:.1f}min) -> minus", flush=True)
-        adb.tap(MINUS_BUTTON[0], MINUS_BUTTON[1])
+        adb.tap(MINUS_BUTTON[0], MINUS_BUTTON[1], source="script:demo_4_hours:minus_button")
         time.sleep(0.25)
 
     print("  WARNING: Could not reach target in 100 attempts", flush=True)

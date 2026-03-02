@@ -8,6 +8,8 @@ After hospital panel is opened, this flow:
 4. Clicks Healing button
 5. Returns to base view
 
+All matching uses template_matcher with COLOR images (no grayscale).
+
 Usage:
     python scripts/flows/hospital_healing_flow.py [--max-seconds 3600]
 """
@@ -17,13 +19,13 @@ from __future__ import annotations
 import sys
 import time
 import argparse
-import cv2
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.template_matcher import match_template
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -43,6 +45,10 @@ from utils.hospital_panel_helper import (
     MAX_SAFE_HEAL_SECONDS,
     get_slider_y,
 )
+
+# Hospital header region for verification
+HOSPITAL_HEADER_REGION = (1790, 325, 260, 70)  # x, y, w, h - header at ~(1793, 330)
+HOSPITAL_HEADER_THRESHOLD = 0.1
 
 
 def hospital_healing_flow(
@@ -80,21 +86,18 @@ def hospital_healing_flow(
     print("Hospital Healing Flow")
     print("=" * 50)
 
-    # Step 0: Verify hospital panel is open by checking header
+    # Step 0: Verify hospital panel is open by checking header (COLOR matching)
     print("\nStep 0: Verifying hospital panel is open...")
     frame = win.get_screenshot_cv2()
-    header_template_path = Path(__file__).parent.parent.parent / "templates" / "ground_truth" / "hospital_header_4k.png"
-    header_template = cv2.imread(str(header_template_path), cv2.IMREAD_GRAYSCALE)
-    if header_template is None:
-        print("  WARNING: Could not load hospital_header_4k.png - skipping verification")  # type: ignore[unreachable]
-    else:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        result = cv2.matchTemplate(gray, header_template, cv2.TM_SQDIFF_NORMED)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-        if min_val > 0.1:
-            print(f"  ERROR: Hospital panel NOT open (header score={min_val:.4f})")
-            return False
-        print(f"  OK - Hospital panel verified (header score={min_val:.4f})")
+    is_open, score, _ = match_template(
+        frame, "hospital_header_4k.png",
+        search_region=HOSPITAL_HEADER_REGION,
+        threshold=HOSPITAL_HEADER_THRESHOLD
+    )
+    if not is_open:
+        print(f"  ERROR: Hospital panel NOT open (header score={score:.4f})")
+        return False
+    print(f"  OK - Hospital panel verified (header score={score:.4f})")
 
     # Step 1: Find soldier rows (detects plus buttons)
     print("\nStep 1: Finding soldier rows...")

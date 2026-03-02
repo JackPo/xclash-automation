@@ -106,7 +106,7 @@ def bag_resources_flow(
         if debug:
             print(f"  Bag button verified (score={score:.4f}), clicking...")
 
-        adb.tap(*BAG_BUTTON_CLICK)
+        adb.tap(*BAG_BUTTON_CLICK, source="flow:bag_resources:open_bag_button")
         time.sleep(1.0)
 
         # VERIFY: Bag tab visible at top (confirms bag menu opened)
@@ -148,7 +148,7 @@ def bag_resources_flow(
         # Click inactive tab to activate it (use detected center)
         if debug:
             print(f"  Clicking Resources tab at {tab_center} to activate...")
-        adb.tap(*tab_center)
+        adb.tap(*tab_center, source="flow:bag_resources:activate_resources_tab")
         time.sleep(0.5)
 
         # Verify it's now ACTIVE
@@ -187,7 +187,7 @@ def bag_resources_flow(
         # Click diamond
         if debug:
             print("  Clicking diamond...")
-        adb.tap(dx, dy)
+        adb.tap(dx, dy, source="flow:bag_resources:click_diamond")
         time.sleep(0.5)
 
         # Use the shared subflow for drag/use/back

@@ -32,6 +32,22 @@
         .progress-bar { background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%); }
         select { cursor: pointer; }
         select:focus { outline: none; box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.5); }
+        .override-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; }
+        .override-meta { min-width: 0; }
+        .override-controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+        .seg-wrap { position: relative; display: inline-block; padding-top: 0.72rem; --seg-btn-w: 2.6rem; }
+        .segmented { display: inline-flex; border: 1px solid #374151; border-radius: 0.5rem; overflow: hidden; font-size: 0.75rem; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+        .segmented .seg-btn { width: var(--seg-btn-w); text-align: center; padding: 0.3rem 0; background: #0b0f17; color: #9ca3af; border-left: 1px solid #374151; transition: background 0.15s ease, color 0.15s ease; }
+        .segmented .seg-btn:first-child { border-left: 0; }
+        .segmented .seg-btn:hover { background: #2a2f3a; color: #e5e7eb; }
+        .segmented .seg-btn.active-off { background: #dc2626; color: #fff; }
+        .segmented .seg-btn.active-on { background: #16a34a; color: #fff; }
+        .segmented .seg-btn.active-timed { background: #d97706; color: #fff; }
+        .seg-wrap .seg-overlay { position: absolute; top: 0; left: 0.35rem; right: calc(var(--seg-btn-w) + 0.35rem); font-size: 0.58rem; background: rgba(217, 119, 6, 0.93); color: #fff; text-align: center; border-radius: 9999px; padding: 0.04rem 0.35rem; letter-spacing: 0.09em; font-weight: 700; pointer-events: none; box-shadow: 0 1px 3px rgba(0,0,0,0.35); z-index: 2; }
+        @media (max-width: 1024px) {
+            .override-item { grid-template-columns: 1fr; gap: 0.55rem; }
+            .override-controls { justify-content: flex-start; }
+        }
     </style>
 </head>
 <body class="text-gray-100 min-h-screen" x-data="dashboard()" x-init="init()">
@@ -867,57 +883,172 @@
 
                     <div class="space-y-4">
                         <!-- Rally Join Enabled -->
-                        <div class="flex items-center justify-between">
-                            <div>
+                        <div class="override-item">
+                            <div class="override-meta">
                                 <div class="text-sm">Rally Join</div>
                                 <div class="text-xs text-gray-500" x-text="configs.RALLY_JOIN_ENABLED?.overridden ? 'OVERRIDE' : 'Default: OFF'"></div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="override-controls">
                                 <span x-show="configs.RALLY_JOIN_ENABLED?.overridden" class="text-xs text-orange-400"
                                       x-text="formatOverrideTime(configs.RALLY_JOIN_ENABLED?.expires_in)"></span>
-                                <button @click="toggleConfigOverride('RALLY_JOIN_ENABLED')"
-                                        class="relative w-12 h-6 rounded-full transition-colors duration-200"
-                                        :class="configs.RALLY_JOIN_ENABLED?.value ? 'bg-green-500' : 'bg-gray-600'">
-                                    <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                                          :class="configs.RALLY_JOIN_ENABLED?.value ? 'translate-x-6' : ''"></span>
-                                </button>
+                                <div class="seg-wrap">
+                                    <div class="seg-overlay">
+                                        OFF TIMERS
+                                    </div>
+                                    <div class="segmented">
+                                        <button @click="setBoolOverride('RALLY_JOIN_ENABLED', false, null)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_JOIN_ENABLED?.value === false ? 'active-off' : ''">
+                                            OFF
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_JOIN_ENABLED', false, 60)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_JOIN_ENABLED?.overridden && configs.RALLY_JOIN_ENABLED?.value === false && configs.RALLY_JOIN_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            1h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_JOIN_ENABLED', false, 120)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_JOIN_ENABLED?.overridden && configs.RALLY_JOIN_ENABLED?.value === false && configs.RALLY_JOIN_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            2h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_JOIN_ENABLED', false, 480)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_JOIN_ENABLED?.overridden && configs.RALLY_JOIN_ENABLED?.value === false && configs.RALLY_JOIN_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            8h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_JOIN_ENABLED', false, 1440)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_JOIN_ENABLED?.overridden && configs.RALLY_JOIN_ENABLED?.value === false && configs.RALLY_JOIN_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            24h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_JOIN_ENABLED', true, null)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_JOIN_ENABLED?.value === true ? 'active-on' : ''">
+                                            ON
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
                         <!-- Ignore Daily Limit -->
-                        <div class="flex items-center justify-between">
-                            <div>
+                        <div class="override-item">
+                            <div class="override-meta">
                                 <div class="text-sm">Ignore Daily Limit</div>
                                 <div class="text-xs text-gray-500" x-text="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden ? 'OVERRIDE' : 'Default: OFF'"></div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="override-controls">
                                 <span x-show="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden" class="text-xs text-orange-400"
                                       x-text="formatOverrideTime(configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in)"></span>
-                                <button @click="toggleConfigOverride('RALLY_IGNORE_DAILY_LIMIT')"
-                                        class="relative w-12 h-6 rounded-full transition-colors duration-200"
-                                        :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value ? 'bg-green-500' : 'bg-gray-600'">
-                                    <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                                          :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value ? 'translate-x-6' : ''"></span>
-                                </button>
+                                <div class="seg-wrap">
+                                    <div class="seg-overlay">
+                                        OFF TIMERS
+                                    </div>
+                                    <div class="segmented">
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, null)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === false ? 'active-off' : ''">
+                                            OFF
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 60)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            1h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 120)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            2h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 480)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            8h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 1440)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            24h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, null)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === true ? 'active-on' : ''">
+                                            ON
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Duration selector for rally overrides -->
-                        <div class="flex items-center gap-3 pt-2 border-t border-gray-700/50">
-                            <span class="text-xs text-gray-500">Duration:</span>
-                            <select x-model="overrideDuration"
-                                    class="flex-1 bg-dark-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm">
-                                <option value="15">15 minutes</option>
-                                <option value="30">30 minutes</option>
-                                <option value="60">1 hour</option>
-                                <option value="120">2 hours</option>
-                                <option value="240">4 hours</option>
-                                <option value="480">8 hours</option>
-                                <option value="1440">24 hours</option>
-                                <option value="4320">3 days</option>
-                                <option value="10080">7 days</option>
-                                <option value="">Permanent</option>
-                            </select>
+                        <!-- Recognized Monsters + Per-Monster Daily Limit Override -->
+                        <div class="pt-3 mt-1 border-t border-gray-700/40">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-sm text-blue-300">Recognized Monster Types</div>
+                                <button @click="loadRallyMonsters()"
+                                        class="px-2 py-1 text-xs rounded bg-gray-700/50 hover:bg-gray-600/50 transition">
+                                    Refresh
+                                </button>
+                            </div>
+                            <div class="text-xs text-gray-500 mb-3">Per-type override for daily-limit dialog behavior.</div>
+
+                            <template x-if="rallyMonsters.length === 0">
+                                <div class="text-xs text-gray-500">No rally monster types configured.</div>
+                            </template>
+
+                            <div class="space-y-3">
+                                <template x-for="monster in rallyMonsters" :key="monster.ignore_override_key">
+                                    <div class="override-item py-2 border-b border-gray-700/25 last:border-0">
+                                        <div class="override-meta">
+                                            <div class="text-sm font-medium" x-text="monster.name"></div>
+                                            <div class="text-xs text-gray-500">
+                                                <span x-text="'Lvl ' + (monster.level_range || monster.max_level || 'any')"></span>
+                                                <span class="mx-1">|</span>
+                                                <span x-text="monster.track_daily_limit ? 'Tracks daily limit' : 'No tracked daily limit'"></span>
+                                            </div>
+                                        </div>
+                                        <div class="override-controls">
+                                            <span x-show="monster.ignore_daily_limit?.overridden"
+                                                  class="text-xs text-orange-400"
+                                                  x-text="formatOverrideTime(monster.ignore_daily_limit?.expires_in)"></span>
+                                            <div class="seg-wrap">
+                                                <div class="seg-overlay">OFF TIMERS</div>
+                                                <div class="segmented">
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, null)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.value === false ? 'active-off' : ''">
+                                                        OFF
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 60)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        1h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 120)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        2h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 480)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        8h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 1440)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        24h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, true, null)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.value === true ? 'active-on' : ''">
+                                                        ON
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -939,6 +1070,19 @@
                                     <input type="number" x-model.number="staminaThreshold"
                                            min="0" max="200"
                                            class="w-20 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-right">
+                                    <select x-model="overrideDurations['ELITE_ZOMBIE_STAMINA_THRESHOLD']"
+                                            class="w-28 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-xs">
+                                        <option value="">Permanent</option>
+                                        <option value="15">15m</option>
+                                        <option value="30">30m</option>
+                                        <option value="60">1h</option>
+                                        <option value="120">2h</option>
+                                        <option value="240">4h</option>
+                                        <option value="480">8h</option>
+                                        <option value="1440">24h</option>
+                                        <option value="4320">3d</option>
+                                        <option value="10080">7d</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="text-xs text-gray-500">Default: 118</div>
@@ -954,6 +1098,19 @@
                                     <input type="number" x-model.number="targetLevel"
                                            min="1" max="70"
                                            class="w-20 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-right">
+                                    <select x-model="overrideDurations['ELITE_ZOMBIE_TARGET_LEVEL']"
+                                            class="w-28 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-xs">
+                                        <option value="">Permanent</option>
+                                        <option value="15">15m</option>
+                                        <option value="30">30m</option>
+                                        <option value="60">1h</option>
+                                        <option value="120">2h</option>
+                                        <option value="240">4h</option>
+                                        <option value="480">8h</option>
+                                        <option value="1440">24h</option>
+                                        <option value="4320">3d</option>
+                                        <option value="10080">7d</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="text-xs text-gray-500">Default: 30 (uses OCR + slider)</div>
@@ -987,6 +1144,36 @@
                                 <option value="iron_mine">Iron Mine (10 stamina)</option>
                             </select>
                             <div class="text-xs text-gray-500 mt-1">Triggers when stamina exceeds threshold</div>
+                        </div>
+
+                        <div>
+                            <div class="text-sm mb-2">Duration (hours)</div>
+                            <input type="number" x-model.number="zombieModeHours" min="0.5" max="168" step="0.5"
+                                   class="w-full bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-red-500">
+                            <div class="text-xs text-gray-500 mt-1">How long to keep this mode active</div>
+                        </div>
+
+                        <div>
+                            <div class="text-sm mb-2">Target Level (Elite)</div>
+                            <div class="flex items-center gap-2">
+                                <input type="number" x-model.number="targetLevel" min="1" max="70"
+                                       :disabled="selectedZombieMode !== 'elite'"
+                                       class="w-24 bg-dark-900 border border-gray-700 rounded px-2 py-2 text-sm text-center focus:border-red-500 disabled:opacity-50">
+                                <select x-model="overrideDurations['ELITE_ZOMBIE_TARGET_LEVEL']"
+                                        :disabled="selectedZombieMode !== 'elite'"
+                                        class="flex-1 bg-dark-900 border border-gray-700 rounded px-2 py-2 text-xs disabled:opacity-50">
+                                    <option value="">Permanent</option>
+                                    <option value="15">15m</option>
+                                    <option value="30">30m</option>
+                                    <option value="60">1h</option>
+                                    <option value="120">2h</option>
+                                    <option value="240">4h</option>
+                                    <option value="480">8h</option>
+                                    <option value="1440">24h</option>
+                                    <option value="4320">3d</option>
+                                    <option value="10080">7d</option>
+                                </select>
+                            </div>
                         </div>
 
                         <!-- Apply Button -->
@@ -1038,56 +1225,149 @@
 
                     <div class="space-y-4">
                         <!-- Beast Training -->
-                        <div class="flex items-center justify-between">
-                            <div>
+                        <div class="override-item">
+                            <div class="override-meta">
                                 <div class="text-sm">Beast Training</div>
                                 <div class="text-xs text-gray-500" x-text="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden ? 'OVERRIDE' : 'Default: ON'"></div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="override-controls">
                                 <span x-show="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden" class="text-xs text-orange-400"
                                       x-text="formatOverrideTime(configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in)"></span>
-                                <button @click="toggleConfigOverride('ARMS_RACE_BEAST_TRAINING_ENABLED')"
-                                        class="relative w-12 h-6 rounded-full transition-colors duration-200"
-                                        :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value ? 'bg-green-500' : 'bg-gray-600'">
-                                    <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                                          :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value ? 'translate-x-6' : ''"></span>
-                                </button>
+                                <div class="seg-wrap">
+                                    <div class="seg-overlay">
+                                        OFF TIMERS
+                                    </div>
+                                    <div class="segmented">
+                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, null)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false ? 'active-off' : ''">
+                                            OFF
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 60)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            1h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 120)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            2h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 480)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            8h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 1440)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            24h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', true, null)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === true ? 'active-on' : ''">
+                                            ON
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
                         <!-- Soldier Training -->
-                        <div class="flex items-center justify-between">
-                            <div>
+                        <div class="override-item">
+                            <div class="override-meta">
                                 <div class="text-sm">Soldier Training</div>
                                 <div class="text-xs text-gray-500" x-text="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden ? 'OVERRIDE' : 'Default: ON'"></div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="override-controls">
                                 <span x-show="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden" class="text-xs text-orange-400"
                                       x-text="formatOverrideTime(configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in)"></span>
-                                <button @click="toggleConfigOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED')"
-                                        class="relative w-12 h-6 rounded-full transition-colors duration-200"
-                                        :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value ? 'bg-green-500' : 'bg-gray-600'">
-                                    <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                                          :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value ? 'translate-x-6' : ''"></span>
-                                </button>
+                                <div class="seg-wrap">
+                                    <div class="seg-overlay">
+                                        OFF TIMERS
+                                    </div>
+                                    <div class="segmented">
+                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, null)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false ? 'active-off' : ''">
+                                            OFF
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 60)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            1h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 120)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            2h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 480)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            8h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 1440)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            24h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', true, null)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === true ? 'active-on' : ''">
+                                            ON
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
                         <!-- Enhance Hero -->
-                        <div class="flex items-center justify-between">
-                            <div>
+                        <div class="override-item">
+                            <div class="override-meta">
                                 <div class="text-sm">Enhance Hero</div>
                                 <div class="text-xs text-gray-500" x-text="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden ? 'OVERRIDE' : 'Default: ON'"></div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="override-controls">
                                 <span x-show="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden" class="text-xs text-orange-400"
                                       x-text="formatOverrideTime(configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in)"></span>
-                                <button @click="toggleConfigOverride('ARMS_RACE_ENHANCE_HERO_ENABLED')"
-                                        class="relative w-12 h-6 rounded-full transition-colors duration-200"
-                                        :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value ? 'bg-green-500' : 'bg-gray-600'">
-                                    <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                                          :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value ? 'translate-x-6' : ''"></span>
-                                </button>
+                                <div class="seg-wrap">
+                                    <div class="seg-overlay">
+                                        OFF TIMERS
+                                    </div>
+                                    <div class="segmented">
+                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, null)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false ? 'active-off' : ''">
+                                            OFF
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 60)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            1h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 120)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            2h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 480)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            8h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 1440)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
+                                            24h
+                                        </button>
+                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', true, null)"
+                                                class="seg-btn"
+                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === true ? 'active-on' : ''">
+                                            ON
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1103,23 +1383,54 @@
                         <!-- Show ALL boolean configs with toggles -->
                         <template x-for="(cfg, key) in configs" :key="key">
                             <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key)"
-                                 class="flex items-center justify-between py-2 border-b border-gray-700/30 last:border-0">
-                                <div>
+                                 class="override-item py-2 border-b border-gray-700/30 last:border-0">
+                                <div class="override-meta">
                                     <div class="text-sm" x-text="formatConfigName(key)"></div>
                                     <div class="text-xs" :class="cfg.overridden ? 'text-orange-400' : 'text-gray-500'"
                                          x-text="cfg.overridden ? ('OVERRIDE ' + formatOverrideTime(cfg.expires_in)) : ('Default: ' + (cfg.default ? 'ON' : 'OFF'))"></div>
                                 </div>
-                                <div class="flex items-center gap-2">
+                                <div class="override-controls">
                                     <button x-show="cfg.overridden" @click="clearOverride(key)"
                                             class="px-2 py-1 text-xs rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition">
                                         Clear
                                     </button>
-                                    <button @click="toggleConfigOverride(key)"
-                                            class="relative w-12 h-6 rounded-full transition-colors duration-200"
-                                            :class="cfg.value ? 'bg-green-500' : 'bg-gray-600'">
-                                        <span class="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                                              :class="cfg.value ? 'translate-x-6' : ''"></span>
-                                    </button>
+                                    <div class="seg-wrap">
+                                        <div class="seg-overlay">
+                                            OFF TIMERS
+                                        </div>
+                                        <div class="segmented">
+                                            <button @click="setBoolOverride(key, false, null)"
+                                                    class="seg-btn"
+                                                    :class="cfg.value === false ? 'active-off' : ''">
+                                                OFF
+                                            </button>
+                                            <button @click="setBoolOverride(key, false, 60)"
+                                                    class="seg-btn"
+                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
+                                                1h
+                                            </button>
+                                            <button @click="setBoolOverride(key, false, 120)"
+                                                    class="seg-btn"
+                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
+                                                2h
+                                            </button>
+                                            <button @click="setBoolOverride(key, false, 480)"
+                                                    class="seg-btn"
+                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
+                                                8h
+                                            </button>
+                                            <button @click="setBoolOverride(key, false, 1440)"
+                                                    class="seg-btn"
+                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
+                                                24h
+                                            </button>
+                                            <button @click="setBoolOverride(key, true, null)"
+                                                    class="seg-btn"
+                                                    :class="cfg.value === true ? 'active-on' : ''">
+                                                ON
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </template>
@@ -1473,6 +1784,7 @@
                 selectedTitle: '',
                 zombieMode: { mode: 'elite', expires: null, hours_remaining: null },
                 selectedZombieMode: 'elite',
+                zombieModeHours: 24,
                 runZombieSelection: 'elite_zombie',  // For immediate run (independent of config)
                 // Reinforce loop mode
                 reinforceMode: { active: false, interval: 10, expires: null, hours_remaining: null },
@@ -1499,7 +1811,8 @@
                 // Config overrides
                 configs: {},
                 activeOverrides: {},
-                overrideDuration: '120',  // Default 2 hours
+                rallyMonsters: [],
+                overrideDurations: {},
                 staminaThreshold: 118,
                 targetLevel: 30,
                 // Arms Race score check
@@ -2210,14 +2523,27 @@
                         const data = await res.json();
                         this.zombieMode = { mode: data.mode || 'elite', expires: data.expires, hours_remaining: data.hours_remaining };
                         this.selectedZombieMode = this.zombieMode.mode;
+                        if (data.hours_remaining != null) {
+                            this.zombieModeHours = Math.max(0.5, Math.round(data.hours_remaining * 10) / 10);
+                        }
                     } catch (e) { console.error('Zombie mode load failed:', e); }
                 },
 
                 async setZombieMode() {
                     try {
-                        const res = await fetch(`/api/zombie-mode/${this.selectedZombieMode}`, { method: 'POST' });
+                        const hours = this.zombieModeHours || 24;
+                        const res = await fetch(`/api/zombie-mode/${this.selectedZombieMode}?hours=${encodeURIComponent(hours)}`, { method: 'POST' });
                         const data = await res.json();
                         if (data.success) {
+                            if (this.selectedZombieMode === 'elite') {
+                                const durationVal = this.overrideDurations?.['ELITE_ZOMBIE_TARGET_LEVEL'];
+                                const duration = durationVal ? parseInt(durationVal) : null;
+                                await fetch('/api/config/ELITE_ZOMBIE_TARGET_LEVEL/override', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ value: this.targetLevel, duration_minutes: duration })
+                                });
+                            }
                             this.showToast(`Zombie mode: ${this.getZombieModeDisplay(this.selectedZombieMode)}`, 'success');
                             await this.loadZombieMode();
                         } else {
@@ -2501,8 +2827,42 @@
                                 this.activeOverrides[key] = cfg;
                             }
                         }
+                        await this.loadRallyMonsters();
                     } catch (e) {
                         console.error('Config load failed:', e);
+                    }
+                },
+
+                async loadRallyMonsters() {
+                    try {
+                        const res = await fetch('/api/rally/monsters');
+                        const data = await res.json();
+                        this.rallyMonsters = data.monsters || [];
+                    } catch (e) {
+                        console.error('Rally monsters load failed:', e);
+                    }
+                },
+
+                async setRallyMonsterIgnoreOverride(monster, value, durationMinutes) {
+                    const key = monster?.ignore_override_key;
+                    if (!key) return;
+
+                    try {
+                        const res = await fetch(`/api/config/${key}/override`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ value, duration_minutes: durationMinutes })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            const label = value ? 'ON' : 'OFF';
+                            this.showToast(`${monster.name}: ${label}`, 'success');
+                            await Promise.all([this.loadConfig(), this.loadRallyMonsters()]);
+                        } else {
+                            this.showToast(`Failed: ${data.error || 'Unknown error'}`, 'error');
+                        }
+                    } catch (e) {
+                        this.showToast(`Error: ${e.message}`, 'error');
                     }
                 },
 
@@ -2511,7 +2871,8 @@
                     if (!cfg) return;
 
                     const newValue = !cfg.value;
-                    const duration = this.overrideDuration ? parseInt(this.overrideDuration) : null;
+                    const durationVal = this.overrideDurations?.[key];
+                    const duration = durationVal ? parseInt(durationVal) : null;
 
                     try {
                         const res = await fetch(`/api/config/${key}/override`, {
@@ -2531,8 +2892,31 @@
                     }
                 },
 
+                async setBoolOverride(key, value, durationMinutes) {
+                    try {
+                        const res = await fetch(`/api/config/${key}/override`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ value, duration_minutes: durationMinutes })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            const label = value ? 'ON' : 'OFF';
+                            this.showToast(`${this.formatConfigName(key)}: ${label}`, 'success');
+                            await this.loadConfig();
+                        } else {
+                            this.showToast(`Failed: ${data.error || 'Unknown error'}`, 'error');
+                        }
+                    } catch (e) {
+                        this.showToast(`Error: ${e.message}`, 'error');
+                    }
+                },
+
                 async applyStaminaOverrides() {
-                    const duration = this.overrideDuration ? parseInt(this.overrideDuration) : null;
+                    const thresholdDurationVal = this.overrideDurations?.['ELITE_ZOMBIE_STAMINA_THRESHOLD'];
+                    const targetDurationVal = this.overrideDurations?.['ELITE_ZOMBIE_TARGET_LEVEL'];
+                    const thresholdDuration = thresholdDurationVal ? parseInt(thresholdDurationVal) : null;
+                    const targetDuration = targetDurationVal ? parseInt(targetDurationVal) : null;
 
                     try {
                         // Apply threshold override
@@ -2540,7 +2924,7 @@
                             await fetch('/api/config/ELITE_ZOMBIE_STAMINA_THRESHOLD/override', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ value: this.staminaThreshold, duration_minutes: duration })
+                                body: JSON.stringify({ value: this.staminaThreshold, duration_minutes: thresholdDuration })
                             });
                         }
 
@@ -2549,7 +2933,7 @@
                             await fetch('/api/config/ELITE_ZOMBIE_TARGET_LEVEL/override', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ value: this.targetLevel, duration_minutes: duration })
+                                body: JSON.stringify({ value: this.targetLevel, duration_minutes: targetDuration })
                             });
                         }
 
@@ -2584,7 +2968,9 @@
                 },
 
                 formatConfigName(key) {
-                    return key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+                    let name = key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+                    name = name.replace(/\s+Enabled$/i, '');
+                    return name;
                 },
 
                 // =============================================

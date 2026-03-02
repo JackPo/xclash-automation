@@ -64,7 +64,7 @@ def _find_attack_button(frame: npt.NDArray[Any]) -> tuple[bool, int, int, float]
     found, score, loc = match_template(
         frame, ATTACK_TEMPLATE,
         search_region=BUTTON_SEARCH_REGION,
-        threshold=0.90  # TM_CCORR_NORMED with mask
+        threshold=0.10  # TM_SQDIFF_NORMED with mask
     )
     if found and loc:
         # CRITICAL: match_template returns CENTER already - don't add half size!
@@ -101,13 +101,13 @@ def _select_rightmost_idle_hero(adb: ADBHelper, win: WindowsScreenshotHelper) ->
     slot = hero_selector.find_rightmost_idle(frame, zz_mode='prefer')
     if slot:
         _log(f"Selecting hero slot {slot['id']} at {slot['click']}")
-        adb.tap(*slot['click'])
+        adb.tap(*slot['click'], source="flow:royal_city:select_hero")
         time.sleep(CLICK_DELAY)
         return True
     else:
         _log("WARNING: No idle hero found, selecting first slot")
         # Fallback: click first hero slot
-        adb.tap(1497, 413)  # First slot position
+        adb.tap(1497, 413, source="flow:royal_city:select_hero_fallback")  # First slot position
         time.sleep(CLICK_DELAY)
         return True
 
@@ -126,12 +126,12 @@ def _click_march_button(adb: ADBHelper, win: WindowsScreenshotHelper) -> bool:
     if found and loc:
         # loc is already CENTER - click directly
         _log(f"Clicking March button at {loc} (score={score:.4f})")
-        adb.tap(*loc)
+        adb.tap(*loc, source="flow:royal_city:march_button")
         return True
     else:
         _log(f"March button not found (score={score:.4f}), trying fixed position")
         # Fallback to common march button position
-        adb.tap(1912, 1648)
+        adb.tap(1912, 1648, source="flow:royal_city:march_button_fallback")
         return True
 
 
@@ -185,7 +185,7 @@ def royal_city_flow(
 
         # match_template returns CENTER already, just click it
         _log(f"Star at center {loc}, clicking...")
-        adb.tap(*loc)
+        adb.tap(*loc, source="flow:royal_city:click_star")
         time.sleep(SCREEN_TRANSITION_DELAY)
 
         # Step 2: Take screenshot and verify panel opened
@@ -228,7 +228,7 @@ def royal_city_flow(
             found, score, loc = match_template(
                 frame, RALLY_TEMPLATE,
                 search_region=BUTTON_SEARCH_REGION,
-                threshold=0.90
+                threshold=0.05  # Masked template - SQDIFF lower=better
             )
             if not found or loc is None:
                 _log(f"ERROR: Rally button not found (score={score:.4f})")
@@ -239,7 +239,7 @@ def royal_city_flow(
             found, score, loc = match_template(
                 frame, SCOUT_TEMPLATE,
                 search_region=BUTTON_SEARCH_REGION,
-                threshold=0.90
+                threshold=0.05  # Masked template - SQDIFF lower=better
             )
             if not found or loc is None:
                 _log(f"ERROR: Scout button not found (score={score:.4f})")
@@ -247,7 +247,7 @@ def royal_city_flow(
             click_pos = loc  # match_template returns CENTER already
             _log(f"Step 3: Scout at center {click_pos}, score={score:.4f}")
 
-        adb.tap(*click_pos)
+        adb.tap(*click_pos, source="flow:royal_city:action_button")
         time.sleep(SCREEN_TRANSITION_DELAY)
 
         # Step 3: Handle action-specific logic

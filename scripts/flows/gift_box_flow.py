@@ -98,13 +98,13 @@ def gift_box_flow(adb: ADBHelper, win: WindowsScreenshotHelper | None = None, de
     # Step 2: Click gift box
     if debug:
         _log(f"Step 2: Clicking gift box at {GIFT_BOX_CLICK}")
-    adb.tap(*GIFT_BOX_CLICK)
+    adb.tap(*GIFT_BOX_CLICK, source="flow:gift_box:gift_box_icon")
     time.sleep(1.5)  # Wait for dialog
 
     # Step 3: Click Claim All
     if debug:
         _log(f"Step 3: Clicking Claim All at {CLAIM_ALL_CLICK}")
-    adb.tap(*CLAIM_ALL_CLICK)
+    adb.tap(*CLAIM_ALL_CLICK, source="flow:gift_box:claim_all_button")
     time.sleep(1.0)
 
     # Step 4: Click back button to close rewards popup

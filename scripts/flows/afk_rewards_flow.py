@@ -86,7 +86,7 @@ def afk_rewards_flow(adb: ADBHelper) -> bool:
 
     # Step 1: Click on AFK rewards chest
     _log(f"Step 1: Clicking AFK rewards chest at {AFK_CHEST_CLICK}")
-    adb.tap(*AFK_CHEST_CLICK)
+    adb.tap(*AFK_CHEST_CLICK, source="flow:afk_rewards:chest_icon")
     time.sleep(1.5)  # Wait for dialog to open
 
     frame = win.get_screenshot_cv2()
@@ -98,7 +98,7 @@ def afk_rewards_flow(adb: ADBHelper) -> bool:
     for attempt in range(MAX_CLAIM_ATTEMPTS):
         # Click the Claim button
         _log(f"Clicking Claim at {CLAIM_BUTTON_CLICK} (attempt {attempt + 1})")
-        adb.tap(*CLAIM_BUTTON_CLICK)
+        adb.tap(*CLAIM_BUTTON_CLICK, source="flow:afk_rewards:claim_button")
         time.sleep(CLICK_DELAY)
 
         # Check if we're back in TOWN view

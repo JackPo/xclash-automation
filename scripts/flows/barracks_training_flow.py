@@ -190,7 +190,7 @@ def barracks_training_flow(
             _log(f"Target ({target_hours}h = {target_seconds}s) >= max ({max_secs}s), using max", debug)
             _log("Step 3-4 SKIPPED: Already at max, clicking Train directly", debug)
             _log(f"Step 5: Clicking Train button at ({TRAIN_BUTTON_CENTER[0]}, {TRAIN_BUTTON_CENTER[1]})...", debug)
-            adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
+            adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1], source="flow:barracks_training:train_button")
             time.sleep(0.5)
 
             # Check for Insufficient Resources and handle replenishment
@@ -198,7 +198,7 @@ def barracks_training_flow(
             replenish_helper = ReplenishAllHelper()
             if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
                 _log("  Re-clicking Train button after replenishment...", debug)
-                adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
+                adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1], source="flow:barracks_training:train_button_after_replenish")
                 time.sleep(0.5)
 
             _log("Step 5 SUCCESS: Train button clicked", debug)
@@ -215,7 +215,7 @@ def barracks_training_flow(
 
         # Click directly on target position (slider will move there)
         _log(f"  Clicking at target X={target_x} on track (Y={plus_y})", debug)
-        adb.tap(target_x, plus_y)
+        adb.tap(target_x, plus_y, source="flow:barracks_training:slider_target")
         time.sleep(0.5)
 
         # Check current time
@@ -257,7 +257,7 @@ def barracks_training_flow(
             # Over target - click minus (use detected plus_y for correct Y position)
             if i % 5 == 0:
                 _log(f"  [{i+1}] {current_str} ({current_secs}s) - over by {diff}s, clicking minus at ({MINUS_BUTTON[0]}, {plus_y})", debug)
-            adb.tap(MINUS_BUTTON[0], plus_y)
+            adb.tap(MINUS_BUTTON[0], plus_y, source="flow:barracks_training:minus_button")
             time.sleep(0.25)
 
         if fine_tune_success:
@@ -273,7 +273,7 @@ def barracks_training_flow(
         if check_timeout():
             return False
 
-        adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
+        adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1], source="flow:barracks_training:train_button")
         time.sleep(0.5)
 
         # Check for Insufficient Resources and handle replenishment
@@ -281,7 +281,7 @@ def barracks_training_flow(
         replenish_helper = ReplenishAllHelper()
         if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
             _log("  Re-clicking Train button after replenishment...", debug)
-            adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1])
+            adb.tap(TRAIN_BUTTON_CENTER[0], TRAIN_BUTTON_CENTER[1], source="flow:barracks_training:train_button_after_replenish")
             time.sleep(0.5)
 
         # Validation: Take screenshot after clicking Train to verify
@@ -309,7 +309,7 @@ def barracks_training_flow(
         # ALWAYS close panel
         elapsed = time.time() - flow_start
         _log(f"Closing panel (elapsed={elapsed:.1f}s)...", debug)
-        adb.tap(DISMISS_TAP[0], DISMISS_TAP[1])
+        adb.tap(DISMISS_TAP[0], DISMISS_TAP[1], source="flow:barracks_training:dismiss_panel")
         time.sleep(0.3)
 
         if success:

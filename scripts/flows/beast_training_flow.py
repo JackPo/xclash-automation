@@ -421,12 +421,22 @@ def aggressive_beast_training_flow(
             logger.info(f"\n--- ITERATION {iteration}/{MAX_ITERATIONS} ---")
 
             # Step 1: Check Arms Race progress (VERIFY current score)
-            logger.info("Step 1: Checking Arms Race progress...")
-            progress = check_beast_training_progress(adb, win, debug=debug, scheduler=scheduler)
+            # Retry up to 3 times if score check fails (UI may be flaky)
+            MAX_SCORE_CHECK_RETRIES = 3
+            progress = None
+            for score_attempt in range(MAX_SCORE_CHECK_RETRIES):
+                logger.info(f"Step 1: Checking Arms Race progress (attempt {score_attempt + 1}/{MAX_SCORE_CHECK_RETRIES})...")
+                progress = check_beast_training_progress(adb, win, debug=debug, scheduler=scheduler)
 
-            if not progress["success"]:
-                logger.error("Failed to check Arms Race progress")
-                result["error"] = "Failed to check progress"
+                if progress["success"] and progress["current_points"] is not None:
+                    break  # Got valid score
+
+                logger.warning(f"Score check failed (attempt {score_attempt + 1}), retrying in 5s...")
+                time.sleep(5)
+            else:
+                # All retries failed
+                logger.error("Failed to check Arms Race progress after all retries")
+                result["error"] = "Failed to check progress after retries"
                 break
 
             current_pts = progress["current_points"] or 0
@@ -498,7 +508,7 @@ def aggressive_beast_training_flow(
                 else:
                     logger.warning(f"    Rally failed, continuing...")
 
-                time.sleep(1)
+                time.sleep(20)  # Wait 20 seconds between rally starts
 
             logger.info(f"  Iteration {iteration}: {rallies_done_this_iteration} rallies done")
 

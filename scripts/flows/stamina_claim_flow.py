@@ -142,7 +142,7 @@ def stamina_claim_flow(
 
     # Step 1: Click on stamina display to open popup
     print(f"    [STAMINA-CLAIM] Step 1: Opening stamina popup (clicking {STAMINA_DISPLAY_X}, {STAMINA_DISPLAY_Y})")
-    adb.tap(STAMINA_DISPLAY_X, STAMINA_DISPLAY_Y)
+    adb.tap(STAMINA_DISPLAY_X, STAMINA_DISPLAY_Y, source="flow:stamina_claim:open_popup")
 
     # Step 2: Wait for popup to appear
     time.sleep(0.5)
@@ -181,7 +181,7 @@ def stamina_claim_flow(
 
     # Step 4: Click the Claim button
     print(f"    [STAMINA-CLAIM] Step 3: Clicking Claim at ({CLAIM_BUTTON_X}, {CLAIM_BUTTON_Y})")
-    adb.tap(CLAIM_BUTTON_X, CLAIM_BUTTON_Y)
+    adb.tap(CLAIM_BUTTON_X, CLAIM_BUTTON_Y, source="flow:stamina_claim:claim_button")
 
     # Step 5: Wait and close popup
     time.sleep(0.5)
@@ -251,7 +251,7 @@ def check_claim_status(
     result: ClaimStatusResult = {"claim_available": False, "timer_seconds": None}
 
     # Open popup
-    adb.tap(STAMINA_DISPLAY_X, STAMINA_DISPLAY_Y)
+    adb.tap(STAMINA_DISPLAY_X, STAMINA_DISPLAY_Y, source="flow:stamina_claim:open_popup_check")
     time.sleep(0.5)
 
     frame = win.get_screenshot_cv2()

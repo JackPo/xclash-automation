@@ -260,43 +260,42 @@ if time_until and time_until.total_seconds() > 0:
 
 ## Beast Training Arms Race Flow
 
-**Trigger**: During "Mystic Beast Training" event, last 60 minutes, idle 2+ min
-
-**See full docs**: `docs/BEAST_TRAINING_LOGIC.md`
+**Trigger**: During "Mystic Beast Training" event, last 60 minutes
 
 **Key Numbers** (by zombie mode):
 
 | Mode | Stamina | Points | Actions for 30k |
 |------|---------|--------|-----------------|
-| elite | 20 | 2,000 | 15 rallies |
+| elite | 24 | 2,000 | 15 rallies |
 | gold/food/iron_mine | 10 | 1,000 | 30 attacks |
 
-**Two-Phase Flow**:
+**Verification Loop** (`aggressive_beast_training_flow`):
 
-1. **Hour Mark Check** (1 hour into event):
-   - Open Events → Arms Race
-   - OCR current points
-   - `actions_needed = ceil((30000 - current_points) / points_per_action)`
-   - Set `beast_training_target_rallies`
-
-2. **Execution** (continuous):
-   - While `rally_count < target`:
-     - stamina >= threshold → do rally/attack
-     - stamina < threshold, use_count < 4 → click Use for 50 stamina
-
-**State** (`data/daemon_schedule.json`):
-```json
-{
-  "arms_race": {
-    "beast_training_rally_count": 4,
-    "beast_training_target_rallies": 6
-  }
-}
 ```
+WHILE score < 30,000 (max 5 iterations):
+    1. Check score from Arms Race panel
+    2. If score >= 30,000: VERIFIED DONE
+    3. Calculate deficit and rallies needed
+    4. Get stamina for this batch
+    5. Do rallies until stamina runs out
+    6. WAIT 60 SECONDS for marches to complete
+    7. GOTO 1 (re-verify score)
+```
+
+**Key Points**:
+- Score doesn't update until march FINISHES (~1 min)
+- Must wait after rallies before re-checking score
+- Only claims stamina when needed (after verification)
+- Exits only when score is PROVEN >= 30,000
+
+**Checkpoints** (in daemon):
+- **60-min mark**: Run aggressive flow (once per block)
+- **30-min mark**: Re-run aggressive flow (safety check)
 
 **Config**:
 - `ARMS_RACE_BEAST_TRAINING_LAST_MINUTES = 60`
-- `ARMS_RACE_BEAST_TRAINING_USE_MAX = 4`
+- `ELITE_STAMINA_COST = 24`
+- `CHEST3_TARGET = 30000`
 
 ---
 

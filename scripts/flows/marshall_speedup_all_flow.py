@@ -43,7 +43,7 @@ class MarshallSpeedupResult(TypedDict):
 # Title active icon position (scroll icon in top-left when title is active)
 TITLE_ACTIVE_ICON_POS = (203, 216)
 TITLE_ACTIVE_ICON_SIZE = (69, 62)
-TITLE_ACTIVE_THRESHOLD = 0.95  # CCORR_NORMED (has mask)
+TITLE_ACTIVE_THRESHOLD = 0.05  # SQDIFF_NORMED (with mask) - lower is better
 
 POLL_TIMEOUT = 5.0
 POLL_INTERVAL = 0.3
@@ -235,6 +235,7 @@ def marshall_speedup_all_flow(
 
 if __name__ == "__main__":
     import argparse
+    from utils.adb_helper import ADBHelper
 
     parser = argparse.ArgumentParser(description="Apply Marshall and speed up all training barracks")
     parser.add_argument("--skip-marshall", action="store_true", help="Skip applying Marshall title")

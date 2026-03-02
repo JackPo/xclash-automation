@@ -209,7 +209,9 @@ class OCRClient:
 
         buffer = io.BytesIO()
         pil_image.save(buffer, format="PNG")
-        return buffer.getvalue()
+        result = buffer.getvalue()
+        buffer.close()  # Prevent memory leak
+        return result
 
     def _post_multipart(
         self,

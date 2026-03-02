@@ -71,12 +71,50 @@ DONATE_BUTTON_THRESHOLD = 0.05
 # Thumbs up badge detection (whole screen search)
 THUMBS_UP_THRESHOLD = 0.05  # TM_SQDIFF_NORMED threshold
 MIN_DISTANCE_BETWEEN_MATCHES = 50  # Pixels, to avoid duplicate detections
+UNION_TECH_BUTTON_THRESHOLD = 0.08  # TM_SQDIFF_NORMED for menu button
 
 # Timing constants
 CLICK_DELAY = 0.5
 POLL_INTERVAL = 0.1  # Poll every 100ms
 MAX_POLL_TIME = 2.0  # Max wait time when polling
+BADGE_MAX_POLL_TIME = 1.5  # Short settle window for donation list/badges after panel appears
+MENU_BUTTON_MAX_POLL_TIME = 1.2  # Wait for Union menu item to render after opening Union panel
 LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
+
+
+def _find_union_technology_button(frame: npt.NDArray[Any]) -> tuple[int, int, float] | None:
+    """Find Union Technology button in the Union menu."""
+    found, score, loc = match_template(
+        frame, "union_technology_button_4k.png",
+        threshold=UNION_TECH_BUTTON_THRESHOLD
+    )
+    if not found or loc is None:
+        return None
+    return (loc[0], loc[1], score)
+
+
+def _poll_for_union_technology_button(
+    win: WindowsScreenshotHelper,
+    max_time: float = MENU_BUTTON_MAX_POLL_TIME
+) -> tuple[tuple[int, int, float] | None, npt.NDArray[Any] | None]:
+    """Poll for Union Technology menu button after clicking Union."""
+    polls = int(max_time / POLL_INTERVAL)
+    frame: npt.NDArray[Any] | None = None
+
+    for _ in range(polls):
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            time.sleep(POLL_INTERVAL)
+            continue
+
+        tech_button = _find_union_technology_button(frame)
+        if tech_button is not None:
+            return tech_button, frame
+
+        time.sleep(POLL_INTERVAL)
+
+    return None, frame
+
 
 def _is_on_technology_panel(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     """Check if we're on the Union Technology panel by matching header."""
@@ -151,6 +189,49 @@ def _poll_for_panel(win: WindowsScreenshotHelper, max_time: float = MAX_POLL_TIM
     return False, frame
 
 
+def _open_technology_panel(adb: ADBHelper, win: WindowsScreenshotHelper, attempts: int = 3) -> tuple[bool, npt.NDArray[Any] | None, float]:
+    """
+    Open Union Technology panel with retries.
+
+    Returns:
+        (is_on_panel, frame, header_score)
+    """
+    frame: npt.NDArray[Any] | None = None
+    header_score = 0.0
+
+    for attempt in range(1, attempts + 1):
+        if attempt > 1:
+            _log(f"Retry {attempt}/{attempts}: recovering to base and trying again")
+            return_to_base_view(adb, win, debug=False, respect_idle=False)
+            time.sleep(0.5)
+
+        _log(f"Step 1: Clicking Union button at {UNION_BUTTON_CLICK} (attempt {attempt}/{attempts})")
+        adb.tap(*UNION_BUTTON_CLICK, source="flow:union_technology:union_button")
+        time.sleep(0.3)
+
+        tech_button, frame = _poll_for_union_technology_button(win)
+        if tech_button is not None:
+            tx, ty, tscore = tech_button
+            _log(f"Step 2: Clicking Union Technology via template at ({tx}, {ty}) score={tscore:.4f}")
+            adb.tap(tx, ty, source="flow:union_technology:technology_menu_template")
+        else:
+            # Avoid blind fallback taps: when Union menu is not actually open, this coordinate can hit
+            # unrelated UI/buildings (e.g., castle). Retry instead of misclicking.
+            _log("Step 2: Template not found; skipping fallback click to avoid off-menu taps")
+            continue
+
+        is_on_panel, frame = _poll_for_panel(win, max_time=2.5)
+        if frame is not None:
+            _, header_score = _is_on_technology_panel(frame)
+
+        if is_on_panel:
+            return True, frame, header_score
+
+        _log(f"Panel open attempt {attempt} failed (header score={header_score:.4f})")
+
+    return False, frame, header_score
+
+
 def _poll_for_donate_dialog(win: WindowsScreenshotHelper, max_time: float = MAX_POLL_TIME) -> tuple[bool, bool, npt.NDArray[Any] | None]:
     """
     Poll until donate dialog is visible (active or inactive button).
@@ -177,6 +258,36 @@ def _poll_for_donate_dialog(win: WindowsScreenshotHelper, max_time: float = MAX_
     return False, False, frame
 
 
+def _poll_for_badge(
+    win: WindowsScreenshotHelper,
+    max_time: float = BADGE_MAX_POLL_TIME
+) -> tuple[tuple[int, int, float] | None, npt.NDArray[Any] | None]:
+    """
+    Poll for thumbs-up badge after technology panel opens.
+
+    The first panel frame can be transitional (header visible but list not fully rendered),
+    so use fresh frames before concluding no donation is available.
+
+    Returns:
+        (badge, frame)
+    """
+    polls = int(max_time / POLL_INTERVAL)
+    frame: npt.NDArray[Any] | None = None
+    for _ in range(polls):
+        frame = win.get_screenshot_cv2()
+        if frame is None:
+            time.sleep(POLL_INTERVAL)
+            continue
+
+        badge = _find_thumbs_up_badge_topmost(frame)
+        if badge is not None:
+            return badge, frame
+
+        time.sleep(POLL_INTERVAL)
+
+    return None, frame
+
+
 def _log(msg: str) -> None:
     """Log to both logger and stdout."""
     logger.info(msg)
@@ -197,37 +308,34 @@ def union_technology_flow(adb: ADBHelper) -> bool:
     _log("=== UNION TECHNOLOGY FLOW START ===")
 
     win = WindowsScreenshotHelper()
+    _log("Returning to base (flow_start)")
+    return_to_base_view(adb, win, debug=False, respect_idle=False)
+    time.sleep(0.3)
 
-    # Step 1: Click Union button
-    _log(f"Step 1: Clicking Union button at {UNION_BUTTON_CLICK}")
-    adb.tap(*UNION_BUTTON_CLICK, source="flow:union_technology:union_button")
-    time.sleep(0.3)  # Brief delay for tap to register
-
-    # Step 2: Click Union Technology
-    _log(f"Step 2: Clicking Union Technology at {UNION_TECHNOLOGY_CLICK}")
-    adb.tap(*UNION_TECHNOLOGY_CLICK, source="flow:union_technology:technology_menu")
-
-    # Step 3: Poll for Technology panel header (instead of blind wait)
-    is_on_panel, frame = _poll_for_panel(win)
+    # Step 1-3: Open technology panel with retries
+    is_on_panel, frame, header_score = _open_technology_panel(adb, win, attempts=3)
     if frame is not None:
         _save_debug_screenshot(frame, "03_panel_check")
-
-    header_score = 0.0
-    if frame is not None:
-        _, header_score = _is_on_technology_panel(frame)
     _log(f"Step 3: Header validation - on_panel={is_on_panel}, score={header_score:.4f}")
 
     if not is_on_panel:
         _log("FAILED: Not on Union Technology panel, aborting")
-        return_to_base_view(adb, win, debug=False)
+        _log("Returning to base (panel_not_found)")
+        return_to_base_view(adb, win, debug=False, respect_idle=False)
         return False
 
-    # Step 4: Find red thumbs up badge (highest Y)
-    badge = _find_thumbs_up_badge_topmost(frame)
+    # Step 4: Find red thumbs up badge (poll fresh frames to avoid transitional panel frame)
+    initial_badge = _find_thumbs_up_badge_topmost(frame) if frame is not None else None
+    badge, badge_frame = _poll_for_badge(win)
+    if badge_frame is not None:
+        frame = badge_frame
+    if badge is None and initial_badge is not None:
+        badge = initial_badge
 
     if badge is None:
         _log("No donation badge found, nothing to donate")
-        return_to_base_view(adb, win, debug=False)
+        _log("Returning to base (no_badge)")
+        return_to_base_view(adb, win, debug=False, respect_idle=False)
         elapsed = time.time() - flow_start
         _log(f"=== UNION TECHNOLOGY FLOW COMPLETE (no donations) === (took {elapsed:.1f}s)")
         return True
@@ -253,7 +361,8 @@ def union_technology_flow(adb: ADBHelper) -> bool:
 
     if is_inactive:
         _log("Donate button is INACTIVE (gray) - nothing to donate, skipping")
-        return_to_base_view(adb, win, debug=False)
+        _log("Returning to base (inactive_donate_button)")
+        return_to_base_view(adb, win, debug=False, respect_idle=False)
         elapsed = time.time() - flow_start
         _log(f"=== UNION TECHNOLOGY FLOW COMPLETE (nothing to donate) === (took {elapsed:.1f}s)")
         return True
@@ -273,7 +382,7 @@ def union_technology_flow(adb: ADBHelper) -> bool:
 
     # Step 8: Return to base view
     _log("Step 8: Returning to base view")
-    return_to_base_view(adb, win, debug=False)
+    return_to_base_view(adb, win, debug=False, respect_idle=False)
 
     elapsed = time.time() - flow_start
     _log(f"=== UNION TECHNOLOGY FLOW SUCCESS === (took {elapsed:.1f}s)")

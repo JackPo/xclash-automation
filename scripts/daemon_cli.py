@@ -11,6 +11,7 @@ Usage:
     python daemon_cli.py list_flows          # List available flows
     python daemon_cli.py get_state           # Get full daemon state
     python daemon_cli.py set_config KEY VAL  # Set config value
+    python daemon_cli.py set_tavern_claims 3 # Force tavern claims today to 3
     python daemon_cli.py pause               # Pause daemon loop
     python daemon_cli.py resume              # Resume daemon loop
     python daemon_cli.py save_state          # Force save state to disk
@@ -201,6 +202,13 @@ def main():
             sys.exit(1)
         args["key"] = sys.argv[2]
         args["value"] = parse_value(sys.argv[3])
+
+    elif cmd == "set_tavern_claims":
+        if len(sys.argv) < 3:
+            print("Error: set_tavern_claims requires a count")
+            print("Usage: daemon_cli.py set_tavern_claims <count>")
+            sys.exit(1)
+        args["count"] = int(sys.argv[2])
 
     elif cmd == "set_rally_count":
         if len(sys.argv) < 3:

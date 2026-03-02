@@ -6,7 +6,7 @@ which soldier levels are visible in the panel.
 
 Uses template_matcher for search-based detection.
 
-Templates: half_soldier_lv3_4k.png through half_soldier_lv8_4k.png (78x148 pixels)
+Templates: half_soldier_lv5_4k.png through half_soldier_lv9_4k.png (78x148 pixels)
 Uses HALF templates (top half only) to avoid overlapping detections.
 """
 from __future__ import annotations
@@ -30,7 +30,8 @@ ROI_Y_START = 870  # SOLDIER_Y_START - 20 margin
 ROI_Y_END = 990    # SOLDIER_Y_END + 20 margin
 
 # Match threshold (TM_SQDIFF_NORMED - lower is better)
-MATCH_THRESHOLD = 0.02
+# Lowered from 0.02 to prevent Lv9 template matching Lv8 tile (score 0.019)
+MATCH_THRESHOLD = 0.015
 
 
 class SoldierTileMatcher:
@@ -40,7 +41,7 @@ class SoldierTileMatcher:
         # Template names for levels 3-8
         self.template_names = {
             level: f"half_soldier_lv{level}_4k.png"
-            for level in range(3, 9)
+            for level in range(5, 10)  # Levels 5-9
         }
 
     def find_visible_soldiers(self, frame: npt.NDArray[Any], debug_timing: bool = False) -> dict[int, dict[str, Any]]:
@@ -101,7 +102,7 @@ class SoldierTileMatcher:
 
         Args:
             frame: BGR numpy array screenshot
-            target_level: int (3-8) - the soldier level to find
+            target_level: int (5-9) - the soldier level to find
 
         Returns:
             dict or None: {'x': x, 'y': y, 'score': score, 'center': (cx, cy)} if found

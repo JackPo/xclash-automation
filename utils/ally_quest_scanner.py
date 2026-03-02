@@ -148,7 +148,7 @@ def detect_quest_color(
     button_x: int,
     button_y: int,
     templates: dict[str, npt.NDArray[Any]],
-    threshold: float = 0.01,
+    threshold: float = 0.05,
 ) -> str:
     """Detect quest color using template matching against color templates."""
     # Extract region above the button
@@ -168,6 +168,7 @@ def detect_quest_color(
     # Match against color templates
     best_color = "unknown"
     best_score = 1.0
+    all_scores: dict[str, float] = {}
 
     for color_name, template_key in [("gold", "color_gold"), ("blue", "color_blue")]:
         template = templates.get(template_key)
@@ -180,10 +181,14 @@ def detect_quest_color(
 
         result = cv2.matchTemplate(square_region, template, cv2.TM_SQDIFF_NORMED)
         min_val = float(result.min())
+        all_scores[color_name] = min_val
 
         if min_val < best_score and min_val < threshold:
             best_score = min_val
             best_color = color_name
+
+    if best_color == "unknown" and all_scores:
+        logger.debug(f"Color detection failed (threshold={threshold}): scores={all_scores}")
 
     return best_color
 
@@ -193,7 +198,7 @@ def count_stars(
     button_x: int,
     button_y: int,
     templates: dict[str, npt.NDArray[Any]],
-    threshold: float = 0.01,
+    threshold: float = 0.05,
 ) -> int:
     """Count stars using template matching against star rating templates."""
     # Extract region above the button
@@ -213,6 +218,7 @@ def count_stars(
     # Match against star templates
     best_stars = 0
     best_score = 1.0
+    all_scores: dict[int, float] = {}
 
     for star_count, template_key in [(1, "stars_1"), (2, "stars_2"), (3, "stars_3"), (4, "stars_4"), (5, "stars_5")]:
         template = templates.get(template_key)
@@ -225,10 +231,14 @@ def count_stars(
 
         result = cv2.matchTemplate(stars_region, template, cv2.TM_SQDIFF_NORMED)
         min_val = float(result.min())
+        all_scores[star_count] = min_val
 
         if min_val < best_score and min_val < threshold:
             best_score = min_val
             best_stars = star_count
+
+    if best_stars == 0 and all_scores:
+        logger.debug(f"Star detection failed (threshold={threshold}): scores={all_scores}")
 
     return best_stars
 

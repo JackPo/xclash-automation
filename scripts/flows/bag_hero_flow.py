@@ -44,10 +44,11 @@ HERO_TAB_CLICK = (2261, 2078)  # Exact center from full-screen match
 CHEST_THRESHOLD = 0.02
 VERIFICATION_THRESHOLD = 0.015
 
-# Chest templates for Hero tab (multiple variants)
+# Chest templates for Hero tab
+# bag_hero_chest_4k.png has a mask that ignores background color,
+# so it matches all color variants (blue, purple, orange backgrounds)
 CHEST_TEMPLATES = [
-    "bag_hero_chest_4k.png",         # Green gem chest (blue background)
-    "bag_hero_chest_purple_4k.png",  # Green gem chest (purple background)
+    "bag_hero_chest_4k.png",
 ]
 
 
@@ -128,7 +129,7 @@ def bag_hero_flow(
         if debug:
             print(f"  Bag button verified (score={score:.4f}), clicking...")
 
-        adb.tap(*BAG_BUTTON_CLICK)
+        adb.tap(*BAG_BUTTON_CLICK, source="flow:bag_hero:open_bag_button")
         time.sleep(1.0)
 
         # Verify bag opened
@@ -170,7 +171,7 @@ def bag_hero_flow(
         # Click inactive tab to activate it (use detected center)
         if debug:
             print(f"  Clicking Hero tab at {tab_center} to activate...")
-        adb.tap(*tab_center)
+        adb.tap(*tab_center, source="flow:bag_hero:activate_hero_tab")
         time.sleep(0.5)
 
         # Verify it's now ACTIVE
@@ -208,7 +209,7 @@ def bag_hero_flow(
         # Click chest
         if debug:
             print("  Clicking chest...")
-        adb.tap(cx, cy)
+        adb.tap(cx, cy, source="flow:bag_hero:click_chest")
         time.sleep(0.5)
 
         # Use the shared subflow for drag/use/back

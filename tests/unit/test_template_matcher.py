@@ -7,7 +7,7 @@ needing actual image files. Covers:
 - Return value structure (found, score, location)
 - Auto mask detection
 - Template caching behavior
-- Threshold behavior for both SQDIFF and CCORR methods
+- Threshold behavior (all SQDIFF_NORMED - lower score = better match)
 """
 from __future__ import annotations
 
@@ -212,7 +212,7 @@ class TestMatchTemplate:
 
 
 class TestAutoMaskDetection:
-    """Test automatic mask detection and CCORR matching."""
+    """Test automatic mask detection (still uses SQDIFF_NORMED with mask parameter)."""
 
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self):
@@ -260,7 +260,7 @@ class TestAutoMaskDetection:
 
             mock_cv2.IMREAD_COLOR = 1
             mock_cv2.IMREAD_GRAYSCALE = 0
-            mock_cv2.TM_CCORR_NORMED = 3
+            mock_cv2.TM_SQDIFF_NORMED = 1
             mock_cv2.COLOR_BGR2GRAY = 6
 
             # Return different images based on flag
@@ -276,22 +276,22 @@ class TestAutoMaskDetection:
 
             result_array = np.zeros((2060, 3740), dtype=np.float32)
             mock_cv2.matchTemplate.return_value = result_array
-            # High score (0.98) for CCORR means good match
+            # Low score (0.01) for SQDIFF means good match
             mock_cv2.minMaxLoc.return_value = (0.01, 0.98, (100, 200), (300, 400))
 
             from utils.template_matcher import match_template
 
             found, score, location = match_template(
-                sample_frame, "search_button_4k.png", threshold=0.95
+                sample_frame, "search_button_4k.png", threshold=0.05
             )
 
-            # Should use TM_CCORR_NORMED when mask exists
+            # Should use TM_SQDIFF_NORMED with mask parameter
             mock_cv2.matchTemplate.assert_called_once()
             call_args = mock_cv2.matchTemplate.call_args
             assert call_args[1].get('mask') is not None or len(call_args[0]) > 3
 
             assert found is True
-            assert score == 0.98
+            assert score == 0.01  # SQDIFF returns min_val as score
 
     def test_no_mask_uses_sqdiff(self, sample_frame, sample_template):
         """Test that SQDIFF is used when no mask file exists."""
@@ -574,10 +574,10 @@ class TestThresholdBehavior:
             assert found is False  # Score > threshold fails for SQDIFF
             assert score == 0.051
 
-    def test_ccorr_threshold_boundary_pass(
+    def test_masked_sqdiff_threshold_boundary_pass(
         self, sample_frame, sample_template
     ):
-        """Test CCORR threshold: score exactly at threshold passes."""
+        """Test masked SQDIFF threshold: score exactly at threshold passes."""
         sample_template_gray = np.zeros((100, 100), dtype=np.uint8)
         sample_mask = np.ones((100, 100), dtype=np.uint8) * 255
 
@@ -594,7 +594,7 @@ class TestThresholdBehavior:
 
             mock_cv2.IMREAD_COLOR = 1
             mock_cv2.IMREAD_GRAYSCALE = 0
-            mock_cv2.TM_CCORR_NORMED = 3
+            mock_cv2.TM_SQDIFF_NORMED = 1
             mock_cv2.COLOR_BGR2GRAY = 6
 
             def imread_side_effect(path, flag):
@@ -609,22 +609,22 @@ class TestThresholdBehavior:
 
             result_array = np.zeros((2060, 3740), dtype=np.float32)
             mock_cv2.matchTemplate.return_value = result_array
-            # Score exactly at threshold
-            mock_cv2.minMaxLoc.return_value = (0.01, 0.95, (100, 200), (300, 400))
+            # Score exactly at threshold (SQDIFF - lower=better)
+            mock_cv2.minMaxLoc.return_value = (0.05, 0.95, (100, 200), (300, 400))
 
             from utils.template_matcher import match_template
 
             found, score, _ = match_template(
-                sample_frame, "masked_4k.png", threshold=0.95
+                sample_frame, "masked_4k.png", threshold=0.05
             )
 
-            assert found is True  # Score >= threshold passes for CCORR
-            assert score == 0.95
+            assert found is True  # Score <= threshold passes for SQDIFF
+            assert score == 0.05
 
-    def test_ccorr_threshold_boundary_fail(
+    def test_masked_sqdiff_threshold_boundary_fail(
         self, sample_frame, sample_template
     ):
-        """Test CCORR threshold: score just below threshold fails."""
+        """Test masked SQDIFF threshold: score just above threshold fails."""
         sample_template_gray = np.zeros((100, 100), dtype=np.uint8)
         sample_mask = np.ones((100, 100), dtype=np.uint8) * 255
 
@@ -641,7 +641,7 @@ class TestThresholdBehavior:
 
             mock_cv2.IMREAD_COLOR = 1
             mock_cv2.IMREAD_GRAYSCALE = 0
-            mock_cv2.TM_CCORR_NORMED = 3
+            mock_cv2.TM_SQDIFF_NORMED = 1
             mock_cv2.COLOR_BGR2GRAY = 6
 
             def imread_side_effect(path, flag):
@@ -656,20 +656,20 @@ class TestThresholdBehavior:
 
             result_array = np.zeros((2060, 3740), dtype=np.float32)
             mock_cv2.matchTemplate.return_value = result_array
-            # Score just below threshold
-            mock_cv2.minMaxLoc.return_value = (0.01, 0.949, (100, 200), (300, 400))
+            # Score just above threshold (SQDIFF - lower=better)
+            mock_cv2.minMaxLoc.return_value = (0.051, 0.949, (100, 200), (300, 400))
 
             from utils.template_matcher import match_template
 
             found, score, _ = match_template(
-                sample_frame, "masked_4k.png", threshold=0.95
+                sample_frame, "masked_4k.png", threshold=0.05
             )
 
-            assert found is False  # Score < threshold fails for CCORR
-            assert score == 0.949
+            assert found is False  # Score > threshold fails for SQDIFF
+            assert score == 0.051
 
-    def test_default_sqdiff_threshold(self, sample_frame, sample_template):
-        """Test default threshold for SQDIFF (0.1)."""
+    def test_default_threshold_non_masked(self, sample_frame, sample_template):
+        """Test default threshold for non-masked SQDIFF (0.1)."""
         with patch('utils.template_matcher.cv2') as mock_cv2, \
              patch('utils.template_matcher.TEMPLATE_DIR') as mock_dir:
 
@@ -692,17 +692,17 @@ class TestThresholdBehavior:
             result_array = np.zeros((2060, 3740), dtype=np.float32)
             mock_cv2.matchTemplate.return_value = result_array
 
-            from utils.template_matcher import match_template, DEFAULT_SQDIFF_THRESHOLD
+            from utils.template_matcher import match_template, DEFAULT_THRESHOLD
 
             # Score at default threshold
             mock_cv2.minMaxLoc.return_value = (0.1, 0.99, (100, 200), (300, 400))
 
             found, _, _ = match_template(sample_frame, "test_4k.png")
             assert found is True  # Should pass with default threshold
-            assert DEFAULT_SQDIFF_THRESHOLD == 0.1
+            assert DEFAULT_THRESHOLD == 0.1
 
-    def test_default_ccorr_threshold(self, sample_frame, sample_template):
-        """Test default threshold for CCORR (0.90)."""
+    def test_default_threshold_masked(self, sample_frame, sample_template):
+        """Test default threshold for masked SQDIFF (0.05)."""
         sample_template_gray = np.zeros((100, 100), dtype=np.uint8)
         sample_mask = np.ones((100, 100), dtype=np.uint8) * 255
 
@@ -719,7 +719,7 @@ class TestThresholdBehavior:
 
             mock_cv2.IMREAD_COLOR = 1
             mock_cv2.IMREAD_GRAYSCALE = 0
-            mock_cv2.TM_CCORR_NORMED = 3
+            mock_cv2.TM_SQDIFF_NORMED = 1
             mock_cv2.COLOR_BGR2GRAY = 6
 
             def imread_side_effect(path, flag):
@@ -735,14 +735,14 @@ class TestThresholdBehavior:
             result_array = np.zeros((2060, 3740), dtype=np.float32)
             mock_cv2.matchTemplate.return_value = result_array
 
-            from utils.template_matcher import match_template, DEFAULT_CCORR_THRESHOLD
+            from utils.template_matcher import match_template, DEFAULT_MASKED_THRESHOLD
 
-            # Score at default threshold
-            mock_cv2.minMaxLoc.return_value = (0.01, 0.90, (100, 200), (300, 400))
+            # Score at default masked threshold (SQDIFF - lower=better)
+            mock_cv2.minMaxLoc.return_value = (0.05, 0.90, (100, 200), (300, 400))
 
             found, _, _ = match_template(sample_frame, "masked_4k.png")
             assert found is True  # Should pass with default threshold
-            assert DEFAULT_CCORR_THRESHOLD == 0.90
+            assert DEFAULT_MASKED_THRESHOLD == 0.05
 
 
 class TestHelperFunctions:

@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 CLAIM_POLL_INTERVAL = 0.5  # seconds between polls
 PRE_ARRIVAL_BUFFER = 5     # seconds before completion to navigate to tavern
 SHORT_TIMER_THRESHOLD = 30 # seconds - timer considered "about to complete"
+CLAIM_SHORT_WAIT_THRESHOLD_SECONDS = 10  # Wait/poll only when OCR timer <= this value
 
 # Template paths (absolute paths from project root)
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
@@ -759,14 +760,19 @@ def _open_tavern(adb: ADBHelper, win: WindowsScreenshotHelper, target_tab: str =
 
 
 # =============================================================================
-# MODE: CLAIM - Click Claim buttons only, no OCR, no Go buttons
+# MODE: CLAIM - Click Claim buttons, timer-gated OCR wait, no Go buttons
 # =============================================================================
 
 def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
     """
     CLAIM mode: Find and click Claim buttons only.
 
-    Does NOT: Click Go buttons, OCR timers
+    Flow (strict):
+    1) Check top immediately for Claim
+    2) If none, OCR timers; if any <= 10s, wait/poll for Claim
+    3) If still none, scroll down and repeat immediate Claim check
+    4) If still none, OCR timers again; if any <= 10s, wait/poll
+    5) Exit if no Claim found
 
     Returns:
         {"claims": N, "mode": "claim"}
@@ -778,161 +784,239 @@ def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
 
     claim_template = load_template_color(CLAIM_BUTTON_TEMPLATE)
     logger.info(f"[CLAIM] Template size: {claim_template.shape[1]}x{claim_template.shape[0]}")
+    # OCR is required for the timer-under-10s decision path.
+    ocr: OCRClient | None = None
+    try:
+        from utils.ocr_client import OCRClient as _OCRClient
+        ocr = _OCRClient()
+        _OCRClient.require_server(auto_start=True)
+        logger.info("[CLAIM] OCR server ready for timer checks")
+    except Exception as e:
+        logger.warning(f"[CLAIM] OCR unavailable ({e}) - timer waiting path disabled")
 
-    # First priority: directly check for visible Claim buttons at the current (top) position.
-    # Do not scroll until we've actually looked for claim buttons.
-    frame = win.get_screenshot_cv2()
-    _save_debug(frame, "claim_00_initial")
-
-    top_poll_timeout = 2.0
-    top_poll_start = time.time()
-    top_claim_buttons: list[tuple[int, int]] = []
-    top_best_score = 1.0
-    top_polls = 0
-    while time.time() - top_poll_start < top_poll_timeout:
-        frame = win.get_screenshot_cv2()
-        top_claim_buttons, top_score = find_claim_buttons_with_score(frame, claim_template)
-        top_polls += 1
-        if top_score < top_best_score:
-            top_best_score = top_score
-        if top_claim_buttons:
-            break
-
-    if top_claim_buttons:
-        logger.info(
-            f"[CLAIM] Top check found {len(top_claim_buttons)} claim button(s) "
-            f"after {top_polls} polls ({time.time() - top_poll_start:.1f}s), "
-            f"best_score={top_best_score:.4f}"
-        )
-    else:
-        # If no immediate claim buttons, use timers only to choose where to begin polling.
-        timers = find_quest_timers(frame, ocr=None)  # Just detect, no OCR needed
-        if timers:
-            logger.info(
-                f"[CLAIM] Top check found no claim buttons (best_score={top_best_score:.4f}); "
-                f"timers visible={len(timers)} so staying near top"
-            )
-        else:
-            logger.info(
-                f"[CLAIM] Top check found no claim buttons (best_score={top_best_score:.4f}) "
-                "and no timers visible - scrolling down to search completed quests"
-            )
-            for _ in range(3):
-                adb.swipe(1920, 1400, 1920, 900, duration=300)
-                time.sleep(0.2)
     total_claims = 0
-    no_action_count = 0
-    max_no_action = 2
-    poll_iteration = 0
 
-    while no_action_count < max_no_action:
-        frame = win.get_screenshot_cv2()
-
-        # Verify still in tavern
-        in_tavern, active_tab = is_in_tavern(frame)
+    def _ensure_tavern_my_quests(tag: str) -> bool:
+        frame_local = win.get_screenshot_cv2()
+        in_tavern, active_tab = is_in_tavern(frame_local)
         if not in_tavern:
-            logger.warning("[CLAIM] Lost tavern view - aborting claim mode")
-            _save_debug(frame, "claim_LOST_TAVERN")
-            break
-
-        # Switch to My Quests if needed
+            logger.warning(f"[CLAIM:{tag}] Lost tavern view")
+            _save_debug(frame_local, f"claim_{tag}_LOST_TAVERN")
+            return False
         if active_tab != "my_quests":
-            logger.info(f"[CLAIM] Switching from {active_tab} to my_quests")
+            logger.info(f"[CLAIM:{tag}] Switching from {active_tab} to my_quests")
             adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests")
             time.sleep(0.5)
-            continue
+        return True
 
-        # Poll rapidly for claim button
-        poll_timeout = 10.0
-        poll_start = time.time()
-        claim_buttons = []
+    def _same_row_claim_present(
+        claim_buttons: list[tuple[int, int]],
+        expected_y: int,
+        y_tolerance: int = 70,
+    ) -> bool:
+        """Check whether a detected claim button still exists on the same quest row."""
+        return any(abs(btn_y - expected_y) <= y_tolerance for _, btn_y in claim_buttons)
+
+    def _click_claim(claim_x: int, claim_y: int, tag: str) -> bool:
+        logger.info(f"[CLAIM:{tag}] Clicking Claim at ({claim_x}, {claim_y})")
+        frame_local = win.get_screenshot_cv2()
+        _save_debug(frame_local, f"claim_{tag}_PRE_CLAIM_at_{claim_x}_{claim_y}")
+
+        verify_frame = frame_local
+        for tap_attempt in range(1, 4):
+            adb.tap(claim_x, claim_y, source="flow:tavern_quest:claim")
+            time.sleep(0.35)
+
+            verify_frame = win.get_screenshot_cv2()
+            _save_debug(verify_frame, f"claim_{tag}_POST_CLAIM_tap_attempt_{tap_attempt}")
+            verify_buttons, _ = find_claim_buttons_with_score(verify_frame, claim_template)
+            in_tavern_now, _ = is_in_tavern(verify_frame)
+            same_row_still_present = _same_row_claim_present(verify_buttons, claim_y)
+
+            # Most important guard: if the same claim row is still present,
+            # this was an early/failed tap. Never back out in this case.
+            if same_row_still_present:
+                logger.info(
+                    f"[CLAIM:{tag}] Claim still present on same row after tap attempt "
+                    f"{tap_attempt}/3; likely not ready yet"
+                )
+                _save_debug(verify_frame, f"claim_{tag}_NOT_READY_YET_attempt_{tap_attempt}")
+                if tap_attempt < 3:
+                    time.sleep(0.35)
+                    continue
+                return False
+
+            # Success path without popup: still in tavern and target row claim disappeared.
+            if in_tavern_now:
+                logger.info(f"[CLAIM:{tag}] Claim accepted in-tavern on attempt {tap_attempt}")
+                _save_debug(verify_frame, f"claim_{tag}_after_claim_in_tavern")
+                return True
+
+            # Not in tavern means popup/dialog likely appeared; dismiss and verify.
+            logger.info(f"[CLAIM:{tag}] Waiting to return to tavern after tap attempt {tap_attempt}")
+            if not wait_for_tavern_tabs(adb, win, max_attempts=15, debug=debug):
+                logger.warning(f"[CLAIM:{tag}] Could not return to tavern after claim popup")
+                stuck_frame = win.get_screenshot_cv2()
+                _save_debug(stuck_frame, f"claim_{tag}_POPUP_STUCK")
+                return False
+
+            after_popup = win.get_screenshot_cv2()
+            _save_debug(after_popup, f"claim_{tag}_after_popup_attempt_{tap_attempt}")
+            post_buttons, _ = find_claim_buttons_with_score(after_popup, claim_template)
+            if _same_row_claim_present(post_buttons, claim_y):
+                logger.info(
+                    f"[CLAIM:{tag}] Same-row claim still visible after popup dismiss "
+                    f"(attempt {tap_attempt}/3)"
+                )
+                _save_debug(after_popup, f"claim_{tag}_NOT_READY_POST_POPUP_attempt_{tap_attempt}")
+                if tap_attempt < 3:
+                    time.sleep(0.35)
+                    continue
+                return False
+
+            logger.info(f"[CLAIM:{tag}] Claim completed after popup on attempt {tap_attempt}")
+            return True
+
+        logger.warning(f"[CLAIM:{tag}] Claim tap exhausted retries without success")
+        _save_debug(verify_frame, f"claim_{tag}_NOT_READY_YET_exhausted")
+        return False
+
+    def _immediate_claim_check(tag: str) -> bool:
+        frame_local = win.get_screenshot_cv2()
+        _save_debug(frame_local, f"claim_{tag}_immediate_check")
+        claim_buttons, best_score = find_claim_buttons_with_score(frame_local, claim_template)
+        if claim_buttons:
+            logger.info(
+                f"[CLAIM:{tag}] Immediate claim found ({len(claim_buttons)} buttons, best_score={best_score:.4f})"
+            )
+            claim_x, claim_y = claim_buttons[0]
+            return _click_claim(claim_x, claim_y, tag)
+
+        logger.info(f"[CLAIM:{tag}] No immediate claim button (best_score={best_score:.4f})")
+        return False
+
+    def _get_shortest_timer_seconds(tag: str) -> int | None:
+        frame_local = win.get_screenshot_cv2()
+        _save_debug(frame_local, f"claim_{tag}_timer_scan")
+
+        if ocr is None:
+            logger.warning(f"[CLAIM:{tag}] OCR unavailable - cannot evaluate timer threshold")
+            return None
+
+        timers = find_quest_timers(frame_local, ocr=ocr)
+        valid_seconds = [t["seconds"] for t in timers if t["seconds"] is not None]
+        timer_texts = [t["timer_text"] for t in timers if t["timer_text"]]
+        if timer_texts:
+            logger.info(f"[CLAIM:{tag}] OCR timers: {timer_texts}")
+        else:
+            logger.info(f"[CLAIM:{tag}] No OCR timer text found")
+
+        if not valid_seconds:
+            return None
+
+        shortest = min(valid_seconds)
+        logger.info(f"[CLAIM:{tag}] Shortest timer={shortest}s")
+        return shortest
+
+    def _wait_and_poll_for_claim(tag: str, timeout_s: float) -> bool:
+        start = time.time()
         poll_count = 0
-        best_score = 1.0  # Track best match score during polling
+        best_score = 1.0
+        logger.info(f"[CLAIM:{tag}] Waiting/polling for up to {timeout_s:.1f}s")
 
-        logger.info(f"[CLAIM] Starting poll loop (timeout={poll_timeout}s, attempt={no_action_count+1}/{max_no_action})")
-
-        while time.time() - poll_start < poll_timeout:
-            frame = win.get_screenshot_cv2()
-            claim_buttons, match_score = find_claim_buttons_with_score(frame, claim_template)
+        while time.time() - start < timeout_s:
+            frame_local = win.get_screenshot_cv2()
+            claim_buttons, score = find_claim_buttons_with_score(frame_local, claim_template)
             poll_count += 1
-
-            if match_score < best_score:
-                best_score = match_score
+            if score < best_score:
+                best_score = score
 
             if claim_buttons:
-                logger.info(f"[CLAIM] Found {len(claim_buttons)} claim button(s) after {poll_count} polls ({time.time()-poll_start:.1f}s), best_score={best_score:.4f}")
-                break
-            # No sleep - poll as fast as possible
+                claim_x, claim_y = claim_buttons[0]
+                logger.info(
+                    f"[CLAIM:{tag}] Claim appeared after {poll_count} polls "
+                    f"({time.time() - start:.1f}s), best_score={best_score:.4f}"
+                )
+                if _click_claim(claim_x, claim_y, tag):
+                    return True
+                logger.info(
+                    f"[CLAIM:{tag}] Claim tap failed/not-ready after poll detect; continuing to poll"
+                )
+                time.sleep(0.2)
+                continue
 
-        poll_iteration += 1
-        elapsed = time.time() - poll_start
+            time.sleep(0.2)
 
-        if claim_buttons:
-            x, y = claim_buttons[0]
-            logger.info(f"[CLAIM] Clicking Claim at ({x}, {y})")
-            _save_debug(frame, f"claim_{poll_iteration:02d}_FOUND_at_{x}_{y}")
+        timeout_frame = win.get_screenshot_cv2()
+        _save_debug(timeout_frame, f"claim_{tag}_wait_timeout_best_{best_score:.4f}")
+        logger.info(
+            f"[CLAIM:{tag}] No claim appeared during wait ({poll_count} polls, best_score={best_score:.4f})"
+        )
+        return False
 
-            # Retry tap up to 3 times with verification
-            tap_verified = False
-            for tap_attempt in range(3):
-                adb.tap(x, y, source="flow:tavern_quest:claim")
-                time.sleep(0.3)  # Short wait for UI to respond
+    # Allow a few cycles so we can claim multiple ready quests in one invocation.
+    for cycle in range(1, 6):
+        logger.info(f"[CLAIM] ===== Cycle {cycle} =====")
+        if not _ensure_tavern_my_quests(f"top_c{cycle}"):
+            break
 
-                # Verify: check if button is still there at same position
-                verify_frame = win.get_screenshot_cv2()
-                verify_buttons, _ = find_claim_buttons_with_score(verify_frame, claim_template)
-
-                # If button gone or moved significantly, tap worked
-                if not verify_buttons:
-                    logger.info(f"[CLAIM] Tap verified (button gone) on attempt {tap_attempt + 1}")
-                    tap_verified = True
-                    break
-                elif abs(verify_buttons[0][1] - y) > 50:
-                    logger.info(f"[CLAIM] Tap verified (button moved) on attempt {tap_attempt + 1}")
-                    tap_verified = True
-                    break
-                else:
-                    logger.warning(f"[CLAIM] Tap may have missed (button still at {verify_buttons[0]}) attempt {tap_attempt + 1}/3, retrying...")
-                    _save_debug(verify_frame, f"claim_{poll_iteration:02d}_TAP_MISS_attempt_{tap_attempt + 1}")
-
-            if not tap_verified:
-                # Button still there after 3 taps = quest not ready yet (shows "Quest not yet completed")
-                # Keep polling until timeout - outer loop will retry
-                logger.warning(f"[CLAIM] Quest not ready yet (button still at {x}, {y}) - continuing to poll...")
-                _save_debug(verify_frame, f"claim_{poll_iteration:02d}_NOT_READY_YET")
-                continue  # Go back to polling until poll_timeout expires
-
-            time.sleep(0.2)  # Remaining wait for popup
+        # TOP PASS: immediate claim first
+        if _immediate_claim_check(f"top_c{cycle}"):
             total_claims += 1
-            no_action_count = 0
-
-            # Dismiss popup - wait for it to appear and dismiss
-            time.sleep(0.5)  # Wait for popup to fully render
-            if not wait_for_tavern_tabs(adb, win, max_attempts=15, debug=debug):
-                logger.warning("[CLAIM] Could not return to tavern after claim popup")
-                frame = win.get_screenshot_cv2()
-                _save_debug(frame, f"claim_{poll_iteration:02d}_POPUP_STUCK")
-                break
-
-            # Save state after returning to tavern
-            frame = win.get_screenshot_cv2()
-            _save_debug(frame, f"claim_{poll_iteration:02d}_after_popup")
             continue
 
-        # No claims found - save screenshot and log details
-        logger.warning(f"[CLAIM] NO claim button found after {poll_count} polls ({elapsed:.1f}s), best_score={best_score:.4f} (threshold={CLAIM_THRESHOLD})")
-        _save_debug(frame, f"claim_{poll_iteration:02d}_NOT_FOUND_score_{best_score:.4f}")
+        # TOP PASS: if no claim, OCR timers and wait only when <= 10s
+        top_shortest = _get_shortest_timer_seconds(f"top_c{cycle}")
+        if top_shortest is not None and top_shortest <= CLAIM_SHORT_WAIT_THRESHOLD_SECONDS:
+            wait_for = min(max(float(top_shortest) + 2.0, 3.0), 15.0)
+            logger.info(
+                f"[CLAIM:top_c{cycle}] Timer <= {CLAIM_SHORT_WAIT_THRESHOLD_SECONDS}s "
+                f"({top_shortest}s), waiting/polling"
+            )
+            if _wait_and_poll_for_claim(f"top_c{cycle}", wait_for):
+                total_claims += 1
+                continue
 
-        no_action_count += 1
-        if no_action_count < max_no_action:
-            logger.info(f"[CLAIM] Scrolling to check for more quests...")
+        # No top claim path succeeded -> scroll down
+        logger.info(f"[CLAIM] No top claim path succeeded, scrolling down for bottom pass")
+        for _ in range(3):
             adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
-            time.sleep(0.5)
+            time.sleep(0.2)
 
-    # Exit tavern
-    return_to_base_view(adb, win, debug=debug, respect_idle=False)
+        if not _ensure_tavern_my_quests(f"bottom_c{cycle}"):
+            break
+
+        # BOTTOM PASS: immediate claim first
+        if _immediate_claim_check(f"bottom_c{cycle}"):
+            total_claims += 1
+            # Return to top for next cycle (fresh pass order)
+            for _ in range(3):
+                adb.swipe(SCROLL_X, SCROLL_END_Y, SCROLL_X, SCROLL_START_Y, SCROLL_DURATION)
+                time.sleep(0.2)
+            continue
+
+        # BOTTOM PASS: if no claim, OCR timers and wait only when <= 10s
+        bottom_shortest = _get_shortest_timer_seconds(f"bottom_c{cycle}")
+        if bottom_shortest is not None and bottom_shortest <= CLAIM_SHORT_WAIT_THRESHOLD_SECONDS:
+            wait_for = min(max(float(bottom_shortest) + 2.0, 3.0), 15.0)
+            logger.info(
+                f"[CLAIM:bottom_c{cycle}] Timer <= {CLAIM_SHORT_WAIT_THRESHOLD_SECONDS}s "
+                f"({bottom_shortest}s), waiting/polling"
+            )
+            if _wait_and_poll_for_claim(f"bottom_c{cycle}", wait_for):
+                total_claims += 1
+                for _ in range(3):
+                    adb.swipe(SCROLL_X, SCROLL_END_Y, SCROLL_X, SCROLL_START_Y, SCROLL_DURATION)
+                    time.sleep(0.2)
+                continue
+
+        # As requested: if no claim and no <=10s timer wait success at bottom, exit.
+        logger.info("[CLAIM] Bottom pass has no claim and no actionable <=10s timer wait success; exiting")
+        break
 
     logger.info(f"[CLAIM] === CLAIM MODE COMPLETE: {total_claims} claims ===")
+    # Exit tavern
+    return_to_base_view(adb, win, debug=debug, respect_idle=False)
     return {"claims": total_claims, "mode": "claim"}
 
 
@@ -1359,6 +1443,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
         if claim_buttons:
             x, y = claim_buttons[0]
             logger.info(f"Clicking Claim at ({x}, {y})")
+            _save_debug(frame, f"myq_iter{iteration:02d}_PRE_CLAIM_at_{x}_{y}")
             adb.tap(x, y, source="flow:tavern_quest:claim_button")
             time.sleep(0.5)  # Wait for rewards popup to appear
             total_claims += 1
@@ -1366,7 +1451,7 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
 
             # DEBUG: Screenshot after claim click
             frame = win.get_screenshot_cv2()
-            _save_debug(frame, f"myq_iter{iteration:02d}_after_claim")
+            _save_debug(frame, f"myq_iter{iteration:02d}_POST_CLAIM_after_tap")
 
             # Dismiss popup by polling until we see Tavern tabs again
             logger.info("Waiting for popup to dismiss...")
@@ -1446,12 +1531,13 @@ def run_my_quests_flow(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRCli
                     # Process claim - click it
                     x, y = claim_buttons[0]
                     logger.info(f"Clicking Claim at ({x}, {y}) [retry]")
+                    _save_debug(retry_frame, f"myq_iter{iteration:02d}_PRE_CLAIM_retry{retry+1}_at_{x}_{y}")
                     adb.tap(x, y, source="flow:tavern_quest:claim_button_retry")
                     time.sleep(0.5)
                     total_claims += 1
                     no_action_count = 0
                     frame = win.get_screenshot_cv2()
-                    _save_debug(frame, f"myq_iter{iteration:02d}_after_claim_retry")
+                    _save_debug(frame, f"myq_iter{iteration:02d}_POST_CLAIM_retry{retry+1}")
                     if not wait_for_tavern_tabs(adb, win, max_attempts=10, debug=debug):
                         _process_deferred_ocr()
                         return {"claims": total_claims, "go_clicks": total_go_clicks, "claimed": True, "completions": all_completions}
@@ -1668,7 +1754,7 @@ def run_tavern_quest_flow(
     Main tavern quest flow with mode-based operation.
 
     Modes:
-        "claim"    - Click Claim buttons only, no OCR, no Go buttons
+        "claim"    - Claim buttons with top/bottom pass and OCR timer-gated wait, no Go buttons
         "scan"     - Scroll and OCR timers only, no clicking
         "dispatch" - Click Go buttons to start quests, no OCR, no Claims
         "ally"     - Assist ally quests, skips if already 5/5

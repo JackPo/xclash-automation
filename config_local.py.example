@@ -26,6 +26,8 @@ Any values set here will override the defaults in config.py.
 # DAEMON_INTERVAL = 3.0              # Check interval (seconds)
 # IDLE_THRESHOLD = 300               # 5 minutes before idle triggers activate
 # IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
+# DAEMON_FRAME_CAPTURE_ENABLED = False  # 4K frame dump each loop (debug-only, heavy disk I/O)
+# DAEMON_FRAME_CAPTURE_EVERY_N = 1      # Capture every N iterations when frame capture enabled
 
 # Elite Zombie rally
 # ELITE_ZOMBIE_STAMINA_THRESHOLD = 118   # Minimum stamina to trigger rally

@@ -177,7 +177,7 @@ def barrack_speedup_flow(
         # Step 2: Click barrack bubble
         if debug:
             print(f"  Step 2: Clicking barrack at {click_pos}...")
-        adb.tap(*click_pos)
+        adb.tap(*click_pos, source="flow:barrack_speedup:barrack_bubble")
 
         # Step 3: POLL/VERIFY soldier_training_header at FIXED position
         if debug:
@@ -206,7 +206,7 @@ def barrack_speedup_flow(
         # Step 5: Click speedup button
         if debug:
             print(f"  Step 5: Clicking Speedup button at {SPEEDUP_BUTTON_CLICK}...")
-        adb.tap(*SPEEDUP_BUTTON_CLICK)
+        adb.tap(*SPEEDUP_BUTTON_CLICK, source="flow:barrack_speedup:speedup_button")
 
         # Step 6: POLL for speed_up_header (vertical search)
         if debug:
@@ -237,7 +237,7 @@ def barrack_speedup_flow(
         # Step 8: Click Quick Speedup
         if debug:
             print(f"  Step 8: Clicking Quick Speedup at {quick_pos}...")
-        adb.tap(*quick_pos)
+        adb.tap(*quick_pos, source="flow:barrack_speedup:quick_speedup_button")
         time.sleep(0.5)
 
         # Step 9: VERIFY confirm_button at FIXED position
@@ -255,7 +255,7 @@ def barrack_speedup_flow(
         # Step 10: Click Confirm
         if debug:
             print(f"  Step 10: Clicking Confirm at {CONFIRM_BUTTON_CLICK}...")
-        adb.tap(*CONFIRM_BUTTON_CLICK)
+        adb.tap(*CONFIRM_BUTTON_CLICK, source="flow:barrack_speedup:confirm_button")
         time.sleep(1.0)
 
         if debug:

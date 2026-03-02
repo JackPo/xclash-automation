@@ -79,7 +79,7 @@ def soldier_speedup_flow(
         # Step 1: Click barrack bubble
         if debug:
             print(f"  Step 1: Clicking barrack at {barrack_click_pos}")
-        adb.tap(*barrack_click_pos)
+        adb.tap(*barrack_click_pos, source="flow:soldier_speedup:click_barrack")
         time.sleep(1.0)
 
         # Step 2: Verify Soldier Training panel
@@ -111,7 +111,7 @@ def soldier_speedup_flow(
         # Step 3: Click Speed Up button
         if debug:
             print(f"  Step 3: Clicking Speed Up button at {SPEED_UP_BUTTON_CLICK}")
-        adb.tap(*SPEED_UP_BUTTON_CLICK)
+        adb.tap(*SPEED_UP_BUTTON_CLICK, source="flow:soldier_speedup:speed_up_button")
         time.sleep(0.8)
 
         # Step 4: Verify Speed Up panel (search Y for Quick Speedup)
@@ -140,13 +140,13 @@ def soldier_speedup_flow(
         quick_click_x, quick_click_y = quick_loc
         if debug:
             print(f"  Step 5: Clicking Quick Speedup at ({quick_click_x}, {quick_click_y})")
-        adb.tap(quick_click_x, quick_click_y)
+        adb.tap(quick_click_x, quick_click_y, source="flow:soldier_speedup:quick_speedup")
         time.sleep(0.5)
 
         # Step 6: Click Confirm button
         if debug:
             print(f"  Step 6: Clicking Confirm at {CONFIRM_BUTTON_CLICK}")
-        adb.tap(*CONFIRM_BUTTON_CLICK)
+        adb.tap(*CONFIRM_BUTTON_CLICK, source="flow:soldier_speedup:confirm")
         time.sleep(0.5)
 
         if debug:

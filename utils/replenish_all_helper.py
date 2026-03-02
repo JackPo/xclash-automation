@@ -220,7 +220,7 @@ class ReplenishAllHelper:
 
         # Step 2: Click "Replenish all" button
         self.logger.info(f"Clicking Replenish all button at {self.REPLENISH_BUTTON_CENTER}")
-        adb.tap(*self.REPLENISH_BUTTON_CENTER)
+        adb.tap(*self.REPLENISH_BUTTON_CENTER, source="util:replenish:click_replenish")
         time.sleep(0.3)
 
         frame = win.get_screenshot_cv2()
@@ -262,11 +262,11 @@ class ReplenishAllHelper:
             if found_confirm and confirm_loc:
                 self.logger.info(f"Confirm button found at {confirm_loc} (score={score:.4f}), clicking...")
                 _save_debug_screenshot(frame, "STEP4 CLICKING Confirm", f"pos={confirm_loc}")
-                adb.tap(*confirm_loc)
+                adb.tap(*confirm_loc, source="util:replenish:confirm")
             else:
                 self.logger.warning(f"Confirm button not found (score={score:.4f}), using fallback position")
                 _save_debug_screenshot(frame, "STEP4 Confirm NOT found using fallback", f"score={score:.4f}")
-                adb.tap(*self.CONFIRM_BUTTON_POS)
+                adb.tap(*self.CONFIRM_BUTTON_POS, source="util:replenish:confirm_fallback")
             time.sleep(0.5)
 
             frame = win.get_screenshot_cv2()
@@ -274,14 +274,14 @@ class ReplenishAllHelper:
 
             # After confirm, tap to close result screen
             self.logger.info("Tapping to close resources result screen")
-            adb.tap(1920, 1080)
+            adb.tap(1920, 1080, source="util:replenish:close_result")
             time.sleep(0.3)
 
         elif found_result_screen:
             # Result screen showing - click dimmed tab to dismiss
             _save_debug_screenshot(frame, "STEP4 Clicking dimmed tab to dismiss", f"pos={DIMMED_TAB_CLICK}")
             self.logger.info(f"Clicking dimmed Soldier Training tab at {DIMMED_TAB_CLICK} to dismiss")
-            adb.tap(*DIMMED_TAB_CLICK)
+            adb.tap(*DIMMED_TAB_CLICK, source="util:replenish:dismiss_result")
             time.sleep(0.3)
 
         else:
@@ -296,7 +296,7 @@ class ReplenishAllHelper:
                 return False
             # Found on final check - click to dismiss
             self.logger.info("Result screen found on final check - clicking to dismiss")
-            adb.tap(*DIMMED_TAB_CLICK)
+            adb.tap(*DIMMED_TAB_CLICK, source="util:replenish:dismiss_result")
             time.sleep(0.3)
 
         frame = win.get_screenshot_cv2()

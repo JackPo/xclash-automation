@@ -23,23 +23,27 @@ import io
 import json
 import base64
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import parse_qs
 import threading
 import traceback
 
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 from PIL import Image
-import numpy as np
 
 # Server config
 HOST = "127.0.0.1"
 PORT = 5123
+MAX_REQUEST_BYTES = 8 * 1024 * 1024
+MAX_IN_FLIGHT_REQUESTS = 4
+
+# Common Windows socket disconnect errors
+_CLIENT_DISCONNECT_WINERRORS = {10053, 10054}
 
 # Global model state
 model = None
 processor = None
 model_lock = threading.Lock()
+request_slots = threading.BoundedSemaphore(MAX_IN_FLIGHT_REQUESTS)
 
 
 def load_model():
@@ -95,7 +99,7 @@ def extract_text(image: Image.Image, prompt: str = None) -> str:
         return_tensors="pt",
     ).to("cuda")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         output_ids = model.generate(
             **inputs,
             max_new_tokens=128,
@@ -124,6 +128,49 @@ def extract_number(image: Image.Image) -> int | None:
     return int(digits) if digits else None
 
 
+def _is_client_disconnect_error(error: Exception) -> bool:
+    """Return True when client closed connection before response write completed."""
+    if isinstance(error, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+        return True
+
+    winerror = getattr(error, "winerror", None)
+    return isinstance(winerror, int) and winerror in _CLIENT_DISCONNECT_WINERRORS
+
+
+def _parse_region(region_raw, image_size: tuple[int, int]) -> tuple[int, int, int, int] | None:
+    """Parse region payload as (left, upper, right, lower) crop box."""
+    if region_raw is None:
+        return None
+
+    region = region_raw
+    if isinstance(region_raw, str):
+        region = json.loads(region_raw)
+
+    if not isinstance(region, (list, tuple)) or len(region) != 4:
+        raise ValueError("region must be [x, y, width, height]")
+
+    try:
+        x, y, width, height = [int(v) for v in region]
+    except (TypeError, ValueError) as e:
+        raise ValueError("region values must be integers") from e
+
+    if width <= 0 or height <= 0:
+        raise ValueError("region width and height must be > 0")
+    if x < 0 or y < 0:
+        raise ValueError("region x and y must be >= 0")
+
+    image_w, image_h = image_size
+    left = min(max(0, x), image_w)
+    top = min(max(0, y), image_h)
+    right = min(max(left, x + width), image_w)
+    bottom = min(max(top, y + height), image_h)
+
+    if left >= right or top >= bottom:
+        raise ValueError("region is outside image bounds")
+
+    return (left, top, right, bottom)
+
+
 class OCRHandler(BaseHTTPRequestHandler):
     """HTTP request handler for OCR requests."""
 
@@ -134,20 +181,31 @@ class OCRHandler(BaseHTTPRequestHandler):
 
     def send_json(self, data: dict, status: int = 200):
         """Send JSON response."""
+        payload = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        self.wfile.write(payload)
 
     def parse_multipart(self):
         """Parse multipart/form-data request."""
         content_type = self.headers.get("Content-Type", "")
+        content_length = int(self.headers.get("Content-Length", 0))
+
+        if content_length <= 0:
+            return {}
+        if content_length > MAX_REQUEST_BYTES:
+            raise ValueError(f"Request too large ({content_length} bytes > {MAX_REQUEST_BYTES} bytes)")
 
         if "multipart/form-data" in content_type:
-            # Extract boundary
-            boundary = content_type.split("boundary=")[1].encode()
+            # Extract boundary (handles optional quoted boundary and trailing params)
+            if "boundary=" not in content_type:
+                raise ValueError("multipart/form-data missing boundary")
+            boundary = content_type.split("boundary=", 1)[1].split(";", 1)[0].strip().strip('"').encode()
+            if not boundary:
+                raise ValueError("multipart/form-data boundary is empty")
 
-            content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
 
             parts = body.split(b"--" + boundary)
@@ -187,13 +245,18 @@ class OCRHandler(BaseHTTPRequestHandler):
             return result
 
         elif "application/json" in content_type:
-            content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
-            data = json.loads(body)
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON body: {e.msg}") from e
 
             # Handle base64 image
             if "image_base64" in data:
-                data["image"] = base64.b64decode(data["image_base64"])
+                try:
+                    data["image"] = base64.b64decode(data["image_base64"], validate=True)
+                except (ValueError, TypeError) as e:
+                    raise ValueError("Invalid image_base64 payload") from e
 
             return data
 
@@ -211,6 +274,15 @@ class OCRHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         """Handle POST requests."""
+        if self.path not in ("/ocr", "/ocr/number"):
+            self.send_json({"error": "Not found"}, 404)
+            return
+
+        acquired = request_slots.acquire(blocking=False)
+        if not acquired:
+            self.send_json({"error": "Server busy, retry shortly"}, 503)
+            return
+
         try:
             data = self.parse_multipart()
 
@@ -222,9 +294,26 @@ class OCRHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Not found"}, 404)
 
         except Exception as e:
+            if _is_client_disconnect_error(e):
+                print(f"[OCR] Client disconnected during {self.path}: {e}")
+                return
+
+            if isinstance(e, ValueError):
+                print(f"[OCR] Bad request on {self.path}: {e}")
+                self.send_json({"error": str(e)}, 400)
+                return
+
             print(f"[OCR] ERROR handling {self.path}: {e}")
             traceback.print_exc()
-            self.send_json({"error": str(e)}, 500)
+            try:
+                self.send_json({"error": str(e)}, 500)
+            except Exception as response_error:
+                if _is_client_disconnect_error(response_error):
+                    print(f"[OCR] Client disconnected before error response on {self.path}")
+                else:
+                    raise
+        finally:
+            request_slots.release()
 
     def _handle_ocr(self, data):
         """Handle /ocr endpoint."""
@@ -232,26 +321,29 @@ class OCRHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "No image provided"}, 400)
             return
 
-        # Load image
         image_bytes = data["image"]
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as pil_image:
+                image = pil_image.convert("RGB")
+        except Exception as e:
+            raise ValueError("Invalid image data") from e
 
-        # Apply region crop if specified
-        if "region" in data:
-            region = data["region"]
-            if isinstance(region, str):
-                region = json.loads(region)
-            x, y, w, h = region
-            image = image.crop((x, y, x + w, y + h))
+        try:
+            # Apply region crop if specified
+            crop_box = _parse_region(data.get("region"), image.size)
+            if crop_box:
+                image = image.crop(crop_box)
 
-        # Get prompt
-        prompt = data.get("prompt")
+            # Get prompt
+            prompt = data.get("prompt")
 
-        # Extract text (thread-safe)
-        with model_lock:
-            text = extract_text(image, prompt)
+            # Extract text (thread-safe)
+            with model_lock:
+                text = extract_text(image, prompt)
 
-        self.send_json({"text": text})
+            self.send_json({"text": text})
+        finally:
+            image.close()  # Prevent memory leak
 
     def _handle_ocr_number(self, data):
         """Handle /ocr/number endpoint."""
@@ -259,23 +351,26 @@ class OCRHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "No image provided"}, 400)
             return
 
-        # Load image
         image_bytes = data["image"]
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as pil_image:
+                image = pil_image.convert("RGB")
+        except Exception as e:
+            raise ValueError("Invalid image data") from e
 
-        # Apply region crop if specified
-        if "region" in data:
-            region = data["region"]
-            if isinstance(region, str):
-                region = json.loads(region)
-            x, y, w, h = region
-            image = image.crop((x, y, x + w, y + h))
+        try:
+            # Apply region crop if specified
+            crop_box = _parse_region(data.get("region"), image.size)
+            if crop_box:
+                image = image.crop(crop_box)
 
-        # Extract number (thread-safe)
-        with model_lock:
-            number = extract_number(image)
+            # Extract number (thread-safe)
+            with model_lock:
+                number = extract_number(image)
 
-        self.send_json({"number": number})
+            self.send_json({"number": number})
+        finally:
+            image.close()  # Prevent memory leak
 
 
 def main():
@@ -289,6 +384,7 @@ def main():
 
     # Start server
     server = ThreadingHTTPServer((HOST, PORT), OCRHandler)
+    server.daemon_threads = True
     print(f"\nServer listening on http://{HOST}:{PORT}")
     print("Endpoints:")
     print("  POST /ocr        - Extract text from image")

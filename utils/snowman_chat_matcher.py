@@ -63,4 +63,4 @@ class SnowmanChatMatcher:
 
     def click(self, adb_helper: ADBHelper, found_position: tuple[int, int]) -> None:
         """Click on the chat message center."""
-        adb_helper.tap(*found_position)
+        adb_helper.tap(*found_position, source="matcher:snowman_chat:click")

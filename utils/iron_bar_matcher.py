@@ -46,4 +46,4 @@ class IronBarMatcher:
         return is_present, score
 
     def click(self, adb_helper: ADBHelper) -> None:
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:iron_bar:click")

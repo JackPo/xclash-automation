@@ -26,4 +26,4 @@ def handshake_flow(adb: ADBHelper) -> None:
         adb: ADBHelper instance
     """
     print(f"    [FLOW] Handshake: clicking ({CLICK_X}, {CLICK_Y})")
-    adb.tap(CLICK_X, CLICK_Y)
+    adb.tap(CLICK_X, CLICK_Y, source="flow:handshake:handshake_icon")

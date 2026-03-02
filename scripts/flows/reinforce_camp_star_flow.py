@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import cv2
 import numpy.typing as npt
 
-from utils.view_state_detector import go_to_world
 from utils.return_to_base_view import return_to_base_view
 from utils.template_matcher import match_template
 
@@ -63,12 +62,6 @@ def reinforce_camp_star_flow(
     win = screenshot_helper or WSH()
 
     try:
-        # Step 0: Go to WORLD view first
-        if debug:
-            print("  Step 0: Going to WORLD view...")
-        go_to_world(adb)
-        time.sleep(0.5)
-
         # Step 1: Find and click star icon using template matching
         if debug:
             print("  Step 1: Finding star icon...")

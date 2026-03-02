@@ -66,4 +66,4 @@ class CornHarvestMatcher:
 
     def click(self, adb_helper: ADBHelper) -> None:
         """Click at the FIXED corn bubble center position."""
-        adb_helper.tap(self.CLICK_X, self.CLICK_Y)
+        adb_helper.tap(self.CLICK_X, self.CLICK_Y, source="matcher:corn_harvest:click")
