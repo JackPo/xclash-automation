@@ -154,8 +154,8 @@ VS_QUESTION_MARK_SKIP_DAYS = [3, 6]
 # Tavern Quest Time Gating (Pacific Time)
 # Quest starts (clicking Go) only allowed from start time until server reset
 # This applies to BOTH gold scroll quests AND question mark quests
-TAVERN_QUEST_START_HOUR = 10  # 10 AM
-TAVERN_QUEST_START_MINUTE = 30  # :30
+TAVERN_QUEST_START_HOUR = 1  # 1 AM
+TAVERN_QUEST_START_MINUTE = 0  # :00
 # Server resets at 02:00 UTC = 18:00 Pacific (6 PM)
 TAVERN_SERVER_RESET_HOUR = 18  # 6 PM Pacific - blocked window starts here
 
@@ -170,7 +170,7 @@ SOLDIER_TRAINING_COOLDOWN = 300    # 5 minutes between soldier training collecti
 BAG_FLOW_COOLDOWN = 1200           # 20 minutes between bag flow runs
 GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
 TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
-TAVERN_MIN_DISPATCH_GAP_MINUTES = 10  # Minimum minutes between dispatching quests
+TAVERN_MIN_DISPATCH_GAP_MINUTES = 30  # Minimum minutes between dispatching quests
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
@@ -230,7 +230,7 @@ EQUIPMENT_BUBBLE = {
 # These have *_mask_4k.png files, use TM_CCORR_NORMED (score converted to lower=better)
 THRESHOLDS_MASKED = {
     'corn': 0.05,       # corn_harvest_bubble_mask_4k.png
-    'gold': 0.05,       # gold_coin_tight_mask_4k.png
+    'gold': 0.01,       # gold_coin_tight_mask_4k.png
     'iron': 0.01,       # iron_bar_tight_mask_4k.png
     'gem': 0.05,        # gem_tight_mask_4k.png
 }

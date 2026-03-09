@@ -130,27 +130,26 @@ def _is_after_quest_start_time() -> bool:
     """
     Check if current time is in the allowed quest start window.
 
-    Allowed window: 10:30 PM Pacific until server reset (6 PM Pacific next day)
-    Blocked window: 6 PM Pacific to 10:30 PM Pacific (4.5 hours)
+    Allowed window: configured tavern start time (TAVERN_QUEST_START_*) until
+    server reset (TAVERN_SERVER_RESET_HOUR, Pacific time).
 
-    This means quests can be started from 10:30 PM through the night and next day
-    until 6 PM when the server resets.
+    Blocked window: from server reset until the next configured start time.
     """
     try:
         import pytz
         from config import TAVERN_QUEST_START_HOUR, TAVERN_QUEST_START_MINUTE, TAVERN_SERVER_RESET_HOUR
     except ImportError:
         # Fallback defaults if config not available
-        TAVERN_QUEST_START_HOUR = 22
-        TAVERN_QUEST_START_MINUTE = 30
+        TAVERN_QUEST_START_HOUR = 1
+        TAVERN_QUEST_START_MINUTE = 0
         TAVERN_SERVER_RESET_HOUR = 18
 
     try:
         pacific = pytz.timezone('America/Los_Angeles')
         now = datetime.now(pacific)
 
-        # Blocked window: from server reset to quest start time
-        # Handle overnight wrap (e.g., reset at 18:00, start at 10:30 next day)
+        # Blocked window: from server reset to quest start time.
+        # Handle overnight wrap (e.g., reset at 18:00, start at 01:00 next day).
         if TAVERN_SERVER_RESET_HOUR > TAVERN_QUEST_START_HOUR:
             # Overnight: blocked from reset to midnight OR midnight to start
             if now.hour >= TAVERN_SERVER_RESET_HOUR:
@@ -802,7 +801,22 @@ def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
         if not in_tavern:
             logger.warning(f"[CLAIM:{tag}] Lost tavern view")
             _save_debug(frame_local, f"claim_{tag}_LOST_TAVERN")
-            return False
+            # Common case after a claim: reward overlay blocks tab detection.
+            if wait_for_tavern_tabs(adb, win, max_attempts=8, debug=debug):
+                frame_local = win.get_screenshot_cv2()
+                in_tavern, active_tab = is_in_tavern(frame_local)
+                if in_tavern:
+                    logger.info(f"[CLAIM:{tag}] Recovered tavern view after popup dismissal")
+                else:
+                    logger.warning(f"[CLAIM:{tag}] Tabs reported recovered, but tavern detection still failed")
+            if not in_tavern:
+                logger.warning(f"[CLAIM:{tag}] Re-opening Tavern to continue claim cycle")
+                if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
+                    return False
+                frame_local = win.get_screenshot_cv2()
+                in_tavern, active_tab = is_in_tavern(frame_local)
+                if not in_tavern:
+                    return False
         if active_tab != "my_quests":
             logger.info(f"[CLAIM:{tag}] Switching from {active_tab} to my_quests")
             adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests")
@@ -850,6 +864,10 @@ def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
             if in_tavern_now:
                 logger.info(f"[CLAIM:{tag}] Claim accepted in-tavern on attempt {tap_attempt}")
                 _save_debug(verify_frame, f"claim_{tag}_after_claim_in_tavern")
+                # Ensure reward overlays are dismissed so next cycle can detect tavern tabs.
+                if not wait_for_tavern_tabs(adb, win, max_attempts=8, debug=debug):
+                    logger.warning(f"[CLAIM:{tag}] Could not stabilize tavern after in-tavern claim")
+                    return False
                 return True
 
             # Not in tavern means popup/dialog likely appeared; dismiss and verify.
@@ -1099,6 +1117,8 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         {"dispatches": N, "mode": "dispatch"}
     """
     logger.info("=== TAVERN DISPATCH MODE ===")
+    if debug:
+        _save_debug(win.get_screenshot_cv2(), "dispatch_00_start")
 
     # Check time restriction
     if not _is_after_quest_start_time():
@@ -1121,18 +1141,25 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
     total_dispatches = 0
     no_action_count = 0
     max_no_action = 2
+    loop_idx = 0
 
     while no_action_count < max_no_action:
+        loop_idx += 1
         frame = win.get_screenshot_cv2()
+        if debug:
+            _save_debug(frame, f"dispatch_{loop_idx:02d}_loop")
 
         # Verify still in tavern
         in_tavern, active_tab = is_in_tavern(frame)
         if not in_tavern:
             logger.warning("Lost tavern view - aborting dispatch mode")
+            _save_debug(frame, f"dispatch_{loop_idx:02d}_lost_tavern")
             break
 
         # Switch to My Quests if needed
         if active_tab != "my_quests":
+            if debug:
+                _save_debug(frame, f"dispatch_{loop_idx:02d}_switch_to_my_quests")
             adb.tap(*MY_QUESTS_CLICK, source="flow:tavern_quest:switch_my_quests")
             time.sleep(0.5)
             continue
@@ -1149,11 +1176,15 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         if gold_go_buttons:
             x, y = gold_go_buttons[0]
             logger.info(f"Clicking Go for gold scroll quest at ({x}, {y})")
+            if debug:
+                _save_debug(frame, f"dispatch_{loop_idx:02d}_gold_go_before_tap")
             adb.tap(x, y, source="flow:tavern_quest:go_gold")
             time.sleep(1.0)
+            if debug:
+                _save_debug(win.get_screenshot_cv2(), f"dispatch_{loop_idx:02d}_gold_go_after_tap")
 
             # Handle Bounty Quest dialog
-            if handle_bounty_quest_dialog(adb, win, debug):
+            if handle_bounty_quest_dialog(adb, win, debug, context_tag=f"dispatch_{loop_idx:02d}_gold"):
                 total_dispatches += 1
                 scheduler.record_tavern_dispatch()  # Record dispatch time
                 no_action_count = 0
@@ -1167,10 +1198,14 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         elif question_go_buttons:
             x, y = question_go_buttons[0]
             logger.info(f"Clicking Go for question mark quest at ({x}, {y})")
+            if debug:
+                _save_debug(frame, f"dispatch_{loop_idx:02d}_question_go_before_tap")
             adb.tap(x, y, source="flow:tavern_quest:go_question")
             time.sleep(1.0)
+            if debug:
+                _save_debug(win.get_screenshot_cv2(), f"dispatch_{loop_idx:02d}_question_go_after_tap")
 
-            if handle_bounty_quest_dialog(adb, win, debug):
+            if handle_bounty_quest_dialog(adb, win, debug, context_tag=f"dispatch_{loop_idx:02d}_question"):
                 total_dispatches += 1
                 scheduler.record_tavern_dispatch()  # Record dispatch time
                 no_action_count = 0
@@ -1183,6 +1218,8 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         # No Go buttons found - scroll
         no_action_count += 1
         if no_action_count < max_no_action:
+            if debug:
+                _save_debug(frame, f"dispatch_{loop_idx:02d}_no_go_scroll")
             adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
             time.sleep(0.5)
 
@@ -1229,7 +1266,12 @@ def _run_ally_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = F
     return {"assists": assists, "mode": "ally", "skipped": False}
 
 
-def handle_bounty_quest_dialog(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> bool:
+def handle_bounty_quest_dialog(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+    context_tag: str = "dispatch",
+) -> bool:
     """
     Handle the Bounty Quest dialog that appears after clicking Go on a gold scroll quest (COLOR matching).
 
@@ -1241,6 +1283,8 @@ def handle_bounty_quest_dialog(adb: ADBHelper, win: WindowsScreenshotHelper, deb
     Returns True if dialog was handled, False if not in dialog.
     """
     frame = win.get_screenshot_cv2()
+    if debug:
+        _save_debug(frame, f"{context_tag}_bounty_check")
 
     # Check for Bounty Quest title (COLOR)
     bounty_title_template = load_template_color(BOUNTY_QUEST_TITLE_TEMPLATE)
@@ -1249,19 +1293,26 @@ def handle_bounty_quest_dialog(adb: ADBHelper, win: WindowsScreenshotHelper, deb
 
     if min_val > BOUNTY_QUEST_THRESHOLD:
         logger.debug(f"Bounty Quest dialog not detected (score={min_val:.4f})")
+        _save_debug(frame, f"{context_tag}_bounty_not_found_s{int(min_val * 10000)}")
         return False
 
     logger.info(f"Bounty Quest dialog detected (score={min_val:.4f})")
+    if debug:
+        _save_debug(frame, f"{context_tag}_bounty_found_s{int(min_val * 10000)}")
 
     # Click Auto Dispatch
     logger.info(f"Clicking Auto Dispatch at {AUTO_DISPATCH_CLICK}")
     adb.tap(*AUTO_DISPATCH_CLICK, source="flow:tavern_quest:auto_dispatch")
     time.sleep(0.8)
+    if debug:
+        _save_debug(win.get_screenshot_cv2(), f"{context_tag}_after_auto_dispatch")
 
     # Click Proceed
     logger.info(f"Clicking Proceed at {PROCEED_CLICK}")
     adb.tap(*PROCEED_CLICK, source="flow:tavern_quest:proceed")
     time.sleep(0.8)
+    if debug:
+        _save_debug(win.get_screenshot_cv2(), f"{context_tag}_after_proceed")
 
     logger.info("Bounty Quest started")
     return True
