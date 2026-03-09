@@ -1,18 +1,15 @@
 """
-Tavern Quest Flow - Claim completed quests and start gold scroll quests.
+Tavern Quest Flow - claim, scan, dispatch, and ally-assist workflows.
 
-Entry: Assumes Tavern is already open.
-Exit: Back to base view.
-
-Tab Detection:
-- tavern_my_quests_active_4k.png → My Quests is active
-- tavern_ally_quests_active_4k.png → Ally Quests is active
-
-My Quests:
-- Column-restricted Claim button detection (X: 2100-2500, full Y)
-- Click each Claim button found
-- Find Gold Scroll rewards (any level) and click their Go buttons
-- Scroll and repeat until no more actions available
+Key dispatch rules:
+- Dispatch start window is time-gated in Pacific time:
+  `TAVERN_QUEST_START_*` until `TAVERN_SERVER_RESET_HOUR`.
+- A successful dispatch records `last_dispatch` in scheduler state and enforces
+  a minimum gap (`TAVERN_MIN_DISPATCH_GAP_MINUTES`) before the next dispatch.
+- On configured VS days (`VS_QUESTION_MARK_SKIP_DAYS`), question-mark quests
+  are skipped and only gold-scroll dispatches are considered.
+- Reward-template matching is constrained to quest-row Y range to avoid header
+  false positives; Go taps use fixed Go-column X with detected row Y.
 
 All matching uses COLOR images (no grayscale).
 """
@@ -103,6 +100,10 @@ CLAIM_THRESHOLD = 0.02  # Strict threshold to avoid false positives
 # Gold scroll and Go button detection (masked matching - any level)
 GOLD_SCROLL_THRESHOLD = 0.95  # TM_CCORR_NORMED with mask - higher is better
 GO_BUTTON_CLICK_X = 2320  # Fixed Go button column center in 4K Tavern list
+# Restrict reward-template matching to quest list rows only.
+# Prevents false positives from similar icons in top/header UI.
+QUEST_LIST_Y_MIN = 820
+QUEST_LIST_Y_MAX = 1850
 
 # Question mark tile detection
 QUESTION_MARK_THRESHOLD = 0.02  # Similar to gold scroll
@@ -173,10 +174,10 @@ def _is_after_quest_start_time() -> bool:
 
 def _should_start_question_mark_quests() -> bool:
     """
-    Check if question mark quests should be started (not on Day 6).
+    Check if question mark quests should be started on this VS day.
 
-    Day 6 is the day before chest opening (Day 7), so we save question mark
-    rewards for the chest opening day to maximize rewards.
+    Configured skip days are defined in `VS_QUESTION_MARK_SKIP_DAYS`
+    (currently Day 3 and Day 6).
     """
     try:
         from utils.arms_race import get_arms_race_status
@@ -481,6 +482,8 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
     for y, x in zip(scroll_locations[0], scroll_locations[1]):
         score = scroll_result[y, x]
         center_y = y + scroll_h // 2
+        if center_y < QUEST_LIST_Y_MIN or center_y > QUEST_LIST_Y_MAX:
+            continue
         scrolls.append((x, center_y, score))
 
     # Non-maximum suppression for scrolls (min spacing 100px)
@@ -532,6 +535,8 @@ def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, in
     for y, x in zip(tile_locations[0], tile_locations[1]):
         score = tile_result[y, x]
         center_y = y + tile_h // 2
+        if center_y < QUEST_LIST_Y_MIN or center_y > QUEST_LIST_Y_MAX:
+            continue
         tiles.append((x, center_y, score))
 
     # Non-maximum suppression for tiles (min spacing 100px)
@@ -1111,7 +1116,15 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
     """
     DISPATCH mode: Find and click Go buttons to start new quests.
 
-    Does NOT: Click Claim buttons, OCR timers
+    Behavior:
+    - Enforces dispatch start time window in Pacific time.
+    - Enforces minimum minutes between successful dispatches.
+    - Prioritizes gold-scroll quests, then question-mark quests (when allowed).
+    - Saves debug screenshots for key dispatch steps when `debug=True`.
+    - A post-dispatch transition can leave tavern view; this may happen after a
+      successful dispatch depending on game UI transition/popups.
+
+    Does NOT: Click Claim buttons, OCR timers.
 
     Returns:
         {"dispatches": N, "mode": "dispatch"}
@@ -1125,7 +1138,7 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         logger.info("Before quest start time - skipping dispatch")
         return {"dispatches": 0, "mode": "dispatch", "skipped": "before_start_time"}
 
-    # Check dispatch gap (10 minutes between dispatches)
+    # Check dispatch gap (configured minutes between successful dispatches)
     from config import TAVERN_MIN_DISPATCH_GAP_MINUTES
     scheduler = _get_scheduler()
     last_dispatch = scheduler.get_last_tavern_dispatch()

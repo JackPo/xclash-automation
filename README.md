@@ -52,6 +52,33 @@ Notes:
 - Defaults live in `config.py`; overrides go in `config_local.py`.
 - Calibrate town layout coordinates for harvest flows using `OBJECT_DETECTION_GUIDE.md`.
 
+## Tavern Quest Logic (Documented)
+- Modes in `scripts/flows/tavern_quest_flow.py`:
+  - `claim`: claim ready tavern quests.
+  - `scan`: OCR quest timers and persist completion schedule.
+  - `dispatch`: start new quests via `Go` + bounty dialog handling.
+  - `ally`: assist ally quests (gold 4+ star logic).
+- Dispatch time window (Pacific):
+  - Start time: `TAVERN_QUEST_START_HOUR` / `TAVERN_QUEST_START_MINUTE` (currently 1:00 AM PT).
+  - End/block point: `TAVERN_SERVER_RESET_HOUR` (currently 6:00 PM PT).
+  - Dispatch attempts outside the allowed window return `skipped: "before_start_time"`.
+- Dispatch cooldown:
+  - `TAVERN_MIN_DISPATCH_GAP_MINUTES` is enforced between successful dispatches (currently 30 min).
+  - Timestamp is persisted as `tavern_quests.last_dispatch` in scheduler state (`data/daemon_schedule.json` via scheduler API).
+  - If called too soon, dispatch returns `skipped: "too_soon"`.
+- VS day gating for question-mark quests:
+  - `VS_QUESTION_MARK_SKIP_DAYS = [3, 6]` means question-mark dispatch is disabled on those days.
+  - On skip days, dispatch effectively runs gold-scroll quests only.
+  - If VS-day lookup fails, logic fails open and allows question-mark dispatch.
+- Dispatch target detection details:
+  - Go taps use fixed X (`GO_BUTTON_CLICK_X`) and reward-row Y derived from template matches.
+  - Reward matching is limited to quest-list Y range (`QUEST_LIST_Y_MIN..QUEST_LIST_Y_MAX`) to avoid top-header false positives.
+- Post-dispatch view behavior:
+  - The game may leave tavern view after a successful dispatch due to a transition/popup.
+  - A `Lost tavern view` warning after `dispatches: 1` can be expected in this case, not necessarily a failed dispatch.
+- Debug artifacts:
+  - Dispatch mode can save step screenshots under `screenshots/debug/` (enabled by `debug=True`) for verification of matching and taps.
+
 ## Docs
 See `docs/README.md` for the full documentation map and deep dives. For a game primer, start with `docs/game_overview.md`.
 
