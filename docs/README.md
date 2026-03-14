@@ -17,6 +17,7 @@ Start here for project documentation. This repo automates X-Clash on BlueStacks 
 - [BEAST_TRAINING_LOGIC.md](BEAST_TRAINING_LOGIC.md) - smart Mystic Beast training deep dive
 
 ## Feature-specific guides
+- [tavern_quests.md](tavern_quests.md) - tavern claim/scan/dispatch timing and guard behavior
 - [joining_rallies.md](joining_rallies.md) - Union War rally joining
 - [KINGDOM_TITLES.md](KINGDOM_TITLES.md) - Royal City title management
 - [union_donation_flow.md](../flow_instructions/union_donation_flow.md) - Union Technology donations

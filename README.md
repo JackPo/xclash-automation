@@ -55,11 +55,11 @@ Notes:
 ## Tavern Quest Logic (Documented)
 - Modes in `scripts/flows/tavern_quest_flow.py`:
   - `claim`: claim ready tavern quests.
-  - `scan`: OCR quest timers and persist completion schedule.
+  - `scan`: OCR quest timers, persist completion schedule, then run a dispatch follow-up attempt.
   - `dispatch`: start new quests via `Go` + bounty dialog handling.
   - `ally`: assist ally quests (gold 4+ star logic).
 - Dispatch time window (Pacific):
-  - Start time: `TAVERN_QUEST_START_HOUR` / `TAVERN_QUEST_START_MINUTE` (currently 1:00 AM PT).
+  - Start time: `TAVERN_QUEST_START_HOUR` / `TAVERN_QUEST_START_MINUTE` (currently 10:00 AM PT).
   - End/block point: `TAVERN_SERVER_RESET_HOUR` (currently 6:00 PM PT).
   - Dispatch attempts outside the allowed window return `skipped: "before_start_time"`.
 - Dispatch cooldown:
@@ -78,6 +78,8 @@ Notes:
   - A `Lost tavern view` warning after `dispatches: 1` can be expected in this case, not necessarily a failed dispatch.
 - Debug artifacts:
   - Dispatch mode can save step screenshots under `screenshots/debug/` (enabled by `debug=True`) for verification of matching and taps.
+- Claim timing and guard semantics:
+  - See `docs/tavern_quests.md` for exact trigger windows (`imminent`), overdue guard behavior, and why a claim can still be missed in edge timing cases.
 
 ## Docs
 See `docs/README.md` for the full documentation map and deep dives. For a game primer, start with `docs/game_overview.md`.
