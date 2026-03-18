@@ -59,7 +59,7 @@ Notes:
   - `dispatch`: start new quests via `Go` + bounty dialog handling.
   - `ally`: assist ally quests (gold 4+ star logic).
 - Dispatch time window (Pacific):
-  - Start time: `TAVERN_QUEST_START_HOUR` / `TAVERN_QUEST_START_MINUTE` (currently 10:00 AM PT).
+  - Start time: `TAVERN_QUEST_START_HOUR` / `TAVERN_QUEST_START_MINUTE` (currently 6:00 AM PT).
   - End/block point: `TAVERN_SERVER_RESET_HOUR` (currently 6:00 PM PT).
   - Dispatch attempts outside the allowed window return `skipped: "before_start_time"`.
 - Dispatch cooldown:
@@ -80,6 +80,16 @@ Notes:
   - Dispatch mode can save step screenshots under `screenshots/debug/` (enabled by `debug=True`) for verification of matching and taps.
 - Claim timing and guard semantics:
   - See `docs/tavern_quests.md` for exact trigger windows (`imminent`), overdue guard behavior, and why a claim can still be missed in edge timing cases.
+
+## Operational Safeguards (Recent)
+- Mystic Beast stamina claim hardening:
+  - `stamina_use_flow` now cross-checks free-50 availability with claim-button template matching, not timer OCR alone.
+  - If OCR says free-50 is ready but claim button is not visible, it is treated as not claimable.
+  - Free-50 stamina is only counted after post-tap confirmation (claim consumed and/or stamina increased).
+- Mystic Beast retry-loop guard:
+  - If aggressive Beast Training fails with `Out of stamina`, daemon marks the current Beast checkpoint block as handled to prevent per-loop retry storms.
+- Rally monster cap update:
+  - Default monster config now allows `Elite Zombie` up to level `60`.
 
 ## Docs
 See `docs/README.md` for the full documentation map and deep dives. For a game primer, start with `docs/game_overview.md`.

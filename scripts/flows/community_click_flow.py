@@ -112,6 +112,7 @@ POLL_INTERVAL = 0.5
 # Search region for Daily Sig (fixed position in Community panel)
 # Detected at center (3008, 172), template 219x155
 DAILY_SIG_SEARCH_REGION = (2850, 50, 300, 250)  # x, y, w, h
+DAILY_SIG_THRESHOLD = 0.03
 
 # Search region for loading bear (panel header while loading)
 # Detected at (844, 373), size 261x264, center (974, 505)
@@ -265,7 +266,7 @@ def community_click_flow(
             frame,
             DAILY_SIG_TEMPLATE,
             search_region=DAILY_SIG_SEARCH_REGION,
-            threshold=SQDIFF_THRESHOLD,
+            threshold=DAILY_SIG_THRESHOLD,
         )
 
         if debug:

@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import re
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy.typing as npt
 
-from config import STAMINA_REGION
+from config import STAMINA_REGION, STAMINA_CLAIM_BUTTON
 from utils.template_matcher import match_template
 from utils.ui_helpers import click_back
 from .back_from_chat_flow import back_from_chat_flow
@@ -30,6 +30,10 @@ STAMINA_DISPLAY_Y = STAMINA_REGION[1] + STAMINA_REGION[3] // 2
 
 ROW_0_TIMER_REGION = (2050, 700, 350, 100)
 ROW_0_CLAIM_BTN_POS = (2284, 741)  # Free 50 claim button
+CLAIM_BUTTON_SEARCH_REGION: tuple[int, int, int, int] = cast(
+    tuple[int, int, int, int], STAMINA_CLAIM_BUTTON.get("search_region", (1800, 400, 800, 500))
+)
+CLAIM_BUTTON_THRESHOLD = 0.05
 ROW_2_OWNED_REGION = (1600, 1180, 350, 70)
 ROW_3_OWNED_REGION = (1600, 1410, 350, 70)
 ROW_2_USE_BTN_POS = (2225, 1208)
@@ -72,6 +76,45 @@ def _click_use_button(adb: "ADBHelper", row: int) -> None:
         adb.tap(*ROW_2_USE_BTN_POS, source="flow:stamina_use:use_10_stamina")
     elif row == 3:
         adb.tap(*ROW_3_USE_BTN_POS, source="flow:stamina_use:use_50_stamina")
+
+
+def _is_claim_button_visible(frame: npt.NDArray[Any]) -> tuple[bool, float]:
+    """Template-check whether free-50 Claim button is actually visible."""
+    found, score, _ = match_template(
+        frame,
+        "claim_button_4k.png",
+        search_region=CLAIM_BUTTON_SEARCH_REGION,
+        threshold=CLAIM_BUTTON_THRESHOLD,
+    )
+    return found, float(score)
+
+
+def _confirm_free_claim_consumed(
+    win: "WindowsScreenshotHelper",
+    ocr: "OCRClient",
+    pre_stamina: int,
+    timeout_s: float = 2.0,
+) -> tuple[bool, int, float]:
+    """
+    Confirm free claim was consumed by checking UI/stamina after tap.
+
+    Returns:
+        (confirmed, stamina_gain, last_claim_score)
+    """
+    deadline = time.time() + timeout_s
+    last_score = 1.0
+    best_gain = 0
+    while time.time() < deadline:
+        frame = win.get_screenshot_cv2()
+        claim_visible, score = _is_claim_button_visible(frame)
+        last_score = score
+        stamina_now = ocr.extract_number(frame, STAMINA_REGION) or pre_stamina
+        best_gain = max(best_gain, max(0, stamina_now - pre_stamina))
+        # Confirmed if Claim button disappears OR stamina jumps materially.
+        if (not claim_visible) or (best_gain >= 20):
+            return True, best_gain, last_score
+        time.sleep(0.2)
+    return False, best_gain, last_score
 
 
 def _parse_timer_to_seconds(timer_text: str) -> int:
@@ -369,6 +412,22 @@ def stamina_get(
 
     frame = win.get_screenshot_cv2()
     available = _scan_stamina_dialog(frame, ocr)
+
+    # Reconcile OCR timer inference with actual Claim-button template.
+    claim_visible, claim_score = _is_claim_button_visible(frame)
+    if available["free_50_claimable"] and not claim_visible:
+        print(
+            f"    [STAMINA] OCR says free_50 ready but Claim button not visible "
+            f"(score={claim_score:.4f}) - treating as NOT ready"
+        )
+        available["free_50_claimable"] = False
+    elif (not available["free_50_claimable"]) and claim_visible:
+        print(
+            f"    [STAMINA] Claim button visible (score={claim_score:.4f}) - treating free_50 as ready"
+        )
+        available["free_50_claimable"] = True
+        available["free_50_timer"] = None
+
     result["available"] = available
 
     # Parse cooldown seconds from timer text
@@ -406,10 +465,23 @@ def stamina_get(
 
     # Claim free 50 first
     if claim_free:
+        pre_frame = win.get_screenshot_cv2()
+        pre_stamina = ocr.extract_number(pre_frame, STAMINA_REGION) or 0
         print(f"    [STAMINA] Claiming free 50...")
         adb.tap(*ROW_0_CLAIM_BTN_POS, source="flow:stamina_use:claim_free_50")
-        time.sleep(0.5)
-        obtained += 50
+        time.sleep(0.3)
+        confirmed, gain, post_score = _confirm_free_claim_consumed(win, ocr, pre_stamina)
+        if confirmed:
+            # If OCR gain is flaky but button is consumed, count expected 50.
+            gained = gain if gain > 0 else 50
+            obtained += gained
+            print(
+                f"    [STAMINA] Free 50 confirmed (gain={gained}, claim_score={post_score:.4f})"
+            )
+        else:
+            print(
+                f"    [STAMINA] Free 50 NOT confirmed (gain={gain}, claim_score={post_score:.4f}); not counting it"
+            )
 
     # Use 50s items
     for i in range(use_50s):

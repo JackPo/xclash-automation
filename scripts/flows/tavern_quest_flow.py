@@ -97,13 +97,24 @@ CLAIM_X_START = 2100
 CLAIM_X_END = 2500
 CLAIM_THRESHOLD = 0.02  # Strict threshold to avoid false positives
 
-# Gold scroll and Go button detection (masked matching - any level)
-GOLD_SCROLL_THRESHOLD = 0.95  # TM_CCORR_NORMED with mask - higher is better
+# Gold scroll and Go button detection (masked matching + color gate)
+GOLD_SCROLL_THRESHOLD = 0.92  # TM_CCORR_NORMED with mask - higher is better
 GO_BUTTON_CLICK_X = 2320  # Fixed Go button column center in 4K Tavern list
 # Restrict reward-template matching to quest list rows only.
 # Prevents false positives from similar icons in top/header UI.
 QUEST_LIST_Y_MIN = 820
 QUEST_LIST_Y_MAX = 1850
+# Gold scroll icon should be in the left quest-icon column (not reward/Go area).
+QUEST_ICON_X_MIN = 1300
+QUEST_ICON_X_MAX = 1750
+# Gold icon color gate to reject purple/non-gold scroll rows.
+GOLD_ICON_ORANGE_MIN_RATIO = 0.42
+GOLD_ICON_PURPLE_MAX_RATIO = 0.20
+# Go-button presence gate (blue button in Go column on same row)
+GO_BUTTON_BLUE_MIN_RATIO = 0.15
+GO_BUTTON_BLUE_MIN_COMPONENT_AREA = 3000
+GO_BUTTON_ROI_HALF_WIDTH = 150
+GO_BUTTON_ROI_HALF_HEIGHT = 60
 
 # Question mark tile detection
 QUESTION_MARK_THRESHOLD = 0.02  # Similar to gold scroll
@@ -481,8 +492,15 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
     scrolls = []
     for y, x in zip(scroll_locations[0], scroll_locations[1]):
         score = scroll_result[y, x]
+        center_x = x + scroll_w // 2
         center_y = y + scroll_h // 2
+        if center_x < QUEST_ICON_X_MIN or center_x > QUEST_ICON_X_MAX:
+            continue
         if center_y < QUEST_LIST_Y_MIN or center_y > QUEST_LIST_Y_MAX:
+            continue
+        if not _row_has_go_button(frame, center_y):
+            continue
+        if not _is_gold_quest_icon(frame, x, y, scroll_w, scroll_h):
             continue
         scrolls.append((x, center_y, score))
 
@@ -508,7 +526,51 @@ def find_gold_scroll_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]
     # Sort by Y position (top to bottom)
     matched_go_buttons.sort(key=lambda b: b[1])
 
-    return matched_go_buttons
+    # De-dup near-identical rows by Y only (we only click fixed Go-column X).
+    deduped_go_buttons: list[tuple[int, int]] = []
+    min_row_spacing = 80
+    for x, y in matched_go_buttons:
+        if all(abs(y - kept_y) >= min_row_spacing for _, kept_y in deduped_go_buttons):
+            deduped_go_buttons.append((x, y))
+
+    return deduped_go_buttons
+
+
+def _is_gold_quest_icon(
+    frame: npt.NDArray[Any],
+    x: int,
+    y: int,
+    icon_w: int,
+    icon_h: int,
+) -> bool:
+    """
+    Validate that a matched quest icon is truly gold-toned.
+
+    This rejects purple/non-gold quest rows that can pass masked template
+    matching on shape alone.
+    """
+    h, w = frame.shape[:2]
+    if x < 0 or y < 0 or x + icon_w > w or y + icon_h > h:
+        return False
+
+    roi = frame[y:y + icon_h, x:x + icon_w]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    # Gold/orange hue band
+    orange_mask = (
+        (hsv[:, :, 0] >= 5) & (hsv[:, :, 0] <= 35) &
+        (hsv[:, :, 1] >= 80) & (hsv[:, :, 2] >= 80)
+    )
+    # Purple hue band
+    purple_mask = (
+        (hsv[:, :, 0] >= 120) & (hsv[:, :, 0] <= 170) &
+        (hsv[:, :, 1] >= 60) & (hsv[:, :, 2] >= 50)
+    )
+
+    orange_ratio = float(np.count_nonzero(orange_mask)) / float(orange_mask.size)
+    purple_ratio = float(np.count_nonzero(purple_mask)) / float(purple_mask.size)
+
+    return orange_ratio >= GOLD_ICON_ORANGE_MIN_RATIO and purple_ratio <= GOLD_ICON_PURPLE_MAX_RATIO
 
 
 def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
@@ -534,8 +596,13 @@ def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, in
     tiles = []
     for y, x in zip(tile_locations[0], tile_locations[1]):
         score = tile_result[y, x]
+        center_x = x + tile_w // 2
         center_y = y + tile_h // 2
+        if center_x < QUEST_ICON_X_MIN or center_x > QUEST_ICON_X_MAX:
+            continue
         if center_y < QUEST_LIST_Y_MIN or center_y > QUEST_LIST_Y_MAX:
+            continue
+        if not _row_has_go_button(frame, center_y):
             continue
         tiles.append((x, center_y, score))
 
@@ -562,6 +629,40 @@ def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, in
     matched_go_buttons_qmark.sort(key=lambda b: b[1])
 
     return matched_go_buttons_qmark
+
+
+def _row_has_go_button(frame: npt.NDArray[Any], row_y: int) -> bool:
+    """
+    Check whether a quest row has a visible blue Go button in the Go column.
+
+    This prevents reward-icon false positives from clicking rows that have no
+    actionable Go button (for example clipped bottom rows or timer rows).
+    """
+    h, w = frame.shape[:2]
+    x0 = max(0, GO_BUTTON_CLICK_X - GO_BUTTON_ROI_HALF_WIDTH)
+    x1 = min(w, GO_BUTTON_CLICK_X + GO_BUTTON_ROI_HALF_WIDTH)
+    y0 = max(0, row_y - GO_BUTTON_ROI_HALF_HEIGHT)
+    y1 = min(h, row_y + GO_BUTTON_ROI_HALF_HEIGHT)
+    if x1 <= x0 or y1 <= y0:
+        return False
+
+    roi = frame[y0:y1, x0:x1]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    blue_mask = (
+        (hsv[:, :, 0] >= 85) & (hsv[:, :, 0] <= 135) &
+        (hsv[:, :, 1] >= 70) & (hsv[:, :, 2] >= 70)
+    )
+
+    blue_ratio = float(np.count_nonzero(blue_mask)) / float(blue_mask.size)
+    if blue_ratio < GO_BUTTON_BLUE_MIN_RATIO:
+        return False
+
+    # Require one reasonably large blue connected component (button body).
+    blue_u8 = (blue_mask.astype(np.uint8)) * 255
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(blue_u8, connectivity=8)
+    largest_area = int(stats[1:, cv2.CC_STAT_AREA].max()) if num_labels > 1 else 0
+    return largest_area >= GO_BUTTON_BLUE_MIN_COMPONENT_AREA
 
 
 def is_in_tavern(frame: npt.NDArray[Any]) -> tuple[bool, str | None]:
@@ -1049,9 +1150,13 @@ def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
 
 def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient, debug: bool = False) -> dict[str, Any]:
     """
-    SCAN mode: Scroll through quests and OCR timers only.
+    SCAN mode: Scroll through quests and OCR timers.
 
-    Does NOT: Click anything
+    Behavior:
+    - OCRs active quest timers and saves completion schedule.
+    - Always runs a DISPATCH follow-up attempt after scan, regardless of whether
+      active timers were found. Dispatch-mode gating (time window + min gap)
+      controls whether starts actually occur.
 
     Returns:
         {"completions": [datetime, ...], "mode": "scan"}
@@ -1092,20 +1197,18 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
         if completions:
             all_completions.extend(completions)
 
-    # Save to scheduler
+    # Save completions to scheduler if any timers were detected
     if all_completions:
         save_quest_schedule(all_completions)
         logger.info(f"Saved {len(all_completions)} timer completion(s) to scheduler")
-        # Exit tavern
-        return_to_base_view(adb, win, debug=debug, respect_idle=False)
-        logger.info(f"SCAN mode complete: {len(all_completions)} timers found")
-        return {"completions": all_completions, "mode": "scan"}
     else:
-        # NO TIMERS = empty quest slots -> run dispatch to fill them
-        logger.info("No active quest timers - running DISPATCH to fill empty slots")
-        return_to_base_view(adb, win, debug=debug, respect_idle=False)
-        dispatch_result = _run_dispatch_mode(adb, win, debug=debug)
-        return {"completions": [], "mode": "scan", "dispatch_triggered": True, **dispatch_result}
+        logger.info("No active quest timers detected in scan")
+
+    # Always run dispatch follow-up after scan (requested behavior).
+    logger.info("Running DISPATCH follow-up after scan")
+    return_to_base_view(adb, win, debug=debug, respect_idle=False)
+    dispatch_result = _run_dispatch_mode(adb, win, debug=debug)
+    return {"completions": all_completions, "mode": "scan", "dispatch_triggered": True, **dispatch_result}
 
 
 # =============================================================================
@@ -1185,48 +1288,53 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
         if _should_start_question_mark_quests():
             question_go_buttons = find_question_mark_go_buttons(frame)
 
-        # Click gold scroll Go first
-        if gold_go_buttons:
-            x, y = gold_go_buttons[0]
-            logger.info(f"Clicking Go for gold scroll quest at ({x}, {y})")
-            if debug:
-                _save_debug(frame, f"dispatch_{loop_idx:02d}_gold_go_before_tap")
-            adb.tap(x, y, source="flow:tavern_quest:go_gold")
-            time.sleep(1.0)
-            if debug:
-                _save_debug(win.get_screenshot_cv2(), f"dispatch_{loop_idx:02d}_gold_go_after_tap")
+        action_succeeded = False
 
-            # Handle Bounty Quest dialog
-            if handle_bounty_quest_dialog(adb, win, debug, context_tag=f"dispatch_{loop_idx:02d}_gold"):
-                total_dispatches += 1
-                scheduler.record_tavern_dispatch()  # Record dispatch time
-                no_action_count = 0
-                time.sleep(0.5)
-                continue
-            else:
-                logger.warning("Bounty Quest dialog not detected")
+        # Try all candidates in priority order (gold first, then question mark).
+        # If one row fails to open Bounty Quest, keep trying the remaining rows.
+        candidates: list[tuple[str, list[tuple[int, int]], str]] = [
+            ("gold", gold_go_buttons, "flow:tavern_quest:go_gold"),
+            ("question", question_go_buttons, "flow:tavern_quest:go_question"),
+        ]
+        for quest_type, buttons, tap_source in candidates:
+            for idx, (x, y) in enumerate(buttons, start=1):
+                logger.info(f"Clicking Go for {quest_type} quest at ({x}, {y}) [candidate {idx}/{len(buttons)}]")
+                if debug:
+                    _save_debug(frame, f"dispatch_{loop_idx:02d}_{quest_type}_go_before_tap_{idx:02d}")
+                adb.tap(x, y, source=tap_source)
+                time.sleep(1.0)
+                if debug:
+                    _save_debug(win.get_screenshot_cv2(), f"dispatch_{loop_idx:02d}_{quest_type}_go_after_tap_{idx:02d}")
+
+                if handle_bounty_quest_dialog(
+                    adb,
+                    win,
+                    debug,
+                    context_tag=f"dispatch_{loop_idx:02d}_{quest_type}_{idx:02d}",
+                ):
+                    total_dispatches += 1
+                    scheduler.record_tavern_dispatch()  # Record dispatch time
+                    no_action_count = 0
+                    action_succeeded = True
+                    time.sleep(0.5)
+                    break
+
+                logger.warning(f"Bounty Quest dialog not detected for {quest_type} candidate {idx}, trying next")
+
+                # If we left tavern after a bad click, stop dispatch mode cleanly.
+                post_frame = win.get_screenshot_cv2()
+                post_in_tavern, _ = is_in_tavern(post_frame)
+                if not post_in_tavern:
+                    logger.warning("Lost tavern view after failed candidate click - aborting dispatch mode")
+                    _save_debug(post_frame, f"dispatch_{loop_idx:02d}_{quest_type}_{idx:02d}_lost_tavern")
+                    return_to_base_view(adb, win, debug=debug, respect_idle=False)
+                    return {"dispatches": total_dispatches, "mode": "dispatch", "error": "lost_tavern_after_failed_click"}
+
+            if action_succeeded:
                 break
 
-        # Click question mark Go
-        elif question_go_buttons:
-            x, y = question_go_buttons[0]
-            logger.info(f"Clicking Go for question mark quest at ({x}, {y})")
-            if debug:
-                _save_debug(frame, f"dispatch_{loop_idx:02d}_question_go_before_tap")
-            adb.tap(x, y, source="flow:tavern_quest:go_question")
-            time.sleep(1.0)
-            if debug:
-                _save_debug(win.get_screenshot_cv2(), f"dispatch_{loop_idx:02d}_question_go_after_tap")
-
-            if handle_bounty_quest_dialog(adb, win, debug, context_tag=f"dispatch_{loop_idx:02d}_question"):
-                total_dispatches += 1
-                scheduler.record_tavern_dispatch()  # Record dispatch time
-                no_action_count = 0
-                time.sleep(0.5)
-                continue
-            else:
-                logger.warning("Bounty Quest dialog not detected")
-                break
+        if action_succeeded:
+            continue
 
         # No Go buttons found - scroll
         no_action_count += 1

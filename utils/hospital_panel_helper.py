@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy.typing as npt
+from config import HOSPITAL_HEAL_MAX_SAFE_SECONDS
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -49,8 +50,8 @@ PANEL_X_END = 2350
 HEALING_BUTTON_CLICK = (2148, 1477)
 HEALING_TIME_REGION = (1966, 1404, 364, 146)  # x, y, w, h
 
-# Safety limits
-MAX_SAFE_HEAL_SECONDS = 5400  # 90 minutes
+# Safety limits (config-driven)
+MAX_SAFE_HEAL_SECONDS = HOSPITAL_HEAL_MAX_SAFE_SECONDS
 
 # Scroll region
 SCROLL_CENTER_X = 1920

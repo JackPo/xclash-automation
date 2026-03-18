@@ -28,15 +28,22 @@ class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
 
-def _is_any_mouse_button_pressed() -> bool:
+def _has_any_mouse_button_activity() -> bool:
     """
-    Check if any primary mouse button is currently pressed.
+    Check if any primary mouse button is active.
 
-    Uses AsyncKeyState high bit to detect physical button-down state.
+    Uses AsyncKeyState bits:
+    - high bit (0x8000): key is currently down
+    - low bit (0x0001): key was pressed since last query
+    The low bit helps catch fast click taps between daemon polling ticks.
     """
     user32 = ctypes.windll.user32
     vk_codes = (0x01, 0x02, 0x04, 0x05, 0x06)  # LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2
-    return any((user32.GetAsyncKeyState(vk) & 0x8000) != 0 for vk in vk_codes)
+    for vk in vk_codes:
+        state = user32.GetAsyncKeyState(vk)
+        if state & 0x8001:
+            return True
+    return False
 
 
 def _get_system_idle_seconds() -> float:
@@ -143,8 +150,9 @@ class UserIdleTracker:
             if mouse_moved:
                 user_is_active = True
 
-        # Detect click-without-movement (holding/pressing over the game window)
-        if mouse_over_bluestacks and _is_any_mouse_button_pressed():
+        # Detect click-without-movement (fast taps or holds).
+        # Do not require mouse movement; repeated clicking in place is still user activity.
+        if mouse_over_bluestacks and _has_any_mouse_button_activity():
             user_is_active = True
 
         self._prev_mouse_pos = mouse_pos

@@ -20,9 +20,10 @@ if TYPE_CHECKING:
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from scripts.flows.hospital_healing_flow import hospital_healing_flow
+from config import HOSPITAL_HEAL_TARGET_SECONDS
 
 
-def healing_flow(adb: ADBHelper, target_hours: float = 1.0, debug: bool = True) -> bool:
+def healing_flow(adb: ADBHelper, target_hours: float | None = None, debug: bool = True) -> bool:
     """
     Heal wounded soldiers at the hospital.
 
@@ -30,18 +31,20 @@ def healing_flow(adb: ADBHelper, target_hours: float = 1.0, debug: bool = True) 
 
     Args:
         adb: ADBHelper instance
-        target_hours: float - target healing time in hours (default 1.0)
+        target_hours: float - target healing time in hours (default from config)
         debug: bool - enable debug logging
 
     Returns:
         bool: True if healing started successfully
     """
     win = WindowsScreenshotHelper()
+    if target_hours is None:
+        target_hours = HOSPITAL_HEAL_TARGET_SECONDS / 3600.0
     max_heal_seconds = int(target_hours * 3600)
     return hospital_healing_flow(adb, win, max_heal_seconds=max_heal_seconds, debug=debug)
 
 
 if __name__ == "__main__":
     adb = ADBHelper()
-    success = healing_flow(adb, target_hours=1.0, debug=True)
+    success = healing_flow(adb, target_hours=None, debug=True)
     print(f"\nResult: {'SUCCESS' if success else 'FAILED'}")

@@ -26,6 +26,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.template_matcher import match_template
+from config import (
+    HOSPITAL_HEAL_TARGET_SECONDS,
+    HOSPITAL_HEAL_TARGET_TOLERANCE_RATIO,
+)
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -54,7 +58,7 @@ HOSPITAL_HEADER_THRESHOLD = 0.1
 def hospital_healing_flow(
     adb: ADBHelper | None = None,
     win: WindowsScreenshotHelper | None = None,
-    max_heal_seconds: int = 3600,
+    max_heal_seconds: int = HOSPITAL_HEAL_TARGET_SECONDS,
     debug: bool = True,
 ) -> bool:
     """
@@ -67,7 +71,7 @@ def hospital_healing_flow(
     Args:
         adb: ADBHelper (created if None)
         win: WindowsScreenshotHelper (created if None)
-        max_heal_seconds: Maximum healing time per batch (default 3600 = 1 hour)
+        max_heal_seconds: Maximum healing time per batch (default from config)
         debug: Enable debug output
 
     Returns:
@@ -188,13 +192,15 @@ def hospital_healing_flow(
     new_time = get_healing_time_seconds(frame, ocr, debug=debug)
     print(f"    After max: {new_time}s ({new_time//3600}h {(new_time%3600)//60}m)")
 
-    if new_time <= max_heal_seconds:
+    upper_target = int(max_heal_seconds * (1 + HOSPITAL_HEAL_TARGET_TOLERANCE_RATIO))
+
+    if new_time <= upper_target:
         # Under limit, keep at max
         print(f"    Under limit, keeping at max")
         current_time = new_time
     else:
         # Over limit - binary search for right position
-        print(f"    Over limit ({new_time}s > {max_heal_seconds}s), adjusting...")
+        print(f"    Over limit ({new_time}s > {upper_target}s), adjusting...")
 
         low_ratio = 0.0
         high_ratio = 1.0
@@ -215,7 +221,7 @@ def hospital_healing_flow(
             if debug:
                 print(f"      ratio={mid_ratio:.2f} -> {test_time}s")
 
-            if test_time <= max_heal_seconds:
+            if test_time <= upper_target:
                 best_ratio = mid_ratio
                 best_time = test_time
                 low_ratio = mid_ratio

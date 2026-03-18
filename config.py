@@ -154,7 +154,7 @@ VS_QUESTION_MARK_SKIP_DAYS = [3, 6]
 # Tavern Quest Time Gating (Pacific Time)
 # Quest starts (clicking Go) only allowed from start time until server reset
 # This applies to BOTH gold scroll quests AND question mark quests
-TAVERN_QUEST_START_HOUR = 1  # 1 AM
+TAVERN_QUEST_START_HOUR = 6  # 6 AM
 TAVERN_QUEST_START_MINUTE = 0  # :00
 # Server resets at 02:00 UTC = 18:00 Pacific (6 PM)
 TAVERN_SERVER_RESET_HOUR = 18  # 6 PM Pacific - blocked window starts here
@@ -306,6 +306,14 @@ HOSPITAL_MATCH_THRESHOLD = 0.03
 # Consecutive frames required before triggering (same as barracks)
 HOSPITAL_CONSECUTIVE_REQUIRED = 10
 
+# Hospital heal tuning
+# Target heal batch duration for hospital_healing_flow (production default: 2h)
+HOSPITAL_HEAL_TARGET_SECONDS = 7200
+# Allow this much overshoot over target while tuning slider
+HOSPITAL_HEAL_TARGET_TOLERANCE_RATIO = 0.10
+# Hard safety stop - do not click Heal above this duration
+HOSPITAL_HEAL_MAX_SAFE_SECONDS = 21600  # 6h
+
 # =============================================================================
 # STAMINA POPUP BUTTON POSITIONS (4K resolution)
 # Used by stamina_claim_flow and stamina_use_flow
@@ -426,7 +434,7 @@ RALLY_MONSTERS = [
     {
         "name": "Elite Zombie",
         "auto_join": True,       # Auto-join rallies for this monster
-        "max_level": 25,         # Join if level <= 25
+        "max_level": 60,         # Join if level <= 60
         "has_level": True,
         "level_increment": 1,    # Levels: 1-40
         "level_range": "1-40",

@@ -93,6 +93,8 @@ class ReplenishAllHelper:
 
         # Detection threshold
         self.threshold = 0.1  # TM_SQDIFF_NORMED
+        # Relaxed threshold for fallback confirm detection on intermediate overlays
+        self.confirm_relaxed_threshold = 0.30
 
     def find_replenish_button(self, frame: npt.NDArray[Any]) -> bool:
         """
@@ -233,6 +235,7 @@ class ReplenishAllHelper:
 
         found_use_items = False
         found_result_screen = False
+        found_relaxed_confirm = False
         for attempt in range(8):  # 8 attempts * 0.25s = 2 seconds
             frame = win.get_screenshot_cv2()
 
@@ -250,6 +253,21 @@ class ReplenishAllHelper:
                 self.logger.info(f"Result screen found (dimmed tab) after {attempt + 1} attempts - replenish succeeded!")
                 _save_debug_screenshot(frame, f"STEP3 FOUND result screen", f"attempt={attempt+1}")
                 found_result_screen = True
+                break
+
+            # Fallback: some runs show a rewards overlay ("Tap to Close") above Use Items.
+            # In that state, strict header matching fails, but confirm is often still detectable.
+            found_confirm_relaxed, relaxed_score, _ = match_template(
+                frame, "confirm_button_4k.png", threshold=self.confirm_relaxed_threshold
+            )
+            if found_confirm_relaxed:
+                self.logger.info(
+                    f"Relaxed Confirm state detected after {attempt + 1} attempts (score={relaxed_score:.4f})"
+                )
+                _save_debug_screenshot(
+                    frame, "STEP3 FOUND relaxed confirm state", f"attempt={attempt+1} score={relaxed_score:.4f}"
+                )
+                found_relaxed_confirm = True
                 break
 
             time.sleep(0.25)
@@ -284,20 +302,67 @@ class ReplenishAllHelper:
             adb.tap(*DIMMED_TAB_CLICK, source="util:replenish:dismiss_result")
             time.sleep(0.3)
 
+        elif found_relaxed_confirm:
+            # Handle intermediate rewards overlay by dismissing once, then confirming.
+            self.logger.info("Handling relaxed Confirm state: closing overlay, then confirming")
+            adb.tap(1920, 1080, source="util:replenish:close_overlay")
+            time.sleep(0.35)
+
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "STEP4 AFTER close overlay")
+
+            from utils.template_matcher import match_template
+            found_confirm, score, confirm_loc = match_template(frame, "confirm_button_4k.png", threshold=0.1)
+            if found_confirm and confirm_loc:
+                self.logger.info(f"Confirm button found at {confirm_loc} (score={score:.4f}), clicking...")
+                _save_debug_screenshot(frame, "STEP4 CLICKING Confirm", f"pos={confirm_loc}")
+                adb.tap(*confirm_loc, source="util:replenish:confirm")
+            else:
+                self.logger.warning(f"Confirm button not found (score={score:.4f}), using fallback position")
+                _save_debug_screenshot(frame, "STEP4 Confirm NOT found using fallback", f"score={score:.4f}")
+                adb.tap(*self.CONFIRM_BUTTON_POS, source="util:replenish:confirm_fallback")
+            time.sleep(0.5)
+
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(frame, "STEP5 AFTER click Confirm")
+
+            self.logger.info("Tapping to close resources result screen")
+            adb.tap(1920, 1080, source="util:replenish:close_result")
+            time.sleep(0.3)
+
         else:
             # Neither found - one more check
             _save_debug_screenshot(frame, "STEP3 checking final state")
             from utils.template_matcher import match_template
             found_dimmed, score, _ = match_template(frame, "soldier_training_dimmed_tab_4k.png", threshold=0.1)
-            if not found_dimmed:
+            found_confirm_relaxed, relaxed_score, _ = match_template(
+                frame, "confirm_button_4k.png", threshold=self.confirm_relaxed_threshold
+            )
+            if not found_dimmed and not found_confirm_relaxed:
                 _save_debug_screenshot(frame, "STEP3 FAIL no expected screen")
                 self.logger.warning("Neither Use Items dialog nor result screen found")
                 self.logger.info("REPLENISH FLOW: Failed (no expected screen found)")
                 return False
-            # Found on final check - click to dismiss
-            self.logger.info("Result screen found on final check - clicking to dismiss")
-            adb.tap(*DIMMED_TAB_CLICK, source="util:replenish:dismiss_result")
-            time.sleep(0.3)
+
+            if found_dimmed:
+                self.logger.info("Result screen found on final check - clicking to dismiss")
+                adb.tap(*DIMMED_TAB_CLICK, source="util:replenish:dismiss_result")
+                time.sleep(0.3)
+            else:
+                self.logger.info(
+                    f"Relaxed Confirm found on final check (score={relaxed_score:.4f}) - closing overlay and confirming"
+                )
+                adb.tap(1920, 1080, source="util:replenish:close_overlay")
+                time.sleep(0.35)
+                frame = win.get_screenshot_cv2()
+                found_confirm, score, confirm_loc = match_template(frame, "confirm_button_4k.png", threshold=0.1)
+                if found_confirm and confirm_loc:
+                    adb.tap(*confirm_loc, source="util:replenish:confirm")
+                else:
+                    adb.tap(*self.CONFIRM_BUTTON_POS, source="util:replenish:confirm_fallback")
+                time.sleep(0.5)
+                adb.tap(1920, 1080, source="util:replenish:close_result")
+                time.sleep(0.3)
 
         frame = win.get_screenshot_cv2()
         _save_debug_screenshot(frame, "STEP6 AFTER dismiss")
@@ -322,6 +387,7 @@ class ReplenishAllHelper:
         """
         _save_debug_screenshot(win.get_screenshot_cv2(), "POLL START checking insufficient tab")
 
+        frame = win.get_screenshot_cv2()
         for attempt in range(8):  # 8 attempts * 0.25s = 2 seconds
             time.sleep(0.25)
             frame = win.get_screenshot_cv2()
@@ -329,8 +395,7 @@ class ReplenishAllHelper:
                 if debug:
                     print(f"  Insufficient Resources tab detected (attempt {attempt + 1})")
                 _save_debug_screenshot(frame, f"POLL FOUND insufficient tab", f"attempt={attempt+1}")
-                self.handle_replenish_flow(adb, win, debug=debug)
-                return True
+                return self.handle_replenish_flow(adb, win, debug=debug)
 
         _save_debug_screenshot(frame, "POLL END no insufficient tab")
         if debug:

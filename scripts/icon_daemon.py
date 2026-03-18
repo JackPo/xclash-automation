@@ -42,8 +42,9 @@ import argparse
 import threading
 import logging
 import importlib
+import re
 from pathlib import Path
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -158,6 +159,12 @@ def _save_daemon_frame(frame: Any, view_state: str, stamina: int | None) -> None
 
 # Disconnection dialog wait time (user playing on mobile)
 DISCONNECTION_WAIT_SECONDS = 300  # 5 minutes
+
+# Logcat threadtime timestamp: "03-02 21:05:01.540 ..."
+LOGCAT_THREADTIME_RE = re.compile(
+    r"^(?P<month>\d{2})-(?P<day>\d{2})\s+"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\.(?P<millis>\d{3})"
+)
 
 from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
@@ -343,6 +350,12 @@ class IconDaemon:
     unknown_first_recovery_time: float | None
     disconnection_dialog_detected_time: float | None
     continuous_idle_start: float | None
+    ui_timeout_window_seconds: int
+    ui_timeout_threshold: int
+    ui_timeout_logcat_tail_lines: int
+    last_ui_timeout_restart_ts: datetime | None
+    TAVERN_BLOCKING_FLOW_GUARD_SECONDS: int
+    TAVERN_OVERDUE_GUARD_GRACE_SECONDS: int
 
     def __init__(self, interval: float | None = None, debug: bool = False) -> None:
         from config import DAEMON_INTERVAL
@@ -418,6 +431,10 @@ class IconDaemon:
 
         # Tavern quest cooldown - every 30 minutes, requires 5 min idle + TOWN view
         self.TAVERN_QUEST_COOLDOWN = TAVERN_SCAN_COOLDOWN
+        # Guard critical flows around tavern completion windows (except treasure/tavern_claim).
+        self.TAVERN_BLOCKING_FLOW_GUARD_SECONDS = 60
+        # Treat recently-overdue completions as claim-urgent to recover after blocking flows.
+        self.TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600
 
         # VS Day 7 chest surprise - trigger bag flow at 10, 5, 1 min remaining
         self.VS_CHEST_CHECKPOINTS: list[int] = [10, 5, 1]  # Minutes before day ends
@@ -485,6 +502,13 @@ class IconDaemon:
 
         # Disconnection dialog tracking (user playing on mobile)
         self.disconnection_dialog_detected_time: float | None = None  # When we first saw the dialog
+
+        # Game-stuck detector from app telemetry:
+        # If we observe >=3 "ui_timeout" logs in 20s, force restart immediately.
+        self.ui_timeout_window_seconds = 20
+        self.ui_timeout_threshold = 3
+        self.ui_timeout_logcat_tail_lines = 4000
+        self.last_ui_timeout_restart_ts: datetime | None = None
 
         # Resolution check (proactive, not just on recovery)
         self.RESOLUTION_CHECK_INTERVAL = RESOLUTION_CHECK_INTERVAL
@@ -771,6 +795,8 @@ class IconDaemon:
         # - Runs setup_bluestacks.py
         # - Gets to TOWN/WORLD via back button clicking
         # - Restarts and retries if stuck
+        if self._check_ui_timeout_burst_and_restart(iteration=0):
+            self.logger.info("STARTUP: ui_timeout burst handled, proceeding with base recovery after restart")
         self.logger.info("STARTUP: Running recovery to ensure ready state...")
         return_to_base_view(self.adb, self.windows_helper, debug=True, respect_idle=False)
 
@@ -847,6 +873,61 @@ class IconDaemon:
                 return False
         return True
 
+    def _is_tavern_guard_exempt_flow(self, flow_name: str) -> bool:
+        """Flows allowed to run while tavern completion guard is active."""
+        return flow_name in {"treasure_map", "tavern_claim"}
+
+    def _get_tavern_guard_status(self, window_seconds: int | None = None) -> tuple[bool, str]:
+        """
+        Return whether tavern completion guard should be active.
+
+        Guard is active when:
+        - A scheduled completion is within `window_seconds`, OR
+        - A completion recently passed (grace window), meaning we should claim ASAP.
+        """
+        guard_window = window_seconds if window_seconds is not None else self.TAVERN_BLOCKING_FLOW_GUARD_SECONDS
+        completions = self.scheduler.get_tavern_completions()
+        if not completions:
+            return False, "no tavern completions scheduled"
+
+        now = datetime.now()
+        upcoming: list[float] = []
+        overdue: list[float] = []
+        for completion in completions:
+            delta = (completion - now).total_seconds()
+            if delta >= 0:
+                upcoming.append(delta)
+            else:
+                overdue.append(delta)
+
+        if upcoming:
+            nearest = min(upcoming)
+            if nearest <= guard_window:
+                return True, f"next completion in {nearest:.0f}s"
+
+        if overdue:
+            latest_overdue = max(overdue)  # Closest past completion (negative)
+            overdue_by = abs(latest_overdue)
+            if overdue_by <= self.TAVERN_OVERDUE_GUARD_GRACE_SECONDS:
+                return True, f"completion overdue by {overdue_by:.0f}s"
+
+        return False, "outside tavern guard window"
+
+    def _run_post_treasure_tavern_claim_if_due(self) -> None:
+        """
+        Immediately run tavern claim after treasure_map if completion is due/near-due.
+        """
+        guard_active, guard_reason = self._get_tavern_guard_status()
+        if not guard_active:
+            return
+
+        self.logger.info(f"POST-TREASURE: triggering tavern_claim immediately ({guard_reason})")
+        result = self._run_flow_sync("tavern_claim", self._run_tavern_claim_with_retries, critical=True)
+        if not result.get("success"):
+            self.logger.warning(
+                f"POST-TREASURE: tavern_claim failed to start/run ({result.get('error', 'unknown error')})"
+            )
+
     def _execute_best_flow(self, candidates: list[FlowCandidate], iteration: int) -> str | None:
         """
         From a list of flow candidates, select and execute the highest priority one.
@@ -881,6 +962,23 @@ class IconDaemon:
         if not candidates and not self.deferred_flow_queue:
             return None
 
+        # Tavern guard: near completion windows should not be preempted by blocking flows.
+        guard_active, guard_reason = self._get_tavern_guard_status()
+        if guard_active and candidates:
+            blocked = [
+                c for c in candidates
+                if c.critical and not self._is_tavern_guard_exempt_flow(c.name)
+            ]
+            if blocked:
+                blocked_names = ", ".join(sorted({c.name for c in blocked}))
+                self.logger.info(
+                    f"[{iteration}] TAVERN GUARD: blocked critical candidate(s) ({guard_reason}): {blocked_names}"
+                )
+                candidates = [
+                    c for c in candidates
+                    if not (c.critical and not self._is_tavern_guard_exempt_flow(c.name))
+                ]
+
         # Treasure map is time-sensitive and should run immediately on detection.
         # It bypasses idle/deferred queue gating to avoid stale delayed executions.
         treasure_candidate = next((c for c in candidates if c.name == "treasure_map"), None)
@@ -912,6 +1010,37 @@ class IconDaemon:
             if not candidates and not self.deferred_flow_queue:
                 return None
 
+        # Tavern claim is also time-sensitive; run immediately when detected.
+        # It bypasses idle/deferred queue gating to avoid missing short claim windows.
+        tavern_claim_candidate = next((c for c in candidates if c.name == "tavern_claim"), None)
+        if tavern_claim_candidate is not None:
+            queued_before = len(self.deferred_flow_queue)
+            self.deferred_flow_queue = [
+                q for q in self.deferred_flow_queue if q.candidate.name != "tavern_claim"
+            ]
+            removed = queued_before - len(self.deferred_flow_queue)
+            if removed > 0:
+                self.logger.info(
+                    f"[{iteration}] Removed {removed} stale deferred tavern_claim item(s)"
+                )
+
+            self.logger.info(
+                f"[{iteration}] TAVERN IMMEDIATE: executing tavern_claim now "
+                f"(score/ctx: {tavern_claim_candidate.reason})"
+            )
+            if self._run_flow(
+                tavern_claim_candidate.name,
+                tavern_claim_candidate.flow_func,
+                critical=tavern_claim_candidate.critical,
+                record_to_scheduler=tavern_claim_candidate.record_to_scheduler,
+            ):
+                return tavern_claim_candidate.name
+
+            # Do not queue tavern_claim if immediate execution failed this iteration.
+            candidates = [c for c in candidates if c.name != "tavern_claim"]
+            if not candidates and not self.deferred_flow_queue:
+                return None
+
         # Global safety gate: never run auto flows while user is actively interacting.
         # Some candidates are time-based and may not have local idle checks.
         # This central gate prevents any automated clicks from interrupting manual play.
@@ -936,7 +1065,25 @@ class IconDaemon:
 
         # User is idle: drain deferred queue first (FIFO).
         if self.deferred_flow_queue:
-            queued = self.deferred_flow_queue[0]
+            queue_index = 0
+            if guard_active:
+                next_allowed_index = next(
+                    (
+                        idx for idx, queued_item in enumerate(self.deferred_flow_queue)
+                        if (not queued_item.candidate.critical)
+                        or self._is_tavern_guard_exempt_flow(queued_item.candidate.name)
+                    ),
+                    None,
+                )
+                if next_allowed_index is None:
+                    self.logger.info(
+                        f"[{iteration}] TAVERN GUARD: deferred queue held ({guard_reason}); "
+                        "all queued critical flows are blocked"
+                    )
+                    return None
+                queue_index = next_allowed_index
+
+            queued = self.deferred_flow_queue[queue_index]
             q = queued.candidate
             self.logger.info(
                 f"[{iteration}] FLOW QUEUE RUN: {q.name} "
@@ -944,8 +1091,17 @@ class IconDaemon:
             )
             if self._run_flow(q.name, q.flow_func, critical=q.critical,
                               record_to_scheduler=q.record_to_scheduler):
-                self.deferred_flow_queue.pop(0)
+                self.deferred_flow_queue.pop(queue_index)
                 return q.name
+            return None
+
+        # Guard filtering can remove every candidate in this iteration.
+        # In that case there is nothing to run right now.
+        if not candidates:
+            self.logger.debug(
+                f"[{iteration}] FLOW NONE: no runnable candidates "
+                f"(guard_active={guard_active}, reason={guard_reason})"
+            )
             return None
 
         # Check if we can run any flow
@@ -994,6 +1150,7 @@ class IconDaemon:
             start_time = time.time()
             flow_result = None
             status = "completed"
+            run_post_treasure_claim = critical and flow_name == "treasure_map"
 
             try:
                 # Mark as critical if requested
@@ -1050,6 +1207,15 @@ class IconDaemon:
                         self.critical_flow_active = False
                         self.critical_flow_name = None
                         self.critical_flow_start_time = None
+
+                if run_post_treasure_claim:
+                    self._run_post_treasure_tavern_claim_if_due()
+
+        if critical and not self._is_tavern_guard_exempt_flow(flow_name):
+            guard_active, guard_reason = self._get_tavern_guard_status()
+            if guard_active:
+                self.logger.info(f"SKIP: {flow_name} blocked by tavern guard ({guard_reason})")
+                return False
 
         with self.flow_lock:
             if flow_name in self.active_flows:
@@ -1121,14 +1287,110 @@ class IconDaemon:
             self.logger.error(f"Failed to check foreground app: {e}")
             return False
 
-    def _force_app_restart(self) -> None:
-        """Force stop and restart xclash app when stuck in UNKNOWN loop."""
+    @staticmethod
+    def _parse_logcat_timestamp(line: str) -> datetime | None:
+        """Parse a logcat threadtime timestamp prefix."""
+        match = LOGCAT_THREADTIME_RE.match(line)
+        if not match:
+            return None
+        now = datetime.now()
+        try:
+            return datetime(
+                year=now.year,
+                month=int(match.group("month")),
+                day=int(match.group("day")),
+                hour=int(match.group("hour")),
+                minute=int(match.group("minute")),
+                second=int(match.group("second")),
+                microsecond=int(match.group("millis")) * 1000,
+            )
+        except ValueError:
+            return None
+
+    def _check_ui_timeout_burst_and_restart(self, iteration: int) -> bool:
+        """
+        Force restart when game emits ui_timeout too frequently.
+
+        Trigger condition: >= self.ui_timeout_threshold events inside
+        self.ui_timeout_window_seconds.
+        """
+        import subprocess
+
+        assert self.adb is not None
+        assert self.adb.device is not None
+
+        try:
+            result = subprocess.run(
+                [
+                    self.adb.ADB_PATH,
+                    "-s",
+                    self.adb.device,
+                    "logcat",
+                    "-d",
+                    "-v",
+                    "threadtime",
+                    "-t",
+                    str(self.ui_timeout_logcat_tail_lines),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=8,
+            )
+        except Exception as e:
+            self.logger.debug(f"[{iteration}] UI_TIMEOUT detector skipped (logcat read failed): {e}")
+            return False
+
+        if result.returncode != 0 or not result.stdout:
+            return False
+
+        event_times: list[datetime] = []
+        latest_log_ts: datetime | None = None
+        for line in result.stdout.splitlines():
+            ts = self._parse_logcat_timestamp(line)
+            if ts is None:
+                continue
+            if latest_log_ts is None or ts > latest_log_ts:
+                latest_log_ts = ts
+            if "eventName: ui_timeout" in line:
+                event_times.append(ts)
+
+        if latest_log_ts is None or not event_times:
+            return False
+
+        # Use latest timestamp in the sampled log tail as "now" anchor.
+        # This avoids triggering on stale historical bursts.
+        window_start = latest_log_ts - timedelta(seconds=self.ui_timeout_window_seconds)
+        recent_count = sum(1 for ts in event_times if ts > window_start)
+
+        if recent_count < self.ui_timeout_threshold:
+            return False
+
+        # De-duplicate trigger across loop iterations when same log window is read repeatedly.
+        if (
+            self.last_ui_timeout_restart_ts is not None
+            and latest_log_ts <= self.last_ui_timeout_restart_ts
+        ):
+            return False
+
+        self.last_ui_timeout_restart_ts = latest_log_ts
+        self.logger.error(
+            f"[{iteration}] UI_TIMEOUT BURST: {recent_count} events in "
+            f"{self.ui_timeout_window_seconds}s (latest={latest_log_ts.strftime('%m-%d %H:%M:%S.%f')[:-3]}). "
+            "Forcing immediate app restart."
+        )
+        self._force_app_restart(reason="ui_timeout burst")
+        return True
+
+    def _force_app_restart(self, reason: str = "UNKNOWN recovery loop") -> None:
+        """Force stop and restart xclash app."""
         import subprocess
         from pathlib import Path
 
         assert self.adb is not None
         assert self.adb.device is not None
-        self.logger.info("FORCING APP RESTART due to UNKNOWN recovery loop...")
+        self.logger.info(f"FORCING APP RESTART due to {reason}...")
 
         # Force stop the app
         try:
@@ -1467,7 +1729,8 @@ class IconDaemon:
 
         Behavior:
         - Up to 5 attempts.
-        - Stop early once at least one claim is completed.
+        - Continue attempts to drain multiple ready claims in one trigger.
+        - Stop when an attempt finds 0 claims after at least one prior success.
         - Force return-to-town between attempts to clear stale UI/panels.
         """
         max_attempts = 5
@@ -1491,7 +1754,11 @@ class IconDaemon:
 
             if claims > 0:
                 self.logger.info(
-                    f"TAVERN CLAIM RETRY: success on attempt {attempt} (claims={claims}, total={total_claims})"
+                    f"TAVERN CLAIM RETRY: attempt {attempt} claimed {claims} (running total={total_claims})"
+                )
+            elif total_claims > 0:
+                self.logger.info(
+                    f"TAVERN CLAIM RETRY: attempt {attempt} found no more claims; stopping with total={total_claims}"
                 )
                 return {
                     "success": True,
@@ -1502,7 +1769,8 @@ class IconDaemon:
 
             if attempt < max_attempts:
                 self.logger.info(
-                    f"TAVERN CLAIM RETRY: no claims on attempt {attempt}; forcing return_to_base_view before retry"
+                    f"TAVERN CLAIM RETRY: preparing next attempt {attempt + 1}/{max_attempts} "
+                    f"(last_claims={claims}, total={total_claims})"
                 )
                 try:
                     return_to_base_view(adb, self.windows_helper, debug=self.debug, respect_idle=False)
@@ -1510,9 +1778,19 @@ class IconDaemon:
                     self.logger.warning(f"TAVERN CLAIM RETRY: return_to_base_view failed between attempts: {e}")
                 time.sleep(1.0)
 
-        self.logger.warning(
-            f"TAVERN CLAIM RETRY: exhausted {max_attempts} attempts with no claim"
-        )
+        if total_claims > 0:
+            self.logger.info(
+                f"TAVERN CLAIM RETRY: reached max attempts with claims total={total_claims}"
+            )
+            return {
+                "success": True,
+                "claims": total_claims,
+                "attempts_used": max_attempts,
+                "attempts": attempts,
+                "max_attempts_reached": True,
+            }
+
+        self.logger.warning(f"TAVERN CLAIM RETRY: exhausted {max_attempts} attempts with no claim")
         return {
             "success": False,
             "claims": total_claims,
@@ -1588,6 +1866,13 @@ class IconDaemon:
         """
         from utils.timeline import EXCLUDED_FLOWS, get_flow_category
 
+        if critical and not self._is_tavern_guard_exempt_flow(flow_name):
+            guard_active, guard_reason = self._get_tavern_guard_status()
+            if guard_active:
+                return {"success": False, "error": f"Blocked by tavern guard ({guard_reason})"}
+
+        run_post_treasure_claim = critical and flow_name == "treasure_map"
+
         with self.flow_lock:
             if flow_name in self.active_flows:
                 return {"success": False, "error": f"{flow_name} already running"}
@@ -1658,6 +1943,9 @@ class IconDaemon:
                 if critical and self.critical_flow_name == flow_name:
                     self.critical_flow_active = False
                     self.critical_flow_name = None
+
+            if run_post_treasure_claim:
+                self._run_post_treasure_tavern_claim_if_due()
 
     def reload_flows(self) -> None:
         """
@@ -1853,6 +2141,11 @@ class IconDaemon:
                     if iteration % 30 == 0:  # Log every ~1 min when paused
                         self.logger.info(f"[{iteration}] PAUSED (use daemon_cli.py resume to unpause)")
                     time.sleep(self.interval)
+                    continue
+
+                # Hard stuck detection from app telemetry:
+                # ALWAYS restart immediately on ui_timeout burst, even during manual sessions.
+                if self._check_ui_timeout_burst_and_restart(iteration):
                     continue
 
                 # Get idle time early (needed for foreground check and other decisions)
@@ -3102,7 +3395,20 @@ class IconDaemon:
                             # Mark as done
                             self.scheduler.update_arms_race_state(beast_training_aggressive_60_block=str(block_start))
                         else:
-                            self.logger.warning(f"[{iteration}] BEAST TRAINING: 60-min aggressive flow failed: {result.get('error')}")
+                            error_text = str(result.get("error") or "")
+                            self.logger.warning(f"[{iteration}] BEAST TRAINING: 60-min aggressive flow failed: {error_text}")
+                            if "Out of stamina" in error_text:
+                                # Prevent per-loop retry storm when no stamina is available.
+                                update_payload: dict[str, Any] = {
+                                    "beast_training_aggressive_60_block": str(block_start),
+                                }
+                                if arms_race_remaining_mins <= 30:
+                                    update_payload["beast_training_aggressive_30_block"] = str(block_start)
+                                self.scheduler.update_arms_race_state(**update_payload)
+                                self.logger.warning(
+                                    f"[{iteration}] BEAST TRAINING: marking checkpoint(s) complete for block "
+                                    f"{block_start} after Out of stamina to prevent retry loop"
+                                )
 
                     # 30-MINUTE CHECKPOINT: Re-check and do remaining rallies
                     if arms_race_remaining_mins <= 30:
@@ -3124,7 +3430,14 @@ class IconDaemon:
                                 # Mark as done
                                 self.scheduler.update_arms_race_state(beast_training_aggressive_30_block=str(block_start))
                             else:
-                                self.logger.warning(f"[{iteration}] BEAST TRAINING: 30-min aggressive flow failed: {result.get('error')}")
+                                error_text = str(result.get("error") or "")
+                                self.logger.warning(f"[{iteration}] BEAST TRAINING: 30-min aggressive flow failed: {error_text}")
+                                if "Out of stamina" in error_text:
+                                    self.scheduler.update_arms_race_state(beast_training_aggressive_30_block=str(block_start))
+                                    self.logger.warning(
+                                        f"[{iteration}] BEAST TRAINING: marking 30-min checkpoint complete for block "
+                                        f"{block_start} after Out of stamina to prevent retry loop"
+                                    )
 
                 # Enhance Hero: last N minutes, runs once per block
                 # NO idle requirement - flow checks real-time progress and skips if chest3 reached
@@ -3459,7 +3772,7 @@ class IconDaemon:
                         record_to_scheduler=True
                     ))
 
-                # Tavern quest SCHEDULED trigger at 10:30 AM Pacific (ignores cooldown/idle)
+                # Tavern quest SCHEDULED trigger at configured start time Pacific (ignores cooldown/idle)
                 # Uses DISPATCH mode to start new quests when the window opens
                 now_pacific = datetime.now(self.pacific_tz)
                 tavern_trigger_time = now_pacific.replace(hour=TAVERN_QUEST_START_HOUR, minute=TAVERN_QUEST_START_MINUTE, second=0, microsecond=0)

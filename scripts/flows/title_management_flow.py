@@ -42,19 +42,21 @@ with open(DATA_DIR / "kingdom_titles.json") as f:
     TITLE_DATA = json.load(f)
 
 # Fixed click positions (4K)
-STAR_ICON_CLICK = (1919, 1285)
+STAR_ICON_CLICK = (1919, 905)
+STAR_SEARCH_REGION = (1400, 600, 1100, 1000)
 MANAGE_BUTTON_CLICK = (2230, 881)        # Position on OTHER Royal Cities
 MANAGE_BUTTON_CLICK_OWN = (2230, 731)    # Position on YOUR Royal City (has Reinforce/Garrison buttons)
 TITLE_ASSIGNMENT_CLICK = (1650, 976)
 APPLY_BUTTON_CLICK = (1914, 1844)
 
-# Template positions for validation
-ROYAL_CITY_HEADER_POS = (1463, 328)           # Position on OTHER Royal Cities
-ROYAL_CITY_HEADER_POS_OWN = (1463, 471)       # Position on YOUR Royal City
-ROYAL_CITY_HEADER_SIZE = (902, 93)
+# Template search regions for validation
+# Keep X fixed to panel column; allow Y to vary because panel vertical placement shifts.
+ROYAL_CITY_HEADER_SEARCH_POS = (1463, 300)
+ROYAL_CITY_HEADER_SEARCH_SIZE = (902, 420)
 
 ROYAL_CITY_MGMT_HEADER_POS = (1336, 0)
 ROYAL_CITY_MGMT_HEADER_SIZE = (1163, 112)
+MANAGE_BUTTON_SEARCH_REGION = (1750, 650, 750, 600)  # Keep X stable, tolerate vertical shift
 
 KINGDOM_TITLE_HEADER_POS = (1332, 0)
 KINGDOM_TITLE_HEADER_SIZE = (1167, 110)
@@ -246,7 +248,8 @@ def title_management_flow(
         frame = win.get_screenshot_cv2()
         found, score, detected_pos = match_template(
             frame, "mark_star_icon_4k.png",
-            threshold=0.15  # Relaxed threshold for star icon
+            search_region=STAR_SEARCH_REGION,
+            threshold=0.06  # Keep strict to avoid false positives in center region
         )
         if not found or detected_pos is None:
             # Fallback to fixed position if template not found
@@ -259,43 +262,68 @@ def title_management_flow(
                 print(f"    Star icon found at {star_pos} (score={score:.4f})")
         adb.tap(*star_pos, source="flow:title_management:click_star")
 
-        # Poll for Royal City header (try both positions - OTHER city and OWN city)
-        header_positions = [ROYAL_CITY_HEADER_POS_OWN, ROYAL_CITY_HEADER_POS]  # Own city first, then other
-        matched = False
-        for i, header_pos in enumerate(header_positions):
-            if debug:
-                pos_name = "OWN city" if i == 0 else "OTHER city"
-                print(f"    Polling for Royal City header at {header_pos} ({pos_name})...")
-            matched, _ = _poll_for_template(
-                win, TEMPLATE_DIR / "mark_royal_city_header_4k.png",
-                header_pos, ROYAL_CITY_HEADER_SIZE, debug=debug
+        # Poll for Royal City header with fixed X and flexible Y range.
+        if debug:
+            print(
+                "    Polling for Royal City header in region "
+                f"pos={ROYAL_CITY_HEADER_SEARCH_POS}, size={ROYAL_CITY_HEADER_SEARCH_SIZE}..."
             )
-            if matched:
-                break
+        matched, _ = _poll_for_template(
+            win, TEMPLATE_DIR / "mark_royal_city_header_4k.png",
+            ROYAL_CITY_HEADER_SEARCH_POS, ROYAL_CITY_HEADER_SEARCH_SIZE, debug=debug
+        )
         if not matched:
             print("  ERROR: Royal City header not found")
             return False
 
-        # Step 2: Click Manage button (try both positions)
-        manage_positions = [MANAGE_BUTTON_CLICK_OWN, MANAGE_BUTTON_CLICK]  # Own city first, then other
+        # Step 2: Click Manage button (template-first, then fixed fallback).
         matched = False
-        for i, manage_pos in enumerate(manage_positions):
+        frame = win.get_screenshot_cv2()
+        manage_found, manage_score, manage_pos = match_template(
+            frame,
+            "mark_manage_button_4k.png",
+            search_region=MANAGE_BUTTON_SEARCH_REGION,
+            threshold=0.05,
+        )
+        if manage_found and manage_pos is not None:
             if debug:
-                pos_name = "OWN city" if i == 0 else "OTHER city"
-                print(f"  Step 2: Clicking Manage at {manage_pos} ({pos_name})")
+                print(
+                    f"  Step 2: Clicking Manage (template) at {manage_pos} "
+                    f"(score={manage_score:.4f})"
+                )
             adb.tap(*manage_pos, source="flow:title_management:manage_button")
-
-            # Poll for Royal City Management header
             if debug:
                 print("    Polling for Royal City Management header...")
             matched, _ = _poll_for_template(
                 win, TEMPLATE_DIR / "mark_royal_city_mgmt_header_4k.png",
                 ROYAL_CITY_MGMT_HEADER_POS, ROYAL_CITY_MGMT_HEADER_SIZE, debug=debug
             )
-            if matched:
-                break
-            if debug and i < len(manage_positions) - 1:
-                print("    Not found, trying alternate position...")
+        else:
+            if debug:
+                print(
+                    f"  Step 2: Manage template not found in {MANAGE_BUTTON_SEARCH_REGION} "
+                    f"(score={manage_score:.4f}); trying fixed positions"
+                )
+
+        if not matched:
+            manage_positions = [MANAGE_BUTTON_CLICK_OWN, MANAGE_BUTTON_CLICK]  # Own city first, then other
+            for i, manage_pos in enumerate(manage_positions):
+                if debug:
+                    pos_name = "OWN city" if i == 0 else "OTHER city"
+                    print(f"  Step 2: Clicking Manage at {manage_pos} ({pos_name})")
+                adb.tap(*manage_pos, source="flow:title_management:manage_button")
+
+                # Poll for Royal City Management header
+                if debug:
+                    print("    Polling for Royal City Management header...")
+                matched, _ = _poll_for_template(
+                    win, TEMPLATE_DIR / "mark_royal_city_mgmt_header_4k.png",
+                    ROYAL_CITY_MGMT_HEADER_POS, ROYAL_CITY_MGMT_HEADER_SIZE, debug=debug
+                )
+                if matched:
+                    break
+                if debug and i < len(manage_positions) - 1:
+                    print("    Not found, trying alternate position...")
 
         if not matched:
             print("  ERROR: Royal City Management header not found")
@@ -416,7 +444,6 @@ def title_management_flow(
             if debug:
                 print("  Returning to WORLD...")
             return_to_base_view(adb, win, debug=debug)
-            go_to_world(adb)
         else:
             if debug:
                 print("  Staying on screen (--no-return)")

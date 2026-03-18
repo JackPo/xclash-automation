@@ -618,7 +618,6 @@ class DaemonWebSocketServer:
 
     def _cmd_apply_title(self, args: dict[str, Any]) -> dict[str, Any]:
         """Apply a kingdom title. Requires being at marked Royal City."""
-        from scripts.flows.go_to_mark_flow import go_to_mark_flow
         from scripts.flows.title_management_flow import title_management_flow, TITLE_DATA
 
         if self.daemon.adb is None or self.daemon.windows_helper is None:
@@ -638,13 +637,7 @@ class DaemonWebSocketServer:
         self.daemon.critical_flow_name = "apply_title"
 
         try:
-            # Step 1: Go to marked Royal City
-            logger.info("Navigating to marked Royal City...")
-            go_success: bool = go_to_mark_flow(self.daemon.adb, debug=False)
-            if not go_success:
-                return {"success": False, "error": "Failed to navigate to marked Royal City"}
-
-            # Step 2: Apply the title
+            # title_management_flow handles navigation to marked Royal City internally.
             logger.info(f"Applying title: {title_name}")
             flow_result: bool = title_management_flow(
                 self.daemon.adb,

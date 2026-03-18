@@ -931,24 +931,27 @@
                             </div>
                         </div>
 
-                        <!-- Ignore Daily Limit -->
+                        <!-- Daily Limit Policy -->
                         <div class="override-item">
                             <div class="override-meta">
-                                <div class="text-sm">Ignore Daily Limit</div>
-                                <div class="text-xs text-gray-500" x-text="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden ? 'OVERRIDE' : 'Default: OFF'"></div>
+                                <div class="text-sm">Daily Limit Policy</div>
+                                <div class="text-xs text-gray-500"
+                                     x-text="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden
+                                        ? ('Override: ' + rallyIgnoreValueLabel(configs.RALLY_IGNORE_DAILY_LIMIT?.value))
+                                        : ('Default: ' + rallyIgnoreValueLabel(configs.RALLY_IGNORE_DAILY_LIMIT?.default))"></div>
                             </div>
                             <div class="override-controls">
                                 <span x-show="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden" class="text-xs text-orange-400"
                                       x-text="formatOverrideTime(configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in)"></span>
                                 <div class="seg-wrap">
                                     <div class="seg-overlay">
-                                        OFF TIMERS
+                                        RESPECT DAILY LIMIT
                                     </div>
                                     <div class="segmented">
                                         <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, null)"
                                                 class="seg-btn"
                                                 :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === false ? 'active-off' : ''">
-                                            OFF
+                                            RESPECT
                                         </button>
                                         <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 60)"
                                                 class="seg-btn"
@@ -973,7 +976,7 @@
                                         <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, null)"
                                                 class="seg-btn"
                                                 :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === true ? 'active-on' : ''">
-                                            ON
+                                            IGNORE
                                         </button>
                                     </div>
                                 </div>
@@ -989,7 +992,10 @@
                                     Refresh
                                 </button>
                             </div>
-                            <div class="text-xs text-gray-500 mb-3">Per-type override for daily-limit dialog behavior.</div>
+                            <div class="text-xs text-gray-500 mb-3">
+                                Daily-limit policy is standardized as: <span class="text-gray-300">Respect limit</span> vs <span class="text-gray-300">Ignore limit</span>.
+                                This policy applies to all monsters. <span class="text-gray-300">No local exhaustion tracking</span> only means the daemon won't locally mark that monster as exhausted after a limit hit.
+                            </div>
 
                             <template x-if="rallyMonsters.length === 0">
                                 <div class="text-xs text-gray-500">No rally monster types configured.</div>
@@ -1003,7 +1009,7 @@
                                             <div class="text-xs text-gray-500">
                                                 <span x-text="'Lvl ' + (monster.level_range || monster.max_level || 'any')"></span>
                                                 <span class="mx-1">|</span>
-                                                <span x-text="monster.track_daily_limit ? 'Tracks daily limit' : 'No tracked daily limit'"></span>
+                                                <span x-text="monsterDailyLimitSummary(monster)"></span>
                                             </div>
                                         </div>
                                         <div class="override-controls">
@@ -1011,12 +1017,12 @@
                                                   class="text-xs text-orange-400"
                                                   x-text="formatOverrideTime(monster.ignore_daily_limit?.expires_in)"></span>
                                             <div class="seg-wrap">
-                                                <div class="seg-overlay">OFF TIMERS</div>
+                                                <div class="seg-overlay">RESPECT DAILY LIMIT</div>
                                                 <div class="segmented">
                                                     <button @click="setRallyMonsterIgnoreOverride(monster, false, null)"
                                                             class="seg-btn"
                                                             :class="monster.ignore_daily_limit?.value === false ? 'active-off' : ''">
-                                                        OFF
+                                                        RESPECT
                                                     </button>
                                                     <button @click="setRallyMonsterIgnoreOverride(monster, false, 60)"
                                                             class="seg-btn"
@@ -1041,7 +1047,7 @@
                                                     <button @click="setRallyMonsterIgnoreOverride(monster, true, null)"
                                                             class="seg-btn"
                                                             :class="monster.ignore_daily_limit?.value === true ? 'active-on' : ''">
-                                                        ON
+                                                        IGNORE
                                                     </button>
                                                 </div>
                                             </div>
@@ -1386,8 +1392,10 @@
                                  class="override-item py-2 border-b border-gray-700/30 last:border-0">
                                 <div class="override-meta">
                                     <div class="text-sm" x-text="formatConfigName(key)"></div>
+                                    <div class="text-xs text-gray-500" x-show="isClaimToggleKey(key)"
+                                         x-text="claimToggleHint(key, cfg.value)"></div>
                                     <div class="text-xs" :class="cfg.overridden ? 'text-orange-400' : 'text-gray-500'"
-                                         x-text="cfg.overridden ? ('OVERRIDE ' + formatOverrideTime(cfg.expires_in)) : ('Default: ' + (cfg.default ? 'ON' : 'OFF'))"></div>
+                                         x-text="formatConfigStatus(key, cfg)"></div>
                                 </div>
                                 <div class="override-controls">
                                     <button x-show="cfg.overridden" @click="clearOverride(key)"
@@ -1395,14 +1403,12 @@
                                         Clear
                                     </button>
                                     <div class="seg-wrap">
-                                        <div class="seg-overlay">
-                                            OFF TIMERS
-                                        </div>
+                                        <div class="seg-overlay" x-text="toggleOverlayLabel(key)"></div>
                                         <div class="segmented">
                                             <button @click="setBoolOverride(key, false, null)"
                                                     class="seg-btn"
                                                     :class="cfg.value === false ? 'active-off' : ''">
-                                                OFF
+                                                <span x-text="toggleOffLabel(key)"></span>
                                             </button>
                                             <button @click="setBoolOverride(key, false, 60)"
                                                     class="seg-btn"
@@ -1427,7 +1433,7 @@
                                             <button @click="setBoolOverride(key, true, null)"
                                                     class="seg-btn"
                                                     :class="cfg.value === true ? 'active-on' : ''">
-                                                ON
+                                                <span x-text="toggleOnLabel(key)"></span>
                                             </button>
                                         </div>
                                     </div>
@@ -2855,7 +2861,7 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            const label = value ? 'ON' : 'OFF';
+                            const label = value ? 'Ignore limit' : 'Respect limit';
                             this.showToast(`${monster.name}: ${label}`, 'success');
                             await Promise.all([this.loadConfig(), this.loadRallyMonsters()]);
                         } else {
@@ -2882,7 +2888,7 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            this.showToast(`${this.formatConfigName(key)}: ${newValue ? 'ON' : 'OFF'}`, 'success');
+                            this.showToast(`${this.formatConfigName(key)}: ${this.formatBoolValueLabel(key, newValue)}`, 'success');
                             await this.loadConfig();
                         } else {
                             this.showToast(`Failed: ${data.error || 'Unknown error'}`, 'error');
@@ -2901,8 +2907,7 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            const label = value ? 'ON' : 'OFF';
-                            this.showToast(`${this.formatConfigName(key)}: ${label}`, 'success');
+                            this.showToast(`${this.formatConfigName(key)}: ${this.formatBoolValueLabel(key, value)}`, 'success');
                             await this.loadConfig();
                         } else {
                             this.showToast(`Failed: ${data.error || 'Unknown error'}`, 'error');
@@ -2968,9 +2973,66 @@
                 },
 
                 formatConfigName(key) {
+                    const customNames = {
+                        BARRACKS_CLAIM_ENABLED: 'Barracks Auto-Claim',
+                        HOSPITAL_SOLDIER_CLAIM_ENABLED: 'Hospital Soldier Auto-Claim',
+                        HOSPITAL_HEAL_ENABLED: 'Hospital Auto-Heal',
+                    };
+                    if (customNames[key]) return customNames[key];
                     let name = key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
                     name = name.replace(/\s+Enabled$/i, '');
                     return name;
+                },
+
+                rallyIgnoreValueLabel(value) {
+                    return value ? 'Ignore limit' : 'Respect limit';
+                },
+
+                monsterDailyLimitSummary(monster) {
+                    const mode = monster?.ignore_daily_limit?.overridden
+                        ? `Override: ${this.rallyIgnoreValueLabel(monster.ignore_daily_limit?.value)}`
+                        : `Default: ${this.rallyIgnoreValueLabel(monster?.ignore_daily_limit?.default)}`;
+                    if (!monster?.track_daily_limit) {
+                        return `No local exhaustion tracking | ${mode}`;
+                    }
+                    return mode;
+                },
+
+                isClaimToggleKey(key) {
+                    return ['BARRACKS_CLAIM_ENABLED', 'HOSPITAL_SOLDIER_CLAIM_ENABLED'].includes(key);
+                },
+
+                toggleOverlayLabel(key) {
+                    return this.isClaimToggleKey(key) ? 'DISABLE TIMERS' : 'OFF TIMERS';
+                },
+
+                toggleOffLabel(key) {
+                    return this.isClaimToggleKey(key) ? 'DISABLE' : 'OFF';
+                },
+
+                toggleOnLabel(key) {
+                    return this.isClaimToggleKey(key) ? 'ENABLE' : 'ON';
+                },
+
+                formatBoolValueLabel(key, value) {
+                    if (key === 'RALLY_IGNORE_DAILY_LIMIT') return this.rallyIgnoreValueLabel(value);
+                    if (this.isClaimToggleKey(key)) return value ? 'ENABLED' : 'DISABLED';
+                    return value ? 'ON' : 'OFF';
+                },
+
+                formatConfigStatus(key, cfg) {
+                    if (cfg.overridden) return `OVERRIDE ${this.formatOverrideTime(cfg.expires_in)}`;
+                    return `Default: ${this.formatBoolValueLabel(key, cfg.default)}`;
+                },
+
+                claimToggleHint(key, value) {
+                    if (key === 'BARRACKS_CLAIM_ENABLED') {
+                        return value ? 'Enabled: daemon taps READY barracks to claim soldiers' : 'Disabled: daemon will not claim READY barracks';
+                    }
+                    if (key === 'HOSPITAL_SOLDIER_CLAIM_ENABLED') {
+                        return value ? 'Enabled: daemon taps Claim in hospital' : 'Disabled: daemon leaves healed soldiers in hospital';
+                    }
+                    return '';
                 },
 
                 // =============================================

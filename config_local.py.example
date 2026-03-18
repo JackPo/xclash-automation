@@ -60,6 +60,11 @@ Any values set here will override the defaults in config.py.
 # Recovery
 # UNKNOWN_STATE_TIMEOUT = 60         # Seconds in UNKNOWN state before recovery
 
+# Hospital healing
+# HOSPITAL_HEAL_TARGET_SECONDS = 7200           # 2 hours target batch
+# HOSPITAL_HEAL_TARGET_TOLERANCE_RATIO = 0.10   # Allow up to +10% over target
+# HOSPITAL_HEAL_MAX_SAFE_SECONDS = 21600        # Hard stop at 6 hours
+
 # Screen regions (4K resolution: 3840x2160)
 # STAMINA_REGION = (69, 203, 96, 60)  # x, y, w, h for stamina OCR
 
