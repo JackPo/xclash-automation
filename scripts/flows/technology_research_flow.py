@@ -34,6 +34,7 @@ from utils.template_matcher import match_template
 from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import ViewState
 from utils.ocr_client import OCRClient
+from utils.current_state import update_research_queue
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -173,8 +174,13 @@ def technology_research_flow(
     else:
         logger.warning("Failed to parse time remaining")
 
-    # Step 6: Close panel
-    logger.info("Step 6: Closing Research Queue panel...")
+    # Step 6: Save to state for frontend
+    if seconds is not None:
+        update_research_queue(queue1_seconds=seconds)
+        logger.info("Saved research queue to state")
+
+    # Step 7: Close panel
+    logger.info("Step 7: Closing Research Queue panel...")
     # "Tap to Close" is at the bottom center of the panel
     adb.tap(1920, 1350, source="flow:technology_research:close_panel")
     time.sleep(0.3)

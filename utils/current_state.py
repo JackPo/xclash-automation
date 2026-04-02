@@ -123,6 +123,20 @@ def _get_default_state() -> dict[str, Any]:
             "is_active": False,
             "detected_at": None,
         },
+        "research_queue": {
+            "queue1_seconds": None,
+            "queue1_name": None,
+            "queue2_seconds": None,
+            "queue2_name": None,
+            "timestamp": None,
+        },
+        "construction_queue": {
+            "queue1_seconds": None,
+            "queue1_name": None,
+            "queue2_seconds": None,
+            "queue2_name": None,
+            "timestamp": None,
+        },
         "last_update": None,
     }
 
@@ -574,3 +588,65 @@ def update_shield_active(is_active: bool) -> None:
 def get_shield_active() -> dict[str, Any]:
     """Get shield active status from state file."""
     return load_state().get("shield_active", {})
+
+
+def update_research_queue(
+    queue1_seconds: int | None,
+    queue1_name: str | None = None,
+    queue2_seconds: int | None = None,
+    queue2_name: str | None = None,
+) -> None:
+    """
+    Update research queue times in state file.
+
+    Args:
+        queue1_seconds: Time remaining for first research (seconds)
+        queue1_name: Name of first research (e.g., "Rapid Assault 1")
+        queue2_seconds: Time remaining for second research (seconds)
+        queue2_name: Name of second research
+    """
+    state = load_state()
+    state["research_queue"] = {
+        "queue1_seconds": queue1_seconds,
+        "queue1_name": queue1_name,
+        "queue2_seconds": queue2_seconds,
+        "queue2_name": queue2_name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(state)
+
+
+def get_research_queue() -> dict[str, Any]:
+    """Get research queue from state file."""
+    return load_state().get("research_queue", {})
+
+
+def update_construction_queue(
+    queue1_seconds: int | None,
+    queue1_name: str | None = None,
+    queue2_seconds: int | None = None,
+    queue2_name: str | None = None,
+) -> None:
+    """
+    Update construction queue times in state file.
+
+    Args:
+        queue1_seconds: Time remaining for first construction (seconds)
+        queue1_name: Name of first construction
+        queue2_seconds: Time remaining for second construction (seconds)
+        queue2_name: Name of second construction
+    """
+    state = load_state()
+    state["construction_queue"] = {
+        "queue1_seconds": queue1_seconds,
+        "queue1_name": queue1_name,
+        "queue2_seconds": queue2_seconds,
+        "queue2_name": queue2_name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(state)
+
+
+def get_construction_queue() -> dict[str, Any]:
+    """Get construction queue from state file."""
+    return load_state().get("construction_queue", {})
