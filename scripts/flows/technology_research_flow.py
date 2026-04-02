@@ -31,6 +31,9 @@ from config import (
     RESEARCH_QUEUE1_NAME_REGION,
     RESEARCH_QUEUE2_TIME_REGION,
     RESEARCH_QUEUE2_NAME_REGION,
+    RESEARCH_QUEUE1_SPEEDUP_CLICK,
+    RESEARCH_QUEUE2_SPEEDUP_CLICK,
+    RESEARCH_QUICK_SPEEDUP_REGION,
 )
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.template_matcher import match_template
@@ -211,3 +214,147 @@ def technology_research_flow(
     time.sleep(0.3)
 
     return queue1_seconds
+
+
+def technology_research_speedup_flow(
+    adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None
+) -> bool:
+    """
+    Speed up research on the smaller queue to earn Arms Race points.
+
+    Flow:
+    1. Open Research Queue panel
+    2. OCR both queue times
+    3. Pick smaller queue (more efficient use of speedups)
+    4. Click Speed Up button
+    5. Click Quick Speedup
+    6. Click Confirm
+    7. If Complete button visible, click it
+    8. Close panel
+
+    Returns:
+        True if speedup was successful, False otherwise
+    """
+    win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
+    ocr = OCRClient()
+
+    # Step 1: Go to town view
+    logger.info("Speedup Step 1: Going to town view...")
+    return_to_base_view(adb, win, target=ViewState.TOWN, debug=False)
+    time.sleep(0.5)
+
+    # Step 2: Open Research Queue panel
+    logger.info("Speedup Step 2: Opening Research Queue...")
+    frame = win.get_screenshot_cv2()
+    if frame is None:
+        logger.error("Failed to get screenshot")
+        return False
+
+    found, score, center = match_template(
+        frame, "town_research_button_4k.png",
+        search_region=RESEARCH_BUTTON_SEARCH_REGION, threshold=0.05,
+    )
+    if not found:
+        logger.warning(f"Research button not found (score={score:.4f})")
+        return False
+
+    adb.tap(*center, source="flow:tech_speedup:research_button")
+    time.sleep(0.8)
+
+    # Step 3: Verify panel and OCR queue times
+    logger.info("Speedup Step 3: Reading queue times...")
+    frame = win.get_screenshot_cv2()
+
+    found, score, _ = match_template(
+        frame, "research_queue_header_4k.png",
+        search_region=RESEARCH_QUEUE_HEADER_REGION, threshold=0.05,
+    )
+    if not found:
+        logger.warning("Research Queue panel not detected")
+        adb.tap(500, 500, source="flow:tech_speedup:close_unknown")
+        return False
+
+    # OCR queue 1 time
+    x, y, w, h = RESEARCH_QUEUE1_TIME_REGION
+    time1_text = ocr.extract_text(frame[y:y+h, x:x+w])
+    queue1_seconds = parse_time_remaining(time1_text)
+    logger.info(f"Queue 1 time: {queue1_seconds}s ({time1_text})")
+
+    # OCR queue 2 time
+    x, y, w, h = RESEARCH_QUEUE2_TIME_REGION
+    time2_text = ocr.extract_text(frame[y:y+h, x:x+w])
+    queue2_seconds = parse_time_remaining(time2_text)
+    logger.info(f"Queue 2 time: {queue2_seconds}s ({time2_text})")
+
+    # Step 4: Pick smaller queue
+    if queue1_seconds is None and queue2_seconds is None:
+        logger.warning("Could not read either queue time")
+        adb.tap(1920, 1350, source="flow:tech_speedup:close_panel")
+        return False
+
+    # Default to queue 1 if queue 2 not available
+    if queue2_seconds is None:
+        target_queue = 1
+    elif queue1_seconds is None:
+        target_queue = 2
+    else:
+        target_queue = 1 if queue1_seconds <= queue2_seconds else 2
+
+    speedup_click = RESEARCH_QUEUE1_SPEEDUP_CLICK if target_queue == 1 else RESEARCH_QUEUE2_SPEEDUP_CLICK
+    logger.info(f"Speedup Step 4: Using queue {target_queue} (smaller), clicking Speed Up at {speedup_click}")
+
+    adb.tap(*speedup_click, source=f"flow:tech_speedup:speedup_q{target_queue}")
+    time.sleep(0.8)
+
+    # Step 5: Find and click Quick Speedup
+    logger.info("Speedup Step 5: Clicking Quick Speedup...")
+    frame = win.get_screenshot_cv2()
+
+    found, score, center = match_template(
+        frame, "quick_speedup_button_4k.png",
+        search_region=RESEARCH_QUICK_SPEEDUP_REGION, threshold=0.1,
+    )
+    if not found:
+        logger.warning(f"Quick Speedup button not found (score={score:.4f})")
+        adb.tap(1920, 2100, source="flow:tech_speedup:close_dialog")
+        time.sleep(0.3)
+        adb.tap(1920, 1350, source="flow:tech_speedup:close_panel")
+        return False
+
+    adb.tap(*center, source="flow:tech_speedup:quick_speedup")
+    time.sleep(0.5)
+
+    # Step 6: Click Confirm
+    logger.info("Speedup Step 6: Clicking Confirm...")
+    frame = win.get_screenshot_cv2()
+
+    found, score, center = match_template(frame, "confirm_button_4k.png", threshold=0.1)
+    if found:
+        adb.tap(*center, source="flow:tech_speedup:confirm")
+        time.sleep(0.8)
+    else:
+        logger.warning("Confirm button not found, trying fixed position")
+        adb.tap(2141, 1426, source="flow:tech_speedup:confirm_fixed")
+        time.sleep(0.8)
+
+    # Step 7: Check for Complete button (research finished)
+    logger.info("Speedup Step 7: Checking for Complete button...")
+    frame = win.get_screenshot_cv2()
+
+    # Check if Complete button is visible at the speedup location
+    found, score, center = match_template(
+        frame, "research_complete_button_4k.png",
+        search_region=(2100, 850, 400, 200), threshold=0.1,
+    )
+    if found:
+        logger.info(f"Complete button found at {center}, clicking...")
+        adb.tap(*center, source="flow:tech_speedup:complete")
+        time.sleep(0.5)
+
+    # Step 8: Close panel
+    logger.info("Speedup Step 8: Closing panel...")
+    adb.tap(1920, 1350, source="flow:tech_speedup:close_panel")
+    time.sleep(0.3)
+
+    logger.info("Speedup flow complete!")
+    return True

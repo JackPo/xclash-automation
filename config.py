@@ -131,6 +131,11 @@ RESEARCH_QUEUE1_NAME_REGION = (1616, 902, 231, 31)     # Research name
 # Queue 2 (second item - queued)
 RESEARCH_QUEUE2_TIME_REGION = (1601, 1194, 464, 56)    # Time remaining
 RESEARCH_QUEUE2_NAME_REGION = (1616, 1159, 300, 31)    # Research name
+# Speed Up / Complete button positions (fixed, same location for both queues)
+RESEARCH_QUEUE1_SPEEDUP_CLICK = (2305, 978)            # Queue 1 Speed Up/Complete button
+RESEARCH_QUEUE2_SPEEDUP_CLICK = (2305, 1235)           # Queue 2 Speed Up button
+# Quick Speedup button search region (dialog)
+RESEARCH_QUICK_SPEEDUP_REGION = (1600, 1800, 600, 400)
 
 # =============================================================================
 # VS EVENT OVERRIDES
