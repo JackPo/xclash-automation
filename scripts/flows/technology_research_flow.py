@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING
 from config import (
     RESEARCH_BUTTON_SEARCH_REGION,
     RESEARCH_QUEUE_HEADER_REGION,
-    RESEARCH_QUEUE_TIME_REGION,
+    RESEARCH_QUEUE1_TIME_REGION,
+    RESEARCH_QUEUE1_NAME_REGION,
+    RESEARCH_QUEUE2_TIME_REGION,
+    RESEARCH_QUEUE2_NAME_REGION,
 )
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.template_matcher import match_template
@@ -156,27 +159,49 @@ def technology_research_flow(
 
     logger.info(f"Research Queue panel verified (score={score:.4f})")
 
-    # Step 5: OCR time remaining
-    logger.info("Step 5: OCR time remaining...")
-    x, y, w, h = RESEARCH_QUEUE_TIME_REGION
-    time_region = frame[y:y+h, x:x+w]
+    # Step 5: OCR both research queues
+    logger.info("Step 5: OCR research queues...")
 
-    time_text = ocr.extract_text(time_region)
-    logger.info(f"OCR result: '{time_text}'")
+    # Queue 1 - currently researching
+    x, y, w, h = RESEARCH_QUEUE1_NAME_REGION
+    name1_region = frame[y:y+h, x:x+w]
+    queue1_name = ocr.extract_text(name1_region)
+    logger.info(f"Queue 1 name: '{queue1_name}'")
 
-    seconds = parse_time_remaining(time_text)
+    x, y, w, h = RESEARCH_QUEUE1_TIME_REGION
+    time1_region = frame[y:y+h, x:x+w]
+    time1_text = ocr.extract_text(time1_region)
+    logger.info(f"Queue 1 time OCR: '{time1_text}'")
+    queue1_seconds = parse_time_remaining(time1_text)
 
-    if seconds is not None:
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
-        logger.info(f"Parsed time: {hours}h {minutes}m {secs}s ({seconds} seconds)")
-    else:
-        logger.warning("Failed to parse time remaining")
+    if queue1_seconds is not None:
+        h, m, s = queue1_seconds // 3600, (queue1_seconds % 3600) // 60, queue1_seconds % 60
+        logger.info(f"Queue 1: {queue1_name} - {h}h {m}m {s}s ({queue1_seconds}s)")
+
+    # Queue 2 - queued research
+    x, y, w, h = RESEARCH_QUEUE2_NAME_REGION
+    name2_region = frame[y:y+h, x:x+w]
+    queue2_name = ocr.extract_text(name2_region)
+    logger.info(f"Queue 2 name: '{queue2_name}'")
+
+    x, y, w, h = RESEARCH_QUEUE2_TIME_REGION
+    time2_region = frame[y:y+h, x:x+w]
+    time2_text = ocr.extract_text(time2_region)
+    logger.info(f"Queue 2 time OCR: '{time2_text}'")
+    queue2_seconds = parse_time_remaining(time2_text)
+
+    if queue2_seconds is not None:
+        h, m, s = queue2_seconds // 3600, (queue2_seconds % 3600) // 60, queue2_seconds % 60
+        logger.info(f"Queue 2: {queue2_name} - {h}h {m}m {s}s ({queue2_seconds}s)")
 
     # Step 6: Save to state for frontend
-    if seconds is not None:
-        update_research_queue(queue1_seconds=seconds)
+    if queue1_seconds is not None:
+        update_research_queue(
+            queue1_seconds=queue1_seconds,
+            queue1_name=queue1_name.strip() if queue1_name else None,
+            queue2_seconds=queue2_seconds,
+            queue2_name=queue2_name.strip() if queue2_name else None,
+        )
         logger.info("Saved research queue to state")
 
     # Step 7: Close panel
@@ -185,4 +210,4 @@ def technology_research_flow(
     adb.tap(1920, 1350, source="flow:technology_research:close_panel")
     time.sleep(0.3)
 
-    return seconds
+    return queue1_seconds

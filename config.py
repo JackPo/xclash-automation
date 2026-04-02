@@ -125,7 +125,12 @@ ARMS_RACE_TECH_RESEARCH_LAST_MINUTES = 20      # Trigger in last N minutes of Te
 # Research Queue UI positions (4K resolution)
 RESEARCH_BUTTON_SEARCH_REGION = (0, 550, 200, 200)     # Town view left side
 RESEARCH_QUEUE_HEADER_REGION = (1300, 700, 1200, 200)  # Panel header area
-RESEARCH_QUEUE_TIME_REGION = (1616, 954, 384, 35)      # First item time remaining
+# Queue 1 (top item - currently researching)
+RESEARCH_QUEUE1_TIME_REGION = (1616, 954, 365, 35)     # Time remaining
+RESEARCH_QUEUE1_NAME_REGION = (1616, 902, 231, 31)     # Research name
+# Queue 2 (second item - queued)
+RESEARCH_QUEUE2_TIME_REGION = (1601, 1194, 464, 56)    # Time remaining
+RESEARCH_QUEUE2_NAME_REGION = (1616, 1159, 300, 31)    # Research name
 
 # =============================================================================
 # VS EVENT OVERRIDES
