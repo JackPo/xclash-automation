@@ -137,6 +137,21 @@ RESEARCH_QUEUE2_SPEEDUP_CLICK = (2305, 1235)           # Queue 2 Speed Up button
 # Quick Speedup button search region (dialog)
 RESEARCH_QUICK_SPEEDUP_REGION = (1600, 1800, 600, 400)
 
+# Construction Queue UI positions (4K resolution)
+CONSTRUCTION_BUTTON_SEARCH_REGION = (0, 400, 200, 200)     # Town view left side (above research)
+CONSTRUCTION_QUEUE_HEADER_REGION = (1300, 250, 1200, 200)  # Panel header area
+# Queue 1 (first building - currently upgrading)
+CONSTRUCTION_QUEUE1_TIME_REGION = (1735, 671, 246, 43)     # Time remaining
+CONSTRUCTION_QUEUE1_NAME_REGION = (1639, 576, 438, 82)     # Building name
+# Queue 2 (second building - queued)
+CONSTRUCTION_QUEUE2_TIME_REGION = (1724, 926, 215, 28)     # Time remaining
+CONSTRUCTION_QUEUE2_NAME_REGION = (1639, 829, 319, 73)     # Building name
+# Speed Up / Complete button positions
+CONSTRUCTION_QUEUE1_SPEEDUP_CLICK = (2253, 672)            # Queue 1 Speed Up/Complete button
+CONSTRUCTION_QUEUE2_SPEEDUP_CLICK = (2252, 918)            # Queue 2 Speed Up button
+# Quick Speedup button search region (same dialog as research)
+CONSTRUCTION_QUICK_SPEEDUP_REGION = (1600, 1800, 600, 400)
+
 # =============================================================================
 # VS EVENT OVERRIDES
 # =============================================================================

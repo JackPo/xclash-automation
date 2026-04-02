@@ -426,6 +426,41 @@
             </div>
         </section>
 
+        <!-- Construction Queue Section -->
+        <section class="card rounded-2xl p-4 border border-gray-800/50" x-show="constructionQueue.queue1_seconds !== null">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-gray-300">Construction Queue</h2>
+                <div class="text-xs text-gray-500" x-show="constructionQueue.timestamp">
+                    Updated <span class="text-gray-300" x-text="formatTimeAgo(constructionQueue.timestamp)"></span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- Queue 1 -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/30">
+                    <div class="text-center min-w-[80px]">
+                        <div class="text-lg font-bold font-mono text-orange-400"
+                             x-text="formatSecondsToTime(constructionQueue.queue1_seconds)"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-orange-400">Building 1</div>
+                        <div class="text-[10px] text-gray-500" x-text="constructionQueue.queue1_name || 'Upgrading'"></div>
+                    </div>
+                </div>
+                <!-- Queue 2 (if exists) -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30"
+                     x-show="constructionQueue.queue2_seconds !== null">
+                    <div class="text-center min-w-[80px]">
+                        <div class="text-lg font-bold font-mono text-amber-400"
+                             x-text="formatSecondsToTime(constructionQueue.queue2_seconds)"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-amber-400">Building 2</div>
+                        <div class="text-[10px] text-gray-500" x-text="constructionQueue.queue2_name || 'Queued'"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Arms Race Timeline Card -->
         <section class="card rounded-2xl p-6 border border-gray-800/50 glow-yellow">
             <!-- Header Row 1: VS Day + Current Event + Score + Server Reset -->
@@ -1849,6 +1884,7 @@
                 dailyCheckin: { checked_in: false, timestamp: null },
                 tavernQuests: { assist_allies: { current: null, max: 5 }, plunder_others: { current: null, max: 5 }, timestamp: null },
                 researchQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
+                constructionQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 pendingQuests: [],
                 lastUpdate: '--:--',
                 pollInterval: null,
@@ -2101,6 +2137,10 @@
                         // Restore research queue status
                         if (state.research_queue) {
                             this.researchQueue = state.research_queue;
+                        }
+
+                        if (state.construction_queue) {
+                            this.constructionQueue = state.construction_queue;
                         }
 
                         // Restore shield inventory

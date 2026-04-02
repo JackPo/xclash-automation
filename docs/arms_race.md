@@ -21,9 +21,9 @@ Implemented:
 - Enhance Hero upgrades
 - Soldier Training promotions
 - Technology Research (queue OCR + speedup)
+- City Construction (queue OCR + speedup)
 
-Not implemented:
-- City Construction (same logic as Technology Research, not yet wired up)
+All Arms Race events are now automated.
 
 See `future_steps.md` for the roadmap and missing features.
 
@@ -142,13 +142,37 @@ Research queue times are saved to `daemon_current_state.json` for frontend displ
 - `research_queue.queue1_seconds`, `queue1_name`
 - `research_queue.queue2_seconds`, `queue2_name`
 
+## City Construction automation
+- Trigger: last `ARMS_RACE_CONSTRUCTION_LAST_MINUTES` (20 min) of the City Construction block.
+- If points < chest 3 threshold (30,000), runs speedup flow.
+- Same points calculation as Technology Research: 1 minute speedup = 10 points.
+
+### Speedup flow (`city_construction_speedup_flow`)
+Identical logic to Technology Research:
+1. Open Construction Queue panel from town view (hammer button)
+2. OCR both queue times
+3. Pick the **smaller queue** (more efficient use of speedups)
+4. Click Speed Up → Quick Speedup → Confirm
+5. If construction completes, click Complete button
+6. Close panel
+
+### Queue detection
+- Queue 1 time region: (1735, 671, 246, 43)
+- Queue 2 time region: (1724, 926, 215, 28)
+- Speed Up button positions: Queue 1 = (2253, 672), Queue 2 = (2252, 918)
+
+### State tracking
+Construction queue times are saved to `daemon_current_state.json` for frontend display:
+- `construction_queue.queue1_seconds`, `queue1_name`
+- `construction_queue.queue2_seconds`, `queue2_name`
+
 ## VS day overrides
 - `VS_SOLDIER_PROMOTION_DAYS`: enables promotions all day, regardless of the current 4-hour block.
 - `VS_LEVEL_CHEST_DAYS`: Day 7 opens level chests near the end of the day via bag flow checkpoints.
 - `VS_QUESTION_MARK_SKIP_DAYS`: skips question-mark quests on specific days (tavern logic).
 
 ## Progress data collection
-In the last 10 minutes of every Arms Race block, the daemon records points for diagnostics and future threshold discovery. This is used for unautomated events like City Construction.
+In the last 10 minutes of every Arms Race block, the daemon records points for diagnostics and threshold tuning.
 
 ## Related docs
 - `../ARMS_RACE_SCHEDULE.md` for the full schedule table
