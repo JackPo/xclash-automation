@@ -10,8 +10,14 @@ Automation daemon for X-Clash (com.xman.na.gp) running on BlueStacks. Uses Windo
 - Bag items and gift box rewards
 - Union War rally joining (monster filters + daily limit handling)
 - Hospital healing (batch healing)
-- Arms Race events: Mystic Beast, Enhance Hero, Soldier Training
+- Arms Race events: All 5 event types fully automated
+  - Mystic Beast Training (stamina management + zombie rallies)
+  - Enhance Hero (hero upgrades with red dots)
+  - Soldier Training (promotions + training)
+  - Technology Research (queue OCR + speedup on smaller queue)
+  - City Construction (queue OCR + speedup on smaller queue)
 - Event-specific stamina management during Mystic Beast
+- Research/Construction queue times displayed in dashboard
 
 Notes:
 - Some flows are manual or on-demand (for example, faction trials, title management).
@@ -22,7 +28,7 @@ Notes:
 - Matchers detect UI elements; the daemon triggers flows when conditions are met.
 - OCR runs via a local Qwen2.5-VL server for stamina and event points.
 - A JSON scheduler persists cooldowns and daily limits across restarts.
-- State file (`data/daemon_current_state.json`) tracks stamina, tavern quest counters (assist allies, plunder others), daily check-ins, and Arms Race progress.
+- State file (`data/daemon_current_state.json`) tracks stamina, tavern quest counters (assist allies, plunder others), daily check-ins, Arms Race progress, research queue times, and construction queue times.
 - Web dashboard shows live status and allows flow control via WebSocket.
 
 ## Quick start
