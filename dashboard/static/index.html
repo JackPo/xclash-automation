@@ -473,6 +473,9 @@
                         <div x-show="armsRaceScore.points_to_chest3 !== null" class="text-xs"
                              :class="armsRaceScore.points_to_chest3 <= 0 ? 'text-green-400' : 'text-gray-400'"
                              x-text="armsRaceScore.points_to_chest3 <= 0 ? 'Chest 3 Complete!' : armsRaceScore.points_to_chest3?.toLocaleString() + ' to go'"></div>
+                        <div x-show="armsRaceScore.speedup_minutes_needed > 0" class="text-xs text-yellow-400 mt-1">
+                            <span x-text="formatSpeedupTime(armsRaceScore.speedup_minutes_needed)"></span> speedup needed
+                        </div>
                     </div>
                     <div x-show="armsRaceScore.current_points === null && !armsRaceScoreLoading" class="text-xs text-gray-500 italic">
                         <span x-show="armsRaceScore.last_checked">Checked <span x-text="formatTimeAgo(armsRaceScore.last_checked)"></span></span>
@@ -1858,7 +1861,7 @@
                 staminaThreshold: 118,
                 targetLevel: 30,
                 // Arms Race score check
-                armsRaceScore: { current_points: null, chest3_target: null, points_to_chest3: null, last_checked: null, error: null },
+                armsRaceScore: { current_points: null, chest3_target: null, points_to_chest3: null, speedup_minutes_needed: null, last_checked: null, error: null },
                 armsRaceScoreLoading: false,
                 // Shield inventory
                 shieldInventory: { '8hr': null, '12hr': null, '24hr': null, timestamp: null },
@@ -2060,6 +2063,7 @@
                                 current_points: state.arms_race_score.current_points,
                                 chest3_target: state.arms_race_score.chest3_target || 30000,
                                 points_to_chest3: state.arms_race_score.points_to_chest3,
+                                speedup_minutes_needed: state.arms_race_score.speedup_minutes_needed,
                                 last_checked: state.arms_race_score.timestamp,
                                 error: null
                             };
@@ -2296,10 +2300,16 @@
                         const res = await fetch('/api/arms-race/check-score', { method: 'POST' });
                         const data = await res.json();
                         if (data.success) {
+                            // Calculate speedup minutes if not provided by API
+                            let speedupMins = data.speedup_minutes_needed;
+                            if (!speedupMins && data.points_to_chest3 > 0) {
+                                speedupMins = Math.floor(data.points_to_chest3 / 10);
+                            }
                             this.armsRaceScore = {
                                 current_points: data.current_points,
                                 chest3_target: data.chest3_target,
                                 points_to_chest3: data.points_to_chest3,
+                                speedup_minutes_needed: speedupMins,
                                 last_checked: new Date().toISOString(),
                                 error: null
                             };
@@ -2811,6 +2821,16 @@
                     const s = Math.floor(secs % 60);
                     if (d > 0) return `${d}d ${h}h ${m}m`;
                     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                },
+
+                formatSpeedupTime(minutes) {
+                    if (!minutes || minutes <= 0) return '--';
+                    const d = Math.floor(minutes / 1440);
+                    const h = Math.floor((minutes % 1440) / 60);
+                    const m = minutes % 60;
+                    if (d > 0) return `${d}d ${h}h ${m}m`;
+                    if (h > 0) return `${h}h ${m}m`;
+                    return `${m}m`;
                 },
 
                 formatClaimTimer() {

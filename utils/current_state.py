@@ -207,13 +207,22 @@ def update_arms_race_score(
     """Update Arms Race score in state file."""
     state = load_state()
     points_to_chest3 = None
+    speedup_minutes_needed = None
+
     if current_points is not None:
         points_to_chest3 = max(0, chest3_target - current_points)
+
+        # Calculate speedup minutes needed based on event type
+        # Technology Research: 1 minute speedup = 10 points
+        # City Construction: 1 minute speedup = 10 points
+        if event in ("Technology Research", "City Construction") and points_to_chest3 > 0:
+            speedup_minutes_needed = points_to_chest3 // 10
 
     state["arms_race_score"] = {
         "current_points": current_points,
         "chest3_target": chest3_target,
         "points_to_chest3": points_to_chest3,
+        "speedup_minutes_needed": speedup_minutes_needed,
         "event": event,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
