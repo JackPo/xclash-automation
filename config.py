@@ -117,6 +117,16 @@ ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max hero upgrades per block (1 
 # Requires: idle 5+ min, any barrack in PENDING state, TOWN view with dog house aligned
 ARMS_RACE_SOLDIER_TRAINING_ENABLED = True      # Enable/disable soldier upgrade automation
 
+# Technology Research (during Technology Research event)
+# Opens research queue, OCRs time remaining for monitoring
+ARMS_RACE_TECH_RESEARCH_ENABLED = True         # Enable/disable tech research automation
+ARMS_RACE_TECH_RESEARCH_LAST_MINUTES = 20      # Trigger in last N minutes of Technology Research
+
+# Research Queue UI positions (4K resolution)
+RESEARCH_BUTTON_SEARCH_REGION = (0, 550, 200, 200)     # Town view left side
+RESEARCH_QUEUE_HEADER_REGION = (1300, 700, 1200, 200)  # Panel header area
+RESEARCH_QUEUE_TIME_REGION = (1616, 954, 384, 35)      # First item time remaining
+
 # =============================================================================
 # VS EVENT OVERRIDES
 # =============================================================================

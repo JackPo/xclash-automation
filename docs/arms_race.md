@@ -20,10 +20,10 @@ Implemented:
 - Mystic Beast Training (Beast Training) rallies and stamina management
 - Enhance Hero upgrades
 - Soldier Training promotions
+- Technology Research (detection + time OCR, speed-up pending)
 
 Not implemented:
 - City Construction
-- Technology Research
 
 See `future_steps.md` for the roadmap and missing features.
 
