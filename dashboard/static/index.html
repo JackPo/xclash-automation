@@ -391,6 +391,41 @@
             </div>
         </section>
 
+        <!-- Research Queue Section -->
+        <section class="card rounded-2xl p-4 border border-gray-800/50" x-show="researchQueue.queue1_seconds !== null">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-gray-300">Research Queue</h2>
+                <div class="text-xs text-gray-500" x-show="researchQueue.timestamp">
+                    Updated <span class="text-gray-300" x-text="formatTimeAgo(researchQueue.timestamp)"></span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- Queue 1 -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
+                    <div class="text-center min-w-[80px]">
+                        <div class="text-lg font-bold font-mono text-cyan-400"
+                             x-text="formatSecondsToTime(researchQueue.queue1_seconds)"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-cyan-400">Research 1</div>
+                        <div class="text-[10px] text-gray-500" x-text="researchQueue.queue1_name || 'In Progress'"></div>
+                    </div>
+                </div>
+                <!-- Queue 2 (if exists) -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/30"
+                     x-show="researchQueue.queue2_seconds !== null">
+                    <div class="text-center min-w-[80px]">
+                        <div class="text-lg font-bold font-mono text-purple-400"
+                             x-text="formatSecondsToTime(researchQueue.queue2_seconds)"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium text-purple-400">Research 2</div>
+                        <div class="text-[10px] text-gray-500" x-text="researchQueue.queue2_name || 'Queued'"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Arms Race Timeline Card -->
         <section class="card rounded-2xl p-6 border border-gray-800/50 glow-yellow">
             <!-- Header Row 1: VS Day + Current Event + Score + Server Reset -->
@@ -1810,6 +1845,7 @@
                 toast: { show: false, message: '', type: 'info' },
                 dailyCheckin: { checked_in: false, timestamp: null },
                 tavernQuests: { assist_allies: { current: null, max: 5 }, plunder_others: { current: null, max: 5 }, timestamp: null },
+                researchQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 pendingQuests: [],
                 lastUpdate: '--:--',
                 pollInterval: null,
@@ -2056,6 +2092,11 @@
                         // Restore tavern quests status
                         if (state.tavern_quests) {
                             this.tavernQuests = state.tavern_quests;
+                        }
+
+                        // Restore research queue status
+                        if (state.research_queue) {
+                            this.researchQueue = state.research_queue;
                         }
 
                         // Restore shield inventory
@@ -2760,6 +2801,16 @@
                     const m = Math.floor((secs % 3600) / 60);
                     if (h > 0) return `${h}h ${m}m`;
                     return `${m}m`;
+                },
+
+                formatSecondsToTime(secs) {
+                    if (!secs || secs <= 0) return '--';
+                    const d = Math.floor(secs / 86400);
+                    const h = Math.floor((secs % 86400) / 3600);
+                    const m = Math.floor((secs % 3600) / 60);
+                    const s = Math.floor(secs % 60);
+                    if (d > 0) return `${d}d ${h}h ${m}m`;
+                    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
                 },
 
                 formatClaimTimer() {
