@@ -20,10 +20,10 @@ Implemented:
 - Mystic Beast Training (Beast Training) rallies and stamina management
 - Enhance Hero upgrades
 - Soldier Training promotions
-- Technology Research (detection + time OCR, speed-up pending)
+- Technology Research (queue OCR + speedup)
 
 Not implemented:
-- City Construction
+- City Construction (same logic as Technology Research, not yet wired up)
 
 See `future_steps.md` for the roadmap and missing features.
 
@@ -113,13 +113,42 @@ Key safeguards:
 - READY bubbles are collected; PENDING bubbles are upgraded using `soldier_upgrade_flow`.
 - Normal training outside promotion windows uses `soldier_training_flow` and may time training to finish before the next promotion opportunity.
 
+## Technology Research automation
+- Trigger: last `ARMS_RACE_TECH_RESEARCH_LAST_MINUTES` (20 min) of the Technology Research block.
+- If points < chest 3 threshold (30,000), runs speedup flow.
+
+### Points calculation
+- 1 CP (research completion point) = 1 Arms Race point
+- 1 minute of speedup = 10 Arms Race points
+- Frontend displays `speedup_minutes_needed` = points_gap / 10
+
+### Speedup flow (`technology_research_speedup_flow`)
+1. Open Research Queue panel from town view
+2. OCR both queue times (queue 1 = in progress, queue 2 = queued)
+3. Pick the **smaller queue** (more efficient use of speedups)
+4. Click Speed Up button for that queue
+5. Click Quick Speedup button (uses available free speedups)
+6. Click Confirm
+7. If research completes (time = 00:00:00), click Complete button
+8. Close panel
+
+### Queue detection
+- Queue 1 time region: (1616, 954, 365, 35)
+- Queue 2 time region: (1601, 1194, 464, 56)
+- Speed Up button positions: Queue 1 = (2305, 978), Queue 2 = (2305, 1235)
+
+### State tracking
+Research queue times are saved to `daemon_current_state.json` for frontend display:
+- `research_queue.queue1_seconds`, `queue1_name`
+- `research_queue.queue2_seconds`, `queue2_name`
+
 ## VS day overrides
 - `VS_SOLDIER_PROMOTION_DAYS`: enables promotions all day, regardless of the current 4-hour block.
 - `VS_LEVEL_CHEST_DAYS`: Day 7 opens level chests near the end of the day via bag flow checkpoints.
 - `VS_QUESTION_MARK_SKIP_DAYS`: skips question-mark quests on specific days (tavern logic).
 
 ## Progress data collection
-In the last 10 minutes of every Arms Race block, the daemon records points for diagnostics and future threshold discovery. This is used for unautomated events like City Construction and Technology Research.
+In the last 10 minutes of every Arms Race block, the daemon records points for diagnostics and future threshold discovery. This is used for unautomated events like City Construction.
 
 ## Related docs
 - `../ARMS_RACE_SCHEDULE.md` for the full schedule table
