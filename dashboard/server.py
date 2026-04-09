@@ -587,19 +587,27 @@ async def api_flows() -> list[dict[str, Any]]:
     return await get_flows_list_async()
 
 
-async def send_daemon_command(cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Send command to daemon via WebSocket."""
+async def send_daemon_command(cmd: str, args: dict[str, Any] | None = None, timeout: int = 180) -> dict[str, Any]:
+    """Send command to daemon via WebSocket.
+
+    Args:
+        cmd: Command to send (e.g., 'run_flow', 'status')
+        args: Optional arguments dict
+        timeout: Timeout in seconds for flow execution (default 180s / 3 minutes)
+    """
     import websockets
     import json
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=5) as ws:
+        async with websockets.connect('ws://localhost:9876', close_timeout=timeout) as ws:
             msg = {'cmd': cmd}
             if args:
                 msg['args'] = args
             await ws.send(json.dumps(msg))
-            response = json.loads(await ws.recv())
+            response = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
             return response
+    except asyncio.TimeoutError:
+        return {'success': False, 'error': f'Timeout after {timeout}s'}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
