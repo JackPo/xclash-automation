@@ -166,7 +166,7 @@ LOGCAT_THREADTIME_RE = re.compile(
     r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\.(?P<millis>\d{3})"
 )
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow
+from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow, quick_production_flow
 from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from flows.faction_trials_flow import faction_trials_flow
 from flows.zombie_attack_flow import zombie_attack_flow
@@ -1244,23 +1244,36 @@ class IconDaemon:
         Called periodically and on consecutive OCR failures.
         Returns True if server is healthy (or was restarted), False otherwise.
         """
-        if not OCRClient.check_server(force=True):
-            self.logger.warning("OCR server health check FAILED - killing existing servers and restarting...")
-            # Kill existing servers first to prevent accumulation
-            # (also done inside start_ocr_server, but log explicitly here)
-            killed = kill_ocr_servers()
-            if killed > 0:
-                self.logger.info(f"Killed {killed} stale OCR server process(es)")
-            # Reset auto-start flag to allow restart
-            OCRClient._auto_start_attempted = False
-            if start_ocr_server():
-                self.logger.info("OCR server restarted successfully")
-                self.ocr_client = OCRClient()  # Recreate client
-                return True
-            else:
-                self.logger.error("OCR server restart FAILED!")
-                return False
-        return True
+        server_up = OCRClient.check_server(force=True)
+        inference_ok = False
+
+        if server_up:
+            try:
+                client = self.ocr_client if self.ocr_client is not None else OCRClient()
+                inference_ok = client.probe_inference()
+            except Exception as probe_err:
+                self.logger.warning(f"OCR inference probe failed: {probe_err}")
+                inference_ok = False
+
+        if server_up and inference_ok:
+            return True
+
+        reason = "server down" if not server_up else "inference probe failed"
+        self.logger.warning(f"OCR health check FAILED ({reason}) - killing existing servers and restarting...")
+        # Kill existing servers first to prevent accumulation
+        # (also done inside start_ocr_server, but log explicitly here)
+        killed = kill_ocr_servers()
+        if killed > 0:
+            self.logger.info(f"Killed {killed} stale OCR server process(es)")
+        # Reset auto-start flag to allow restart
+        OCRClient._auto_start_attempted = False
+        if start_ocr_server():
+            self.logger.info("OCR server restarted successfully")
+            self.ocr_client = OCRClient()  # Recreate client
+            return True
+        else:
+            self.logger.error("OCR server restart FAILED!")
+            return False
 
     def _switch_to_town(self) -> None:
         """Switch to town view using view_state_detector."""
@@ -1986,6 +1999,7 @@ class IconDaemon:
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
         global tavern_quest_claim_flow, run_tavern_quest_flow, faction_trials_flow
         global zombie_attack_flow, community_click_flow, marshall_speedup_all_flow, apply_marshall_and_verify
+        global quick_production_flow
 
         from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
@@ -1993,7 +2007,7 @@ class IconDaemon:
                           afk_rewards_flow, union_gifts_flow, union_technology_flow,
                           hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow,
                           soldier_training_flow, soldier_upgrade_flow, rally_join_flow,
-                          healing_flow, bag_flow, gift_box_flow)
+                          healing_flow, bag_flow, gift_box_flow, quick_production_flow)
         from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
         from flows.faction_trials_flow import faction_trials_flow
         from flows.zombie_attack_flow import zombie_attack_flow
@@ -2046,6 +2060,7 @@ class IconDaemon:
             "marshall_speedup": (lambda adb: marshall_speedup_all_flow(adb, self.windows_helper, debug=True), True),
             "apply_marshall": (lambda adb: apply_marshall_and_verify(adb, self.windows_helper, debug=True), True),
             "speedup_barracks": (lambda adb: marshall_speedup_all_flow(adb, self.windows_helper, skip_marshall=True, debug=True), True),
+            "quick_production": (lambda adb: quick_production_flow(adb, self.windows_helper), False),
         }
 
     def get_status(self) -> dict[str, Any]:

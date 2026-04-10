@@ -574,6 +574,24 @@ OCR_PROMPT_TRAINING_TIME = (
 )
 
 # =============================================================================
+# QUICK PRODUCTION FLOW (4K resolution)
+# Class Skill -> Quick Production -> Use
+# =============================================================================
+
+# Castle click position on world map (own castle with green checkmark)
+QUICK_PROD_CASTLE_CLICK = (1042, 1188)
+
+# Class Skill button in castle popup (hexagonal button)
+QUICK_PROD_CLASS_SKILL_REGION = (1520, 1180, 200, 160)  # x, y, w, h
+QUICK_PROD_CLASS_SKILL_CLICK = (1620, 1255)  # center of button
+
+# Class Skill panel header region (for verification)
+QUICK_PROD_HEADER_REGION = (1580, 408, 690, 92)  # x, y, w, h
+
+# Quick Production Use button (third row in Class Skill panel)
+QUICK_PROD_USE_CLICK = (2284, 1411)
+
+# =============================================================================
 # LOAD LOCAL OVERRIDES
 # =============================================================================
 
