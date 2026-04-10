@@ -18,6 +18,7 @@ Automation daemon for X-Clash (com.xman.na.gp) running on BlueStacks. Uses Windo
   - City Construction (queue OCR + speedup on smaller queue)
 - Event-specific stamina management during Mystic Beast
 - Research/Construction queue times displayed in dashboard
+- Quick Production class skill (24-hour cooldown, grants 24h of resource production)
 
 Notes:
 - Some flows are manual or on-demand (for example, faction trials, title management).

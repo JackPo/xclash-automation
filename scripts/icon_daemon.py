@@ -3749,6 +3749,19 @@ class IconDaemon:
                         record_to_scheduler=True
                     ))
 
+                # Quick Production class skill: 24 hour cooldown (matches in-game cooldown)
+                # Grants 24 hours of wheat, iron, and gold production instantly
+                if (view_state_enum in (ViewState.TOWN, ViewState.WORLD) and
+                    self._is_user_idle() and
+                    self.scheduler.is_flow_ready("quick_production", idle_seconds=effective_idle_secs)):
+                    flow_candidates.append(FlowCandidate(
+                        name="quick_production",
+                        flow_func=lambda adb: quick_production_flow(adb, self.windows_helper),
+                        priority=FlowPriority.CRITICAL,  # Uninterruptible - valuable daily resource
+                        reason=f"24h cooldown ready",
+                        record_to_scheduler=True
+                    ))
+
                 # VS Day 7 chest surprise: trigger bag flow at 10, 5, 1 min remaining
                 # This opens level chests right before VS day ends to surprise competitors
                 vs_day = arms_race['day']
