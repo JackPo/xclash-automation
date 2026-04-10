@@ -596,58 +596,60 @@ def elite_zombie_flow(
             # Wait for search to complete and camera to pan to zombie
             time.sleep(SEARCH_RESULT_DELAY)
 
-            # Prefer Rally detection first; this avoids false unfreeze matches when Rally is already visible.
-            _log("  Checking for Rally button first...")
-            rally_button_found, rally_button_score, rally_button_loc, frame = _poll_for_template(
-                win, "rally_button_4k.png",
-                threshold=RALLY_BUTTON_THRESHOLD,
-                search_region=(1500, 1000, 800, 900),
-                max_attempts=6,
-                interval=0.25
-            )
-            if rally_button_found:
-                if frame is not None:
-                    _save_debug_screenshot(frame, "04_after_search", click_pos=rally_button_loc)
-                break
+            # Check for BOTH Rally and Unfreeze buttons - frozen zombies show both
+            _log("  Checking for Rally and Unfreeze buttons...")
+            frame = win.get_screenshot_cv2()
 
-            # Check if unfreeze button appeared (frozen zombie)
-            unfreeze_result = _check_and_click_unfreeze(adb, win)
-            if unfreeze_result == "unfreeze_to_march":
-                # Unfreeze shows march screen - click march to unfreeze, then retry search for rally
-                _log("  Unfreeze opened march screen, clicking March to unfreeze...")
-                frame = win.get_screenshot_cv2()
-                found, score, loc = match_template(
-                    frame, "march_button_4k.png",
-                    search_region=(1500, 1400, 900, 500),
-                    threshold=0.08
-                )
-                if found and loc:
-                    _save_debug_screenshot(frame, "unfreeze_march", click_pos=loc)
-                    adb.tap(*loc, source="flow:elite_zombie:march_to_unfreeze")
-                    time.sleep(3.0)  # Wait for march to complete unfreezing
-                    _log("  Zombie unfrozen, need to search again for rally...")
-                    # Go back to world view and restart search
-                    return_to_base_view(adb, win, debug=False)
-                    time.sleep(1.0)
-                    # Click magnifying glass again
-                    adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:elite_zombie:magnifying_glass_retry")
-                    time.sleep(SCREEN_TRANSITION_DELAY)
-                    # Re-apply level adjustment (panel reset to default)
-                    if target_level is not None or (level_clicks is not None and level_clicks != 0):
-                        time.sleep(0.5)  # Wait for slider to be ready
-                        _apply_level_adjustment(adb, win, level_clicks, target_level)
-                        time.sleep(0.3)
-                    continue  # Retry search
-                else:
-                    _log("FAILED: March button not found after unfreeze")
-                    return_to_base_view(adb, win, debug=False)
-                    return False
-            elif unfreeze_result == "unfreeze_retry":
-                _log("  Unfreeze clicked, retrying search...")
-                continue  # Retry search after unfreeze
+            # Check unfreeze FIRST - frozen zombies need unfreezing before rally works
+            unfreeze_found, unfreeze_score, unfreeze_center = match_template(
+                frame, "unfreeze_button_4k.png",
+                search_region=UNFREEZE_BUTTON_REGION,
+                threshold=UNFREEZE_BUTTON_THRESHOLD
+            )
+
+            if unfreeze_found:
+                _log(f"  FROZEN ZOMBIE detected (unfreeze score={unfreeze_score:.4f})")
+                _save_debug_screenshot(frame, "frozen_zombie_detected", click_pos=unfreeze_center)
+                # Handle unfreeze - this will click unfreeze and handle the result
+                unfreeze_result = _check_and_click_unfreeze(adb, win)
+
+                if unfreeze_result == "unfreeze_to_march":
+                    # Unfreeze shows march screen - click march to unfreeze, then retry search for rally
+                    _log("  Unfreeze opened march screen, clicking March to unfreeze...")
+                    frame = win.get_screenshot_cv2()
+                    found, score, loc = match_template(
+                        frame, "march_button_4k.png",
+                        search_region=(1500, 1400, 900, 500),
+                        threshold=0.08
+                    )
+                    if found and loc:
+                        _save_debug_screenshot(frame, "unfreeze_march", click_pos=loc)
+                        adb.tap(*loc, source="flow:elite_zombie:march_to_unfreeze")
+                        time.sleep(3.0)  # Wait for march to complete unfreezing
+                        _log("  Zombie unfrozen, need to search again for rally...")
+                        # Go back to WORLD view and restart search
+                        return_to_base_view(adb, win, target=ViewState.WORLD, debug=False)
+                        time.sleep(1.0)
+                        # Click magnifying glass again (must be in WORLD view)
+                        adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:elite_zombie:magnifying_glass_retry")
+                        time.sleep(SCREEN_TRANSITION_DELAY)
+                        # Re-apply level adjustment (panel reset to default)
+                        if target_level is not None or (level_clicks is not None and level_clicks != 0):
+                            time.sleep(0.5)  # Wait for slider to be ready
+                            _apply_level_adjustment(adb, win, level_clicks, target_level)
+                            time.sleep(0.3)
+                        continue  # Retry search
+                    else:
+                        _log("FAILED: March button not found after unfreeze")
+                        return_to_base_view(adb, win, debug=False)
+                        return False
+                elif unfreeze_result == "unfreeze_retry":
+                    _log("  Unfreeze clicked, retrying search...")
+                    continue  # Retry search after unfreeze
+                # If unfreeze_result == "none", continue to rally button check below
 
             # Poll for rally button to appear (proves search completed and zombie found)
-            _log("  Waiting for search results...")
+            _log("  Waiting for Rally button...")
             rally_button_found, rally_button_score, rally_button_loc, frame = _poll_for_template(
                 win, "rally_button_4k.png",
                 threshold=RALLY_BUTTON_THRESHOLD,
