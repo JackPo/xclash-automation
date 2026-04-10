@@ -97,6 +97,22 @@ python scripts/daemon_cli.py run_zombie_attack iron_mine --level-clicks 1
 
 Key safeguards:
 - Recovery item use is capped by `ARMS_RACE_BEAST_TRAINING_USE_MAX` and `ARMS_RACE_BEAST_TRAINING_USE_COOLDOWN`.
+
+### Frozen Zombie Handling
+
+Zombies can become "frozen" after being attacked. Frozen zombies display both a Rally button AND an Unfreeze button simultaneously.
+
+**Detection**: The flow checks for the Unfreeze button BEFORE checking for Rally. If a frozen zombie is detected:
+
+1. Click Unfreeze button
+2. If march screen appears, click March to complete unfreeze
+3. Retry the search to find a non-frozen zombie or the now-unfrozen zombie
+4. Continue with normal rally flow
+
+**Templates**:
+- `unfreeze_button_4k.png` + `unfreeze_button_mask_4k.png` - Unfreeze button detection
+
+**Why this matters**: If the flow clicks Rally on a frozen zombie without unfreezing first, the rally screen won't open and the flow fails.
 - The 3rd+ use requires the event to be within `ARMS_RACE_BEAST_TRAINING_USE_LAST_MINUTES`.
 - If the free-claim timer will expire before the event ends, the daemon waits instead of using items.
 
