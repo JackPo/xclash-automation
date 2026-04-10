@@ -49,7 +49,10 @@ def quick_production_flow(
     """
     Use the Quick Production class skill.
 
-    Flow: TOWN -> WORLD -> castle click -> Class Skill -> Quick Production Use
+    Flow: TOWN -> WORLD (centers on castle) -> click center -> Class Skill -> Quick Production Use
+
+    IMPORTANT: Must go TOWN -> WORLD to center the map on own castle.
+    After centering, castle is at screen center (1920, 1080).
 
     Args:
         adb: ADBHelper instance
@@ -65,45 +68,29 @@ def quick_production_flow(
     print("    [QUICK-PROD] Starting Quick Production flow...")
 
     try:
-        # Step 1: Navigate to WORLD view
-        print("    [QUICK-PROD] Step 1: Navigating to WORLD view...")
-        frame = win.get_screenshot_cv2()
-        state, score = detect_view(frame)
-        print(f"    [QUICK-PROD] Current view: {state.name} (score={score:.4f})")
+        # Step 1: Go to TOWN first (required for centering)
+        print("    [QUICK-PROD] Step 1: Going to TOWN...")
+        go_to_town(adb, debug=False)
+        time.sleep(1.0)
 
-        if state == ViewState.TOWN:
-            # Switch from TOWN to WORLD
-            go_to_world(adb, debug=False)
-            time.sleep(1.0)
-        elif state != ViewState.WORLD:
-            # Try to get to a known state first
-            go_to_town(adb, debug=False)
-            time.sleep(0.5)
-            go_to_world(adb, debug=False)
-            time.sleep(1.0)
+        # Step 2: Go to WORLD - this centers the map on own castle
+        print("    [QUICK-PROD] Step 2: Going to WORLD (centers on castle)...")
+        go_to_world(adb, debug=False)
+        time.sleep(1.0)
 
-        # Verify we're in WORLD
-        frame = win.get_screenshot_cv2()
-        state, score = detect_view(frame)
-        if state != ViewState.WORLD:
-            print(f"    [QUICK-PROD] FAILED: Not in WORLD view (got {state.name})")
-            return False
+        # Step 3: Click center of screen to open own castle popup
+        # After TOWN->WORLD, castle is at screen center
+        SCREEN_CENTER = (1920, 1080)
+        print(f"    [QUICK-PROD] Step 3: Clicking castle at center {SCREEN_CENTER}...")
+        adb.tap(*SCREEN_CENTER, source="flow:quick_prod:castle")
+        time.sleep(1.0)
 
-        print("    [QUICK-PROD] Now in WORLD view")
-
-        # Step 2: Click own castle
-        print(f"    [QUICK-PROD] Step 2: Clicking castle at {QUICK_PROD_CASTLE_CLICK}...")
-        adb.tap(*QUICK_PROD_CASTLE_CLICK, source="flow:quick_prod:castle")
-        time.sleep(0.8)
-
-        # Step 3: Verify castle popup opened and click Class Skill button
-        print("    [QUICK-PROD] Step 3: Looking for Class Skill button...")
+        # Step 4: Find and click Class Skill button
+        print("    [QUICK-PROD] Step 4: Looking for Class Skill button...")
         frame = win.get_screenshot_cv2()
 
-        # Verify Class Skill button is visible
         found, score, center = match_template(
             frame, "class_skill_button_4k.png",
-            search_region=QUICK_PROD_CLASS_SKILL_REGION,
             threshold=CLASS_SKILL_BUTTON_THRESHOLD
         )
 
@@ -112,17 +99,16 @@ def quick_production_flow(
             return_to_base_view(adb, win, debug=False)
             return False
 
-        print(f"    [QUICK-PROD] Class Skill button found (score={score:.4f}), clicking...")
-        adb.tap(*QUICK_PROD_CLASS_SKILL_CLICK, source="flow:quick_prod:class_skill")
-        time.sleep(0.8)
+        print(f"    [QUICK-PROD] Class Skill button found at {center} (score={score:.4f}), clicking...")
+        adb.tap(*center, source="flow:quick_prod:class_skill")
+        time.sleep(1.0)
 
-        # Step 4: Verify Class Skill panel opened
-        print("    [QUICK-PROD] Step 4: Verifying Class Skill panel...")
+        # Step 5: Verify Class Skill panel opened
+        print("    [QUICK-PROD] Step 5: Verifying Class Skill panel...")
         frame = win.get_screenshot_cv2()
 
         found, score, _ = match_template(
             frame, "class_skill_header_4k.png",
-            search_region=QUICK_PROD_HEADER_REGION,
             threshold=CLASS_SKILL_HEADER_THRESHOLD
         )
 
@@ -133,19 +119,18 @@ def quick_production_flow(
 
         print(f"    [QUICK-PROD] Class Skill panel open (score={score:.4f})")
 
-        # Step 5: Click Quick Production Use button
-        print(f"    [QUICK-PROD] Step 5: Clicking Quick Production Use at {QUICK_PROD_USE_CLICK}...")
+        # Step 6: Click Quick Production Use button (third row)
+        print(f"    [QUICK-PROD] Step 6: Clicking Quick Production Use at {QUICK_PROD_USE_CLICK}...")
         adb.tap(*QUICK_PROD_USE_CLICK, source="flow:quick_prod:use")
+        time.sleep(1.0)
+
+        # Step 7: Tap to close reward popup
+        print("    [QUICK-PROD] Step 7: Closing reward popup...")
+        adb.tap(1920, 1500, source="flow:quick_prod:close")
         time.sleep(0.5)
 
-        # Step 6: Close panel (tap outside or wait for auto-close)
-        print("    [QUICK-PROD] Step 6: Closing panel...")
-        # Tap below panel to close it
-        adb.tap(1920, 1900, source="flow:quick_prod:close")
-        time.sleep(0.5)
-
-        # Step 7: Return to base view
-        print("    [QUICK-PROD] Step 7: Returning to base view...")
+        # Step 8: Return to base view
+        print("    [QUICK-PROD] Step 8: Returning to base view...")
         return_to_base_view(adb, win, debug=False)
 
         print("    [QUICK-PROD] Flow complete - Quick Production used!")
