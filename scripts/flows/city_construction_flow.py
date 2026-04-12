@@ -41,7 +41,7 @@ from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import ViewState
 from utils.ocr_client import OCRClient
 from utils.current_state import update_construction_queue
-from utils.arms_race_progress import check_arms_race_progress
+from utils.arms_race_panel_helper import check_arms_race_progress
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
