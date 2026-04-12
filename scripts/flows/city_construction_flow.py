@@ -41,12 +41,16 @@ from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import ViewState
 from utils.ocr_client import OCRClient
 from utils.current_state import update_construction_queue
+from utils.arms_race_progress import check_arms_race_progress
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
 
 logger = logging.getLogger(__name__)
+
+# City Construction chest 3 threshold (30,000 points)
+CONSTRUCTION_CHEST3_THRESHOLD = 30000
 
 
 def parse_time_remaining(text: str) -> int | None:
@@ -252,6 +256,21 @@ def city_construction_speedup_flow(
     """
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     ocr = OCRClient()
+
+    # Step 0: Check Arms Race points - skip if chest 3 already reached
+    logger.info("Speedup Step 0: Checking Arms Race progress...")
+    try:
+        progress = check_arms_race_progress(adb, win, debug=False)
+        if progress.get("success"):
+            current_points = progress.get("current_points", 0)
+            logger.info(f"Current points: {current_points} / {CONSTRUCTION_CHEST3_THRESHOLD}")
+            if current_points >= CONSTRUCTION_CHEST3_THRESHOLD:
+                logger.info(f"Chest 3 already reached ({current_points} >= {CONSTRUCTION_CHEST3_THRESHOLD}), skipping speedup")
+                return True  # Success - nothing to do
+        else:
+            logger.warning("Could not check Arms Race progress, proceeding with speedup anyway")
+    except Exception as e:
+        logger.warning(f"Error checking Arms Race progress: {e}, proceeding with speedup anyway")
 
     # Step 1: Go to town view
     logger.info("Speedup Step 1: Going to town view...")
