@@ -933,14 +933,11 @@
                             </div>
                         </div>
 
-                        <!-- Daily Limit Policy -->
+                        <!-- Default Daily Limit (global fallback) -->
                         <div class="override-item">
                             <div class="override-meta">
-                                <div class="text-sm">Daily Limit Policy</div>
-                                <div class="text-xs text-gray-500"
-                                     x-text="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden
-                                        ? ('Override: ' + rallyIgnoreValueLabel(configs.RALLY_IGNORE_DAILY_LIMIT?.value))
-                                        : ('Default: ' + rallyIgnoreValueLabel(configs.RALLY_IGNORE_DAILY_LIMIT?.default))"></div>
+                                <div class="text-sm">Default Daily Limit</div>
+                                <div class="text-xs text-yellow-500/80">Used when no per-monster override is set</div>
                             </div>
                             <div class="override-controls">
                                 <span x-show="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden" class="text-xs text-orange-400"
@@ -987,10 +984,9 @@
 
                         <!-- Per-Monster Overrides -->
                         <div class="pt-3 mt-1 border-t border-gray-700/40">
-                            <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Per-Monster Overrides</div>
-                            <div class="text-xs text-gray-500 mb-3">
-                                Daily-limit policy is standardized as: <span class="text-gray-300">Respect limit</span> vs <span class="text-gray-300">Ignore limit</span>.
-                                This policy applies to all monsters. <span class="text-gray-300">No local exhaustion tracking</span> only means the daemon won't locally mark that monster as exhausted after a limit hit.
+                            <div class="text-xs text-yellow-400 uppercase tracking-wide mb-1">Per-Monster Overrides</div>
+                            <div class="text-xs text-yellow-500/80 mb-3">
+                                These OVERRIDE the default above. If set, the per-monster setting wins.
                             </div>
 
                             <template x-if="rallyMonsters.length === 0">
@@ -1001,11 +997,16 @@
                                 <template x-for="monster in rallyMonsters" :key="monster.ignore_override_key">
                                     <div class="override-item py-2 border-b border-gray-700/25 last:border-0">
                                         <div class="override-meta">
-                                            <div class="text-sm font-medium" x-text="monster.name"></div>
-                                            <div class="text-xs text-gray-500">
-                                                <span x-text="'Lvl ' + (monster.level_range || monster.max_level || 'any')"></span>
-                                                <span class="mx-1">|</span>
-                                                <span x-text="monsterDailyLimitSummary(monster)"></span>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-sm font-medium" x-text="monster.name"></span>
+                                                <span class="text-xs text-gray-500" x-text="'Lvl ' + (monster.level_range || monster.max_level || 'any')"></span>
+                                                <!-- Effective State Badge -->
+                                                <span class="text-xs px-1.5 py-0.5 rounded font-medium"
+                                                      :class="getEffectiveIgnoreLimit(monster) ? 'bg-orange-500/20 text-orange-400' : 'bg-green-500/20 text-green-400'"
+                                                      x-text="getEffectiveIgnoreLimit(monster) ? '→ IGNORE' : '→ RESPECT'"></span>
+                                                <span class="text-xs"
+                                                      :class="monster?.ignore_daily_limit?.overridden ? 'text-yellow-400' : 'text-gray-500'"
+                                                      x-text="monster?.ignore_daily_limit?.overridden ? '(override)' : '(default)'"></span>
                                             </div>
                                         </div>
                                         <div class="override-controls">
@@ -2914,6 +2915,17 @@
                         return `No local exhaustion tracking | ${mode}`;
                     }
                     return mode;
+                },
+
+                getEffectiveIgnoreLimit(monster) {
+                    // Returns the EFFECTIVE ignore limit value for this monster
+                    // Priority: per-monster override > global default
+                    if (monster?.ignore_daily_limit?.overridden) {
+                        // Per-monster override is SET - use it
+                        return monster.ignore_daily_limit.value;
+                    }
+                    // No override - use global default
+                    return this.configs?.RALLY_IGNORE_DAILY_LIMIT?.value ?? false;
                 },
 
                 isClaimToggleKey(key) {
