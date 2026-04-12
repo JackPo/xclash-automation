@@ -32,6 +32,7 @@ from utils.template_matcher import match_template
 from utils.view_state_detector import detect_view, ViewState, go_to_town, go_to_world
 from utils.return_to_base_view import return_to_base_view
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
+from utils.current_state import update_quick_production
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -132,6 +133,9 @@ def quick_production_flow(
         # Step 8: Return to base view
         print("    [QUICK-PROD] Step 8: Returning to base view...")
         return_to_base_view(adb, win, debug=False)
+
+        # Update state with next available time (24 hours from now)
+        update_quick_production(success=True)
 
         print("    [QUICK-PROD] Flow complete - Quick Production used!")
         return True

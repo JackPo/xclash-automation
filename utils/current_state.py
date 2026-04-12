@@ -659,3 +659,31 @@ def update_construction_queue(
 def get_construction_queue() -> dict[str, Any]:
     """Get construction queue from state file."""
     return load_state().get("construction_queue", {})
+
+
+def update_quick_production(success: bool = True) -> None:
+    """
+    Update quick production state after using the skill.
+
+    Records last_used timestamp and calculates next_available (24 hours later).
+
+    Args:
+        success: Whether the skill was successfully used
+    """
+    from datetime import timedelta
+
+    state = load_state()
+    now = datetime.now(timezone.utc)
+    next_available = now + timedelta(hours=24) if success else None
+
+    state["quick_production"] = {
+        "last_used": now.isoformat(),
+        "next_available": next_available.isoformat() if next_available else None,
+        "cooldown_hours": 24,
+    }
+    save_state(state)
+
+
+def get_quick_production() -> dict[str, Any]:
+    """Get quick production state from state file."""
+    return load_state().get("quick_production", {})
