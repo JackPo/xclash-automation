@@ -72,7 +72,7 @@ def parse_time_remaining(text: str) -> int | None:
     text = re.sub(r"Time\s*:?\s*", "", text, flags=re.IGNORECASE)
 
     # Try to match patterns
-    # Pattern 1: Xd HH:MM:SS (days + time)
+    # Pattern 1: Xd HH:MM:SS (days + time with seconds)
     match = re.search(r"(\d+)d\s*(\d{1,2}):(\d{2}):(\d{2})", text)
     if match:
         days = int(match.group(1))
@@ -81,13 +81,28 @@ def parse_time_remaining(text: str) -> int | None:
         seconds = int(match.group(4))
         return days * 86400 + hours * 3600 + minutes * 60 + seconds
 
-    # Pattern 2: HH:MM:SS (time only)
+    # Pattern 2: Xd HH:MM (days + time without seconds)
+    match = re.search(r"(\d+)d\s*(\d{1,2}):(\d{2})(?!:)", text)
+    if match:
+        days = int(match.group(1))
+        hours = int(match.group(2))
+        minutes = int(match.group(3))
+        return days * 86400 + hours * 3600 + minutes * 60
+
+    # Pattern 3: HH:MM:SS (time only with seconds)
     match = re.search(r"(\d{1,2}):(\d{2}):(\d{2})", text)
     if match:
         hours = int(match.group(1))
         minutes = int(match.group(2))
         seconds = int(match.group(3))
         return hours * 3600 + minutes * 60 + seconds
+
+    # Pattern 4: HH:MM (time only without seconds)
+    match = re.search(r"(\d{1,2}):(\d{2})(?!:)", text)
+    if match:
+        hours = int(match.group(1))
+        minutes = int(match.group(2))
+        return hours * 3600 + minutes * 60
 
     logger.warning(f"Could not parse time from: {text}")
     return None

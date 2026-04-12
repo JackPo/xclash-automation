@@ -176,6 +176,7 @@ from flows.union_coal_flow import union_coal_flow
 from flows.union_furnace_flow import union_furnace_flow
 from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
 from flows.beast_training_flow import aggressive_beast_training_flow
+from flows.city_construction_flow import city_construction_speedup_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -214,6 +215,8 @@ from config import (
     ARMS_RACE_BEAST_TRAINING_COOLDOWN,
     ARMS_RACE_ENHANCE_HERO_ENABLED,
     ARMS_RACE_ENHANCE_HERO_LAST_MINUTES,
+    ARMS_RACE_CONSTRUCTION_ENABLED,
+    ARMS_RACE_CONSTRUCTION_LAST_MINUTES,
     STAMINA_CLAIM_BUTTON,
     ARMS_RACE_STAMINA_CLAIM_THRESHOLD,
     ARMS_RACE_BEAST_TRAINING_USE_ENABLED,
@@ -342,6 +345,7 @@ class IconDaemon:
     hospital_state_history: list[HospitalState]
     tavern_scheduled_triggered_date: date | None
     enhance_hero_last_block_start: datetime | None
+    construction_speedup_last_block_start: datetime | None
     arms_race_progress_check_block: datetime | None
     beast_training_current_block: datetime | None
     beast_training_pre_claim_block: datetime | None
@@ -551,6 +555,11 @@ class IconDaemon:
         self.ARMS_RACE_ENHANCE_HERO_ENABLED = ARMS_RACE_ENHANCE_HERO_ENABLED
         self.ENHANCE_HERO_LAST_MINUTES = ARMS_RACE_ENHANCE_HERO_LAST_MINUTES
         self.enhance_hero_last_block_start: datetime | None = None  # Track which block we triggered for
+
+        # City Construction: last N minutes, speedup smallest queue
+        self.ARMS_RACE_CONSTRUCTION_ENABLED = ARMS_RACE_CONSTRUCTION_ENABLED
+        self.CONSTRUCTION_LAST_MINUTES = ARMS_RACE_CONSTRUCTION_LAST_MINUTES
+        self.construction_speedup_last_block_start: datetime | None = None
 
         # Generic Arms Race progress check: log points for ALL events in last 10 min
         self.ARMS_RACE_PROGRESS_CHECK_MINUTES = 10  # Check in last N minutes
@@ -3473,6 +3482,24 @@ class IconDaemon:
                             reason=f"last {arms_race_remaining_mins:.0f}min of Enhance Hero"
                         ))
 
+                # City Construction: last N minutes, speedup smallest queue
+                construction_candidate = False
+                construction_enabled = self._get_config('ARMS_RACE_CONSTRUCTION_ENABLED', ARMS_RACE_CONSTRUCTION_ENABLED)
+                if (construction_enabled and
+                    arms_race_event == "City Construction" and
+                    arms_race_remaining_mins <= self.CONSTRUCTION_LAST_MINUTES and
+                    self._is_user_idle()):
+                    block_start = arms_race['block_start']
+                    if self.construction_speedup_last_block_start != block_start:
+                        construction_candidate = True
+                        flow_candidates.append(FlowCandidate(
+                            name="construction_speedup",
+                            flow_func=lambda adb: city_construction_speedup_flow(adb, self.windows_helper),
+                            priority=FlowPriority.CRITICAL,
+                            critical=True,
+                            reason=f"last {arms_race_remaining_mins:.0f}min of City Construction"
+                        ))
+
                 # =================================================================
                 # GENERIC ARMS RACE PROGRESS CHECK - ALL EVENTS, last 10 minutes
                 # Log current points for data collection, even if we don't have actions
@@ -3922,6 +3949,12 @@ class IconDaemon:
                         block_start = arms_race['block_start']
                         self.enhance_hero_last_block_start = block_start
                         self.logger.info(f"[{iteration}] Enhance hero arms race complete for block {block_start}")
+
+                    # Construction speedup block tracking
+                    if executed_flow == "construction_speedup" and construction_candidate:
+                        block_start = arms_race['block_start']
+                        self.construction_speedup_last_block_start = block_start
+                        self.logger.info(f"[{iteration}] Construction speedup complete for block {block_start}")
 
                     # Soldier speedup block tracking
                     if executed_flow == "soldier_speedup_h2" and soldier_speedup_h2_candidate and speedup_block_start:

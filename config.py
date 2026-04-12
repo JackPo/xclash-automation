@@ -112,6 +112,10 @@ ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 10       # Trigger in last N minutes of Enhance Hero
 ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max hero upgrades per block (1 is usually enough)
 
+# City Construction Arms Race settings
+ARMS_RACE_CONSTRUCTION_ENABLED = True          # Enable/disable construction speedup automation
+ARMS_RACE_CONSTRUCTION_LAST_MINUTES = 20       # Trigger in last N minutes of City Construction
+
 # Soldier Training (during Soldier Training event)
 # Triggers soldier_upgrade_flow to upgrade soldiers at PENDING barracks
 # Requires: idle 5+ min, any barrack in PENDING state, TOWN view with dog house aligned
