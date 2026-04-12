@@ -375,16 +375,24 @@ def city_construction_speedup_flow(
     logger.info("Speedup Step 7: Checking for Complete button...")
     frame = win.get_screenshot_cv2()
 
-    # Check if Complete button is visible at the speedup location
-    # Using research_complete_button which should be same style
+    # Complete button appears at the same position as Speed Up button
+    # Search region centered around the speedup_click position we used
+    complete_region = (
+        speedup_click[0] - 150,  # x
+        speedup_click[1] - 50,   # y
+        300,                      # width
+        100,                      # height
+    )
     found, score, center = match_template(
         frame, "research_complete_button_4k.png",
-        search_region=(2050, 550, 400, 200), threshold=0.1,
+        search_region=complete_region, threshold=0.15,
     )
     if found:
-        logger.info(f"Complete button found at {center}, clicking...")
+        logger.info(f"Complete button found at {center} (score={score:.4f}), clicking...")
         adb.tap(*center, source="flow:construction_speedup:complete")
         time.sleep(0.5)
+    else:
+        logger.info(f"Complete button not found (score={score:.4f}) - construction may still be in progress")
 
     # Step 8: Close panel
     logger.info("Speedup Step 8: Closing panel...")

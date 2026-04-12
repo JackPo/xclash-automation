@@ -817,28 +817,6 @@
                         </button>
                     </div>
 
-                    <!-- Run Zombie Now -->
-                    <div class="flex items-center gap-3">
-                        <div class="w-24 text-sm text-gray-400">Zombie</div>
-                        <select x-model="runZombieSelection"
-                                class="flex-1 bg-dark-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-red-500">
-                            <option value="elite_zombie">Elite Zombie (20 stamina)</option>
-                            <option value="zombie_attack_gold">Gold Mine (10 stamina)</option>
-                            <option value="zombie_attack_food">Food Farm (10 stamina)</option>
-                            <option value="zombie_attack_iron_mine">Iron Mine (10 stamina)</option>
-                        </select>
-                        <div class="flex items-center gap-1">
-                            <span class="text-xs text-gray-500">Lv</span>
-                            <input type="number" x-model.number="targetLevel"
-                                   min="1" max="70"
-                                   class="w-14 bg-dark-800 border border-gray-700 rounded px-2 py-2 text-sm text-center focus:border-red-500">
-                        </div>
-                        <button @click="runZombieWithLevel()"
-                                class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-medium transition">
-                            Run
-                        </button>
-                    </div>
-
                     <!-- Quick Actions -->
                     <div class="flex items-center gap-3">
                         <div class="w-24 text-sm text-gray-400">Quick</div>
@@ -877,81 +855,32 @@
                         </button>
                     </div>
 
-                    <!-- Zombie Burst Mode -->
-                    <div class="mt-4 pt-4 border-t border-gray-700/50">
-                        <div class="flex items-center gap-2 mb-3">
-                            <span class="text-sm text-gray-400">Burst Mode</span>
-                            <span x-show="burstMode.running" class="text-xs text-yellow-400 pulse-slow">Running...</span>
-                        </div>
-                        <div class="flex items-center gap-3 mb-2">
-                            <select x-model="burstMode.flowType"
-                                    class="flex-1 bg-dark-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
-                                    :disabled="burstMode.running">
-                                <option value="elite_zombie">Elite Zombie (20 stamina)</option>
-                                <option value="zombie_attack_gold">Gold Mine (10 stamina)</option>
-                                <option value="zombie_attack_food">Food Farm (10 stamina)</option>
-                                <option value="zombie_attack_iron_mine">Iron Mine (10 stamina)</option>
-                            </select>
-                        </div>
-                        <div class="flex items-center gap-3 mb-2">
-                            <div class="flex items-center gap-2">
-                                <input type="number" x-model.number="burstMode.count" min="1" max="20"
-                                       class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-center"
-                                       :disabled="burstMode.running">
-                                <span class="text-xs text-gray-500">times</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <input type="number" x-model.number="burstMode.delay" min="10" max="600" step="10"
-                                       class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-center"
-                                       :disabled="burstMode.running">
-                                <span class="text-xs text-gray-500">sec delay</span>
-                            </div>
-                            <label class="flex items-center gap-1 text-xs text-gray-400">
-                                <input type="checkbox" x-model="burstMode.untilEmpty" class="rounded"
-                                       :disabled="burstMode.running">
-                                <span>Until empty</span>
-                            </label>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <button @click="startBurstMode()"
-                                    x-show="!burstMode.running"
-                                    class="flex-1 py-2 rounded-lg bg-orange-500/20 border border-orange-500/30 hover:bg-orange-500/30 text-orange-300 text-sm transition">
-                                Start Burst
-                            </button>
-                            <button @click="stopBurstMode()"
-                                    x-show="burstMode.running"
-                                    class="flex-1 py-2 rounded-lg bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 text-red-300 text-sm transition">
-                                Stop (<span x-text="burstMode.completed"></span>/<span x-text="burstMode.untilEmpty ? '∞' : burstMode.count"></span>)
-                            </button>
-                            <div x-show="burstMode.running && burstMode.nextRunIn > 0" class="text-xs text-gray-400">
-                                Next in <span x-text="burstMode.nextRunIn"></span>s
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </section>
         </div>
 
-        <!-- Config Overrides -->
+        <!-- Automation Settings -->
         <section class="card rounded-2xl p-6 border border-gray-800/50">
             <div class="flex items-center gap-3 mb-6">
-                <div class="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center text-orange-400">
+                <div class="w-8 h-8 rounded-lg bg-gray-500/20 flex items-center justify-center text-gray-400">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                     </svg>
                 </div>
-                <h2 class="text-lg font-semibold text-orange-400">Config Overrides</h2>
-                <span class="ml-2 text-sm text-gray-500" x-text="Object.keys(activeOverrides).length + ' active'"></span>
+                <h2 class="text-lg font-semibold text-gray-300">Automation Settings</h2>
+                <span class="ml-2 text-sm text-gray-500" x-text="Object.keys(activeOverrides).length + ' active overrides'"></span>
                 <button @click="loadConfig()" class="ml-auto px-3 py-1.5 text-xs rounded-lg bg-gray-700/50 hover:bg-gray-600/50 transition">
                     Refresh
                 </button>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Rally Settings -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
+                <!-- Rally Monsters -->
+                <div class="bg-dark-800/50 rounded-xl p-5 border border-blue-500/20">
                     <div class="flex items-center gap-2 mb-4">
-                        <span class="text-sm font-medium text-blue-400">Rally Settings</span>
+                        <span class="text-sm font-medium text-blue-400">Rally Monsters</span>
+                        <button @click="loadRallyMonsters()" class="ml-auto px-2 py-1 text-xs rounded bg-gray-700/50 hover:bg-gray-600/50 transition">Refresh</button>
                     </div>
 
                     <div class="space-y-4">
@@ -1056,15 +985,9 @@
                             </div>
                         </div>
 
-                        <!-- Recognized Monsters + Per-Monster Daily Limit Override -->
+                        <!-- Per-Monster Overrides -->
                         <div class="pt-3 mt-1 border-t border-gray-700/40">
-                            <div class="flex items-center justify-between mb-2">
-                                <div class="text-sm text-blue-300">Recognized Monster Types</div>
-                                <button @click="loadRallyMonsters()"
-                                        class="px-2 py-1 text-xs rounded bg-gray-700/50 hover:bg-gray-600/50 transition">
-                                    Refresh
-                                </button>
-                            </div>
+                            <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Per-Monster Overrides</div>
                             <div class="text-xs text-gray-500 mb-3">
                                 Daily-limit policy is standardized as: <span class="text-gray-300">Respect limit</span> vs <span class="text-gray-300">Ignore limit</span>.
                                 This policy applies to all monsters. <span class="text-gray-300">No local exhaustion tracking</span> only means the daemon won't locally mark that monster as exhausted after a limit hit.
@@ -1132,134 +1055,140 @@
                     </div>
                 </div>
 
-                <!-- Stamina Settings -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
+                <!-- Zombie & Stamina (Unified) -->
+                <div class="bg-dark-800/50 rounded-xl p-5 border border-red-500/20">
                     <div class="flex items-center gap-2 mb-4">
-                        <span class="text-sm font-medium text-yellow-400">Stamina Settings</span>
-                    </div>
-
-                    <div class="space-y-4">
-                        <!-- Elite Zombie Threshold -->
-                        <div>
-                            <div class="flex items-center justify-between mb-2">
-                                <div class="text-sm">Elite Threshold</div>
-                                <div class="flex items-center gap-2">
-                                    <span x-show="configs.ELITE_ZOMBIE_STAMINA_THRESHOLD?.overridden" class="text-xs text-orange-400"
-                                          x-text="formatOverrideTime(configs.ELITE_ZOMBIE_STAMINA_THRESHOLD?.expires_in)"></span>
-                                    <input type="number" x-model.number="staminaThreshold"
-                                           min="0" max="200"
-                                           class="w-20 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-right">
-                                    <select x-model="overrideDurations['ELITE_ZOMBIE_STAMINA_THRESHOLD']"
-                                            class="w-28 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-xs">
-                                        <option value="">Permanent</option>
-                                        <option value="15">15m</option>
-                                        <option value="30">30m</option>
-                                        <option value="60">1h</option>
-                                        <option value="120">2h</option>
-                                        <option value="240">4h</option>
-                                        <option value="480">8h</option>
-                                        <option value="1440">24h</option>
-                                        <option value="4320">3d</option>
-                                        <option value="10080">7d</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="text-xs text-gray-500">Default: 118</div>
-                        </div>
-
-                        <!-- Target Level (OCR-based) -->
-                        <div>
-                            <div class="flex items-center justify-between mb-2">
-                                <div class="text-sm">Target Level</div>
-                                <div class="flex items-center gap-2">
-                                    <span x-show="configs.ELITE_ZOMBIE_TARGET_LEVEL?.overridden" class="text-xs text-orange-400"
-                                          x-text="formatOverrideTime(configs.ELITE_ZOMBIE_TARGET_LEVEL?.expires_in)"></span>
-                                    <input type="number" x-model.number="targetLevel"
-                                           min="1" max="70"
-                                           class="w-20 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-sm text-right">
-                                    <select x-model="overrideDurations['ELITE_ZOMBIE_TARGET_LEVEL']"
-                                            class="w-28 bg-dark-900 border border-gray-700 rounded px-2 py-1 text-xs">
-                                        <option value="">Permanent</option>
-                                        <option value="15">15m</option>
-                                        <option value="30">30m</option>
-                                        <option value="60">1h</option>
-                                        <option value="120">2h</option>
-                                        <option value="240">4h</option>
-                                        <option value="480">8h</option>
-                                        <option value="1440">24h</option>
-                                        <option value="4320">3d</option>
-                                        <option value="10080">7d</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="text-xs text-gray-500">Default: 30 (uses OCR + slider)</div>
-                        </div>
-
-                        <!-- Apply Stamina Overrides Button -->
-                        <button @click="applyStaminaOverrides()"
-                                class="w-full py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 text-yellow-300 text-sm transition">
-                            Apply Stamina Overrides
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Zombie Mode -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
-                    <div class="flex items-center gap-2 mb-4">
-                        <span class="text-sm font-medium text-red-400">Zombie Mode</span>
+                        <span class="text-sm font-medium text-red-400">Zombie & Stamina</span>
                         <span x-show="zombieMode.hours_remaining" class="text-xs text-yellow-400"
                               x-text="formatOverrideTime(zombieMode.hours_remaining * 3600)"></span>
+                        <span x-show="burstMode.running" class="text-xs text-orange-400 pulse-slow ml-auto">Burst Running...</span>
+                    </div>
+
+                    <!-- Status Bar -->
+                    <div class="bg-dark-900/50 rounded-lg p-3 mb-4 flex items-center gap-4 flex-wrap">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500">Mode:</span>
+                            <span class="text-sm font-medium" x-text="getZombieModeDisplay(zombieMode.mode)"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500">Lv:</span>
+                            <span class="text-sm font-medium" x-text="targetLevel"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500">Threshold:</span>
+                            <span class="text-sm font-medium" x-text="staminaThreshold"></span>
+                        </div>
+                        <div x-show="zombieMode.hours_remaining" class="flex items-center gap-2 ml-auto">
+                            <span class="text-xs text-yellow-400" x-text="formatOverrideTime(zombieMode.hours_remaining * 3600) + ' left'"></span>
+                        </div>
                     </div>
 
                     <div class="space-y-4">
-                        <!-- Mode Selector -->
+                        <!-- SETTINGS -->
                         <div>
-                            <div class="text-sm mb-2">Auto-Trigger Mode</div>
-                            <select x-model="selectedZombieMode"
-                                    class="w-full bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-red-500">
-                                <option value="elite">Elite Zombie (20 stamina)</option>
-                                <option value="gold">Gold Mine (10 stamina)</option>
-                                <option value="food">Food Farm (10 stamina)</option>
-                                <option value="iron_mine">Iron Mine (10 stamina)</option>
-                            </select>
-                            <div class="text-xs text-gray-500 mt-1">Triggers when stamina exceeds threshold</div>
+                            <div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Settings</div>
+
+                            <!-- Row 1: Mode + Duration -->
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                    <div class="text-xs text-gray-400 mb-1">Mode</div>
+                                    <select x-model="selectedZombieMode"
+                                            class="w-full bg-dark-900 border border-gray-700 rounded px-2 py-1.5 text-sm focus:border-red-500">
+                                        <option value="elite">Elite (20 stam)</option>
+                                        <option value="gold">Gold (10 stam)</option>
+                                        <option value="food">Food (10 stam)</option>
+                                        <option value="iron_mine">Iron (10 stam)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-gray-400 mb-1">Mode Duration</div>
+                                    <div class="flex items-center gap-1">
+                                        <input type="number" x-model.number="zombieModeHours" min="0.5" max="168" step="0.5"
+                                               class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-center focus:border-red-500">
+                                        <span class="text-xs text-gray-500">hrs</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Row 2: Level + Threshold (Elite only for level) -->
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div x-show="selectedZombieMode === 'elite'">
+                                    <div class="text-xs text-gray-400 mb-1">Target Level</div>
+                                    <div class="flex items-center gap-1">
+                                        <input type="number" x-model.number="targetLevel" min="1" max="70"
+                                               class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-center focus:border-red-500">
+                                        <select x-model="overrideDurations['ELITE_ZOMBIE_TARGET_LEVEL']"
+                                                class="bg-dark-900 border border-gray-700 rounded px-1 py-1.5 text-xs">
+                                            <option value="">Perm</option>
+                                            <option value="60">1h</option>
+                                            <option value="240">4h</option>
+                                            <option value="1440">24h</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div x-show="selectedZombieMode === 'elite'">
+                                    <div class="text-xs text-gray-400 mb-1">Stamina Threshold</div>
+                                    <div class="flex items-center gap-1">
+                                        <input type="number" x-model.number="staminaThreshold" min="0" max="200"
+                                               class="w-16 bg-dark-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-center focus:border-red-500">
+                                        <select x-model="overrideDurations['ELITE_ZOMBIE_STAMINA_THRESHOLD']"
+                                                class="bg-dark-900 border border-gray-700 rounded px-1 py-1.5 text-xs">
+                                            <option value="">Perm</option>
+                                            <option value="60">1h</option>
+                                            <option value="240">4h</option>
+                                            <option value="1440">24h</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button @click="applyZombieSettings()"
+                                    class="w-full py-2 rounded-lg bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 text-red-300 text-sm transition">
+                                Apply Settings
+                            </button>
                         </div>
 
-                        <div>
-                            <div class="text-sm mb-2">Duration (hours)</div>
-                            <input type="number" x-model.number="zombieModeHours" min="0.5" max="168" step="0.5"
-                                   class="w-full bg-dark-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:border-red-500">
-                            <div class="text-xs text-gray-500 mt-1">How long to keep this mode active</div>
-                        </div>
+                        <!-- MANUAL RUN -->
+                        <div class="border-t border-gray-700/30 pt-4">
+                            <div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Manual Run</div>
 
-                        <div>
-                            <div class="text-sm mb-2">Target Level (Elite)</div>
-                            <div class="flex items-center gap-2">
-                                <input type="number" x-model.number="targetLevel" min="1" max="70"
-                                       :disabled="selectedZombieMode !== 'elite'"
-                                       class="w-24 bg-dark-900 border border-gray-700 rounded px-2 py-2 text-sm text-center focus:border-red-500 disabled:opacity-50">
-                                <select x-model="overrideDurations['ELITE_ZOMBIE_TARGET_LEVEL']"
-                                        :disabled="selectedZombieMode !== 'elite'"
-                                        class="flex-1 bg-dark-900 border border-gray-700 rounded px-2 py-2 text-xs disabled:opacity-50">
-                                    <option value="">Permanent</option>
-                                    <option value="15">15m</option>
-                                    <option value="30">30m</option>
-                                    <option value="60">1h</option>
-                                    <option value="120">2h</option>
-                                    <option value="240">4h</option>
-                                    <option value="480">8h</option>
-                                    <option value="1440">24h</option>
-                                    <option value="4320">3d</option>
-                                    <option value="10080">7d</option>
-                                </select>
+                            <div class="flex items-center gap-2 mb-3">
+                                <button @click="runZombieOnce()"
+                                        :disabled="burstMode.running"
+                                        class="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm font-medium transition disabled:opacity-40">
+                                    Run Once
+                                </button>
+                            </div>
+
+                            <div class="bg-dark-900/30 rounded-lg p-3">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="text-xs text-gray-400">Burst:</span>
+                                    <input type="number" x-model.number="burstMode.count" min="1" max="20"
+                                           class="w-12 bg-dark-900 border border-gray-700 rounded px-1 py-1 text-xs text-center"
+                                           :disabled="burstMode.running">
+                                    <span class="text-xs text-gray-500">×</span>
+                                    <input type="number" x-model.number="burstMode.delay" min="10" max="600" step="10"
+                                           class="w-14 bg-dark-900 border border-gray-700 rounded px-1 py-1 text-xs text-center"
+                                           :disabled="burstMode.running">
+                                    <span class="text-xs text-gray-500">sec</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button @click="startBurstMode()"
+                                            x-show="!burstMode.running"
+                                            class="flex-1 py-1.5 rounded bg-orange-500/20 border border-orange-500/30 hover:bg-orange-500/30 text-orange-300 text-xs transition">
+                                        Start Burst
+                                    </button>
+                                    <button @click="stopBurstMode()"
+                                            x-show="burstMode.running"
+                                            class="flex-1 py-1.5 rounded bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 text-red-300 text-xs transition">
+                                        Stop (<span x-text="burstMode.completed"></span>/<span x-text="burstMode.count"></span>)
+                                    </button>
+                                    <div x-show="burstMode.running && burstMode.nextRunIn > 0" class="text-xs text-gray-400">
+                                        <span x-text="burstMode.nextRunIn"></span>s
+                                    </div>
+                                </div>
                             </div>
                         </div>
-
-                        <!-- Apply Button -->
-                        <button @click="setZombieMode()"
-                                class="w-full py-2 rounded-lg bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 text-red-300 text-sm transition">
-                            Apply Zombie Mode
-                        </button>
                     </div>
                 </div>
 
@@ -1296,223 +1225,79 @@
                     </div>
                 </div>
 
-                <!-- Arms Race Toggles -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-gray-700/30">
+                <!-- Feature Toggles (Arms Race + Other) -->
+                <div class="bg-dark-800/50 rounded-xl p-5 border border-orange-500/20">
                     <div class="flex items-center gap-2 mb-4">
-                        <span class="text-sm font-medium text-purple-400">Arms Race Events</span>
+                        <span class="text-sm font-medium text-orange-400">Feature Toggles</span>
                     </div>
 
                     <div class="space-y-4">
-                        <!-- Beast Training -->
-                        <div class="override-item">
-                            <div class="override-meta">
-                                <div class="text-sm">Beast Training</div>
-                                <div class="text-xs text-gray-500" x-text="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden ? 'OVERRIDE' : 'Default: ON'"></div>
-                            </div>
-                            <div class="override-controls">
-                                <span x-show="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden" class="text-xs text-orange-400"
-                                      x-text="formatOverrideTime(configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in)"></span>
-                                <div class="seg-wrap">
-                                    <div class="seg-overlay">
-                                        OFF TIMERS
-                                    </div>
-                                    <div class="segmented">
-                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, null)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false ? 'active-off' : ''">
-                                            OFF
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 60)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            1h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 120)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            2h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 480)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            8h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', false, 1440)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            24h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_BEAST_TRAINING_ENABLED', true, null)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_BEAST_TRAINING_ENABLED?.value === true ? 'active-on' : ''">
-                                            ON
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Soldier Training -->
-                        <div class="override-item">
-                            <div class="override-meta">
-                                <div class="text-sm">Soldier Training</div>
-                                <div class="text-xs text-gray-500" x-text="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden ? 'OVERRIDE' : 'Default: ON'"></div>
-                            </div>
-                            <div class="override-controls">
-                                <span x-show="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden" class="text-xs text-orange-400"
-                                      x-text="formatOverrideTime(configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in)"></span>
-                                <div class="seg-wrap">
-                                    <div class="seg-overlay">
-                                        OFF TIMERS
-                                    </div>
-                                    <div class="segmented">
-                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, null)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false ? 'active-off' : ''">
-                                            OFF
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 60)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            1h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 120)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            2h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 480)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            8h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', false, 1440)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.overridden && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === false && configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            24h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_SOLDIER_TRAINING_ENABLED', true, null)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_SOLDIER_TRAINING_ENABLED?.value === true ? 'active-on' : ''">
-                                            ON
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Enhance Hero -->
-                        <div class="override-item">
-                            <div class="override-meta">
-                                <div class="text-sm">Enhance Hero</div>
-                                <div class="text-xs text-gray-500" x-text="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden ? 'OVERRIDE' : 'Default: ON'"></div>
-                            </div>
-                            <div class="override-controls">
-                                <span x-show="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden" class="text-xs text-orange-400"
-                                      x-text="formatOverrideTime(configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in)"></span>
-                                <div class="seg-wrap">
-                                    <div class="seg-overlay">
-                                        OFF TIMERS
-                                    </div>
-                                    <div class="segmented">
-                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, null)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false ? 'active-off' : ''">
-                                            OFF
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 60)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            1h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 120)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            2h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 480)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            8h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', false, 1440)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.overridden && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === false && configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.expires_in ? 'active-timed' : ''">
-                                            24h
-                                        </button>
-                                        <button @click="setBoolOverride('ARMS_RACE_ENHANCE_HERO_ENABLED', true, null)"
-                                                class="seg-btn"
-                                                :class="configs.ARMS_RACE_ENHANCE_HERO_ENABLED?.value === true ? 'active-on' : ''">
-                                            ON
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Config Overrides - All Boolean Toggles -->
-                <div class="bg-dark-800/50 rounded-xl p-5 border border-orange-500/20">
-                    <div class="flex items-center gap-2 mb-4">
-                        <span class="text-sm font-medium text-orange-400">Config Overrides</span>
-                    </div>
-
-                    <div class="space-y-2">
-                        <!-- Show ALL boolean configs with toggles -->
-                        <template x-for="(cfg, key) in configs" :key="key">
-                            <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key)"
-                                 class="override-item py-2 border-b border-gray-700/30 last:border-0">
-                                <div class="override-meta">
-                                    <div class="text-sm" x-text="formatConfigName(key)"></div>
-                                    <div class="text-xs text-gray-500" x-show="isClaimToggleKey(key)"
-                                         x-text="claimToggleHint(key, cfg.value)"></div>
-                                    <div class="text-xs" :class="cfg.overridden ? 'text-orange-400' : 'text-gray-500'"
-                                         x-text="formatConfigStatus(key, cfg)"></div>
-                                </div>
-                                <div class="override-controls">
-                                    <button x-show="cfg.overridden" @click="clearOverride(key)"
-                                            class="px-2 py-1 text-xs rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition">
-                                        Clear
-                                    </button>
-                                    <div class="seg-wrap">
-                                        <div class="seg-overlay" x-text="toggleOverlayLabel(key)"></div>
-                                        <div class="segmented">
-                                            <button @click="setBoolOverride(key, false, null)"
-                                                    class="seg-btn"
-                                                    :class="cfg.value === false ? 'active-off' : ''">
-                                                <span x-text="toggleOffLabel(key)"></span>
-                                            </button>
-                                            <button @click="setBoolOverride(key, false, 60)"
-                                                    class="seg-btn"
-                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
-                                                1h
-                                            </button>
-                                            <button @click="setBoolOverride(key, false, 120)"
-                                                    class="seg-btn"
-                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
-                                                2h
-                                            </button>
-                                            <button @click="setBoolOverride(key, false, 480)"
-                                                    class="seg-btn"
-                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
-                                                8h
-                                            </button>
-                                            <button @click="setBoolOverride(key, false, 1440)"
-                                                    class="seg-btn"
-                                                    :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">
-                                                24h
-                                            </button>
-                                            <button @click="setBoolOverride(key, true, null)"
-                                                    class="seg-btn"
-                                                    :class="cfg.value === true ? 'active-on' : ''">
-                                                <span x-text="toggleOnLabel(key)"></span>
-                                            </button>
+                        <!-- Arms Race Section -->
+                        <div>
+                            <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Arms Race</div>
+                            <div class="space-y-2">
+                                <template x-for="key in ['ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED']" :key="key">
+                                    <div class="override-item py-2 border-b border-gray-700/30 last:border-0" x-show="configs[key]">
+                                        <div class="override-meta">
+                                            <div class="text-sm" x-text="formatConfigName(key)"></div>
+                                            <div class="text-xs" :class="configs[key]?.overridden ? 'text-orange-400' : 'text-gray-500'"
+                                                 x-text="formatConfigStatus(key, configs[key])"></div>
+                                        </div>
+                                        <div class="override-controls">
+                                            <span x-show="configs[key]?.overridden" class="text-xs text-orange-400"
+                                                  x-text="formatOverrideTime(configs[key]?.expires_in)"></span>
+                                            <div class="seg-wrap">
+                                                <div class="seg-overlay">OFF TIMERS</div>
+                                                <div class="segmented">
+                                                    <button @click="setBoolOverride(key, false, null)" class="seg-btn" :class="configs[key]?.value === false ? 'active-off' : ''">OFF</button>
+                                                    <button @click="setBoolOverride(key, false, 60)" class="seg-btn" :class="configs[key]?.overridden && configs[key]?.value === false && configs[key]?.expires_in ? 'active-timed' : ''">1h</button>
+                                                    <button @click="setBoolOverride(key, false, 120)" class="seg-btn" :class="configs[key]?.overridden && configs[key]?.value === false && configs[key]?.expires_in ? 'active-timed' : ''">2h</button>
+                                                    <button @click="setBoolOverride(key, false, 480)" class="seg-btn" :class="configs[key]?.overridden && configs[key]?.value === false && configs[key]?.expires_in ? 'active-timed' : ''">8h</button>
+                                                    <button @click="setBoolOverride(key, false, 1440)" class="seg-btn" :class="configs[key]?.overridden && configs[key]?.value === false && configs[key]?.expires_in ? 'active-timed' : ''">24h</button>
+                                                    <button @click="setBoolOverride(key, true, null)" class="seg-btn" :class="configs[key]?.value === true ? 'active-on' : ''">ON</button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                </template>
                             </div>
-                        </template>
+                        </div>
+
+                        <!-- Other Toggles Section -->
+                        <div class="pt-3 border-t border-gray-700/40">
+                            <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Other</div>
+                            <div class="space-y-2">
+                                <template x-for="(cfg, key) in configs" :key="key">
+                                    <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key) && !key.startsWith('RALLY_MONSTER_')"
+                                         class="override-item py-2 border-b border-gray-700/30 last:border-0">
+                                        <div class="override-meta">
+                                            <div class="text-sm" x-text="formatConfigName(key)"></div>
+                                            <div class="text-xs text-gray-500" x-show="isClaimToggleKey(key)"
+                                                 x-text="claimToggleHint(key, cfg.value)"></div>
+                                            <div class="text-xs" :class="cfg.overridden ? 'text-orange-400' : 'text-gray-500'"
+                                                 x-text="formatConfigStatus(key, cfg)"></div>
+                                        </div>
+                                        <div class="override-controls">
+                                            <button x-show="cfg.overridden" @click="clearOverride(key)"
+                                                    class="px-2 py-1 text-xs rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 transition">
+                                                Clear
+                                            </button>
+                                            <div class="seg-wrap">
+                                                <div class="seg-overlay" x-text="toggleOverlayLabel(key)"></div>
+                                                <div class="segmented">
+                                                    <button @click="setBoolOverride(key, false, null)" class="seg-btn" :class="cfg.value === false ? 'active-off' : ''"><span x-text="toggleOffLabel(key)"></span></button>
+                                                    <button @click="setBoolOverride(key, false, 60)" class="seg-btn" :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">1h</button>
+                                                    <button @click="setBoolOverride(key, false, 120)" class="seg-btn" :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">2h</button>
+                                                    <button @click="setBoolOverride(key, false, 480)" class="seg-btn" :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">8h</button>
+                                                    <button @click="setBoolOverride(key, false, 1440)" class="seg-btn" :class="cfg.overridden && cfg.value === false && cfg.expires_in ? 'active-timed' : ''">24h</button>
+                                                    <button @click="setBoolOverride(key, true, null)" class="seg-btn" :class="cfg.value === true ? 'active-on' : ''"><span x-text="toggleOnLabel(key)"></span></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1864,21 +1649,18 @@
                 zombieMode: { mode: 'elite', expires: null, hours_remaining: null },
                 selectedZombieMode: 'elite',
                 zombieModeHours: 24,
-                runZombieSelection: 'elite_zombie',  // For immediate run (independent of config)
                 // Reinforce loop mode
                 reinforceMode: { active: false, interval: 10, expires: null, hours_remaining: null },
                 reinforceInterval: 10,  // Seconds between runs
-                // Burst mode state
+                // Burst mode state (uses selectedZombieMode for flow type)
                 burstMode: {
                     running: false,
                     count: 5,
                     delay: 300,  // seconds
-                    untilEmpty: false,
                     completed: 0,
                     nextRunIn: 0,
                     intervalId: null,
-                    countdownId: null,
-                    flowType: 'elite_zombie'  // Dedicated selection for burst mode
+                    countdownId: null
                 },
                 toast: { show: false, message: '', type: 'info' },
                 dailyCheckin: { checked_in: false, timestamp: null },
@@ -2547,31 +2329,29 @@
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },
 
-                async runZombieWithLevel() {
+                async runZombieOnce() {
+                    // Run zombie using current selectedZombieMode and targetLevel
                     try {
-                        const selection = this.runZombieSelection;
+                        const mode = this.selectedZombieMode;
                         const level = this.targetLevel;
-                        let endpoint, body;
+                        let body;
 
-                        if (selection === 'elite_zombie') {
-                            endpoint = '/api/ws/command';
+                        if (mode === 'elite') {
                             body = { cmd: 'run_elite_zombie', args: { target_level: level } };
                         } else {
-                            // zombie_attack_gold, zombie_attack_food, zombie_attack_iron_mine
-                            const zombieType = selection.replace('zombie_attack_', '');
-                            endpoint = '/api/ws/command';
-                            body = { cmd: 'run_zombie_attack', args: { zombie_type: zombieType, target_level: level } };
+                            // gold, food, iron_mine -> zombie_attack
+                            body = { cmd: 'run_zombie_attack', args: { zombie_type: mode, target_level: level } };
                         }
 
-                        this.showToast(`Running ${this.formatFlowName(selection)} at level ${level}...`, 'info');
-                        const res = await fetch(endpoint, {
+                        this.showToast(`Running ${this.getZombieModeDisplay(mode)} at level ${level}...`, 'info');
+                        const res = await fetch('/api/ws/command', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(body)
                         });
                         const data = await res.json();
                         if (data.success) {
-                            this.showToast(`Started ${this.formatFlowName(selection)} (Lv ${level})`, 'success');
+                            this.showToast(`Started ${this.getZombieModeDisplay(mode)} (Lv ${level})`, 'success');
                         } else {
                             this.showToast(`Failed: ${data.error || data.detail}`, 'error');
                         }
@@ -2649,6 +2429,39 @@
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },
 
+                async applyZombieSettings() {
+                    // Combined: sets zombie mode + applies stamina/level overrides
+                    try {
+                        const hours = this.zombieModeHours || 24;
+                        const res = await fetch(`/api/zombie-mode/${this.selectedZombieMode}?hours=${encodeURIComponent(hours)}`, { method: 'POST' });
+                        const data = await res.json();
+                        if (!data.success) {
+                            this.showToast(`Failed: ${data.detail}`, 'error');
+                            return;
+                        }
+
+                        if (this.selectedZombieMode === 'elite') {
+                            const levelDuration = this.overrideDurations?.['ELITE_ZOMBIE_TARGET_LEVEL'];
+                            const thresholdDuration = this.overrideDurations?.['ELITE_ZOMBIE_STAMINA_THRESHOLD'];
+
+                            await fetch('/api/config/ELITE_ZOMBIE_TARGET_LEVEL/override', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ value: this.targetLevel, duration_minutes: levelDuration ? parseInt(levelDuration) : null })
+                            });
+
+                            await fetch('/api/config/ELITE_ZOMBIE_STAMINA_THRESHOLD/override', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ value: this.staminaThreshold, duration_minutes: thresholdDuration ? parseInt(thresholdDuration) : null })
+                            });
+                        }
+
+                        this.showToast(`Applied: ${this.getZombieModeDisplay(this.selectedZombieMode)} mode`, 'success');
+                        await Promise.all([this.loadZombieMode(), this.loadConfig()]);
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
                 async runCurrentZombie() {
                     // Run the currently active zombie mode flow
                     const mode = this.zombieMode.mode || 'elite';
@@ -2722,8 +2535,10 @@
                 // =============================================
 
                 async startBurstMode() {
-                    const flow = this.burstMode.flowType;
-                    const staminaCost = flow === 'elite_zombie' ? 20 : 10;
+                    // Use selectedZombieMode and convert to flow name
+                    const mode = this.selectedZombieMode;
+                    const flow = mode === 'elite' ? 'elite_zombie' : `zombie_attack_${mode}`;
+                    const staminaCost = mode === 'elite' ? 20 : 10;
 
                     this.burstMode.running = true;
                     this.burstMode.completed = 0;
@@ -2740,15 +2555,8 @@
                 },
 
                 async runBurstIteration(flow, staminaCost) {
-                    // Check if we should stop (stamina too low for "until empty" mode)
-                    if (this.burstMode.untilEmpty && this.status.stamina !== null && this.status.stamina < staminaCost) {
-                        this.showToast(`Burst complete: stamina too low (${this.status.stamina})`, 'success');
-                        this.stopBurstMode();
-                        return false;
-                    }
-
-                    // Check if we've hit the count limit (non-untilEmpty mode)
-                    if (!this.burstMode.untilEmpty && this.burstMode.completed >= this.burstMode.count) {
+                    // Check if we've hit the count limit
+                    if (this.burstMode.completed >= this.burstMode.count) {
                         this.showToast(`Burst complete: ${this.burstMode.completed} runs`, 'success');
                         this.stopBurstMode();
                         return false;
@@ -2796,8 +2604,7 @@
                         const shouldContinue = await this.runBurstIteration(flow, staminaCost);
                         if (shouldContinue && this.burstMode.running) {
                             // Check if more runs needed
-                            const moreNeeded = this.burstMode.untilEmpty || this.burstMode.completed < this.burstMode.count;
-                            if (moreNeeded) {
+                            if (this.burstMode.completed < this.burstMode.count) {
                                 this.burstMode.nextRunIn = this.burstMode.delay;
                                 this.scheduleBurstNext(flow, staminaCost);
                             } else {
