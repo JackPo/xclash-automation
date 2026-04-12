@@ -588,8 +588,8 @@ QUICK_PROD_CLASS_SKILL_CLICK = (1620, 1255)  # center of button
 # Class Skill panel header region (for verification)
 QUICK_PROD_HEADER_REGION = (1580, 408, 690, 92)  # x, y, w, h
 
-# Quick Production Use button (third row in Class Skill panel)
-QUICK_PROD_USE_CLICK = (2284, 1411)
+# Quick Production Use button (first row in Class Skill panel)
+QUICK_PROD_USE_CLICK = (2284, 715)
 
 # =============================================================================
 # LOAD LOCAL OVERRIDES

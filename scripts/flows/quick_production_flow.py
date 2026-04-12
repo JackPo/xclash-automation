@@ -120,7 +120,7 @@ def quick_production_flow(
 
         print(f"    [QUICK-PROD] Class Skill panel open (score={score:.4f})")
 
-        # Step 6: Click Quick Production Use button (third row)
+        # Step 6: Click Quick Production Use button (first row)
         print(f"    [QUICK-PROD] Step 6: Clicking Quick Production Use at {QUICK_PROD_USE_CLICK}...")
         adb.tap(*QUICK_PROD_USE_CLICK, source="flow:quick_prod:use")
         time.sleep(1.0)
