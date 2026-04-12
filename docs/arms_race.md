@@ -190,6 +190,45 @@ Construction queue times are saved to `daemon_current_state.json` for frontend d
 ## Progress data collection
 In the last 10 minutes of every Arms Race block, the daemon records points for diagnostics and threshold tuning.
 
+## Class Skills automation
+
+Class Skills are separate from Arms Race but managed by the daemon with their own cooldowns.
+
+### Quick Production
+
+Grants 24 hours of wheat, iron, and gold production instantly.
+
+**Cooldown**: 24 hours (in-game cooldown is ~23.5 hours)
+
+**Flow** (`quick_production_flow`):
+1. Navigate TOWN → WORLD (centers map on own castle)
+2. Click screen center (1920, 1080) to open castle popup
+3. Template match `class_skill_button_4k.png` → click Class Skill button
+4. Verify Class Skill panel opened via `class_skill_header_4k.png`
+5. Template match `quick_production_icon_4k.png` → get row Y coordinate
+6. Template match `class_skill_use_button_4k.png` → verify same row (Y ± 100px)
+7. Click Use button
+8. Close reward popup, return to base view
+
+**Why dynamic detection**: The Class Skill panel can show skills in different order. The flow finds Quick Production's icon first, then clicks the Use button in the same row.
+
+**Templates**:
+- `class_skill_button_4k.png` - button in castle popup
+- `class_skill_header_4k.png` - panel header verification
+- `quick_production_icon_4k.png` - hourglass + wheat icon
+- `accelerate_construction_icon_4k.png` - hammer icon
+- `accelerate_research_icon_4k.png` - book icon
+- `class_skill_use_button_4k.png` - blue Use button
+
+**State tracking**:
+- `daemon_current_state.json`: `quick_production.last_used`, `quick_production.next_available`
+- `daemon_schedule.json`: scheduler cooldown tracking
+
+**Daemon integration**:
+- Priority: CRITICAL (uninterruptible)
+- Requires: TOWN or WORLD view, user idle
+- Scheduler: 86400s cooldown
+
 ## Related docs
 - `../ARMS_RACE_SCHEDULE.md` for the full schedule table
 - `BEAST_TRAINING_LOGIC.md` for the smart beast training flow
