@@ -26,7 +26,6 @@ from config import (
     QUICK_PROD_CLASS_SKILL_CLICK,
     QUICK_PROD_CLASS_SKILL_REGION,
     QUICK_PROD_HEADER_REGION,
-    QUICK_PROD_USE_CLICK,
 )
 from utils.template_matcher import match_template
 from utils.view_state_detector import detect_view, ViewState, go_to_town, go_to_world
@@ -120,18 +119,53 @@ def quick_production_flow(
 
         print(f"    [QUICK-PROD] Class Skill panel open (score={score:.4f})")
 
-        # Step 6: Click Quick Production Use button (first row)
-        print(f"    [QUICK-PROD] Step 6: Clicking Quick Production Use at {QUICK_PROD_USE_CLICK}...")
-        adb.tap(*QUICK_PROD_USE_CLICK, source="flow:quick_prod:use")
+        # Step 6: Find Quick Production icon to get its row position
+        print("    [QUICK-PROD] Step 6: Looking for Quick Production icon...")
+
+        qp_found, qp_score, qp_center = match_template(
+            frame, "quick_production_icon_4k.png",
+            threshold=0.15
+        )
+
+        if not qp_found:
+            print(f"    [QUICK-PROD] FAILED: Quick Production icon not found (score={qp_score:.4f})")
+            return_to_base_view(adb, win, debug=False)
+            return False
+
+        qp_y = qp_center[1]
+        print(f"    [QUICK-PROD] Quick Production icon at {qp_center} (score={qp_score:.4f})")
+
+        # Step 7: Find Use button in the same row (within Y tolerance)
+        print("    [QUICK-PROD] Step 7: Looking for Use button in same row...")
+
+        use_found, use_score, use_center = match_template(
+            frame, "class_skill_use_button_4k.png",
+            threshold=0.10
+        )
+
+        if not use_found:
+            print(f"    [QUICK-PROD] FAILED: Use button not found (score={use_score:.4f}) - may be on cooldown")
+            return_to_base_view(adb, win, debug=False)
+            return False
+
+        # Verify Use button is in same row as Quick Production (Y within 100px)
+        use_y = use_center[1]
+        if abs(use_y - qp_y) > 100:
+            print(f"    [QUICK-PROD] FAILED: Use button Y={use_y} not in Quick Production row Y={qp_y}")
+            return_to_base_view(adb, win, debug=False)
+            return False
+
+        print(f"    [QUICK-PROD] Use button found at {use_center} (score={use_score:.4f}), clicking...")
+        adb.tap(*use_center, source="flow:quick_prod:use")
         time.sleep(1.0)
 
-        # Step 7: Tap to close reward popup
-        print("    [QUICK-PROD] Step 7: Closing reward popup...")
+        # Step 8: Tap to close reward popup
+        print("    [QUICK-PROD] Step 8: Closing reward popup...")
         adb.tap(1920, 1500, source="flow:quick_prod:close")
         time.sleep(0.5)
 
-        # Step 8: Return to base view
-        print("    [QUICK-PROD] Step 8: Returning to base view...")
+        # Step 9: Return to base view
+        print("    [QUICK-PROD] Step 9: Returning to base view...")
         return_to_base_view(adb, win, debug=False)
 
         # Update state with next available time (24 hours from now)
