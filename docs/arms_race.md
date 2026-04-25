@@ -196,19 +196,25 @@ Class Skills are separate from Arms Race but managed by the daemon with their ow
 
 ### Quick Production
 
-Grants 24 hours of wheat, iron, and gold production instantly.
+Grants 24 hours of wheat, iron, and gold production instantly. With Minister of Domestic Affairs title (+100% resource output), the yield is doubled.
 
 **Cooldown**: 24 hours (in-game cooldown is ~23.5 hours)
 
 **Flow** (`quick_production_flow`):
+0. Apply Minister of Domestic Affairs title (+100% Food/Iron/Gold output)
 1. Navigate TOWN → WORLD (centers map on own castle)
 2. Click screen center (1920, 1080) to open castle popup
 3. Template match `class_skill_button_4k.png` → click Class Skill button
 4. Verify Class Skill panel opened via `class_skill_header_4k.png`
 5. Template match `quick_production_icon_4k.png` → get row Y coordinate
-6. Template match `class_skill_use_button_4k.png` → verify same row (Y ± 100px)
+6. Template match `class_skill_use_button_4k.png` in same row
 7. Click Use button
-8. Close reward popup, return to base view
+8. **Verify reward popup appeared** (Class Skill panel gone) - retry if needed
+9. Close reward popup, return to base view
+
+**Debug screenshots**: Always saved to `screenshots/debug/quick_prod/` with timestamps:
+- `00_initial.png`, `01_after_title.png`, `02_town.png`, etc.
+- `FAIL_*.png` on errors (e.g., `FAIL_no_use_button_COOLDOWN.png`)
 
 **Why dynamic detection**: The Class Skill panel can show skills in different order. The flow finds Quick Production's icon first, then clicks the Use button in the same row.
 

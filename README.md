@@ -74,8 +74,8 @@ Notes:
   - Timestamp is persisted as `tavern_quests.last_dispatch` in scheduler state (`data/daemon_schedule.json` via scheduler API).
   - If called too soon, dispatch returns `skipped: "too_soon"`.
 - VS day gating for question-mark quests:
-  - `VS_QUESTION_MARK_SKIP_DAYS = [3, 6]` means question-mark dispatch is disabled on those days.
-  - On skip days, dispatch effectively runs gold-scroll quests only.
+  - `VS_QUESTION_MARK_SKIP_DAYS = [2, 5, 6]` means question-mark dispatch is disabled on those days.
+  - On skip days, dispatch effectively runs gold-scroll quests only (orange tavern quests).
   - If VS-day lookup fails, logic fails open and allows question-mark dispatch.
 - Dispatch target detection details:
   - Go taps use fixed X (`GO_BUTTON_CLICK_X`) and reward-row Y derived from template matches.
