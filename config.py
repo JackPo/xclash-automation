@@ -85,6 +85,7 @@ ARMS_RACE_BEAST_TRAINING_STAMINA_THRESHOLD = 20  # Minimum stamina required
 ARMS_RACE_BEAST_TRAINING_COOLDOWN = 90         # Seconds between rallies
 ARMS_RACE_STAMINA_CLAIM_THRESHOLD = 60         # Claim free stamina when stamina < this value
 ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES = 6 # Claim stamina + block elite rallies this many min BEFORE event
+END_OF_DAY_STAMINA_CLAIM_MINUTES = 10          # Claim free stamina in last N minutes of each day
 
 # Use Button during Beast Training (consumes stamina recovery items)
 ARMS_RACE_BEAST_TRAINING_USE_ENABLED = True    # Enable/disable Use button automation
@@ -99,6 +100,7 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when st
 # Set via WebSocket: {"action": "set_zombie_mode", "mode": "gold", "hours": 24}
 ZOMBIE_MODE_CONFIG = {
     "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie", "level_clicks": 0},
+    "overlord": {"stamina": 190, "points": 2000, "flow": "elite_zombie", "level_clicks": 0},
     "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold", "level_clicks": 0},
     "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food", "level_clicks": 0},
     "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine", "level_clicks": 0},
@@ -177,7 +179,7 @@ CONSTRUCTION_QUICK_SPEEDUP_REGION = (1600, 1800, 600, 400)
 # When the current Arms Race day is in this list, soldier promotions trigger ALL DAY
 # regardless of which 4-hour event is active (overrides "Soldier Training" event check)
 # Example: [2] = Day 2 only, [2, 5] = Day 2 and Day 5
-VS_SOLDIER_PROMOTION_DAYS = [2]  # Day 2 = Thursday in current cycle
+VS_SOLDIER_PROMOTION_DAYS = [5]  # Day 5 = VS soldier promotion day
 
 # VS Level Chest Days
 # When the current Arms Race day is in this list, open level chests (Lv2, Lv3, Lv4) in bag
@@ -186,9 +188,10 @@ VS_LEVEL_CHEST_DAYS = [7]  # Day 7 = chest-opening VS event day
 
 # VS Question Mark Quest Skip Days
 # On these days, skip starting quests with question mark reward tiles (only gold quests allowed)
-# Day 3 = gold quest event day
-# Day 6 = day before chest opening, save question marks for Day 7
-VS_QUESTION_MARK_SKIP_DAYS = [3, 6]
+# Day 2 = gold quest event day
+# Day 5 = gold quest event day
+# Day 6 = gold quest event day
+VS_QUESTION_MARK_SKIP_DAYS = [2, 5, 6]
 
 # Tavern Quest Time Gating (Pacific Time)
 # Quest starts (clicking Go) only allowed from start time until server reset
@@ -582,8 +585,8 @@ OCR_PROMPT_TRAINING_TIME = (
 # Class Skill -> Quick Production -> Use
 # =============================================================================
 
-# Castle click position on world map (own castle with green checkmark)
-QUICK_PROD_CASTLE_CLICK = (1042, 1188)
+# Castle click position on world map (screen center after TOWN->WORLD)
+QUICK_PROD_CASTLE_CLICK = (1920, 1080)
 
 # Class Skill button in castle popup (hexagonal button)
 QUICK_PROD_CLASS_SKILL_REGION = (1520, 1180, 200, 160)  # x, y, w, h

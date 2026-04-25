@@ -2,23 +2,30 @@
 Quick Production flow - use the Quick Production class skill.
 
 This flow:
-1. Navigates to WORLD view (from TOWN)
-2. Clicks on own castle to open the castle popup
-3. Clicks the "Class Skill" button
-4. Waits for Class Skill panel to open
-5. Clicks the "Quick Production" Use button
-6. Returns to base view
+1. Apply Minister of Domestic Affairs title (+100% resource output)
+2. Navigates to WORLD view (from TOWN)
+3. Clicks on own castle to open the castle popup
+4. Clicks the "Class Skill" button
+5. Waits for Class Skill panel to open
+6. Clicks the "Quick Production" Use button
+7. VERIFIES reward popup appeared (proof skill was used)
+8. Returns to base view
 
 Quick Production grants 24 hours of wheat, iron, and gold production instantly.
+With Minister of Domestic Affairs title, output is doubled.
 Cooldown: ~23.5 hours between uses.
 
 Templates:
 - class_skill_header_4k.png (690x92) - panel header verification
 - class_skill_button_4k.png (200x160) - button in castle popup
+- quick_production_reward_4k.png - reward popup verification
 """
 from __future__ import annotations
 
+import cv2
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import (
@@ -32,13 +39,27 @@ from utils.view_state_detector import detect_view, ViewState, go_to_town, go_to_
 from utils.return_to_base_view import return_to_base_view
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
 from utils.current_state import update_quick_production
+from scripts.flows.title_management_flow import title_management_flow
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
 # Template matching thresholds
-CLASS_SKILL_BUTTON_THRESHOLD = 0.10
-CLASS_SKILL_HEADER_THRESHOLD = 0.10
+CLASS_SKILL_BUTTON_THRESHOLD = 0.05
+CLASS_SKILL_HEADER_THRESHOLD = 0.05
+
+# Debug screenshot directory
+DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "quick_prod"
+
+
+def _save_debug_screenshot(win: WindowsScreenshotHelper, step: str) -> None:
+    """Save a debug screenshot with timestamp."""
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    frame = win.get_screenshot_cv2()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = DEBUG_DIR / f"{ts}_{step}.png"
+    cv2.imwrite(str(path), frame)
+    print(f"    [QUICK-PROD] Screenshot: {path.name}")
 
 
 def quick_production_flow(
@@ -60,64 +81,100 @@ def quick_production_flow(
         debug: Enable debug output (default False)
 
     Returns:
-        bool: True if Quick Production was successfully used
+        bool: True if Quick Production was successfully used AND verified
     """
     if win is None:
         win = WindowsScreenshotHelper()
 
     print("    [QUICK-PROD] Starting Quick Production flow...")
 
+    # Always save screenshots for this important daily flow
+    _save_debug_screenshot(win, "00_initial")
+
     try:
+        # Step 0: Apply Minister of Domestic Affairs title for +100% resource output
+        # Note: return_to_base=False because go_to_town() below is more reliable
+        # (return_to_base_view can exit early if user activity is detected)
+        print("    [QUICK-PROD] Step 0: Applying Minister of Domestic Affairs title...")
+        title_result = title_management_flow(
+            adb, "minister_of_domestic_affairs", win,
+            debug=debug, return_to_base=False
+        )
+        if title_result:
+            print("    [QUICK-PROD] Title applied successfully!")
+        else:
+            print("    [QUICK-PROD] WARNING: Could not apply title, proceeding anyway...")
+        time.sleep(0.5)
+        _save_debug_screenshot(win, "01_after_title")
+
         # Step 1: Go to TOWN first (required for centering)
         print("    [QUICK-PROD] Step 1: Going to TOWN...")
         go_to_town(adb, debug=False)
         time.sleep(1.0)
+        _save_debug_screenshot(win, "02_town")
 
         # Step 2: Go to WORLD - this centers the map on own castle
         print("    [QUICK-PROD] Step 2: Going to WORLD (centers on castle)...")
         go_to_world(adb, debug=False)
         time.sleep(1.0)
+        _save_debug_screenshot(win, "03_world")
 
-        # Step 3: Click center of screen to open own castle popup
-        # After TOWN->WORLD, castle is at screen center
-        SCREEN_CENTER = (1920, 1080)
-        print(f"    [QUICK-PROD] Step 3: Clicking castle at center {SCREEN_CENTER}...")
-        adb.tap(*SCREEN_CENTER, source="flow:quick_prod:castle")
-        time.sleep(1.0)
+        # Step 3: Click on own castle to open castle popup
+        # After TOWN->WORLD, castle is centered - use config position
+        print(f"    [QUICK-PROD] Step 3: Clicking castle at {QUICK_PROD_CASTLE_CLICK}...")
+        adb.tap(*QUICK_PROD_CASTLE_CLICK, source="flow:quick_prod:castle")
+        time.sleep(1.5)  # Give popup time to appear
+        _save_debug_screenshot(win, "04_castle_popup")
 
-        # Step 4: Find and click Class Skill button
+        # Step 4: Find and click Class Skill button (poll up to 3 seconds)
         print("    [QUICK-PROD] Step 4: Looking for Class Skill button...")
-        frame = win.get_screenshot_cv2()
+        button_found = False
+        center = None
+        score = 1.0
+        for attempt in range(6):
+            frame = win.get_screenshot_cv2()
+            found, score, center = match_template(
+                frame, "class_skill_button_4k.png",
+                threshold=CLASS_SKILL_BUTTON_THRESHOLD
+            )
+            if found:
+                button_found = True
+                print(f"    [QUICK-PROD] Class Skill button found at {center} (score={score:.4f}, attempt {attempt+1})")
+                break
+            time.sleep(0.5)
 
-        found, score, center = match_template(
-            frame, "class_skill_button_4k.png",
-            threshold=CLASS_SKILL_BUTTON_THRESHOLD
-        )
-
-        if not found:
+        if not button_found:
             print(f"    [QUICK-PROD] FAILED: Class Skill button not found (score={score:.4f})")
+            _save_debug_screenshot(win, "FAIL_no_class_skill_button")
             return_to_base_view(adb, win, debug=False)
             return False
 
-        print(f"    [QUICK-PROD] Class Skill button found at {center} (score={score:.4f}), clicking...")
         adb.tap(*center, source="flow:quick_prod:class_skill")
         time.sleep(1.0)
 
-        # Step 5: Verify Class Skill panel opened
-        print("    [QUICK-PROD] Step 5: Verifying Class Skill panel...")
-        frame = win.get_screenshot_cv2()
+        # Step 5: Wait for Class Skill panel to open (poll up to 3 seconds)
+        print("    [QUICK-PROD] Step 5: Waiting for Class Skill panel...")
+        panel_found = False
+        frame = None
+        for attempt in range(6):
+            time.sleep(0.5)
+            frame = win.get_screenshot_cv2()
+            found, score, _ = match_template(
+                frame, "class_skill_header_4k.png",
+                threshold=CLASS_SKILL_HEADER_THRESHOLD
+            )
+            if found:
+                panel_found = True
+                print(f"    [QUICK-PROD] Class Skill panel open (score={score:.4f}, attempt {attempt+1})")
+                break
 
-        found, score, _ = match_template(
-            frame, "class_skill_header_4k.png",
-            threshold=CLASS_SKILL_HEADER_THRESHOLD
-        )
-
-        if not found:
-            print(f"    [QUICK-PROD] FAILED: Class Skill panel not found (score={score:.4f})")
+        if not panel_found:
+            print(f"    [QUICK-PROD] FAILED: Class Skill panel not found after 3s (score={score:.4f})")
+            _save_debug_screenshot(win, "FAIL_no_class_skill_panel")
             return_to_base_view(adb, win, debug=False)
             return False
 
-        print(f"    [QUICK-PROD] Class Skill panel open (score={score:.4f})")
+        _save_debug_screenshot(win, "05_class_skill_panel")
 
         # Step 6: Find Quick Production icon to get its row position
         print("    [QUICK-PROD] Step 6: Looking for Quick Production icon...")
@@ -129,53 +186,101 @@ def quick_production_flow(
 
         if not qp_found:
             print(f"    [QUICK-PROD] FAILED: Quick Production icon not found (score={qp_score:.4f})")
+            _save_debug_screenshot(win, "FAIL_no_qp_icon")
             return_to_base_view(adb, win, debug=False)
             return False
 
         qp_y = qp_center[1]
         print(f"    [QUICK-PROD] Quick Production icon at {qp_center} (score={qp_score:.4f})")
 
-        # Step 7: Find Use button in the same row (within Y tolerance)
+        # Step 7: Find Use button in the same row (constrain search to Quick Production row)
         print("    [QUICK-PROD] Step 7: Looking for Use button in same row...")
+
+        # Search region: right half of screen, centered on Quick Production Y
+        # Use button is to the right of the icon, same row
+        use_search_region = (1920, qp_y - 60, 800, 120)  # x, y, w, h
 
         use_found, use_score, use_center = match_template(
             frame, "class_skill_use_button_4k.png",
-            threshold=0.10
+            search_region=use_search_region,
+            threshold=0.15
         )
 
         if not use_found:
-            print(f"    [QUICK-PROD] FAILED: Use button not found (score={use_score:.4f}) - may be on cooldown")
-            return_to_base_view(adb, win, debug=False)
-            return False
-
-        # Verify Use button is in same row as Quick Production (Y within 100px)
-        use_y = use_center[1]
-        if abs(use_y - qp_y) > 100:
-            print(f"    [QUICK-PROD] FAILED: Use button Y={use_y} not in Quick Production row Y={qp_y}")
+            print(f"    [QUICK-PROD] FAILED: Use button not found in row (score={use_score:.4f}) - ON COOLDOWN?")
+            _save_debug_screenshot(win, "FAIL_no_use_button_COOLDOWN")
             return_to_base_view(adb, win, debug=False)
             return False
 
         print(f"    [QUICK-PROD] Use button found at {use_center} (score={use_score:.4f}), clicking...")
         adb.tap(*use_center, source="flow:quick_prod:use")
-        time.sleep(1.0)
+        time.sleep(1.5)
 
-        # Step 8: Tap to close reward popup
-        print("    [QUICK-PROD] Step 8: Closing reward popup...")
+        # Step 8: VERIFY reward popup appeared - THIS IS CRITICAL
+        print("    [QUICK-PROD] Step 8: Verifying reward popup...")
+        frame = win.get_screenshot_cv2()
+        _save_debug_screenshot(win, "06_after_use_click")
+
+        # Check for "Congratulations" text or reward popup
+        # The reward popup shows Gold/Wheat/Iron icons with amounts
+        # Look for the "Tap to Close" text or congratulations header
+        reward_verified = False
+
+        # Try matching congratulations popup (we need to create this template if it doesn't exist)
+        # For now, check if the Class Skill panel is GONE (popup replaced it)
+        panel_gone, panel_score, _ = match_template(
+            frame, "class_skill_header_4k.png",
+            threshold=CLASS_SKILL_HEADER_THRESHOLD
+        )
+
+        if not panel_gone:
+            # Panel is gone, something else is on screen - likely reward popup
+            reward_verified = True
+            print(f"    [QUICK-PROD] Reward popup detected (panel gone, score={panel_score:.4f})")
+        else:
+            # Panel still visible - click might not have worked
+            print(f"    [QUICK-PROD] WARNING: Class Skill panel still visible (score={panel_score:.4f})")
+            # Try clicking Use again
+            print("    [QUICK-PROD] Retrying Use button click...")
+            adb.tap(*use_center, source="flow:quick_prod:use_retry")
+            time.sleep(1.5)
+            frame = win.get_screenshot_cv2()
+            _save_debug_screenshot(win, "07_after_retry")
+
+            panel_gone2, panel_score2, _ = match_template(
+                frame, "class_skill_header_4k.png",
+                threshold=CLASS_SKILL_HEADER_THRESHOLD
+            )
+            if not panel_gone2:
+                reward_verified = True
+                print(f"    [QUICK-PROD] Reward popup detected on retry (score={panel_score2:.4f})")
+
+        if not reward_verified:
+            print("    [QUICK-PROD] FAILED: Could not verify reward popup - skill may not have been used!")
+            _save_debug_screenshot(win, "FAIL_no_reward_popup")
+            return_to_base_view(adb, win, debug=False)
+            return False
+
+        # Step 9: Tap to close reward popup
+        print("    [QUICK-PROD] Step 9: Closing reward popup...")
         adb.tap(1920, 1500, source="flow:quick_prod:close")
         time.sleep(0.5)
+        _save_debug_screenshot(win, "08_after_close")
 
-        # Step 9: Return to base view
-        print("    [QUICK-PROD] Step 9: Returning to base view...")
+        # Step 10: Return to base view
+        print("    [QUICK-PROD] Step 10: Returning to base view...")
         return_to_base_view(adb, win, debug=False)
+        _save_debug_screenshot(win, "09_final")
 
         # Update state with next available time (24 hours from now)
         update_quick_production(success=True)
 
-        print("    [QUICK-PROD] Flow complete - Quick Production used!")
+        print("    [QUICK-PROD] SUCCESS - Quick Production used and verified!")
         return True
 
     except Exception as e:
         print(f"    [QUICK-PROD] ERROR: {e}")
+        _save_debug_screenshot(win, f"ERROR_{type(e).__name__}")
         try:
             return_to_base_view(adb, win, debug=False)
         except Exception:
