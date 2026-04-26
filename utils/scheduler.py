@@ -34,6 +34,7 @@ FLOW_CONFIGS = {
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 0},  # 4hr cooldown, NO idle (time-critical)
+    "end_of_day_stamina_claim": {"cooldown": 86400, "idle_required": 0},  # 24hr cooldown, NO idle (time-critical)
     # Harvest flows - 10s cooldown to prevent spam-clicking same bubble
     "corn_harvest": {"cooldown": 10, "idle_required": 0},
     "gold_coin": {"cooldown": 10, "idle_required": 0},
@@ -296,23 +297,28 @@ class DaemonScheduler:
         else:
             logger.info(f"[SCHEDULER] Tavern completions cleared (no active quests)")
 
-    def is_tavern_completion_imminent(self, buffer_seconds: int = 5) -> bool:
+    def is_tavern_completion_imminent(self, buffer_seconds: int = 5, overdue_grace_seconds: int = 600) -> bool:
         """
-        Check if any tavern quest completion is within buffer_seconds.
+        Check if any tavern quest completion is imminent or recently overdue.
 
         Args:
             buffer_seconds: How many seconds before completion to trigger
+            overdue_grace_seconds: How many seconds after completion to still trigger (for missed claims)
 
         Returns:
-            True if a quest is about to complete
+            True if a quest is about to complete OR recently overdue (needs claiming)
         """
         completions = self.get_tavern_completions()
         now = datetime.now()
 
         for completion in completions:
             time_until = (completion - now).total_seconds()
-            if 0 < time_until <= buffer_seconds:
-                logger.info(f"[SCHEDULER] Tavern quest completing in {time_until:.0f}s! (at {completion.strftime('%H:%M:%S')})")
+            # Trigger if: imminent (within buffer_seconds) OR overdue (within grace period)
+            if -overdue_grace_seconds <= time_until <= buffer_seconds:
+                if time_until > 0:
+                    logger.info(f"[SCHEDULER] Tavern quest completing in {time_until:.0f}s! (at {completion.strftime('%H:%M:%S')})")
+                else:
+                    logger.info(f"[SCHEDULER] Tavern quest OVERDUE by {-time_until:.0f}s! (was {completion.strftime('%H:%M:%S')})")
                 return True
         return False
 
