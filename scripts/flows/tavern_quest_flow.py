@@ -1139,6 +1139,19 @@ def _run_claim_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = 
         break
 
     logger.info(f"[CLAIM] === CLAIM MODE COMPLETE: {total_claims} claims ===")
+
+    # Clear any overdue completions to prevent infinite claim loops
+    # If we claimed something, it's done. If we didn't find anything, the completion time was wrong.
+    from utils.scheduler import get_scheduler
+    scheduler = get_scheduler()
+    now = datetime.now()
+    current_completions = scheduler.get_tavern_completions()
+    future_completions = [c for c in current_completions if c > now]
+    if len(future_completions) < len(current_completions):
+        cleared = len(current_completions) - len(future_completions)
+        logger.info(f"[CLAIM] Cleared {cleared} overdue completion(s) from scheduler")
+        scheduler.set_tavern_completions(future_completions)
+
     # Exit tavern
     return_to_base_view(adb, win, debug=debug, respect_idle=False)
     return {"claims": total_claims, "mode": "claim"}
