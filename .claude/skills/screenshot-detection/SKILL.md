@@ -164,6 +164,33 @@ cv2.imwrite('templates/ground_truth/element_4k.png', roi)
    print(f"Present: {is_present}, Score: {score:.4f}")
    ```
 
+## When a template matches poorly (score hovering above threshold)
+
+If a flow keeps failing because a template scores e.g. 0.06 against a 0.05
+threshold, the icon almost-but-not-quite matches — usually because the
+icon sits over a varying background (popup over the world map, HUD on a
+pannable scene), or the icon picked up an active-state highlight (glow).
+Don't loosen the threshold. **Build a mask** so only the icon pixels count.
+
+If you already have a template + any failure screenshot showing the icon,
+that's enough — single-shot mode diffs the existing template against the
+located region in the screenshot:
+
+```bash
+python scripts/one_off/build_mask.py \
+    --single-shot <screenshot showing the icon, e.g. a daemon failure shot> \
+    --reference <existing_template_name>_4k.png \
+    --name <name> --force
+```
+
+After running, both files appear in `templates/ground_truth/`:
+- `<name>_4k.png`        — refreshed template (live crop, reflects current state)
+- `<name>_mask_4k.png`   — grayscale mask, white=match, black=ignore
+
+Restart the daemon so the template cache reloads. `match_template()` picks
+up the mask automatically by name. See `TEMPLATE_EXTRACTION.md` for full
+recipe and two-shot mode.
+
 ## Files
 
 - `TEMPLATE_MATCHING.md` - Matcher class patterns and examples
