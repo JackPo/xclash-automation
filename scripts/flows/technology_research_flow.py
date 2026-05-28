@@ -19,7 +19,6 @@ Templates:
 
 from __future__ import annotations
 
-import re
 import time
 import logging
 from typing import TYPE_CHECKING
@@ -41,6 +40,8 @@ from utils.return_to_base_view import return_to_base_view
 from utils.view_state_detector import ViewState
 from utils.ocr_client import OCRClient
 from utils.current_state import update_research_queue
+from utils.arms_race_panel_helper import check_arms_race_progress
+from utils.time_parsing import parse_time_remaining
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -48,49 +49,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-def parse_time_remaining(text: str) -> int | None:
-    """
-    Parse time remaining text into seconds.
-
-    Formats:
-    - "Time Remaining:HH:MM:SS" -> seconds
-    - "Time Remaining:Xd HH:MM:SS" -> seconds
-    - "HH:MM:SS" -> seconds
-    - "Xd HH:MM:SS" -> seconds
-
-    Returns:
-        Time in seconds, or None if parsing fails
-    """
-    if not text:
-        return None
-
-    # Clean up text
-    text = text.strip()
-
-    # Remove "Time Remaining:" prefix if present
-    text = re.sub(r"Time\s*Remaining\s*:?\s*", "", text, flags=re.IGNORECASE)
-
-    # Try to match patterns
-    # Pattern 1: Xd HH:MM:SS (days + time)
-    match = re.search(r"(\d+)d\s*(\d{1,2}):(\d{2}):(\d{2})", text)
-    if match:
-        days = int(match.group(1))
-        hours = int(match.group(2))
-        minutes = int(match.group(3))
-        seconds = int(match.group(4))
-        return days * 86400 + hours * 3600 + minutes * 60 + seconds
-
-    # Pattern 2: HH:MM:SS (time only)
-    match = re.search(r"(\d{1,2}):(\d{2}):(\d{2})", text)
-    if match:
-        hours = int(match.group(1))
-        minutes = int(match.group(2))
-        seconds = int(match.group(3))
-        return hours * 3600 + minutes * 60 + seconds
-
-    logger.warning(f"Could not parse time from: {text}")
-    return None
+# Technology Research chest 3 threshold (30,000 points)
+RESEARCH_CHEST3_THRESHOLD = 30000
 
 
 def technology_research_flow(
@@ -237,6 +197,21 @@ def technology_research_speedup_flow(
     """
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     ocr = OCRClient()
+
+    # Step 0: Check Arms Race points - skip if chest 3 already reached
+    logger.info("Speedup Step 0: Checking Arms Race progress...")
+    try:
+        progress = check_arms_race_progress(adb, win, debug=False)
+        if progress.get("success"):
+            current_points = progress.get("current_points", 0)
+            logger.info(f"Current points: {current_points} / {RESEARCH_CHEST3_THRESHOLD}")
+            if current_points >= RESEARCH_CHEST3_THRESHOLD:
+                logger.info(f"Chest 3 already reached ({current_points} >= {RESEARCH_CHEST3_THRESHOLD}), skipping speedup")
+                return True  # Success - nothing to do
+        else:
+            logger.warning("Could not check Arms Race progress, proceeding with speedup anyway")
+    except Exception as e:
+        logger.warning(f"Error checking Arms Race progress: {e}, proceeding with speedup anyway")
 
     # Step 1: Go to town view
     logger.info("Speedup Step 1: Going to town view...")

@@ -19,7 +19,6 @@ Templates:
 
 from __future__ import annotations
 
-import re
 import time
 import logging
 from typing import TYPE_CHECKING
@@ -42,6 +41,7 @@ from utils.view_state_detector import ViewState
 from utils.ocr_client import OCRClient
 from utils.current_state import update_construction_queue
 from utils.arms_race_panel_helper import check_arms_race_progress
+from utils.time_parsing import parse_time_remaining
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -51,65 +51,6 @@ logger = logging.getLogger(__name__)
 
 # City Construction chest 3 threshold (30,000 points)
 CONSTRUCTION_CHEST3_THRESHOLD = 30000
-
-
-def parse_time_remaining(text: str) -> int | None:
-    """
-    Parse time remaining text into seconds.
-
-    Formats:
-    - "Time:HH:MM:SS" -> seconds
-    - "Time:Xd HH:MM:SS" -> seconds
-    - "HH:MM:SS" -> seconds
-    - "Xd HH:MM:SS" -> seconds
-
-    Returns:
-        Time in seconds, or None if parsing fails
-    """
-    if not text:
-        return None
-
-    # Clean up text
-    text = text.strip()
-
-    # Remove "Time:" prefix if present
-    text = re.sub(r"Time\s*:?\s*", "", text, flags=re.IGNORECASE)
-
-    # Try to match patterns
-    # Pattern 1: Xd HH:MM:SS (days + time with seconds)
-    match = re.search(r"(\d+)d\s*(\d{1,2}):(\d{2}):(\d{2})", text)
-    if match:
-        days = int(match.group(1))
-        hours = int(match.group(2))
-        minutes = int(match.group(3))
-        seconds = int(match.group(4))
-        return days * 86400 + hours * 3600 + minutes * 60 + seconds
-
-    # Pattern 2: Xd HH:MM (days + time without seconds)
-    match = re.search(r"(\d+)d\s*(\d{1,2}):(\d{2})(?!:)", text)
-    if match:
-        days = int(match.group(1))
-        hours = int(match.group(2))
-        minutes = int(match.group(3))
-        return days * 86400 + hours * 3600 + minutes * 60
-
-    # Pattern 3: HH:MM:SS (time only with seconds)
-    match = re.search(r"(\d{1,2}):(\d{2}):(\d{2})", text)
-    if match:
-        hours = int(match.group(1))
-        minutes = int(match.group(2))
-        seconds = int(match.group(3))
-        return hours * 3600 + minutes * 60 + seconds
-
-    # Pattern 4: HH:MM (time only without seconds)
-    match = re.search(r"(\d{1,2}):(\d{2})(?!:)", text)
-    if match:
-        hours = int(match.group(1))
-        minutes = int(match.group(2))
-        return hours * 3600 + minutes * 60
-
-    logger.warning(f"Could not parse time from: {text}")
-    return None
 
 
 def city_construction_flow(
