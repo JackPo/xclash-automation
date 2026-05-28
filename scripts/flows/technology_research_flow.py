@@ -316,15 +316,25 @@ def technology_research_speedup_flow(
     logger.info("Speedup Step 7: Checking for Complete button...")
     frame = win.get_screenshot_cv2()
 
-    # Check if Complete button is visible at the speedup location
+    # Complete button appears at the same position as the Speed Up button we
+    # clicked. Anchor the search region to speedup_click so it works for
+    # whichever queue we actually sped up, not just queue 1.
+    complete_region = (
+        speedup_click[0] - 150,  # x
+        speedup_click[1] - 50,   # y
+        300,                      # width
+        100,                      # height
+    )
     found, score, center = match_template(
         frame, "research_complete_button_4k.png",
-        search_region=(2100, 850, 400, 200), threshold=0.1,
+        search_region=complete_region, threshold=0.15,
     )
     if found:
-        logger.info(f"Complete button found at {center}, clicking...")
+        logger.info(f"Complete button found at {center} (score={score:.4f}), clicking...")
         adb.tap(*center, source="flow:tech_speedup:complete")
         time.sleep(0.5)
+    else:
+        logger.info(f"Complete button not found (score={score:.4f}) - research may still be in progress")
 
     # Step 8: Close panel
     logger.info("Speedup Step 8: Closing panel...")
