@@ -1248,15 +1248,28 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
 # =============================================================================
 
 def _dispatch_gates_passed() -> tuple[bool, str]:
-    """Check the time-window + 30-min-gap gates that govern dispatch.
+    """Check the gates that govern dispatch.
 
     Returns (allowed, reason). If allowed=False, reason is the skip code
-    ('before_start_time' or 'too_soon') the caller should return.
+    ('before_start_time' | 'too_soon' | 'exhausted_today') the caller should
+    return.
+
+    Gates:
+    - Time window: dispatch only fires between TAVERN_QUEST_START_HOUR and
+      TAVERN_SERVER_RESET_HOUR in Pacific time.
+    - Min gap: at least TAVERN_MIN_DISPATCH_GAP_MINUTES since the last
+      successful dispatch.
+    - Exhausted today: if an earlier dispatch attempt today found zero Go
+      buttons, skip (auto-resets at midnight). Claim and ally are NOT
+      gated by this -- they run independently.
     """
     if not _is_after_quest_start_time():
         return False, "before_start_time"
     from config import TAVERN_MIN_DISPATCH_GAP_MINUTES
     scheduler = _get_scheduler()
+    if scheduler.is_tavern_dispatch_exhausted_today():
+        logger.info("Skipping dispatch: marked exhausted earlier today (no Go buttons found)")
+        return False, "exhausted_today"
     last_dispatch = scheduler.get_last_tavern_dispatch()
     if last_dispatch:
         minutes_since = (datetime.now() - last_dispatch).total_seconds() / 60
@@ -1282,6 +1295,11 @@ def _dispatch_in_open_tavern(
     no_action_count = 0
     max_no_action = 2
     loop_idx = 0
+    # Track whether we saw ANY Go button candidate (gold or question, post
+    # VS-day filtering) during the search. If we exit the loop having seen
+    # none, dispatch is done for the day -- mark the exhaustion flag so we
+    # skip dispatch attempts until midnight. Claim/ally are unaffected.
+    found_any_go = False
     scheduler = _get_scheduler()
 
     while no_action_count < max_no_action:
@@ -1312,6 +1330,9 @@ def _dispatch_in_open_tavern(
         question_go_buttons = []
         if _should_start_question_mark_quests():
             question_go_buttons = find_question_mark_go_buttons(frame)
+
+        if gold_go_buttons or question_go_buttons:
+            found_any_go = True
 
         action_succeeded = False
 
@@ -1369,8 +1390,18 @@ def _dispatch_in_open_tavern(
             adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
             time.sleep(0.5)
 
-    logger.info(f"DISPATCH in-tavern loop complete: {total_dispatches} quests started")
-    return {"dispatches": total_dispatches}
+    # If we made it through the whole search-and-scroll cycle without ever
+    # spotting a Go button candidate, dispatch is done for the day. Set the
+    # exhaustion flag so subsequent dispatch attempts today (including
+    # scan's dispatch-follow-up) skip immediately without reopening tavern.
+    if not found_any_go:
+        scheduler.mark_tavern_dispatch_exhausted_today()
+
+    logger.info(
+        f"DISPATCH in-tavern loop complete: {total_dispatches} quests started "
+        f"(found_any_go={found_any_go})"
+    )
+    return {"dispatches": total_dispatches, "found_any_go": found_any_go}
 
 
 def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:

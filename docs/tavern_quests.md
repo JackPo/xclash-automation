@@ -60,6 +60,32 @@ Each entry point's typical open count:
 to load (network/animation hiccup) — that's a per-call backstop, not a
 separate open from the caller's perspective.
 
+## Dispatch exhaustion (auto-skip when no Go buttons left)
+
+Once a dispatch attempt today walks the entire quest list without spotting
+**any** Go button candidate, dispatch is effectively done for the day -- no
+more visible quests will appear unless slots free up via claims, and even
+then they typically don't materialize in time to dispatch before the 6 PM
+PT cutoff. To stop the daemon from re-checking pointlessly:
+
+- `utils/scheduler.py`: `mark_tavern_dispatch_exhausted_today()` /
+  `is_tavern_dispatch_exhausted_today()` set/read a date-stamped flag.
+  Mirrors the `claims_date` pattern; auto-resets at midnight via date
+  comparison.
+- `_dispatch_gates_passed()` adds an `exhausted_today` gate. Both the
+  standalone `_run_dispatch_mode` and scan's dispatch-follow-up skip
+  immediately when set.
+- `_dispatch_in_open_tavern()` tracks `found_any_go` during its scroll
+  loop. If it exits having never seen a Go candidate, it sets the flag.
+
+**Scope:** dispatch only. Claim still runs (we still need to grab
+completions from active quests started earlier in the day). Ally still
+runs (with its existing 5/5 pre-check). Scan still runs (still needed to
+OCR fresh timer state into the scheduler so the claim guard fires on time)
+-- only its dispatch-follow-up becomes a no-op once exhausted.
+
+Manual reset: `scheduler.clear_tavern_dispatch_exhausted_today()`.
+
 ## What changed in this refactor
 
 The "tavern loads everything 3+ times every 30 min" complaint came from

@@ -395,6 +395,35 @@ class DaemonScheduler:
         self.save()
         logger.info(f"[SCHEDULER] Force-set tavern claims for {today} to {count}")
 
+    def is_tavern_dispatch_exhausted_today(self) -> bool:
+        """True if a dispatch attempt today found zero Go buttons.
+
+        Auto-resets at midnight via date comparison: if the stored date isn't
+        today, the flag is treated as cleared. Dispatch attempts (both
+        standalone and the scan follow-up) skip when this is True. Claim
+        and ally flows are unaffected.
+        """
+        stored_date = self.schedule.get("tavern_quests", {}).get("dispatch_exhausted_date")
+        return stored_date == date.today().isoformat()
+
+    def mark_tavern_dispatch_exhausted_today(self) -> None:
+        """Record that today's dispatch search came up empty."""
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+        today = date.today().isoformat()
+        self.schedule["tavern_quests"]["dispatch_exhausted_date"] = today
+        self.save()
+        logger.info(f"[SCHEDULER] Marked tavern dispatch exhausted for {today}")
+
+    def clear_tavern_dispatch_exhausted_today(self) -> None:
+        """Manually clear today's exhaustion flag (e.g. from dashboard)."""
+        tq = self.schedule.get("tavern_quests")
+        if not tq or "dispatch_exhausted_date" not in tq:
+            return
+        del tq["dispatch_exhausted_date"]
+        self.save()
+        logger.info("[SCHEDULER] Cleared tavern dispatch exhaustion flag")
+
     # =========================================================================
     # Daily Limits (Rally Exhaustion)
     # =========================================================================
