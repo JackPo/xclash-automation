@@ -74,6 +74,23 @@ QUESTION_MARK_TILE_TEMPLATE = str(TEMPLATE_DIR / "quest_question_tile_4k.png")
 GO_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "go_button_4k.png")
 GO_BUTTON_THRESHOLD = 0.05  # TM_SQDIFF_NORMED; matches are well below this
 
+# Refresh button (Normal mode only) and Normal-mode toggle (visible in Mega
+# mode). Used by the auto-refresh loop to re-roll unsupported quests into
+# directly-startable types. See _try_refresh_to_startable().
+TAVERN_REFRESH_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "tavern_refresh_button_4k.png")
+TAVERN_NORMAL_MODE_TOGGLE_TEMPLATE = str(TEMPLATE_DIR / "tavern_normal_mode_toggle_4k.png")
+TAVERN_REFRESH_THRESHOLD = 0.05
+# Bottom button row Y bounds for the Refresh button + mode toggle searches.
+TAVERN_BOTTOM_ROW_Y_MIN = 1700
+TAVERN_BOTTOM_ROW_Y_MAX = 1950
+# Hard safety cap on refresh attempts in a single dispatch run -- prevents
+# an infinite loop if signature change detection breaks. Should never fire
+# in normal operation; the natural stop is "no signature change" meaning
+# the Refresh button has been disabled by the game (limit / cost reached).
+MAX_REFRESH_ATTEMPTS_PER_RUN = 20
+REFRESH_ANIMATION_SLEEP_SECS = 1.2
+MODE_TOGGLE_SLEEP_SECS = 0.7
+
 # Bounty Quest dialog templates
 BOUNTY_QUEST_TITLE_TEMPLATE = str(TEMPLATE_DIR / "bounty_quest_title_4k.png")
 AUTO_DISPATCH_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "auto_dispatch_button_4k.png")
@@ -684,6 +701,151 @@ def find_all_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
             deduped.append((cx, cy))
     deduped.sort(key=lambda b: b[1])
     return deduped
+
+
+def find_refresh_button(frame: npt.NDArray[Any]) -> tuple[int, int] | None:
+    """Find the orange Refresh button in the bottom button row.
+
+    Visible only in Normal mode. Returns center (x, y) or None.
+    Used both as a mode-detection signal (present => Normal mode) and as
+    the click target for auto-refresh.
+    """
+    from utils.template_matcher import match_template
+    h = TAVERN_BOTTOM_ROW_Y_MAX - TAVERN_BOTTOM_ROW_Y_MIN
+    found, _, center = match_template(
+        frame,
+        Path(TAVERN_REFRESH_BUTTON_TEMPLATE).name,
+        search_region=(0, TAVERN_BOTTOM_ROW_Y_MIN, frame.shape[1], h),
+        threshold=TAVERN_REFRESH_THRESHOLD,
+    )
+    return center if (found and center is not None) else None
+
+
+def find_normal_mode_toggle(frame: npt.NDArray[Any]) -> tuple[int, int] | None:
+    """Find the small 'Normal' book toggle on the right of the bottom row.
+
+    Visible only in Mega mode (its label is its destination -- clicking it
+    switches to Normal mode). Returns center (x, y) or None.
+    """
+    from utils.template_matcher import match_template
+    h = TAVERN_BOTTOM_ROW_Y_MAX - TAVERN_BOTTOM_ROW_Y_MIN
+    found, _, center = match_template(
+        frame,
+        Path(TAVERN_NORMAL_MODE_TOGGLE_TEMPLATE).name,
+        search_region=(0, TAVERN_BOTTOM_ROW_Y_MIN, frame.shape[1], h),
+        threshold=TAVERN_REFRESH_THRESHOLD,
+    )
+    return center if (found and center is not None) else None
+
+
+def _ensure_normal_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> bool:
+    """Make sure the tavern panel is in Normal mode so the Refresh button is
+    clickable.
+
+    If Refresh is already visible: no-op, return True.
+    Else if Normal-mode toggle is visible: click it, wait, return True.
+    Else: return False (unknown UI state).
+    """
+    frame = win.get_screenshot_cv2()
+    if find_refresh_button(frame) is not None:
+        return True
+    toggle = find_normal_mode_toggle(frame)
+    if toggle is None:
+        logger.warning("REFRESH: neither Refresh button nor Normal toggle visible -- can't switch modes")
+        return False
+    logger.info(f"REFRESH: clicking Normal toggle at {toggle} to switch out of Mega mode")
+    adb.tap(*toggle, source="flow:tavern_quest:mode_toggle_normal")
+    time.sleep(MODE_TOGGLE_SLEEP_SECS)
+    # Verify
+    frame2 = win.get_screenshot_cv2()
+    return find_refresh_button(frame2) is not None
+
+
+def _capture_go_signature(frame: npt.NDArray[Any]) -> tuple[int, int, int, tuple[int, ...]]:
+    """Build a hashable signature of the current first-screen quest list.
+
+    A successful Refresh re-rolls quests in place; the Y positions of the
+    visible Go buttons will change even if the total count happens to
+    coincidentally match. We compare signatures pre/post to detect "the
+    button did something" vs "the button is disabled".
+
+    Returns (dispatchable, gold, question, sorted_go_ys).
+    """
+    all_gos = find_all_go_buttons(frame)
+    gold = find_gold_scroll_go_buttons(frame)
+    qmark = find_question_mark_go_buttons(frame)
+    ys = tuple(sorted(y for _, y in all_gos))
+    return (len(all_gos), len(gold), len(qmark), ys)
+
+
+def _refresh_once(adb: ADBHelper, win: WindowsScreenshotHelper, click_pos: tuple[int, int]) -> npt.NDArray[Any]:
+    """Click the Refresh button and wait for the re-roll animation.
+
+    Returns the post-refresh frame for the caller to inspect.
+    """
+    adb.tap(*click_pos, source="flow:tavern_quest:refresh")
+    time.sleep(REFRESH_ANIMATION_SLEEP_SECS)
+    return win.get_screenshot_cv2()
+
+
+def _try_refresh_to_startable(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    initial_frame: npt.NDArray[Any],
+) -> tuple[npt.NDArray[Any], int, dict[str, Any]]:
+    """Re-roll the visible quest list until directly_startable > 0.
+
+    Stops when ANY of:
+    - directly_startable_visible > 0 (success)
+    - signature unchanged from previous iteration (refresh disabled)
+    - Refresh button can't be found / Normal mode can't be reached
+    - MAX_REFRESH_ATTEMPTS_PER_RUN hit (safety cap)
+
+    Returns (final_frame, refresh_count, stop_info).
+    stop_info is a dict: {"reason": str, "attempts": int}.
+    """
+    scheduler = _get_scheduler()
+    frame = initial_frame
+    refreshes = 0
+    prev_signature = _capture_go_signature(frame)
+    logger.info(
+        f"REFRESH LOOP: starting at signature={prev_signature}"
+    )
+    for attempt in range(1, MAX_REFRESH_ATTEMPTS_PER_RUN + 1):
+        if not _ensure_normal_mode(adb, win):
+            return frame, refreshes, {"reason": "mode_switch_failed", "attempts": attempt - 1}
+        # Re-capture frame after potential mode switch.
+        frame = win.get_screenshot_cv2()
+        refresh_pos = find_refresh_button(frame)
+        if refresh_pos is None:
+            logger.info("REFRESH LOOP: refresh button not visible after ensuring Normal mode -- stopping")
+            return frame, refreshes, {"reason": "button_not_visible", "attempts": attempt - 1}
+
+        logger.info(f"REFRESH attempt {attempt}: clicking at {refresh_pos}")
+        frame = _refresh_once(adb, win, refresh_pos)
+        refreshes += 1
+        scheduler.record_tavern_refresh()
+
+        post_signature = _capture_go_signature(frame)
+        post_dispatchable, post_gold, post_question, _ys = post_signature
+        post_startable = post_gold + (post_question if _should_start_question_mark_quests() else 0)
+        logger.info(
+            f"REFRESH attempt {attempt}: post-sig={post_signature} -> "
+            f"directly_startable={post_startable}"
+        )
+
+        if post_startable > 0:
+            return frame, refreshes, {"reason": "success", "attempts": attempt}
+        if post_signature == prev_signature:
+            logger.info(
+                "REFRESH attempt {}: signature unchanged -- refresh button likely disabled, stopping"
+                .format(attempt)
+            )
+            return frame, refreshes, {"reason": "no_change", "attempts": attempt}
+        prev_signature = post_signature
+
+    logger.warning(f"REFRESH LOOP: hit safety cap {MAX_REFRESH_ATTEMPTS_PER_RUN} -- bailing")
+    return frame, refreshes, {"reason": "safety_cap", "attempts": MAX_REFRESH_ATTEMPTS_PER_RUN}
 
 
 def _row_has_go_button(frame: npt.NDArray[Any], row_y: int) -> bool:
@@ -1364,6 +1526,9 @@ def _dispatch_in_open_tavern(
     first_frame_gold = 0              # raw gold-scroll count (sub-component)
     first_frame_question = 0          # raw question-mark count (sub-component)
     first_frame_recorded = False
+    # Count of Refresh clicks performed in THIS dispatch run (separate from
+    # the scheduler's day-wide refreshes_today counter).
+    refresh_attempts_this_run = 0
     scheduler = _get_scheduler()
 
     while no_action_count < max_no_action:
@@ -1411,6 +1576,39 @@ def _dispatch_in_open_tavern(
                 first_frame_gold + (first_frame_question if _should_start_question_mark_quests() else 0)
             )
             first_frame_recorded = True
+
+            # Auto-refresh: if we see visible Gos but none are directly
+            # startable, try to re-roll the quest list via the in-game
+            # Refresh button until directly_startable > 0 or the button
+            # stops working. This handles the common case where the slots
+            # are filled with unsupported quest types (Soldier Training,
+            # Rescue Merchant, etc.) -- we re-roll until a gold-scroll or
+            # question-mark (if not a VS skip day) appears.
+            if first_frame_dispatchable > 0 and first_frame_directly_startable == 0:
+                logger.info(
+                    f"DISPATCH: dispatchable={first_frame_dispatchable} "
+                    f"directly_startable=0 -> entering refresh loop"
+                )
+                frame, refreshes_done, stop_info = _try_refresh_to_startable(adb, win, frame)
+                refresh_attempts_this_run += refreshes_done
+                logger.info(
+                    f"DISPATCH: refresh loop ended: reason={stop_info.get('reason')} "
+                    f"attempts={refreshes_done}"
+                )
+                # Re-capture counts off the post-refresh frame so the rest
+                # of the dispatch loop and the scheduler write reflect the
+                # new state.
+                all_go_buttons = find_all_go_buttons(frame)
+                gold_go_buttons = find_gold_scroll_go_buttons(frame)
+                question_go_buttons = find_question_mark_go_buttons(frame)
+                first_frame_dispatchable = len(all_go_buttons)
+                first_frame_gold = len(gold_go_buttons)
+                first_frame_question = len(question_go_buttons)
+                first_frame_directly_startable = (
+                    first_frame_gold + (first_frame_question if _should_start_question_mark_quests() else 0)
+                )
+                if all_go_buttons:
+                    found_any_visible_go = True
 
         action_succeeded = False
 
@@ -1476,6 +1674,7 @@ def _dispatch_in_open_tavern(
         question_visible=first_frame_question,
         dispatchable_visible=first_frame_dispatchable,
         directly_startable_visible=first_frame_directly_startable,
+        refreshes_this_attempt=refresh_attempts_this_run,
     )
 
     # Exhaustion: fire ONLY when zero visible Gos at all. If unsupported

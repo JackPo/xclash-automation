@@ -385,10 +385,10 @@
                             Dispatchable
                         </div>
                         <div class="text-[10px] text-gray-500"
-                             :title="'gold=' + (tavernStatus.gold_visible ?? 0) + ' ?=' + (tavernStatus.question_visible ?? 0)"
+                             :title="'gold=' + (tavernStatus.gold_visible ?? 0) + ' ?=' + (tavernStatus.question_visible ?? 0) + ' refreshes_today=' + (tavernStatus.refreshes_today ?? 0) + ' refreshes_last_attempt=' + (tavernStatus.refreshes_this_attempt ?? 0)"
                              x-text="tavernStatus.exhausted_today
                                     ? 'no visible Gos today; resets midnight'
-                                    : ((tavernStatus.directly_startable_visible ?? 0) + ' startable now + ' + (tavernStatus.refresh_candidates ?? 0) + ' refresh candidates')">
+                                    : ((tavernStatus.directly_startable_visible ?? 0) + ' startable now + ' + (tavernStatus.refresh_candidates ?? 0) + ' refresh candidates' + ((tavernStatus.refreshes_today ?? 0) > 0 ? ' (R: ' + tavernStatus.refreshes_today + ' today)' : ''))">
                         </div>
                     </div>
                     <button @click="clearTavernExhaustion()"
@@ -1723,7 +1723,7 @@
                 toast: { show: false, message: '', type: 'info' },
                 dailyCheckin: { checked_in: false, timestamp: null },
                 tavernQuests: { assist_allies: { current: null, max: 5 }, plunder_others: { current: null, max: 5 }, timestamp: null },
-                tavernStatus: { gold_visible: null, question_visible: null, dispatchable_visible: null, directly_startable_visible: null, refresh_candidates: null, checked_at: null, exhausted_today: false, claims_today: 0 },
+                tavernStatus: { gold_visible: null, question_visible: null, dispatchable_visible: null, directly_startable_visible: null, refresh_candidates: null, refreshes_today: 0, refreshes_this_attempt: null, checked_at: null, exhausted_today: false, claims_today: 0 },
                 researchQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 constructionQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 pendingQuests: [],
@@ -1941,6 +1941,8 @@
                             dispatchable_visible: data.dispatchable_visible,
                             directly_startable_visible: data.directly_startable_visible,
                             refresh_candidates: data.refresh_candidates,
+                            refreshes_today: data.refreshes_today ?? 0,
+                            refreshes_this_attempt: data.refreshes_this_attempt,
                             checked_at: data.checked_at,
                             exhausted_today: !!data.exhausted_today,
                             claims_today: data.claims_today ?? 0,

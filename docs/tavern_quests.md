@@ -91,6 +91,72 @@ types (refresh candidates), the flag does NOT fire and the bot keeps
 checking on the next scan cycle. Otherwise we'd lose the chance to refresh
 those slots into supported types.
 
+## Auto-refresh (re-roll unsupported quests into supported types)
+
+When `_dispatch_in_open_tavern()` sees that the first frame has
+**dispatchable > 0 and directly_startable = 0**, it tries to use the
+in-game Refresh button to re-roll the quest list into a state with at
+least one directly-startable quest, then proceeds with the normal dispatch
+loop. This handles the common case where all visible quest slots are
+unsupported quest types (Soldier Training, Rescue Merchant, etc.).
+
+### Trigger
+
+Fires from a single condition (one rule covers both VS-skip and non-skip
+days because `directly_startable` already encodes the VS-day filter):
+
+```
+first_frame_dispatchable > 0 AND first_frame_directly_startable == 0
+```
+
+On non-skip days the loop terminates when ANY supported type appears
+(gold-scroll or question-mark); on skip days it only terminates on
+gold-scroll, since question-marks don't count toward
+`directly_startable` on those days.
+
+### Stop conditions
+
+The refresh loop in `_try_refresh_to_startable()` exits when ANY of:
+
+| Reason | Trigger |
+| --- | --- |
+| `success` | `directly_startable > 0` after the latest refresh |
+| `no_change` | Post-refresh quest list signature identical to pre-refresh (Refresh button is disabled / out of resources) |
+| `button_not_visible` | After ensuring Normal mode, the Refresh button can't be found |
+| `mode_switch_failed` | Couldn't transition from Mega mode to Normal mode |
+| `safety_cap` | `MAX_REFRESH_ATTEMPTS_PER_RUN` (20) hit in a single dispatch run. Logged as a warning; should never fire in normal operation. |
+
+### Signature comparison
+
+`_capture_go_signature(frame)` returns
+`(dispatchable, gold_count, question_count, sorted_go_ys)`. A successful
+in-game refresh re-rolls quests in place, so the Y positions of the
+visible Gos will change even if the total count happens to coincidentally
+stay the same. Identical signatures across two consecutive refreshes mean
+the click had no effect -- stop.
+
+### Mode handling
+
+Refresh button only appears in Normal mode. If we land in Mega mode (yellow
+Mega Dispatch + Mega Refresh buttons visible, with a small "Normal" book
+toggle on the right), `_ensure_normal_mode()` clicks the toggle to switch.
+We never restore the prior mode -- the user said it doesn't matter.
+
+### Per-day tracking
+
+Each Refresh click increments `tavern_quests.refreshes_today` (date-stamped
+counter that resets at midnight). The current dispatch run's refresh count
+is also written under `tavern_quests.visible_counts.refreshes_this_attempt`
+so the dashboard can distinguish "we refreshed once at 6 AM" from
+"we refreshed 8 times this attempt".
+
+### Templates
+
+- `templates/ground_truth/tavern_refresh_button_4k.png` -- orange Refresh
+  button (Normal mode only)
+- `templates/ground_truth/tavern_normal_mode_toggle_4k.png` -- small
+  "Normal" book toggle (visible in Mega mode only)
+
 ## Dispatch exhaustion (auto-skip when no Go buttons left)
 
 Once a dispatch attempt today walks the entire quest list without spotting

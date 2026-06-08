@@ -424,12 +424,38 @@ class DaemonScheduler:
         self.save()
         logger.info("[SCHEDULER] Cleared tavern dispatch exhaustion flag")
 
+    def record_tavern_refresh(self) -> None:
+        """Increment today's tavern-refresh counter (auto-reset at midnight).
+
+        Mirrors the claims_today pattern. Used by the auto-refresh loop in
+        _dispatch_in_open_tavern() to track how many Refresh clicks the bot
+        made today across all dispatch runs. Useful for the dashboard and
+        for future per-day rate-limiting.
+        """
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+        today = date.today().isoformat()
+        if self.schedule["tavern_quests"].get("refreshes_date") != today:
+            self.schedule["tavern_quests"]["refreshes_date"] = today
+            self.schedule["tavern_quests"]["refreshes_today"] = 0
+        self.schedule["tavern_quests"]["refreshes_today"] = (
+            self.schedule["tavern_quests"].get("refreshes_today", 0) + 1
+        )
+        self.save()
+
+    def get_tavern_refreshes_today(self) -> int:
+        tq = self.schedule.get("tavern_quests", {})
+        if tq.get("refreshes_date") != date.today().isoformat():
+            return 0
+        return int(tq.get("refreshes_today", 0))
+
     def record_tavern_visible_counts(
         self,
         gold_visible: int,
         question_visible: int,
         dispatchable_visible: int,
         directly_startable_visible: int,
+        refreshes_this_attempt: int = 0,
     ) -> None:
         """Record the first-frame counts captured during a dispatch attempt.
 
@@ -454,6 +480,7 @@ class DaemonScheduler:
             "question": int(question_visible),
             "dispatchable": int(dispatchable_visible),
             "directly_startable": int(directly_startable_visible),
+            "refreshes_this_attempt": int(refreshes_this_attempt),
             "checked_at": datetime.now().isoformat(),
         }
         self.save()
