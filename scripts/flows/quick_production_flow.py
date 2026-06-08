@@ -107,44 +107,66 @@ def quick_production_flow(
         time.sleep(0.5)
         _save_debug_screenshot(win, "01_after_title")
 
-        # Step 1: Go to TOWN first (required for centering)
-        print("    [QUICK-PROD] Step 1: Going to TOWN...")
-        go_to_town(adb, debug=False)
-        time.sleep(1.0)
-        _save_debug_screenshot(win, "02_town")
-
-        # Step 2: Go to WORLD - this centers the map on own castle
-        print("    [QUICK-PROD] Step 2: Going to WORLD (centers on castle)...")
-        go_to_world(adb, debug=False)
-        time.sleep(1.0)
-        _save_debug_screenshot(win, "03_world")
-
-        # Step 3: Click on own castle to open castle popup
-        # After TOWN->WORLD, castle is centered - use config position
-        print(f"    [QUICK-PROD] Step 3: Clicking castle at {QUICK_PROD_CASTLE_CLICK}...")
-        adb.tap(*QUICK_PROD_CASTLE_CLICK, source="flow:quick_prod:castle")
-        time.sleep(1.5)  # Give popup time to appear
-        _save_debug_screenshot(win, "04_castle_popup")
-
-        # Step 4: Find and click Class Skill button (poll up to 3 seconds)
-        print("    [QUICK-PROD] Step 4: Looking for Class Skill button...")
+        # Steps 1-4: TOWN -> WORLD -> castle click -> verify popup
+        # This sequence is wrapped in a retry loop because clicking (1920, 1080)
+        # can sometimes hit rally markers or other world elements instead of castle
+        MAX_CASTLE_CLICK_RETRIES = 3
         button_found = False
         center = None
-        score = 1.0
-        for attempt in range(6):
-            frame = win.get_screenshot_cv2()
-            found, score, center = match_template(
-                frame, "class_skill_button_4k.png",
-                threshold=CLASS_SKILL_BUTTON_THRESHOLD
-            )
-            if found:
-                button_found = True
-                print(f"    [QUICK-PROD] Class Skill button found at {center} (score={score:.4f}, attempt {attempt+1})")
-                break
+
+        for castle_retry in range(MAX_CASTLE_CLICK_RETRIES):
+            if castle_retry > 0:
+                print(f"    [QUICK-PROD] Retry {castle_retry}/{MAX_CASTLE_CLICK_RETRIES-1}: Wrong popup detected, retrying TOWN->WORLD->castle sequence...")
+                _save_debug_screenshot(win, f"retry{castle_retry}_before_town")
+
+            # Step 1: Go to TOWN first (required for centering)
+            print("    [QUICK-PROD] Step 1: Going to TOWN...")
+            go_to_town(adb, debug=False)
+            time.sleep(1.0)
+            _save_debug_screenshot(win, f"02_town" if castle_retry == 0 else f"retry{castle_retry}_town")
+
+            # Step 2: Go to WORLD - this centers the map on own castle
+            print("    [QUICK-PROD] Step 2: Going to WORLD (centers on castle)...")
+            go_to_world(adb, debug=False)
+            time.sleep(1.0)
+            _save_debug_screenshot(win, f"03_world" if castle_retry == 0 else f"retry{castle_retry}_world")
+
+            # Step 3: Click on own castle to open castle popup
+            # After TOWN->WORLD, castle is centered - use config position
+            print(f"    [QUICK-PROD] Step 3: Clicking castle at {QUICK_PROD_CASTLE_CLICK}...")
+            adb.tap(*QUICK_PROD_CASTLE_CLICK, source="flow:quick_prod:castle")
+            time.sleep(1.5)  # Give popup time to appear
+            _save_debug_screenshot(win, f"04_castle_popup" if castle_retry == 0 else f"retry{castle_retry}_popup")
+
+            # Step 4: Find and click Class Skill button (poll up to 3 seconds)
+            print("    [QUICK-PROD] Step 4: Looking for Class Skill button...")
+            score = 1.0
+            for attempt in range(6):
+                frame = win.get_screenshot_cv2()
+                found, score, center = match_template(
+                    frame, "class_skill_button_4k.png",
+                    threshold=CLASS_SKILL_BUTTON_THRESHOLD
+                )
+                if found:
+                    button_found = True
+                    print(f"    [QUICK-PROD] Class Skill button found at {center} (score={score:.4f}, attempt {attempt+1})")
+                    break
+                time.sleep(0.5)
+
+            if button_found:
+                break  # Success! Exit retry loop
+
+            # Class Skill button not found - we likely clicked something wrong
+            print(f"    [QUICK-PROD] Class Skill button not found (score={score:.4f}) - wrong popup?")
+            _save_debug_screenshot(win, f"retry{castle_retry}_wrong_popup")
+
+            # Dismiss whatever popup appeared by returning to base view
+            print("    [QUICK-PROD] Dismissing wrong popup...")
+            return_to_base_view(adb, win, debug=False)
             time.sleep(0.5)
 
         if not button_found:
-            print(f"    [QUICK-PROD] FAILED: Class Skill button not found (score={score:.4f})")
+            print(f"    [QUICK-PROD] FAILED: Class Skill button not found after {MAX_CASTLE_CLICK_RETRIES} attempts")
             _save_debug_screenshot(win, "FAIL_no_class_skill_button")
             return_to_base_view(adb, win, debug=False)
             return False
@@ -286,3 +308,181 @@ def quick_production_flow(
         except Exception:
             pass
         return False
+
+
+# ============================================================================
+# Cooldown verification (no-side-effect flow)
+# ============================================================================
+
+import re
+from typing import Optional
+
+
+def _parse_cooldown_text(text: str) -> int | None:
+    """
+    Parse cooldown text like "23h 12m", "23:45:12", "1d 2h", "Available" etc.
+    Returns seconds remaining, or None if the text indicates "available now"
+    or can't be parsed.
+    """
+    t = text.strip().lower()
+    if not t:
+        return None
+    if any(word in t for word in ("available", "use", "ready", "now")):
+        return 0
+    # 23:45:12 or 23:45
+    m = re.search(r"(\d+):(\d{1,2})(?::(\d{1,2}))?", t)
+    if m:
+        h = int(m.group(1)); mn = int(m.group(2)); s = int(m.group(3) or 0)
+        return h * 3600 + mn * 60 + s
+    # "1d 2h 3m" - allow any subset
+    total = 0
+    found_any = False
+    for amt, unit in re.findall(r"(\d+)\s*([dhms])", t):
+        found_any = True
+        amt_i = int(amt)
+        if unit == "d": total += amt_i * 86400
+        elif unit == "h": total += amt_i * 3600
+        elif unit == "m": total += amt_i * 60
+        elif unit == "s": total += amt_i
+    return total if found_any else None
+
+
+def verify_quick_production_cooldown_flow(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper | None = None,
+    debug: bool = False,
+) -> dict:
+    """
+    Navigate to the Class Skill panel and OCR the Quick Production cooldown
+    timer. Does NOT apply any title and does NOT click Use. Read-only check
+    used by the dashboard "Mark Done" button to discover the real next-run time.
+
+    Returns dict:
+        {
+          "ok": bool,
+          "remaining_seconds": int | None,   # 0 = available now, None = couldn't determine
+          "raw_text": str | None,            # whatever OCR returned
+          "reason": str | None,              # error / fallback reason
+        }
+    """
+    if win is None:
+        win = WindowsScreenshotHelper()
+
+    print("    [QP-VERIFY] Starting cooldown verification...")
+    _save_debug_screenshot(win, "verify_00_initial")
+
+    try:
+        # TOWN -> WORLD (centers on castle)
+        print("    [QP-VERIFY] TOWN -> WORLD")
+        go_to_town(adb, debug=False)
+        time.sleep(1.0)
+        go_to_world(adb, debug=False)
+        time.sleep(1.0)
+        _save_debug_screenshot(win, "verify_01_world")
+
+        # Click castle, verify popup, click Class Skill button
+        # Reuse same retry pattern as main flow
+        MAX_RETRIES = 3
+        center = None
+        for retry in range(MAX_RETRIES):
+            if retry > 0:
+                print(f"    [QP-VERIFY] Retry {retry}: re-navigating...")
+                go_to_town(adb, debug=False); time.sleep(1.0)
+                go_to_world(adb, debug=False); time.sleep(1.0)
+
+            print(f"    [QP-VERIFY] Clicking castle at {QUICK_PROD_CASTLE_CLICK}")
+            adb.tap(*QUICK_PROD_CASTLE_CLICK, source="flow:qp_verify:castle")
+            time.sleep(1.5)
+            _save_debug_screenshot(win, f"verify_02_popup_try{retry}")
+
+            frame = win.get_screenshot_cv2()
+            found, score, center = match_template(
+                frame, "class_skill_button_4k.png",
+                threshold=CLASS_SKILL_BUTTON_THRESHOLD,
+            )
+            if found:
+                print(f"    [QP-VERIFY] Class Skill button at {center} (score={score:.4f})")
+                break
+            print(f"    [QP-VERIFY] Class Skill button not found (score={score:.4f}); dismissing popup")
+            return_to_base_view(adb, win, debug=False)
+            time.sleep(0.5)
+        else:
+            _save_debug_screenshot(win, "verify_FAIL_no_class_skill_button")
+            return_to_base_view(adb, win, debug=False)
+            return {"ok": False, "remaining_seconds": None, "raw_text": None,
+                    "reason": "castle popup did not open (protection mode? wrong centering?)"}
+
+        adb.tap(*center, source="flow:qp_verify:class_skill")
+        time.sleep(1.0)
+
+        # Wait for Class Skill panel
+        panel_found = False
+        panel_score = 1.0
+        frame = None
+        for attempt in range(6):
+            time.sleep(0.5)
+            frame = win.get_screenshot_cv2()
+            panel_found, panel_score, _ = match_template(
+                frame, "class_skill_header_4k.png",
+                threshold=CLASS_SKILL_HEADER_THRESHOLD,
+            )
+            if panel_found:
+                break
+        if not panel_found:
+            _save_debug_screenshot(win, "verify_FAIL_no_panel")
+            return_to_base_view(adb, win, debug=False)
+            return {"ok": False, "remaining_seconds": None, "raw_text": None,
+                    "reason": f"Class Skill panel did not open (score={panel_score:.4f})"}
+
+        _save_debug_screenshot(win, "verify_03_panel")
+
+        # Find Quick Production row
+        qp_found, qp_score, qp_center = match_template(
+            frame, "quick_production_icon_4k.png", threshold=0.15,
+        )
+        if not qp_found:
+            _save_debug_screenshot(win, "verify_FAIL_no_qp_icon")
+            return_to_base_view(adb, win, debug=False)
+            return {"ok": False, "remaining_seconds": None, "raw_text": None,
+                    "reason": f"Quick Production icon not found (score={qp_score:.4f})"}
+
+        qp_y = qp_center[1]
+        # If a Use button is visible -> skill is available now (no cooldown)
+        use_found, _, _ = match_template(
+            frame, "class_skill_use_button_4k.png",
+            search_region=(1920, qp_y - 60, 800, 120), threshold=0.15,
+        )
+        if use_found:
+            print("    [QP-VERIFY] Use button visible -> available NOW")
+            return_to_base_view(adb, win, debug=False)
+            return {"ok": True, "remaining_seconds": 0, "raw_text": "Use button visible",
+                    "reason": None}
+
+        # OCR the cooldown text in the same row
+        from utils.ocr_client import ocr_extract_text
+        ocr_region = (1920, qp_y - 60, 800, 120)  # x, y, w, h
+        text = ocr_extract_text(
+            frame, region=ocr_region,
+            prompt="Read the cooldown timer text. Examples: '23h 12m', '1d 4h', '00:14:32'. Return only the time string, nothing else.",
+        )
+        print(f"    [QP-VERIFY] OCR text: {text!r}")
+        _save_debug_screenshot(win, "verify_04_ocr_region")
+
+        remaining = _parse_cooldown_text(text)
+        return_to_base_view(adb, win, debug=False)
+
+        if remaining is None:
+            return {"ok": False, "remaining_seconds": None, "raw_text": text,
+                    "reason": "OCR returned unparseable text"}
+        return {"ok": True, "remaining_seconds": remaining, "raw_text": text,
+                "reason": None}
+
+    except Exception as e:
+        print(f"    [QP-VERIFY] ERROR: {e}")
+        _save_debug_screenshot(win, f"verify_ERROR_{type(e).__name__}")
+        try:
+            return_to_base_view(adb, win, debug=False)
+        except Exception:
+            pass
+        return {"ok": False, "remaining_seconds": None, "raw_text": None,
+                "reason": f"exception: {e}"}

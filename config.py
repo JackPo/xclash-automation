@@ -100,7 +100,7 @@ ARMS_RACE_BEAST_TRAINING_USE_STAMINA_THRESHOLD = 20  # Use stamina items when st
 # Set via WebSocket: {"action": "set_zombie_mode", "mode": "gold", "hours": 24}
 ZOMBIE_MODE_CONFIG = {
     "elite": {"stamina": 20, "points": 2000, "flow": "elite_zombie", "level_clicks": 0},
-    "overlord": {"stamina": 190, "points": 2000, "flow": "elite_zombie", "level_clicks": 0},
+    "overlord": {"stamina": 200, "points": 2000, "flow": "elite_zombie", "level_clicks": 0},
     "gold": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "gold", "level_clicks": 0},
     "food": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "food", "level_clicks": 0},
     "iron_mine": {"stamina": 10, "points": 1000, "flow": "zombie_attack", "zombie_type": "iron_mine", "level_clicks": 0},
@@ -112,7 +112,7 @@ ZOMBIE_MODE_CONFIG = {
 # NO idle requirement - the quick progress check is non-disruptive
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
 ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 10       # Trigger in last N minutes of Enhance Hero
-ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 1        # Max hero upgrades per block (1 is usually enough)
+ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 10       # Safety cap; real stop = EXP budget for chest3 (typically 3-6 clicks)
 
 # City Construction Arms Race settings
 ARMS_RACE_CONSTRUCTION_ENABLED = True          # Enable/disable construction speedup automation
@@ -189,9 +189,8 @@ VS_LEVEL_CHEST_DAYS = [7]  # Day 7 = chest-opening VS event day
 # VS Question Mark Quest Skip Days
 # On these days, skip starting quests with question mark reward tiles (only gold quests allowed)
 # Day 2 = gold quest event day
-# Day 5 = gold quest event day
 # Day 6 = gold quest event day
-VS_QUESTION_MARK_SKIP_DAYS = [2, 5, 6]
+VS_QUESTION_MARK_SKIP_DAYS = [2, 6]
 
 # Tavern Quest Time Gating (Pacific Time)
 # Quest starts (clicking Go) only allowed from start time until server reset

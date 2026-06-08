@@ -236,7 +236,7 @@ def go_to_town(adb: ADBHelper, debug: bool = False) -> bool:
     This is a convenience wrapper around return_to_base_view(target=ViewState.TOWN).
     """
     from utils.return_to_base_view import return_to_base_view
-    return return_to_base_view(adb, debug=debug, target=ViewState.TOWN)
+    return return_to_base_view(adb, debug=debug, target=ViewState.TOWN, respect_idle=False)
 
 
 def go_to_world(adb: ADBHelper, debug: bool = False) -> bool:

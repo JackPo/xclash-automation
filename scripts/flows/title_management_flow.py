@@ -43,6 +43,7 @@ with open(DATA_DIR / "kingdom_titles.json") as f:
 
 # Fixed click positions (4K)
 STAR_ICON_CLICK = (1919, 905)
+ROYAL_CITY_CENTER_CLICK = (1919, 1005)
 STAR_SEARCH_REGION = (1400, 600, 1100, 1000)
 MANAGE_BUTTON_CLICK = (2230, 881)        # Position on OTHER Royal Cities
 MANAGE_BUTTON_CLICK_OWN = (2230, 731)    # Position on YOUR Royal City (has Reinforce/Garrison buttons)
@@ -57,6 +58,7 @@ ROYAL_CITY_HEADER_SEARCH_SIZE = (902, 420)
 ROYAL_CITY_MGMT_HEADER_POS = (1336, 0)
 ROYAL_CITY_MGMT_HEADER_SIZE = (1163, 112)
 MANAGE_BUTTON_SEARCH_REGION = (1750, 650, 750, 600)  # Keep X stable, tolerate vertical shift
+MANAGE_BUTTON_THRESHOLD = 0.06  # Slightly relaxed for recent UI antialiasing variance
 
 KINGDOM_TITLE_HEADER_POS = (1332, 0)
 KINGDOM_TITLE_HEADER_SIZE = (1167, 110)
@@ -81,6 +83,8 @@ TITLE_DURATION_SECONDS = 300  # 5 minutes
 THRESHOLD = 0.05
 POLL_TIMEOUT = 5.0
 POLL_INTERVAL = 0.3
+STAR_ICON_THRESHOLD = 0.06
+STAR_SINGLE_THRESHOLD = 0.10
 
 
 def _poll_for_template(
@@ -221,7 +225,15 @@ def title_management_flow(
 
     # Must be in WORLD view and at Royal City to apply titles
     from scripts.flows.go_to_mark_flow import go_to_mark_flow
-    if not go_to_mark_flow(adb, win, debug=debug):
+    nav_ok = False
+    for nav_try in range(3):
+        if go_to_mark_flow(adb, win, debug=debug):
+            nav_ok = True
+            break
+        if debug:
+            print(f"  Initial go_to_mark failed (attempt {nav_try + 1}/3), retrying...")
+        time.sleep(0.8)
+    if not nav_ok:
         print("  ERROR: Failed to navigate to marked Royal City")
         return False
     time.sleep(0.5)
@@ -242,39 +254,124 @@ def title_management_flow(
         print(f"  Buffs: {[b['name'] + ' ' + b['value'] for b in title_info['buffs']]}")
 
     try:
-        # Step 1: Find and click star icon (search instead of fixed position)
+        # Step 1: Find and click star icon (with re-navigation retry)
         if debug:
             print("  Step 1: Searching for star icon...")
-        frame = win.get_screenshot_cv2()
-        found, score, detected_pos = match_template(
-            frame, "mark_star_icon_4k.png",
-            search_region=STAR_SEARCH_REGION,
-            threshold=0.06  # Keep strict to avoid false positives in center region
-        )
-        if not found or detected_pos is None:
-            # Fallback to fixed position if template not found
-            if debug:
-                print(f"    Star icon not found (score={score:.4f}), using fixed position {STAR_ICON_CLICK}")
-            star_pos = STAR_ICON_CLICK
-        else:
-            star_pos = detected_pos
-            if debug:
-                print(f"    Star icon found at {star_pos} (score={score:.4f})")
-        adb.tap(*star_pos, source="flow:title_management:click_star")
 
-        # Poll for Royal City header with fixed X and flexible Y range.
-        if debug:
-            print(
-                "    Polling for Royal City header in region "
-                f"pos={ROYAL_CITY_HEADER_SEARCH_POS}, size={ROYAL_CITY_HEADER_SEARCH_SIZE}..."
+        panel_ready = False
+        ready_source = ""
+        last_header_score = 1.0
+        last_manage_score = 1.0
+
+        for nav_attempt in range(2):
+            if nav_attempt > 0:
+                if debug:
+                    print("    Panel not detected; re-running go_to_mark and retrying...")
+                re_nav_ok = False
+                for re_nav_try in range(2):
+                    if go_to_mark_flow(adb, win, debug=debug):
+                        re_nav_ok = True
+                        break
+                    if debug:
+                        print(
+                            f"    Re-navigation attempt {re_nav_try + 1}/2 failed; "
+                            "retrying..."
+                        )
+                    time.sleep(0.6)
+                if not re_nav_ok:
+                    continue
+                time.sleep(0.5)
+
+            frame = win.get_screenshot_cv2()
+            found, score, detected_pos = match_template(
+                frame, "mark_star_icon_4k.png",
+                search_region=STAR_SEARCH_REGION,
+                threshold=STAR_ICON_THRESHOLD  # Keep strict to avoid false positives in center region
             )
-        matched, _ = _poll_for_template(
-            win, TEMPLATE_DIR / "mark_royal_city_header_4k.png",
-            ROYAL_CITY_HEADER_SEARCH_POS, ROYAL_CITY_HEADER_SEARCH_SIZE, debug=debug
-        )
-        if not matched:
-            print("  ERROR: Royal City header not found")
+            found_single, score_single, detected_pos_single = match_template(
+                frame, "star_single_4k.png",
+                search_region=STAR_SEARCH_REGION,
+                threshold=STAR_SINGLE_THRESHOLD
+            )
+
+            if found_single and (not found or score_single < score):
+                found = True
+                score = score_single
+                detected_pos = detected_pos_single
+
+            if found and detected_pos is not None:
+                if debug:
+                    print(f"    Star icon found at {detected_pos} (score={score:.4f})")
+                star_clicks = [("detected", detected_pos), ("fixed", STAR_ICON_CLICK), ("city_center", ROYAL_CITY_CENTER_CLICK)]
+            else:
+                if debug:
+                    print(
+                        "    Star icon not found, trying fallback taps "
+                        f"(mark_star_score={score:.4f}, star_single_score={score_single:.4f})"
+                    )
+                star_clicks = [("fixed", STAR_ICON_CLICK), ("city_center", ROYAL_CITY_CENTER_CLICK)]
+
+            for tap_label, tap_pos in star_clicks:
+                if debug:
+                    print(f"    Clicking {tap_label} target at {tap_pos}")
+                    print(
+                        "    Polling for Royal City panel (header or Manage button) "
+                        f"header_pos={ROYAL_CITY_HEADER_SEARCH_POS}, header_size={ROYAL_CITY_HEADER_SEARCH_SIZE}, "
+                        f"manage_region={MANAGE_BUTTON_SEARCH_REGION}..."
+                    )
+
+                adb.tap(*tap_pos, source=f"flow:title_management:click_star_{tap_label}")
+
+                start = time.time()
+                while time.time() - start < POLL_TIMEOUT:
+                    frame = win.get_screenshot_cv2()
+                    header_found, header_score, _ = match_template(
+                        frame,
+                        "mark_royal_city_header_4k.png",
+                        search_region=(*ROYAL_CITY_HEADER_SEARCH_POS, *ROYAL_CITY_HEADER_SEARCH_SIZE),
+                        threshold=THRESHOLD,
+                    )
+                    manage_found, manage_score, _ = match_template(
+                        frame,
+                        "mark_manage_button_4k.png",
+                        search_region=MANAGE_BUTTON_SEARCH_REGION,
+                        threshold=MANAGE_BUTTON_THRESHOLD,
+                    )
+                    last_header_score = header_score
+                    last_manage_score = manage_score
+
+                    if header_found:
+                        panel_ready = True
+                        ready_source = f"header (score={header_score:.4f})"
+                        break
+
+                    if manage_found:
+                        panel_ready = True
+                        ready_source = f"manage button (score={manage_score:.4f})"
+                        break
+
+                    time.sleep(POLL_INTERVAL)
+
+                if panel_ready:
+                    break
+
+                if debug:
+                    print(
+                        f"    {tap_label} tap did not open panel "
+                        f"(header_score={last_header_score:.4f}, manage_score={last_manage_score:.4f})"
+                    )
+
+            if panel_ready:
+                break
+
+        if not panel_ready:
+            print(
+                "  ERROR: Royal City panel not detected "
+                f"(header_score={last_header_score:.4f}, manage_score={last_manage_score:.4f})"
+            )
             return False
+        if debug:
+            print(f"    Royal City panel ready via {ready_source}")
 
         # Step 2: Click Manage button (template-first, then fixed fallback).
         matched = False
@@ -283,7 +380,7 @@ def title_management_flow(
             frame,
             "mark_manage_button_4k.png",
             search_region=MANAGE_BUTTON_SEARCH_REGION,
-            threshold=0.05,
+            threshold=MANAGE_BUTTON_THRESHOLD,
         )
         if manage_found and manage_pos is not None:
             if debug:

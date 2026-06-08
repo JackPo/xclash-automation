@@ -29,11 +29,11 @@ from typing import TYPE_CHECKING, TypedDict
 
 from config import ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES
 from utils.windows_screenshot_helper import WindowsScreenshotHelper
-from utils.hero_tile_detector import detect_tiles_with_red_dots
+from utils.hero_tile_detector import detect_sub_max_tiles, MAX_HERO_LEVEL
 from utils.upgrade_button_matcher import UpgradeButtonMatcher
 from utils.return_to_base_view import return_to_base_view
 from utils.ocr_client import OCRClient
-from utils.arms_race import get_event_metadata
+from utils.arms_race import get_event_metadata, get_exp_per_arms_race_point
 
 if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
@@ -195,80 +195,163 @@ def hero_upgrade_arms_race_flow(
     # Step 3: Wait for hero grid to load
     time.sleep(1.5)
 
-    # Step 4: Take screenshot and detect tiles with red dots
-    logger.info("Step 3: Scanning hero grid for red dots...")
-    frame = win.get_screenshot_cv2()
-    if frame is None:
-        logger.error("Failed to get screenshot")  # type: ignore[unreachable]
-        return False
-
-    tiles_with_dots = detect_tiles_with_red_dots(frame, debug=True)
-
-    if not tiles_with_dots:
-        logger.info("No tiles with red dots found")
-        # Close hero panel with hardware back (no visible close button)
-        _press_hardware_back(adb)
-        return_to_base_view(adb, win, debug=False)
-        return True
-
-    logger.info(f"Found {len(tiles_with_dots)} tiles with red dots")
+    # Step 4: Scan + scroll loop. Most heroes are now Lv 150 (maxed), so the
+    # red-dot signal is unreliable -- some maxed heroes still show transient
+    # dots while genuinely-upgradable lower-level heroes don't. Instead we OCR
+    # the "Lv. NNN" banner under each visible tile and treat any tile under
+    # MAX_HERO_LEVEL as a candidate. Sub-max heroes tend to live at the BOTTOM
+    # of the grid (maxed ones cluster at the top), so we scan the current page,
+    # process candidates, then swipe to scroll down and repeat.
+    #
+    # Budget control: Arms Race scoring for Enhance Hero is 1 point per
+    # exp_per_arms_race_point (=2000) hero EXP spent. After each upgrade we
+    # read the required EXP off the hero detail panel, accumulate it, and
+    # stop once we project we've hit chest3.
 
     upgrades_done = 0
+    MAX_SCROLL_PAGES = 5  # 31 heroes / 12 per page -> 3 pages should cover all
+    # Page 1 (top of the grid) is consistently all maxed heroes -- sub-Lv150
+    # heroes live at the BOTTOM. So we MUST scroll past at least one all-max
+    # page before believing there are no upgradable heroes. Requiring 2
+    # consecutive empty pages also tolerates a transient OCR misread.
+    EMPTY_PAGES_TO_STOP = 2
 
-    # Step 5: Process each tile with red dot
-    for i, tile in enumerate(tiles_with_dots):
-        tile_name = tile['name']
-        click_pos = tile['click']
+    chest3_target = chest3  # already fetched above
+    exp_per_point = get_exp_per_arms_race_point("Enhance Hero") or 2000
+    current_points = progress["current_points"] if progress["success"] else 0
+    if current_points is None:
+        current_points = 0
+    points_needed = max(0, chest3_target - current_points)
+    exp_budget = points_needed * exp_per_point
+    exp_spent = 0
+    logger.info(
+        f"Budget: need {points_needed} pts to hit chest3 ({current_points}/{chest3_target}); "
+        f"= {exp_budget:,} hero EXP at {exp_per_point} EXP/pt"
+    )
 
-        logger.info(f"Step 4.{i+1}: Processing tile {tile_name}")
-
-        # Click the tile
-        logger.debug(f"Clicking tile at {click_pos}")
-        adb.tap(*click_pos, source="flow:hero_upgrade_arms_race:hero_tile")
-        time.sleep(1.0)
-
-        # Take screenshot and check upgrade button
+    empty_pages = 0
+    for page in range(MAX_SCROLL_PAGES):
+        logger.info(f"Step 3.{page+1}: Scanning hero grid page {page+1}...")
         frame = win.get_screenshot_cv2()
         if frame is None:
             logger.error("Failed to get screenshot")  # type: ignore[unreachable]
-            click_back(adb)
-            time.sleep(0.5)
-            continue
+            return False
 
-        is_available, avail_score, unavail_score = upgrade_matcher.check_upgrade_available(frame, debug=True)
+        sub_max_tiles = detect_sub_max_tiles(frame, max_level=MAX_HERO_LEVEL, debug=True)
+        logger.info(f"  Found {len(sub_max_tiles)} tiles below Lv{MAX_HERO_LEVEL} on this page")
 
-        if is_available:
-            # Click upgrade button
-            upgrade_click = upgrade_matcher.get_click_position()
-            logger.info(f"Upgrade AVAILABLE! Clicking at {upgrade_click}")
-            adb.tap(*upgrade_click, source="flow:hero_upgrade_arms_race:upgrade_button")
-            time.sleep(0.5)
-            upgrades_done += 1
-
-            # Check if we've hit the max upgrades
-            if upgrades_done >= ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES:
-                logger.info(f"Reached max upgrades ({ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES})")
-                _press_hardware_back(adb)  # Close hero panel
-                return_to_base_view(adb, win, debug=False)
-                logger.info(f"Flow complete - {upgrades_done} upgrade(s) performed")
-                return True
-
-            # More upgrades allowed, click back to continue
-            logger.info(f"Upgrade {upgrades_done}/{ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES} done, continuing...")
-            click_back(adb)
-            time.sleep(0.5)
+        if not sub_max_tiles:
+            empty_pages += 1
+            if empty_pages >= EMPTY_PAGES_TO_STOP:
+                logger.info("No sub-max tiles found; assuming we've scrolled past upgradable heroes")
+                break
         else:
-            logger.debug(f"Upgrade not available (avail={avail_score:.3f}, unavail={unavail_score:.3f})")
+            empty_pages = 0
 
-        # Click back to return to hero grid
-        logger.debug("Clicking back to return to grid")
-        click_back(adb)
-        time.sleep(0.5)
+        # Process each sub-max tile on this page.
+        for i, tile in enumerate(sub_max_tiles):
+            tile_name = tile['name']
+            click_pos = tile['click']
+            level = tile['level']
 
-        # Re-take screenshot for next iteration (grid may have changed)
-        frame = win.get_screenshot_cv2()
+            logger.info(f"Step 4.{page+1}.{i+1}: Processing tile {tile_name} (Lv{level})")
 
-    # Step 6: Exit hero grid and return to base view
+            adb.tap(*click_pos, source="flow:hero_upgrade_arms_race:hero_tile")
+            time.sleep(1.0)
+
+            frame = win.get_screenshot_cv2()
+            if frame is None:
+                logger.error("Failed to get screenshot")  # type: ignore[unreachable]
+                click_back(adb)
+                time.sleep(0.5)
+                continue
+
+            # Per-tile click loop: click Upgrade repeatedly on this hero,
+            # measuring the actual EXP spent each click as A_before - A_after.
+            # This is correct even if the per-click cost shifts as the hero
+            # levels up. Stop when the button grays out, OCR fails, the click
+            # has no effect, or cumulative EXP crosses the budget.
+            upgrade_click = upgrade_matcher.get_click_position()
+            while True:
+                is_available, avail_score, unavail_score = upgrade_matcher.check_upgrade_available(frame, debug=True)
+                if not is_available:
+                    logger.info(
+                        f"Lv{level} hero -- upgrade button not available "
+                        f"(avail={avail_score:.3f}, unavail={unavail_score:.3f}); "
+                        f"moving on"
+                    )
+                    break
+
+                owned_before, required, _ = upgrade_matcher.read_resource_cost(frame, debug=True)
+                if owned_before is None:
+                    logger.info(f"Lv{level} hero -- couldn't OCR owned EXP; bailing on this hero")
+                    break
+
+                adb.tap(*upgrade_click, source="flow:hero_upgrade_arms_race:upgrade_button")
+                time.sleep(0.6)
+                frame = win.get_screenshot_cv2()
+
+                owned_after, _, _ = upgrade_matcher.read_resource_cost(frame, debug=False)
+                if owned_after is None:
+                    # Re-OCR failed -- count `required` (next-click cost is the
+                    # closest proxy we have) and bail this hero rather than
+                    # double-clicking on unknown state.
+                    spent_this = required or 0
+                    exp_spent += spent_this
+                    upgrades_done += 1
+                    logger.info(
+                        f"Lv{level}: clicked Upgrade but post-OCR failed; "
+                        f"assumed spent={spent_this:,} EXP. Total {exp_spent:,} EXP "
+                        f"(~{exp_spent // exp_per_point} pts). Bailing this hero."
+                    )
+                    break
+
+                spent_this = max(0, owned_before - owned_after)
+                if spent_this == 0:
+                    logger.info(f"Lv{level}: Upgrade click had no effect (A unchanged); moving on")
+                    break
+
+                exp_spent += spent_this
+                upgrades_done += 1
+                pts_est = exp_spent // exp_per_point
+                logger.info(
+                    f"Lv{level}: click #{upgrades_done} spent {spent_this:,} EXP "
+                    f"(A {owned_before:,} -> {owned_after:,}); "
+                    f"cumulative {exp_spent:,} EXP ~ {pts_est} pts (target {points_needed})"
+                )
+
+                if exp_spent >= exp_budget:
+                    logger.info("Budget crossed; projected chest3 reached. Stopping.")
+                    _press_hardware_back(adb)
+                    return_to_base_view(adb, win, debug=False)
+                    return True
+
+                if upgrades_done >= ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES:
+                    logger.warning(
+                        f"Hit ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES safety cap "
+                        f"({ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES}) before reaching budget "
+                        f"({exp_spent:,}/{exp_budget:,} EXP). OCR or budget metadata may be off."
+                    )
+                    _press_hardware_back(adb)
+                    return_to_base_view(adb, win, debug=False)
+                    return True
+
+                time.sleep(0.3)  # brief pause before next iteration
+
+            # Click back to return to hero grid for the next tile.
+            click_back(adb)
+            time.sleep(0.5)
+
+        # Swipe to scroll the grid down before next page (unless we're done).
+        if page < MAX_SCROLL_PAGES - 1:
+            logger.info("Scrolling hero grid down...")
+            # Swipe upward within the grid area; covers ~one full page of rows.
+            # Grid rows are at y=211/639/1067 -> ~430px spacing, so a ~900px
+            # swipe scrolls roughly two rows worth (one fresh row + buffer).
+            adb.swipe(1900, 1400, 1900, 500, duration=500)
+            time.sleep(1.0)
+
+    # Step 5: Exit hero grid and return to base view
     logger.info("Step 5: Returning to base view...")
     _press_hardware_back(adb)  # Close hero panel (no visible close button)
     return_to_base_view(adb, win, debug=False)

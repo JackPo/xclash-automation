@@ -112,6 +112,120 @@ def get_tile_click_position(tile_name: str) -> tuple[int, int]:
     return HERO_TILES[tile_name]['click']
 
 
+# ---------------------------------------------------------------------------
+# Level-based detection (replaces red-dot detection as the primary signal).
+#
+# Red dots became unreliable once most heroes were maxed -- some maxed heroes
+# still show transient dots, and some upgradable heroes don't. The true
+# signal is "is this hero below max level (150)?". We crop the "Lv. NNN"
+# banner at the bottom of each tile and OCR the digits.
+# ---------------------------------------------------------------------------
+
+# Fraction of tile height where the "Lv. NNN" banner sits. Determined
+# empirically from the in-game UI; the banner is the yellow strip near
+# the bottom of each card.
+_LV_BAND_Y_FRAC = 0.78
+_LV_BAND_H_FRAC = 0.14
+
+MAX_HERO_LEVEL = 150
+
+
+def extract_level_band(frame: "npt.NDArray[Any]", tile_name: str) -> "npt.NDArray[Any]":
+    """Crop the 'Lv. NNN' banner at the bottom of a tile."""
+    t = HERO_TILES[tile_name]
+    x, y = t['pos']
+    w, h = t['size']
+    band_y = y + int(h * _LV_BAND_Y_FRAC)
+    band_h = int(h * _LV_BAND_H_FRAC)
+    return frame[band_y:band_y+band_h, x:x+w]
+
+
+# OCR refusal patterns. Qwen-VL sometimes refuses or hedges instead of
+# returning a number when the crop has no readable digits (e.g. when the
+# crop landed on a hero body instead of the Lv banner). These look like
+# "I cannot read", "I'm sorry", "as an AI" -- always longer than a level
+# number, always contain words. If we see any of these we must NOT extract
+# stray digits from them, because the digits-only prompt can also make the
+# model HALLUCINATE a number like '234' when there's nothing to read.
+# Treat refusals -- AND any response that's clearly natural language --
+# as "unreadable".
+_OCR_REFUSAL_MARKERS = (
+    "cannot", "can't", "sorry", "unable", "as an ai", "i don't",
+    "no text", "no number", "not readable",
+)
+
+
+def _looks_like_refusal_or_prose(text: str) -> bool:
+    """True if the OCR output looks like model refusal/prose rather than a
+    digit-only level reading."""
+    t = text.lower()
+    if any(m in t for m in _OCR_REFUSAL_MARKERS):
+        return True
+    # A real reading is at most 3 digits + optional 'Lv.' prefix; anything
+    # over ~12 chars is prose, not a number.
+    if len(t.strip()) > 12:
+        return True
+    return False
+
+
+def read_tile_level(
+    frame: "npt.NDArray[Any]",
+    tile_name: str,
+    ocr_client: Any = None,
+) -> int | None:
+    """
+    OCR the level number for one tile. Returns None if unreadable.
+    Pass an OCRClient instance to share state across tiles (faster).
+    """
+    band = extract_level_band(frame, tile_name)
+    if ocr_client is None:
+        from utils.ocr_client import ocr_extract_text
+        text = ocr_extract_text(band, prompt="Read the level number. Return only digits. Example: 150")
+    else:
+        text = ocr_client.extract_text(band, prompt="Read the level number. Return only digits. Example: 150")
+    if not text:
+        return None
+    if _looks_like_refusal_or_prose(text):
+        return None
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return None
+    try:
+        level = int(digits)
+    except ValueError:
+        return None
+    # In-game max is 150; anything above is hallucination or stray digits.
+    if level > MAX_HERO_LEVEL:
+        return None
+    return level
+
+
+def detect_sub_max_tiles(
+    frame: "npt.NDArray[Any]",
+    max_level: int = MAX_HERO_LEVEL,
+    debug: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Scan all visible tiles, return those whose OCR'd level is below max_level.
+    A tile whose level can't be read is treated as level=max (skipped) -- we
+    don't want to waste taps on garbled tiles.
+    """
+    from utils.ocr_client import OCRClient
+    client = OCRClient()
+    out: list[dict[str, Any]] = []
+    for tile_name, tile_info in HERO_TILES.items():
+        level = read_tile_level(frame, tile_name, ocr_client=client)
+        if debug:
+            print(f"  {tile_name}: level={level}")
+        if level is not None and level < max_level:
+            out.append({
+                'name': tile_name,
+                'click': tile_info['click'],
+                'level': level,
+            })
+    return out
+
+
 if __name__ == '__main__':
     # Test with current screenshot
     from utils.windows_screenshot_helper import WindowsScreenshotHelper

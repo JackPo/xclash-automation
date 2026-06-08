@@ -838,6 +838,25 @@
                         </button>
                     </div>
 
+                    <!-- Class Skills -->
+                    <div class="flex items-center gap-3">
+                        <div class="w-24 text-sm text-gray-400">Class Skills</div>
+                        <button @click="markQuickProductionDone(true)"
+                                :disabled="qpMarking"
+                                class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                :title="'I just used Quick Production manually. Daemon will OCR the in-game cooldown to set the next-run time precisely. Falls back to 24h on OCR failure.'">
+                            <span x-show="!qpMarking">Mark QP Done (verify in-game)</span>
+                            <span x-show="qpMarking">Working...</span>
+                        </button>
+                        <button @click="markQuickProductionDone(false)"
+                                :disabled="qpMarking"
+                                class="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                title="Skip OCR and just default to 24h cooldown.">
+                            Mark done (no OCR)
+                        </button>
+                        <span x-text="qpStatusText" class="text-xs text-gray-500 ml-2"></span>
+                    </div>
+
                     <!-- Arms Race Speedup -->
                     <div class="flex items-center gap-3">
                         <div class="w-24 text-sm text-gray-400">Speedup</div>
@@ -944,38 +963,38 @@
                                       x-text="formatOverrideTime(configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in)"></span>
                                 <div class="seg-wrap">
                                     <div class="seg-overlay">
-                                        RESPECT DAILY LIMIT
+                                        IGNORE DAILY LIMIT
                                     </div>
                                     <div class="segmented">
-                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, null)"
-                                                class="seg-btn"
-                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === false ? 'active-off' : ''">
-                                            RESPECT
-                                        </button>
-                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 60)"
-                                                class="seg-btn"
-                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
-                                            1h
-                                        </button>
-                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 120)"
-                                                class="seg-btn"
-                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
-                                            2h
-                                        </button>
-                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 480)"
-                                                class="seg-btn"
-                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
-                                            8h
-                                        </button>
-                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, 1440)"
-                                                class="seg-btn"
-                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === false && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
-                                            24h
-                                        </button>
                                         <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, null)"
                                                 class="seg-btn"
-                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === true ? 'active-on' : ''">
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === true && !configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-off' : ''">
                                             IGNORE
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, 60)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === true && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            1h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, 120)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === true && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            2h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, 480)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === true && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            8h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', true, 1440)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.overridden && configs.RALLY_IGNORE_DAILY_LIMIT?.value === true && configs.RALLY_IGNORE_DAILY_LIMIT?.expires_in ? 'active-timed' : ''">
+                                            24h
+                                        </button>
+                                        <button @click="setBoolOverride('RALLY_IGNORE_DAILY_LIMIT', false, null)"
+                                                class="seg-btn"
+                                                :class="configs.RALLY_IGNORE_DAILY_LIMIT?.value === false ? 'active-on' : ''">
+                                            RESPECT
                                         </button>
                                     </div>
                                 </div>
@@ -1014,37 +1033,37 @@
                                                   class="text-xs text-orange-400"
                                                   x-text="formatOverrideTime(monster.ignore_daily_limit?.expires_in)"></span>
                                             <div class="seg-wrap">
-                                                <div class="seg-overlay">RESPECT DAILY LIMIT</div>
+                                                <div class="seg-overlay">IGNORE DAILY LIMIT</div>
                                                 <div class="segmented">
-                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, null)"
-                                                            class="seg-btn"
-                                                            :class="monster.ignore_daily_limit?.value === false ? 'active-off' : ''">
-                                                        RESPECT
-                                                    </button>
-                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 60)"
-                                                            class="seg-btn"
-                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
-                                                        1h
-                                                    </button>
-                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 120)"
-                                                            class="seg-btn"
-                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
-                                                        2h
-                                                    </button>
-                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 480)"
-                                                            class="seg-btn"
-                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
-                                                        8h
-                                                    </button>
-                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, 1440)"
-                                                            class="seg-btn"
-                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === false && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
-                                                        24h
-                                                    </button>
                                                     <button @click="setRallyMonsterIgnoreOverride(monster, true, null)"
                                                             class="seg-btn"
-                                                            :class="monster.ignore_daily_limit?.value === true ? 'active-on' : ''">
+                                                            :class="monster.ignore_daily_limit?.value === true && !monster.ignore_daily_limit?.expires_in ? 'active-off' : ''">
                                                         IGNORE
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, true, 60)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === true && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        1h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, true, 120)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === true && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        2h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, true, 480)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === true && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        8h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, true, 1440)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.overridden && monster.ignore_daily_limit?.value === true && monster.ignore_daily_limit?.expires_in ? 'active-timed' : ''">
+                                                        24h
+                                                    </button>
+                                                    <button @click="setRallyMonsterIgnoreOverride(monster, false, null)"
+                                                            class="seg-btn"
+                                                            :class="monster.ignore_daily_limit?.value === false ? 'active-on' : ''">
+                                                        RESPECT
                                                     </button>
                                                 </div>
                                             </div>
@@ -1095,10 +1114,9 @@
                                     <div class="text-xs text-gray-400 mb-1">Mode</div>
                                     <select x-model="selectedZombieMode"
                                             class="w-full bg-dark-900 border border-gray-700 rounded px-2 py-1.5 text-sm focus:border-red-500">
-                                        <option value="elite">Elite (20 stam)</option>
-                                        <option value="gold">Gold (10 stam)</option>
-                                        <option value="food">Food (10 stam)</option>
-                                        <option value="iron_mine">Iron (10 stam)</option>
+                                        <template x-for="(cfg, mode) in zombieModes" :key="mode">
+                                            <option :value="mode" x-text="`${getZombieModeDisplay(mode)} (${cfg.stamina} stam)`"></option>
+                                        </template>
                                     </select>
                                 </div>
                                 <div>
@@ -1269,7 +1287,7 @@
                             <div class="text-xs text-gray-500 uppercase tracking-wide mb-2">Other</div>
                             <div class="space-y-2">
                                 <template x-for="(cfg, key) in configs" :key="key">
-                                    <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key) && !key.startsWith('RALLY_MONSTER_')"
+                                    <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key) && !key.startsWith('RALLY_MONSTER_') && !key.startsWith('RALLY_IGNORE_DAILY_LIMIT_')"
                                          class="override-item py-2 border-b border-gray-700/30 last:border-0">
                                         <div class="override-meta">
                                             <div class="text-sm" x-text="formatConfigName(key)"></div>
@@ -1647,7 +1665,10 @@
                 flows: [],
                 titles: [],
                 selectedTitle: '',
+                qpMarking: false,
+                qpStatusText: '',
                 zombieMode: { mode: 'elite', expires: null, hours_remaining: null },
+                zombieModes: {},  // Loaded from /api/zombie-modes
                 selectedZombieMode: 'elite',
                 zombieModeHours: 24,
                 // Reinforce loop mode
@@ -1750,6 +1771,7 @@
                         this.refreshArmsRace(),
                         this.refreshPendingQuests(),
                         this.loadTitles(),
+                        this.loadZombieModes(),
                         this.loadZombieMode(),
                         this.loadReinforceMode(),
                         this.loadConfig(),
@@ -2395,6 +2417,56 @@
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },
 
+                async markQuickProductionDone(verifyOcr) {
+                    if (this.qpMarking) return;
+                    this.qpMarking = true;
+                    this.qpStatusText = verifyOcr ? 'Navigating to Class Skill panel...' : 'Marking done...';
+                    try {
+                        const res = await fetch('/api/quick-production/mark-done', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({verify_ocr: !!verifyOcr}),
+                        });
+                        const data = await res.json();
+                        if (!data.success) {
+                            this.qpStatusText = '';
+                            this.showToast(`Failed: ${data.error || 'unknown error'}`, 'error');
+                            return;
+                        }
+                        const hrs = (data.remaining_seconds / 3600).toFixed(1);
+                        const nextDate = new Date(data.next_run_iso);
+                        const niceTime = nextDate.toLocaleString();
+                        const srcTag = data.source === 'ocr' ? 'via OCR' : '(default 24h)';
+                        this.qpStatusText = `Next: ${niceTime} ${srcTag}`;
+                        let toast = `Quick Production: next run ${niceTime} (in ${hrs}h) ${srcTag}`;
+                        if (data.reason) toast += ` — ${data.reason}`;
+                        this.showToast(toast, 'success');
+                    } catch (e) {
+                        this.qpStatusText = '';
+                        this.showToast(`Error: ${e.message}`, 'error');
+                    } finally {
+                        this.qpMarking = false;
+                    }
+                },
+
+                async loadZombieModes() {
+                    // Load available zombie modes from config (dynamic stamina values)
+                    try {
+                        const res = await fetch('/api/zombie-modes');
+                        const data = await res.json();
+                        this.zombieModes = data.modes || {};
+                    } catch (e) {
+                        console.error('Zombie modes load failed:', e);
+                        // Fallback to defaults if API fails
+                        this.zombieModes = {
+                            'elite': { stamina: 20, points: 2000 },
+                            'gold': { stamina: 10, points: 1000 },
+                            'food': { stamina: 10, points: 1000 },
+                            'iron_mine': { stamina: 10, points: 1000 }
+                        };
+                    }
+                },
+
                 async loadZombieMode() {
                     try {
                         const res = await fetch('/api/zombie-mode');
@@ -2479,6 +2551,7 @@
                 getZombieModeDisplay(mode) {
                     const displays = {
                         'elite': 'Elite Zombie',
+                        'overlord': 'Zombie Overlord',
                         'gold': 'Gold Mine',
                         'food': 'Food Farm',
                         'iron_mine': 'Iron Mine'
@@ -2538,8 +2611,9 @@
                 async startBurstMode() {
                     // Use selectedZombieMode and convert to flow name
                     const mode = this.selectedZombieMode;
-                    const flow = mode === 'elite' ? 'elite_zombie' : `zombie_attack_${mode}`;
-                    const staminaCost = mode === 'elite' ? 20 : 10;
+                    const cfg = this.zombieModes[mode] || { stamina: 20, flow: 'elite_zombie' };
+                    const flow = cfg.flow || ((mode === 'elite' || mode === 'overlord') ? 'elite_zombie' : `zombie_attack_${mode}`);
+                    const staminaCost = cfg.stamina || 20;
 
                     this.burstMode.running = true;
                     this.burstMode.completed = 0;

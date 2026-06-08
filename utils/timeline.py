@@ -81,9 +81,9 @@ ARMS_RACE_EVENT_FLOWS: dict[str, list[str]] = {
 try:
     from config import VS_SOLDIER_PROMOTION_DAYS, VS_LEVEL_CHEST_DAYS, VS_QUESTION_MARK_SKIP_DAYS
 except ImportError:
-    VS_SOLDIER_PROMOTION_DAYS = [2]
+    VS_SOLDIER_PROMOTION_DAYS = [5]
     VS_LEVEL_CHEST_DAYS = [7]
-    VS_QUESTION_MARK_SKIP_DAYS = [3, 6]
+    VS_QUESTION_MARK_SKIP_DAYS = [2, 5]
 
 # VS Day 7 surprise checkpoints (minutes before day ends)
 VS_DAY7_CHECKPOINTS = [10, 5, 1]

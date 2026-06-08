@@ -495,6 +495,53 @@ async def api_use_shield(request: UseShieldRequest) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+class QuickProductionMarkDoneRequest(BaseModel):
+    """Request to mark Quick Production as done."""
+    verify_ocr: bool = True  # if False, skip the in-game navigation+OCR step
+
+
+@app.post("/api/quick-production/mark-done")
+async def api_mark_quick_production_done(request: QuickProductionMarkDoneRequest) -> dict[str, Any]:
+    """
+    Mark Quick Production as done from the dashboard.
+
+    If verify_ocr=True (default), the daemon navigates to the Class Skill
+    panel and OCRs the actual cooldown timer to set the next-run time
+    precisely. If OCR fails or returns nothing usable, it falls back to a
+    24h cooldown.
+    """
+    import websockets
+
+    try:
+        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+            await ws.send(json.dumps({
+                'cmd': 'mark_quick_production_done',
+                'args': {'verify_ocr': request.verify_ocr},
+            }))
+            response = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
+            if response.get('success'):
+                data = response.get('data', {})
+                return {"success": True, **data}
+            return {"success": False, "error": response.get('error', 'unknown error')}
+    except asyncio.TimeoutError:
+        return {"success": False, "error": "Timeout - flow took too long"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/quick-production/status")
+async def api_quick_production_status() -> dict[str, Any]:
+    """Return current scheduler state for quick_production."""
+    scheduler = get_scheduler()
+    flow_data = scheduler.schedule.get("flows", {}).get("quick_production", {})
+    next_eligible = scheduler.get_next_eligible("quick_production")
+    return {
+        "last_run": flow_data.get("last_run"),
+        "next_eligible_iso": next_eligible.isoformat() if next_eligible else None,
+        "ready_now": next_eligible is None,
+    }
+
+
 @app.get("/api/arms-race/schedule")
 async def api_arms_race_schedule() -> dict[str, Any]:
     """Get full 7-day Arms Race schedule."""
@@ -733,6 +780,18 @@ async def api_run_zombie_attack(zombie_type: str = "gold", plus_clicks: int = 10
     if response.get('success'):
         return {"success": True, "zombie_type": zombie_type, "result": response.get('data')}
     raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.get("/api/zombie-modes")
+async def api_get_zombie_modes() -> dict[str, Any]:
+    """Get available zombie modes with their stamina costs from config."""
+    from config import ZOMBIE_MODE_CONFIG
+    return {
+        "modes": {
+            mode: {"stamina": cfg.get("stamina", 0), "points": cfg.get("points", 0), "flow": cfg.get("flow", "")}
+            for mode, cfg in ZOMBIE_MODE_CONFIG.items()
+        }
+    }
 
 
 # ============================================================================

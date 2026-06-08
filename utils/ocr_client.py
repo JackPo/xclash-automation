@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -313,6 +313,16 @@ class OCRClient:
             print(f"[OCR-CLIENT] Failed to parse JSON: {e}")
             print(f"[OCR-CLIENT] Raw response: {text!r}")
             return None
+
+    def probe_inference(self) -> bool:
+        """Active OCR probe to verify inference works (not just /health endpoint)."""
+        self._ensure_server()
+        img = Image.new("RGB", (220, 90), "white")
+        draw = ImageDraw.Draw(img)
+        draw.text((14, 20), "12345", fill="black")
+        image_bytes = self._image_to_bytes(img)
+        result = self._post_multipart("/ocr/number", image_bytes)
+        return "error" not in result
 
 
 _client: OCRClient | None = None

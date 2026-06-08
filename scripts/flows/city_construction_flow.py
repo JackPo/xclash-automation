@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import time
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+REPO_ROOT_DEBUG_DIR = Path(__file__).resolve().parents[2] / "screenshots" / "debug" / "construction"
 
 from config import (
     CONSTRUCTION_BUTTON_SEARCH_REGION,
@@ -312,28 +315,49 @@ def city_construction_speedup_flow(
         adb.tap(2141, 1426, source="flow:construction_speedup:confirm_fixed")
         time.sleep(0.8)
 
-    # Step 7: Check for Complete button (construction finished)
+    # Step 7: Check for Complete button (construction finished).
+    # After Quick Speedup+Confirm, if the speedup consumed the remaining time,
+    # a Complete button appears that has to be clicked to claim it. Layout
+    # can shift after the panel re-renders, so try anchored search first,
+    # then fall back to a full-screen search.
     logger.info("Speedup Step 7: Checking for Complete button...")
+    time.sleep(0.5)  # let panel re-render after Confirm
     frame = win.get_screenshot_cv2()
 
-    # Complete button appears at the same position as Speed Up button
-    # Search region centered around the speedup_click position we used
     complete_region = (
-        speedup_click[0] - 150,  # x
-        speedup_click[1] - 50,   # y
-        300,                      # width
-        100,                      # height
+        speedup_click[0] - 150,
+        speedup_click[1] - 50,
+        300,
+        100,
     )
     found, score, center = match_template(
         frame, "research_complete_button_4k.png",
         search_region=complete_region, threshold=0.15,
     )
+    if not found:
+        full_found, full_score, full_center = match_template(
+            frame, "research_complete_button_4k.png", threshold=0.15,
+        )
+        logger.info(
+            f"Complete button anchored search missed (score={score:.4f}); "
+            f"full-screen search score={full_score:.4f} at {full_center}"
+        )
+        if full_found:
+            found, score, center = full_found, full_score, full_center
+
     if found:
         logger.info(f"Complete button found at {center} (score={score:.4f}), clicking...")
         adb.tap(*center, source="flow:construction_speedup:complete")
         time.sleep(0.5)
     else:
-        logger.info(f"Complete button not found (score={score:.4f}) - construction may still be in progress")
+        logger.warning(f"Complete button not found anywhere (score={score:.4f}) - saving debug screenshot")
+        import cv2
+        from datetime import datetime
+        REPO_ROOT_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        debug_path = REPO_ROOT_DEBUG_DIR / f"{ts}_construction_no_complete.png"
+        cv2.imwrite(str(debug_path), frame)
+        logger.warning(f"Debug screenshot: {debug_path}")
 
     # Step 8: Close panel
     logger.info("Speedup Step 8: Closing panel...")

@@ -36,8 +36,9 @@ NDArray = npt.NDArray[Any]
 # Thresholds - all SQDIFF (lower=better)
 SQDIFF_THRESHOLD = 0.1   # For non-masked templates
 MASKED_THRESHOLD = 0.05  # For masked templates (stricter)
-POLL_TIMEOUT = 3.0
+POLL_TIMEOUT = 4.5
 POLL_INTERVAL = 0.3
+ARRIVAL_TIMEOUT = 8.0
 
 # Fixed position for Mark tab (rightmost tab in search panel)
 MARK_TAB_POS: tuple[int, int] = (2206, 1047)      # Top-left of Mark tab region
@@ -47,6 +48,15 @@ MARK_TAB_CLICK: tuple[int, int] = (2338, 1096)    # Center click position
 MARK_TAB_REGION: tuple[int, int, int, int] = (
     MARK_TAB_POS[0], MARK_TAB_POS[1], MARK_TAB_SIZE[0], MARK_TAB_SIZE[1]
 )
+# Go button should be matched only inside search panel to avoid false positives
+# on the bottom-right world/town toggle.
+GO_BUTTON_SEARCH_REGION: tuple[int, int, int, int] = (2000, 800, 900, 900)
+SEARCH_BUTTON_SEARCH_REGION: tuple[int, int, int, int] = (0, 1400, 260, 420)
+ARRIVAL_STAR_SEARCH_REGION: tuple[int, int, int, int] = (1400, 600, 1100, 1000)
+SEARCH_BUTTON_V2_THRESHOLD = 0.02
+SEARCH_BUTTON_FALLBACK_CLICK: tuple[int, int] = (78, 1498)
+ARRIVAL_STAR_THRESHOLD = 0.06
+ARRIVAL_STAR_SINGLE_THRESHOLD = 0.10
 
 
 def _get_threshold(template_name: str) -> float:
@@ -57,6 +67,7 @@ def _get_threshold(template_name: str) -> float:
 def _poll_for_template(
     win: WindowsScreenshotHelper,
     template_name: str,
+    search_region: tuple[int, int, int, int] | None = None,
     timeout: float = POLL_TIMEOUT,
     threshold: float | None = None,
     debug: bool = False
@@ -71,7 +82,12 @@ def _poll_for_template(
     frame: NDArray | None = None
     while time.time() - start < timeout:
         frame = win.get_screenshot_cv2()
-        found, score, pos = match_template(frame, template_name, threshold=threshold)
+        found, score, pos = match_template(
+            frame,
+            template_name,
+            search_region=search_region,
+            threshold=threshold
+        )
         last_score = score
         if found:
             if debug:
@@ -121,6 +137,60 @@ def _poll_for_mark_tab_fixed(
     return False, False, 1.0, frame
 
 
+def _poll_for_arrival_star(
+    win: WindowsScreenshotHelper,
+    timeout: float = ARRIVAL_TIMEOUT,
+    debug: bool = False
+) -> tuple[bool, str | None, float, tuple[int, int] | None]:
+    """Poll for marked-city star icon to confirm Go navigation completed."""
+    start = time.time()
+    best_score = 1.0
+    best_template: str | None = None
+    best_pos: tuple[int, int] | None = None
+
+    while time.time() - start < timeout:
+        frame = win.get_screenshot_cv2()
+
+        found, score, pos = match_template(
+            frame,
+            "mark_star_icon_4k.png",
+            search_region=ARRIVAL_STAR_SEARCH_REGION,
+            threshold=ARRIVAL_STAR_THRESHOLD,
+        )
+        if score < best_score:
+            best_score = score
+            best_template = "mark_star_icon_4k.png"
+            best_pos = pos
+        if found:
+            if debug:
+                print(f"    Arrival verified via mark_star_icon_4k.png: score={score:.4f}, pos={pos}")
+            return True, "mark_star_icon_4k.png", score, pos
+
+        found, score, pos = match_template(
+            frame,
+            "star_single_4k.png",
+            search_region=ARRIVAL_STAR_SEARCH_REGION,
+            threshold=ARRIVAL_STAR_SINGLE_THRESHOLD,
+        )
+        if score < best_score:
+            best_score = score
+            best_template = "star_single_4k.png"
+            best_pos = pos
+        if found:
+            if debug:
+                print(f"    Arrival verified via star_single_4k.png: score={score:.4f}, pos={pos}")
+            return True, "star_single_4k.png", score, pos
+
+        time.sleep(POLL_INTERVAL)
+
+    if debug:
+        print(
+            "    Arrival star not detected within timeout: "
+            f"best_template={best_template}, best_score={best_score:.4f}, best_pos={best_pos}"
+        )
+    return False, best_template, best_score, best_pos
+
+
 def go_to_mark_flow(
     adb: ADBHelper,
     screenshot_helper: WindowsScreenshotHelper | None = None,
@@ -145,46 +215,76 @@ def go_to_mark_flow(
         # Step 0: Go to WORLD view first
         if debug:
             print("  Step 0: Going to WORLD view...")
-        go_to_world(adb)
+        if not go_to_world(adb):
+            print("  ERROR: Failed to reach WORLD view before go_to_mark")
+            return False
         time.sleep(0.5)
 
         # Step 1: Find and click search button (try both template variants)
         if debug:
             print("  Step 1: Finding search button...")
+        # If search panel is already open, don't toggle it closed.
+        found, is_active, score, _ = _poll_for_mark_tab_fixed(win, timeout=0.8, debug=False)
+        if found:
+            search_opened = True
+            if debug:
+                state = "active" if is_active else "inactive"
+                print(f"    Search panel already open (Mark tab {state}, score={score:.4f})")
+        else:
+            search_opened = False
+
         frame = win.get_screenshot_cv2()
-
-        # Try original template first
-        found, score, pos = match_template(frame, "search_button_4k.png", threshold=_get_threshold("search_button_4k.png"))
-        if debug:
-            print(f"    Search button (v1): found={found}, score={score:.4f}, pos={pos}")
-
-        # If not found, try v2 template (different brightness state)
-        if not found:
-            found, score, pos = match_template(frame, "search_button_4k_v2.png", threshold=_get_threshold("search_button_4k_v2.png"))
+        search_candidates: list[tuple[float, tuple[int, int], str]] = []
+        candidate_specs = [
+            ("search_button_4k.png", 0.20, "v1"),
+            ("search_button_4k_v2.png", 0.20, "v2"),
+            ("search_button_ice_4k.png", 0.20, "ice"),
+        ]
+        for template_name, probe_threshold, label in candidate_specs:
+            found, score, pos = match_template(
+                frame,
+                template_name,
+                search_region=SEARCH_BUTTON_SEARCH_REGION,
+                threshold=probe_threshold,
+            )
             if debug:
-                print(f"    Search button (v2): found={found}, score={score:.4f}, pos={pos}")
+                print(f"    Search button ({label}): found={found}, score={score:.4f}, pos={pos}")
+            if pos is not None:
+                search_candidates.append((score, pos, label))
 
-        # If not found, try ice-themed template (winter theme)
-        if not found:
-            found, score, pos = match_template(frame, "search_button_ice_4k.png", threshold=_get_threshold("search_button_ice_4k.png"))
-            if debug:
-                print(f"    Search button (ice): found={found}, score={score:.4f}, pos={pos}")
+        # Prefer lower-score detections, then fixed known coordinates.
+        search_candidates.sort(key=lambda item: item[0])
+        search_clicks: list[tuple[tuple[int, int], str]] = []
+        seen: set[tuple[int, int]] = set()
+        for score, pos, label in search_candidates:
+            if score > 0.12 or pos in seen:
+                continue
+            seen.add(pos)
+            search_clicks.append((pos, f"template_{label}_{score:.4f}"))
+        for fallback in (SEARCH_BUTTON_FALLBACK_CLICK, (125, 1576)):
+            if fallback not in seen:
+                search_clicks.append((fallback, "fallback"))
 
-        if not found or pos is None:
-            print("  ERROR: Search button not found")
-            return False
+        if not search_opened:
+            is_active = False
+            for click_pos, reason in search_clicks:
+                if debug:
+                    print(f"    Clicking search button candidate {click_pos} ({reason})")
+                    print("    Verifying search panel opened (Mark tab detection in panel region)...")
+                adb.tap(click_pos[0], click_pos[1], source="flow:go_to_mark:search_button")
+                time.sleep(0.5)
+                found, is_active, score, _ = _poll_for_mark_tab_fixed(win, debug=debug)
+                if found:
+                    search_opened = True
+                    break
+        else:
+            # Refresh active/inactive state for Step 2 behavior.
+            found, is_active, score, _ = _poll_for_mark_tab_fixed(win, timeout=1.2, debug=debug)
+            if not found:
+                search_opened = False
 
-        if debug:
-            print(f"    Clicking search button at {pos}")
-        adb.tap(pos[0], pos[1], source="flow:go_to_mark:search_button")
-        time.sleep(0.5)
-
-        # Verify: Poll for Mark tab at FIXED position (proves search panel opened)
-        if debug:
-            print("    Verifying search panel opened (looking for Mark tab at fixed position)...")
-        found, is_active, score, _ = _poll_for_mark_tab_fixed(win, debug=debug)
-        if not found:
-            print("  ERROR: Search panel did not open (Mark tab not found at fixed position)")
+        if not search_opened:
+            print("  ERROR: Search panel did not open (Mark tab not found in panel region)")
             return False
 
         # Step 2: Click Mark tab at FIXED position (if not already active)
@@ -193,7 +293,7 @@ def go_to_mark_flow(
                 print(f"  Step 2: Mark tab already active, skipping click")
         else:
             if debug:
-                print(f"  Step 2: Clicking Mark tab at FIXED position {MARK_TAB_CLICK}")
+                print(f"  Step 2: Clicking Mark tab at {MARK_TAB_CLICK}")
             adb.tap(MARK_TAB_CLICK[0], MARK_TAB_CLICK[1], source="flow:go_to_mark:mark_tab")
             time.sleep(0.5)
 
@@ -228,7 +328,7 @@ def go_to_mark_flow(
         if debug:
             print("  Step 4: Finding Go button...")
         found, score, go_pos, _ = _poll_for_template(
-            win, "go_button_4k.png", debug=debug
+            win, "go_button_4k.png", search_region=GO_BUTTON_SEARCH_REGION, debug=debug
         )
         if not found or go_pos is None:
             print("  ERROR: Go button not found (no marked Special location?)")
@@ -237,7 +337,18 @@ def go_to_mark_flow(
         if debug:
             print(f"    Clicking Go button at {go_pos}")
         adb.tap(go_pos[0], go_pos[1], source="flow:go_to_mark:go_button")
-        time.sleep(2.0)  # Wait for navigation
+        time.sleep(1.0)
+
+        # Verify destination arrival before returning success.
+        if debug:
+            print("    Verifying arrival at marked location (star icon)...")
+        arrived, template_name, star_score, star_pos = _poll_for_arrival_star(win, debug=debug)
+        if not arrived:
+            print(
+                "  ERROR: Go completed but marked-location arrival not verified "
+                f"(best={template_name}, score={star_score:.4f}, pos={star_pos})"
+            )
+            return False
 
         if debug:
             print("  Go to mark complete!")

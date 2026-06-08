@@ -44,11 +44,25 @@ model = None
 processor = None
 model_lock = threading.Lock()
 request_slots = threading.BoundedSemaphore(MAX_IN_FLIGHT_REQUESTS)
+inference_healthy = True
+inference_last_error = ""
+
+
+def _is_gpu_fault_error(error: Exception) -> bool:
+    """Return True for CUDA/GPU runtime faults that require process restart."""
+    msg = str(error).lower()
+    return (
+        "cuda error" in msg
+        or "acceleratorerror" in msg
+        or "device-side assert" in msg
+        or "cublas" in msg
+        or "out of memory" in msg
+    )
 
 
 def load_model():
     """Load Qwen model on GPU."""
-    global model, processor
+    global model, processor, inference_healthy, inference_last_error
 
     MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
     print(f"Loading {MODEL_ID} on GPU...")
@@ -68,6 +82,8 @@ def load_model():
     )
 
     processor = AutoProcessor.from_pretrained(MODEL_ID)
+    inference_healthy = True
+    inference_last_error = ""
     print("Model loaded successfully!")
 
 
@@ -265,15 +281,20 @@ class OCRHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests."""
         if self.path == "/health":
+            status = "ok" if (model is not None and inference_healthy) else "error"
             self.send_json({
-                "status": "ok",
-                "model_loaded": model is not None
+                "status": status,
+                "model_loaded": model is not None,
+                "inference_healthy": inference_healthy,
+                "last_error": inference_last_error,
             })
         else:
             self.send_json({"error": "Not found"}, 404)
 
     def do_POST(self):
         """Handle POST requests."""
+        global inference_healthy, inference_last_error
+
         if self.path not in ("/ocr", "/ocr/number"):
             self.send_json({"error": "Not found"}, 404)
             return
@@ -292,6 +313,8 @@ class OCRHandler(BaseHTTPRequestHandler):
                 self._handle_ocr_number(data)
             else:
                 self.send_json({"error": "Not found"}, 404)
+            inference_healthy = True
+            inference_last_error = ""
 
         except Exception as e:
             if _is_client_disconnect_error(e):
@@ -302,6 +325,10 @@ class OCRHandler(BaseHTTPRequestHandler):
                 print(f"[OCR] Bad request on {self.path}: {e}")
                 self.send_json({"error": str(e)}, 400)
                 return
+
+            if _is_gpu_fault_error(e):
+                inference_healthy = False
+                inference_last_error = str(e)
 
             print(f"[OCR] ERROR handling {self.path}: {e}")
             traceback.print_exc()

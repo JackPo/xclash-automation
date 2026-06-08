@@ -9,68 +9,70 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-# Exact schedule from user (42 events total)
+# Exact schedule (42 events total, 7 days x 6 blocks)
 # Format: (day, utc_hour, activity_name)
+# Updated: 2026-04-13 - new schedule from game
 SCHEDULE = [
-    # Day 1 - Wednesday
-    (1, 2, "Enhance Hero"),           # 18:00 system time (6PM PT Wed = 2AM UTC Thu)
-    (1, 6, "City Construction"),      # 22:00
-    (1, 10, "Soldier Training"),      # 02:00
-    (1, 14, "Technology Research"),   # 06:00
-    (1, 18, "Mystic Beast Training"), # 10:00
-    (1, 22, "Enhance Hero"),          # 14:00
+    # Day 1
+    (1, 2, "City Construction"),      # 02:00 UTC
+    (1, 6, "Soldier Training"),       # 06:00
+    (1, 10, "Enhance Hero"),          # 10:00
+    (1, 14, "Technology Research"),   # 14:00
+    (1, 18, "Mystic Beast Training"), # 18:00
+    (1, 22, "Enhance Hero"),          # 22:00
 
-    # Day 2 - Thursday
-    (2, 2, "City Construction"),      # 18:00
-    (2, 6, "Soldier Training"),       # 22:00
-    (2, 10, "Technology Research"),   # 02:00
-    (2, 14, "Mystic Beast Training"), # 06:00
-    (2, 18, "Enhance Hero"),          # 10:00
-    (2, 22, "City Construction"),     # 14:00
+    # Day 2
+    (2, 2, "Soldier Training"),       # 02:00
+    (2, 6, "Technology Research"),    # 06:00
+    (2, 10, "City Construction"),     # 10:00
+    (2, 14, "Mystic Beast Training"), # 14:00
+    (2, 18, "Enhance Hero"),          # 18:00
+    (2, 22, "City Construction"),     # 22:00
 
-    # Day 3 - Friday
-    (3, 2, "Soldier Training"),       # 18:00
-    (3, 6, "Technology Research"),    # 22:00
-    (3, 10, "Mystic Beast Training"), # 02:00
-    (3, 14, "Enhance Hero"),          # 06:00
-    (3, 18, "City Construction"),     # 10:00
-    (3, 22, "Soldier Training"),      # 14:00
+    # Day 3
+    (3, 2, "Mystic Beast Training"),  # 02:00
+    (3, 6, "Enhance Hero"),           # 06:00
+    (3, 10, "Technology Research"),   # 10:00
+    (3, 14, "City Construction"),     # 14:00
+    (3, 18, "Soldier Training"),      # 18:00
+    (3, 22, "Technology Research"),   # 22:00
 
-    # Day 4 - Saturday
-    (4, 2, "Technology Research"),    # 18:00
-    (4, 6, "Mystic Beast Training"),  # 22:00
-    (4, 10, "Enhance Hero"),          # 02:00
-    (4, 14, "City Construction"),     # 06:00
-    (4, 18, "Soldier Training"),      # 10:00
-    (4, 22, "Technology Research"),   # 14:00
+    # Day 4
+    (4, 2, "City Construction"),      # 02:00
+    (4, 6, "Soldier Training"),       # 06:00
+    (4, 10, "Enhance Hero"),          # 10:00
+    (4, 14, "Technology Research"),   # 14:00
+    (4, 18, "Mystic Beast Training"), # 18:00
+    (4, 22, "Enhance Hero"),          # 22:00
 
-    # Day 5 - Sunday
-    (5, 2, "Mystic Beast Training"),  # 18:00
-    (5, 6, "Enhance Hero"),           # 22:00
-    (5, 10, "City Construction"),     # 02:00
-    (5, 14, "Soldier Training"),      # 06:00
-    (5, 18, "Technology Research"),   # 10:00
-    (5, 22, "Mystic Beast Training"), # 14:00
+    # Day 5
+    (5, 2, "Technology Research"),    # 02:00
+    (5, 6, "Mystic Beast Training"),  # 06:00
+    (5, 10, "Soldier Training"),      # 10:00
+    (5, 14, "Enhance Hero"),          # 14:00
+    (5, 18, "City Construction"),     # 18:00
+    (5, 22, "Soldier Training"),      # 22:00
 
-    # Day 6 - Monday
-    (6, 2, "Enhance Hero"),           # 18:00
-    (6, 6, "City Construction"),      # 22:00
-    (6, 10, "Soldier Training"),      # 02:00
-    (6, 14, "Technology Research"),   # 06:00
-    (6, 18, "Mystic Beast Training"), # 10:00
-    (6, 22, "Enhance Hero"),          # 14:00
+    # Day 6
+    (6, 2, "Soldier Training"),       # 02:00
+    (6, 6, "Technology Research"),    # 06:00
+    (6, 10, "City Construction"),     # 10:00
+    (6, 14, "Mystic Beast Training"), # 14:00
+    (6, 18, "Enhance Hero"),          # 18:00
+    (6, 22, "City Construction"),     # 22:00
 
-    # Day 7 - Tuesday
-    (7, 2, "City Construction"),      # 18:00
-    (7, 6, "Soldier Training"),       # 22:00
-    (7, 10, "Technology Research"),   # 02:00
-    (7, 14, "Mystic Beast Training"), # 06:00
-    (7, 18, "Enhance Hero"),          # 10:00
-    (7, 22, "City Construction"),     # 14:00
+    # Day 7
+    (7, 2, "Mystic Beast Training"),  # 02:00
+    (7, 6, "Enhance Hero"),           # 06:00
+    (7, 10, "Technology Research"),   # 10:00
+    (7, 14, "City Construction"),     # 14:00
+    (7, 18, "Soldier Training"),      # 18:00
+    (7, 22, "Technology Research"),   # 22:00
 ]
 
-# Reference: Day 1 starts Dec 3, 2025 6PM PT = Dec 4, 2025 02:00 UTC
-REFERENCE_TIME = datetime(2025, 12, 4, 2, 0, 0, tzinfo=timezone.utc)
+# Reference: Day 1 Block 1 starts at 02:00 UTC
+# Updated: 2026-04-13 - new schedule, Day 1 starts now
+REFERENCE_TIME = datetime(2026, 4, 13, 2, 0, 0, tzinfo=timezone.utc)
 
 EVENT_HOURS = 4
 
@@ -176,6 +178,11 @@ ARMS_RACE_EVENTS = {
         "chest2": 4000,
         "chest3": 12000,
         "header_template": "enhance_hero_header_4k.png",
+        # In-game economics: each hero-upgrade grants the hero some EXP, and the
+        # Arms Race scores 1 point per 2000 hero EXP spent. Used by the flow to
+        # decide how many upgrades to do per block — stop when projected points
+        # would cross chest3.
+        "exp_per_arms_race_point": 2000,
     },
     "City Construction": {
         "chest1": 6250,
@@ -202,6 +209,17 @@ def get_chest3_target(event_name: str) -> int | None:
     """Get the chest 3 threshold for calculating required points."""
     meta = get_event_metadata(event_name)
     return meta.get("chest3")
+
+
+def get_exp_per_arms_race_point(event_name: str) -> int | None:
+    """Get how many in-game EXP units yield one Arms Race point for an event.
+
+    Only set for events whose Arms Race scoring is EXP-based (e.g. Enhance Hero).
+    Returns None if the event doesn't define it.
+    """
+    meta = get_event_metadata(event_name)
+    val = meta.get("exp_per_arms_race_point")
+    return int(val) if val is not None else None
 
 
 def is_event_data_complete(event_name: str) -> bool:

@@ -188,6 +188,8 @@ class DaemonWebSocketServer:
             # Shield inventory
             "get_shield_inventory": self._cmd_get_shield_inventory,
             "use_shield": self._cmd_use_shield,
+            # Quick Production
+            "mark_quick_production_done": self._cmd_mark_quick_production_done,
             # Config override commands
             "get_config": self._cmd_get_config,
             "set_override": self._cmd_set_override,
@@ -1178,6 +1180,75 @@ class DaemonWebSocketServer:
         )
 
         return result
+
+    # =========================================================================
+    # Quick Production
+    # =========================================================================
+
+    def _cmd_mark_quick_production_done(self, args: dict[str, Any]) -> dict[str, Any]:
+        """
+        Mark Quick Production as done. Stops the daemon from retrying.
+
+        Args:
+            verify_ocr: bool (default True). If True, navigate to the Class
+                        Skill panel and OCR the actual cooldown timer. If
+                        False (or on OCR failure), fall back to a 24h cooldown.
+
+        Returns dict:
+            {
+              "next_run_iso": str,
+              "remaining_seconds": int,
+              "source": "ocr" | "default_24h",
+              "raw_text": str | None,
+              "reason": str | None,    # set if OCR fell back
+            }
+        """
+        from scripts.flows.quick_production_flow import verify_quick_production_cooldown_flow
+        from datetime import datetime, timedelta
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
+
+        verify_ocr = bool(args.get("verify_ocr", True))
+        debug = bool(args.get("debug", False))
+
+        DEFAULT_REMAINING = 86400  # 24h
+        source = "default_24h"
+        remaining: int = DEFAULT_REMAINING
+        raw_text: str | None = None
+        fallback_reason: str | None = None
+
+        if verify_ocr:
+            result = verify_quick_production_cooldown_flow(
+                self.daemon.adb, self.daemon.windows_helper, debug=debug
+            )
+            raw_text = result.get("raw_text")
+            if result.get("ok") and result.get("remaining_seconds") is not None:
+                remaining = int(result["remaining_seconds"])
+                source = "ocr"
+                # If OCR reports 0 (available now) we still want to suppress
+                # the retry storm for at least a short window -- the user just
+                # told us they did it manually, so trust that over an OCR
+                # blip that might have read 0 in error.
+                if remaining < 60:
+                    remaining = DEFAULT_REMAINING
+                    source = "default_24h"
+                    fallback_reason = f"OCR said available-now but user marked done; defaulting to 24h"
+            else:
+                fallback_reason = result.get("reason") or "OCR failed"
+
+        # record_flow_run with cooldown_override backdates last_run so that
+        # next_ready = now + remaining
+        self.daemon.scheduler.record_flow_run("quick_production", cooldown_override=remaining)
+
+        next_run = (datetime.now() + timedelta(seconds=remaining)).isoformat()
+        return {
+            "next_run_iso": next_run,
+            "remaining_seconds": remaining,
+            "source": source,
+            "raw_text": raw_text,
+            "reason": fallback_reason,
+        }
 
     # =========================================================================
     # Config Override Commands

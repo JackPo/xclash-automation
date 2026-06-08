@@ -177,6 +177,7 @@ from flows.union_furnace_flow import union_furnace_flow
 from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
 from flows.beast_training_flow import aggressive_beast_training_flow
 from flows.city_construction_flow import city_construction_speedup_flow
+from flows.technology_research_flow import technology_research_speedup_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -217,6 +218,8 @@ from config import (
     ARMS_RACE_ENHANCE_HERO_LAST_MINUTES,
     ARMS_RACE_CONSTRUCTION_ENABLED,
     ARMS_RACE_CONSTRUCTION_LAST_MINUTES,
+    ARMS_RACE_TECH_RESEARCH_ENABLED,
+    ARMS_RACE_TECH_RESEARCH_LAST_MINUTES,
     STAMINA_CLAIM_BUTTON,
     ARMS_RACE_STAMINA_CLAIM_THRESHOLD,
     ARMS_RACE_BEAST_TRAINING_USE_ENABLED,
@@ -228,6 +231,7 @@ from config import (
     ZOMBIE_MODE_CONFIG,
     ARMS_RACE_SOLDIER_TRAINING_ENABLED,
     ARMS_RACE_BEAST_TRAINING_PRE_EVENT_MINUTES,
+    END_OF_DAY_STAMINA_CLAIM_MINUTES,
     # VS Event overrides
     VS_SOLDIER_PROMOTION_DAYS,
     # Rally joining
@@ -560,6 +564,11 @@ class IconDaemon:
         self.ARMS_RACE_CONSTRUCTION_ENABLED = ARMS_RACE_CONSTRUCTION_ENABLED
         self.CONSTRUCTION_LAST_MINUTES = ARMS_RACE_CONSTRUCTION_LAST_MINUTES
         self.construction_speedup_last_block_start: datetime | None = None
+
+        # Technology Research: last N minutes, speedup smallest queue
+        self.ARMS_RACE_TECH_RESEARCH_ENABLED = ARMS_RACE_TECH_RESEARCH_ENABLED
+        self.TECH_RESEARCH_LAST_MINUTES = ARMS_RACE_TECH_RESEARCH_LAST_MINUTES
+        self.tech_research_speedup_last_block_start: datetime | None = None
 
         # Generic Arms Race progress check: log points for ALL events in last 10 min
         self.ARMS_RACE_PROGRESS_CHECK_MINUTES = 10  # Check in last N minutes
@@ -1199,15 +1208,20 @@ class IconDaemon:
                         is_critical=critical,
                     )
 
-                # Record to scheduler - skipped flows get short cooldown (5 min)
-                # to prevent infinite loop while still allowing retry soon
+                # Record to scheduler with appropriate cooldown based on outcome:
+                # - FAILED (False): Short 15-min retry to handle transient issues
+                # - SKIPPED (dict with "skipped"): Short 5-min retry
+                # - SUCCESS (True or dict): Full cooldown
                 if record_to_scheduler:
-                    flow_skipped = (flow_result and isinstance(flow_result, dict)
-                                    and flow_result.get("skipped"))
-                    if flow_skipped:
-                        # Short 5-min cooldown for skipped flows
+                    if flow_result is False:
+                        # FAILED - retry in 15 minutes instead of full cooldown
+                        self.scheduler.record_flow_run(flow_name, cooldown_override=900)
+                        self.logger.warning(f"[SCHEDULER] {flow_name} FAILED - will retry in 15 min")
+                    elif isinstance(flow_result, dict) and flow_result.get("skipped"):
+                        # SKIPPED - retry in 5 minutes
                         self.scheduler.record_flow_run(flow_name, cooldown_override=300)
                     else:
+                        # SUCCESS - full cooldown
                         self.scheduler.record_flow_run(flow_name)
 
                 with self.flow_lock:
@@ -3331,6 +3345,30 @@ class IconDaemon:
                         elif self.debug:
                             self.logger.debug(f"[{iteration}] PRE-BEAST TRAINING: {minutes_until_beast:.1f}min until event, but no red dot ({red_count} pixels)")
 
+                # =================================================================
+                # END-OF-DAY STAMINA CLAIM: Safety net to claim free stamina before day reset
+                # =================================================================
+                # Last event of day is when event_index % 6 == 5 (6 events per day)
+                is_last_event_of_day = arms_race['event_index'] % 6 == 5
+                arms_race_day_remaining_mins = arms_race['time_remaining'].total_seconds() / 60
+                is_end_of_day = arms_race_day_remaining_mins <= END_OF_DAY_STAMINA_CLAIM_MINUTES
+
+                if (is_last_event_of_day and
+                    is_end_of_day and
+                    view_state_enum in (ViewState.TOWN, ViewState.WORLD) and
+                    self.scheduler.is_flow_ready("end_of_day_stamina_claim", idle_seconds=effective_idle_secs)):
+
+                    # Flow opens panel and checks for Claim button - no red dot check needed
+                    self.logger.info(f"[{iteration}] END-OF-DAY STAMINA: Day {arms_race['day']}, {arms_race_day_remaining_mins:.1f}min remaining - checking for free stamina")
+                    flow_candidates.append(FlowCandidate(
+                        name="end_of_day_stamina_claim",
+                        flow_func=stamina_claim_flow,
+                        priority=FlowPriority.CRITICAL,
+                        critical=True,
+                        reason=f"End of Day {arms_race['day']}, {arms_race_day_remaining_mins:.0f}min left",
+                        record_to_scheduler=True
+                    ))
+
                 # Zombie rally/attack - stamina >= threshold and idle 5+ min
                 # Respects zombie_mode setting (elite=20 stamina, gold/food/iron_mine=10 stamina)
                 # BLOCKED: if Beast Training starts in < 6 minutes (preserve stamina for event)
@@ -3498,6 +3536,24 @@ class IconDaemon:
                             priority=FlowPriority.CRITICAL,
                             critical=True,
                             reason=f"last {arms_race_remaining_mins:.0f}min of City Construction"
+                        ))
+
+                # Technology Research: last N minutes, speedup smallest queue
+                tech_research_candidate = False
+                tech_research_enabled = self._get_config('ARMS_RACE_TECH_RESEARCH_ENABLED', ARMS_RACE_TECH_RESEARCH_ENABLED)
+                if (tech_research_enabled and
+                    arms_race_event == "Technology Research" and
+                    arms_race_remaining_mins <= self.TECH_RESEARCH_LAST_MINUTES and
+                    self._is_user_idle()):
+                    block_start = arms_race['block_start']
+                    if self.tech_research_speedup_last_block_start != block_start:
+                        tech_research_candidate = True
+                        flow_candidates.append(FlowCandidate(
+                            name="tech_research_speedup",
+                            flow_func=lambda adb: technology_research_speedup_flow(adb, self.windows_helper),
+                            priority=FlowPriority.CRITICAL,
+                            critical=True,
+                            reason=f"last {arms_race_remaining_mins:.0f}min of Technology Research"
                         ))
 
                 # =================================================================
@@ -3702,6 +3758,22 @@ class IconDaemon:
                                     self.barracks_state_history[idx] = []
                                 else:
                                     self.logger.info(f"[{iteration}] SOLDIER: Barrack {idx+1} upgrade failed")
+
+                                # Always force-return to TOWN after each attempt. The
+                                # underlying flow has multiple early-return paths that
+                                # leave the Soldier Training popup open, which makes
+                                # view detection go UNKNOWN and the daemon get stuck
+                                # waiting for TOWN/WORLD that never comes back without
+                                # intervention. respect_idle=False so we recover even
+                                # if the user is actively touching the screen.
+                                try:
+                                    from utils.return_to_base_view import return_to_base_view
+                                    return_to_base_view(
+                                        self.adb, self.windows_helper,
+                                        target=ViewState.TOWN, respect_idle=False, debug=False,
+                                    )
+                                except Exception as e:
+                                    self.logger.warning(f"[{iteration}] SOLDIER: post-upgrade RTB failed: {e}")
 
                                 time.sleep(0.5)
 
@@ -3955,6 +4027,12 @@ class IconDaemon:
                         block_start = arms_race['block_start']
                         self.construction_speedup_last_block_start = block_start
                         self.logger.info(f"[{iteration}] Construction speedup complete for block {block_start}")
+
+                    # Technology Research speedup block tracking
+                    if executed_flow == "tech_research_speedup" and tech_research_candidate:
+                        block_start = arms_race['block_start']
+                        self.tech_research_speedup_last_block_start = block_start
+                        self.logger.info(f"[{iteration}] Tech research speedup complete for block {block_start}")
 
                     # Soldier speedup block tracking
                     if executed_flow == "soldier_speedup_h2" and soldier_speedup_h2_candidate and speedup_block_start:
