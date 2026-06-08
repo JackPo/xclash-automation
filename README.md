@@ -446,6 +446,52 @@ to build a mask. The reusable `build_mask.py` script supports `--single-shot`
 auto-locate (no daemon stop, no second screenshot needed) and `--two-shot`
 mode for new templates from scratch.
 
+### Tavern scan: 4 tavern opens per trigger → 1
+A scheduled `tavern_scan` used to open the tavern **four times** in ~30 s:
+two scan passes (`_run_tavern_scan_twice`) × (scan + dispatch follow-up
+that closed and reopened the panel). With the existing `is_in_tavern()`
+verification + 3-attempt retry inside `_open_tavern`, the second scan pass
+was almost always wasted work. **Fix**:
+- `_run_tavern_scan_twice` now runs scan once (name preserved for callsite
+  stability).
+- `_run_dispatch_mode` split into a thin gate-check shell + an
+  `_dispatch_in_open_tavern()` helper. `_run_scan_mode` calls the helper
+  directly while still in the tavern instead of close+reopen. Standalone
+  dispatch callers unchanged.
+
+Single scheduled `tavern_scan` trigger now opens the tavern **once**.
+Claim-mode multi-attempt is intentionally untouched — it relies on
+re-checking the tavern across timing edge cases (a quest can become
+claimable mid-cycle, claim animation can race the next claim's
+appearance).
+
+### Tavern dispatchable counter (three-tier model)
+The dashboard now shows how many quest slots are visible without
+re-opening the tavern. Three concentric tiers tracked per dispatch attempt:
+
+- **dispatchable** (Tier 1) — total visible Go buttons on the first screen,
+  any quest type. Counted via new `find_all_go_buttons()` helper that
+  reuses `templates/ground_truth/go_button_4k.png` with NMS + Y bound
+  `820..1700` (so the Mega Dispatch row doesn't false-positive).
+- **directly_startable** (Tier 2) — subset our code can click Go on right
+  now (gold-scroll + question-mark post VS-day filter).
+- **refresh_candidates** = `dispatchable - directly_startable` — visible
+  Gos of unsupported types the player can in-game refresh to potentially
+  roll into a supported type.
+
+A `dispatch_exhausted_date` flag fires **only when Tier 1 = 0** — truly
+empty quest panel. If unsupported-type Gos are visible, daemon keeps
+checking so we can refresh them later. Claim and ally are independent of
+this flag.
+
+Dashboard surface: a "Dispatchable" tile in the Tavern Quests card with a
+"3+" / number / "DONE" display and a subtitle showing `X startable now +
+Y refresh candidates`. New endpoints `/api/tavern-status` and
+`POST /api/tavern-status/clear-exhaustion`.
+
+Bonus fix: tightened `QUEST_LIST_Y_MAX` from 1850 to 1700 to stop the
+Mega Dispatch button from matching as a fake gold-scroll quest at y=1826.
+
 ---
 
 ## Adding a new flow
