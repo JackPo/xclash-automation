@@ -1217,10 +1217,29 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
     else:
         logger.info("No active quest timers detected in scan")
 
-    # Always run dispatch follow-up after scan (requested behavior).
+    # Always run dispatch follow-up after scan (requested behavior). But do
+    # it INSIDE the existing tavern session -- previously we closed and
+    # reopened, which contributed to the "tavern loads 4 times per scan"
+    # complaint. Now: check dispatch gates; if they pass, run dispatch in
+    # the already-open tavern. Then close the tavern once at the end.
     logger.info("Running DISPATCH follow-up after scan")
+    allowed, skip_reason = _dispatch_gates_passed()
+    if not allowed:
+        if skip_reason == "before_start_time":
+            logger.info("Before quest start time - skipping dispatch")
+        dispatch_result: dict[str, Any] = {"dispatches": 0, "mode": "dispatch", "skipped": skip_reason}
+    else:
+        # Scrolling during scan may have left us on a different row -- scroll
+        # back to top via repeated scroll-up before dispatch starts looking
+        # for Go buttons from the top.
+        for _ in range(scroll_count):
+            adb.swipe(SCROLL_X, SCROLL_END_Y, SCROLL_X, SCROLL_START_Y, SCROLL_DURATION)
+            time.sleep(0.3)
+        dispatch_result = _dispatch_in_open_tavern(adb, win, debug=debug)
+        dispatch_result["mode"] = "dispatch"
+
+    # Close tavern once at the end of the combined scan+dispatch session.
     return_to_base_view(adb, win, debug=debug, respect_idle=False)
-    dispatch_result = _run_dispatch_mode(adb, win, debug=debug)
     return {"completions": all_completions, "mode": "scan", "dispatch_triggered": True, **dispatch_result}
 
 
@@ -1228,49 +1247,42 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
 # MODE: DISPATCH - Click Go buttons only, no OCR, no Claims
 # =============================================================================
 
-def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
+def _dispatch_gates_passed() -> tuple[bool, str]:
+    """Check the time-window + 30-min-gap gates that govern dispatch.
+
+    Returns (allowed, reason). If allowed=False, reason is the skip code
+    ('before_start_time' or 'too_soon') the caller should return.
     """
-    DISPATCH mode: Find and click Go buttons to start new quests.
-
-    Behavior:
-    - Enforces dispatch start time window in Pacific time.
-    - Enforces minimum minutes between successful dispatches.
-    - Prioritizes gold-scroll quests, then question-mark quests (when allowed).
-    - Saves debug screenshots for key dispatch steps when `debug=True`.
-    - A post-dispatch transition can leave tavern view; this may happen after a
-      successful dispatch depending on game UI transition/popups.
-
-    Does NOT: Click Claim buttons, OCR timers.
-
-    Returns:
-        {"dispatches": N, "mode": "dispatch"}
-    """
-    logger.info("=== TAVERN DISPATCH MODE ===")
-    if debug:
-        _save_debug(win.get_screenshot_cv2(), "dispatch_00_start")
-
-    # Check time restriction
     if not _is_after_quest_start_time():
-        logger.info("Before quest start time - skipping dispatch")
-        return {"dispatches": 0, "mode": "dispatch", "skipped": "before_start_time"}
-
-    # Check dispatch gap (configured minutes between successful dispatches)
+        return False, "before_start_time"
     from config import TAVERN_MIN_DISPATCH_GAP_MINUTES
     scheduler = _get_scheduler()
     last_dispatch = scheduler.get_last_tavern_dispatch()
     if last_dispatch:
         minutes_since = (datetime.now() - last_dispatch).total_seconds() / 60
         if minutes_since < TAVERN_MIN_DISPATCH_GAP_MINUTES:
-            logger.info(f"Skipping dispatch: only {minutes_since:.0f} min since last dispatch (need {TAVERN_MIN_DISPATCH_GAP_MINUTES})")
-            return {"dispatches": 0, "mode": "dispatch", "skipped": "too_soon"}
+            logger.info(f"Skipping dispatch: only {minutes_since:.0f} min since last (need {TAVERN_MIN_DISPATCH_GAP_MINUTES})")
+            return False, "too_soon"
+    return True, ""
 
-    if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
-        return {"dispatches": 0, "mode": "dispatch", "error": "tavern_open_failed"}
 
+def _dispatch_in_open_tavern(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    debug: bool = False,
+) -> dict[str, Any]:
+    """The in-tavern dispatch loop. Assumes tavern is already open on the
+    My Quests tab. Caller is responsible for closing the tavern.
+
+    Used by both _run_dispatch_mode (standalone) and _run_scan_mode (inline
+    follow-up). Splitting this out avoids closing+reopening the tavern when
+    scan runs dispatch as a follow-up.
+    """
     total_dispatches = 0
     no_action_count = 0
     max_no_action = 2
     loop_idx = 0
+    scheduler = _get_scheduler()
 
     while no_action_count < max_no_action:
         loop_idx += 1
@@ -1334,14 +1346,14 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
 
                 logger.warning(f"Bounty Quest dialog not detected for {quest_type} candidate {idx}, trying next")
 
-                # If we left tavern after a bad click, stop dispatch mode cleanly.
+                # If we left tavern after a bad click, stop dispatch loop cleanly.
+                # Caller will handle whatever view we're now in.
                 post_frame = win.get_screenshot_cv2()
                 post_in_tavern, _ = is_in_tavern(post_frame)
                 if not post_in_tavern:
-                    logger.warning("Lost tavern view after failed candidate click - aborting dispatch mode")
+                    logger.warning("Lost tavern view after failed candidate click - aborting dispatch loop")
                     _save_debug(post_frame, f"dispatch_{loop_idx:02d}_{quest_type}_{idx:02d}_lost_tavern")
-                    return_to_base_view(adb, win, debug=debug, respect_idle=False)
-                    return {"dispatches": total_dispatches, "mode": "dispatch", "error": "lost_tavern_after_failed_click"}
+                    return {"dispatches": total_dispatches, "lost_tavern": True}
 
             if action_succeeded:
                 break
@@ -1357,11 +1369,37 @@ def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool
             adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
             time.sleep(0.5)
 
-    # Exit tavern
+    logger.info(f"DISPATCH in-tavern loop complete: {total_dispatches} quests started")
+    return {"dispatches": total_dispatches}
+
+
+def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:
+    """Standalone DISPATCH mode: gate-check, open tavern, run dispatch loop, close.
+
+    Used when dispatch is called as its own entry point (e.g. scheduled 6 AM PT
+    trigger). When dispatch is a follow-up to a scan, _run_scan_mode calls
+    _dispatch_in_open_tavern() directly to avoid closing+reopening the tavern.
+    """
+    logger.info("=== TAVERN DISPATCH MODE ===")
+    if debug:
+        _save_debug(win.get_screenshot_cv2(), "dispatch_00_start")
+
+    allowed, skip_reason = _dispatch_gates_passed()
+    if not allowed:
+        if skip_reason == "before_start_time":
+            logger.info("Before quest start time - skipping dispatch")
+        return {"dispatches": 0, "mode": "dispatch", "skipped": skip_reason}
+
+    if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
+        return {"dispatches": 0, "mode": "dispatch", "error": "tavern_open_failed"}
+
+    result = _dispatch_in_open_tavern(adb, win, debug=debug)
+
+    # Always close tavern at the end of standalone mode.
     return_to_base_view(adb, win, debug=debug, respect_idle=False)
 
-    logger.info(f"DISPATCH mode complete: {total_dispatches} quests started")
-    return {"dispatches": total_dispatches, "mode": "dispatch"}
+    logger.info(f"DISPATCH mode complete: {result.get('dispatches', 0)} quests started")
+    return {**result, "mode": "dispatch"}
 
 
 # =============================================================================

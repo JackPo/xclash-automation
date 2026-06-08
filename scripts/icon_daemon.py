@@ -1724,40 +1724,26 @@ class IconDaemon:
 
     def _run_tavern_scan_twice(self, adb: Any) -> dict[str, Any]:
         """
-        Run Tavern SCAN mode twice back-to-back.
+        Run Tavern SCAN mode once.
 
-        This improves reliability when the first pass lands during UI transitions
-        or stale panel state.
+        Historically ran two back-to-back passes "for reliability when the
+        first pass lands during UI transitions". With the current
+        is_in_tavern() verification inside _open_tavern (which already retries
+        up to 3 times internally on a single high-level call), the second
+        pass was almost always wasted work and contributed to the user's
+        "tavern loads 3+ times every 30 min" complaint.
+
+        Name preserved for callsite stability (also referenced in
+        get_available_flows). One pass now. Dispatch follow-up still runs
+        inside the same tavern session via _run_scan_mode itself, so a
+        typical scan trigger opens the tavern ONCE instead of FOUR times.
         """
-        self.logger.info("TAVERN SCAN x2: starting pass 1/2")
-        pass1_result: Any
-        pass2_result: Any
-
+        self.logger.info("TAVERN SCAN: single pass")
         try:
-            pass1_result = run_tavern_quest_flow(adb, mode="scan")
+            return run_tavern_quest_flow(adb, mode="scan")
         except Exception as e:
-            self.logger.error(f"TAVERN SCAN x2: pass 1 failed: {e}")
-            pass1_result = {"error": str(e)}
-
-        # Small settle delay before second pass
-        time.sleep(1.0)
-
-        self.logger.info("TAVERN SCAN x2: starting pass 2/2")
-        try:
-            pass2_result = run_tavern_quest_flow(adb, mode="scan")
-        except Exception as e:
-            self.logger.error(f"TAVERN SCAN x2: pass 2 failed: {e}")
-            pass2_result = {"error": str(e)}
-
-        pass1_skipped = isinstance(pass1_result, dict) and bool(pass1_result.get("skipped"))
-        pass2_skipped = isinstance(pass2_result, dict) and bool(pass2_result.get("skipped"))
-
-        return {
-            "pass1": pass1_result,
-            "pass2": pass2_result,
-            # Preserve scheduler semantics: only mark skipped if both passes skipped
-            "skipped": pass1_skipped and pass2_skipped,
-        }
+            self.logger.error(f"TAVERN SCAN: failed: {e}")
+            return {"error": str(e)}
 
     def _run_tavern_claim_with_retries(self, adb: Any) -> dict[str, Any]:
         """
