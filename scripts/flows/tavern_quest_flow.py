@@ -761,21 +761,41 @@ def _ensure_normal_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: boo
     return find_refresh_button(frame2) is not None
 
 
-def _capture_go_signature(frame: npt.NDArray[Any]) -> tuple[int, int, int, tuple[int, ...]]:
+def _row_icon_hash(frame: npt.NDArray[Any], row_y: int) -> int:
+    """Cheap 8-hex-digit hash of the quest icon area at this row.
+
+    The Go buttons sit at fixed row Y positions; refreshing the quest list
+    changes the quest TYPE in each row (different icon) but leaves Y
+    unchanged. We hash a region of the left icon column to detect a
+    successful refresh by content change.
+    """
+    import hashlib
+    h, w = frame.shape[:2]
+    y0 = max(0, row_y - 80)
+    y1 = min(h, row_y + 80)
+    x0 = max(0, QUEST_ICON_X_MIN)
+    x1 = min(w, QUEST_ICON_X_MAX)
+    roi = frame[y0:y1, x0:x1]
+    if roi.size == 0:
+        return 0
+    return int(hashlib.md5(bytes(roi)).hexdigest()[:8], 16)
+
+
+def _capture_go_signature(frame: npt.NDArray[Any]) -> tuple[int, int, int, tuple[tuple[int, int], ...]]:
     """Build a hashable signature of the current first-screen quest list.
 
-    A successful Refresh re-rolls quests in place; the Y positions of the
-    visible Go buttons will change even if the total count happens to
-    coincidentally match. We compare signatures pre/post to detect "the
-    button did something" vs "the button is disabled".
+    The Go buttons themselves sit at fixed row Y positions, so Y alone
+    won't change after a successful refresh. We include a per-row hash of
+    the quest icon area so a refresh that swaps quest types in place still
+    produces a different signature.
 
-    Returns (dispatchable, gold, question, sorted_go_ys).
+    Returns (dispatchable, gold, question, ((y, icon_hash), ...)).
     """
     all_gos = find_all_go_buttons(frame)
     gold = find_gold_scroll_go_buttons(frame)
     qmark = find_question_mark_go_buttons(frame)
-    ys = tuple(sorted(y for _, y in all_gos))
-    return (len(all_gos), len(gold), len(qmark), ys)
+    rows = tuple(sorted((y, _row_icon_hash(frame, y)) for _, y in all_gos))
+    return (len(all_gos), len(gold), len(qmark), rows)
 
 
 def _refresh_once(adb: ADBHelper, win: WindowsScreenshotHelper, click_pos: tuple[int, int]) -> npt.NDArray[Any]:
