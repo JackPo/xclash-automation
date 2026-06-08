@@ -362,6 +362,41 @@
                         <div class="text-[10px] text-gray-500">Since reset</div>
                     </div>
                 </div>
+
+                <!-- Dispatchable Visible (first screen, no scroll) -->
+                <div class="flex items-center gap-2 px-3 py-2 rounded-lg"
+                     :class="tavernStatus.exhausted_today
+                            ? 'bg-gray-500/10 border border-gray-500/40'
+                            : ((tavernStatus.dispatchable_visible ?? 0) > 0
+                                ? 'bg-purple-500/10 border border-purple-500/30'
+                                : 'bg-gray-500/10 border border-gray-500/30')">
+                    <div class="text-center min-w-[40px]">
+                        <div class="text-lg font-bold stat-value"
+                             :class="tavernStatus.exhausted_today ? 'text-gray-400' : 'text-purple-400'"
+                             x-text="tavernStatus.exhausted_today
+                                    ? 'DONE'
+                                    : ((tavernStatus.dispatchable_visible ?? 0) >= 3
+                                        ? '3+'
+                                        : (tavernStatus.dispatchable_visible ?? '-'))"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs font-medium"
+                             :class="tavernStatus.exhausted_today ? 'text-gray-400' : 'text-purple-400'">
+                            Dispatchable
+                        </div>
+                        <div class="text-[10px] text-gray-500"
+                             x-text="tavernStatus.exhausted_today
+                                    ? 'no Gos today; resets midnight'
+                                    : ((tavernStatus.gold_visible ?? 0) + ' gold + ' + (tavernStatus.question_visible ?? 0) + ' ?')">
+                        </div>
+                    </div>
+                    <button @click="clearTavernExhaustion()"
+                            x-show="tavernStatus.exhausted_today"
+                            class="ml-2 px-2 py-1 text-[10px] rounded bg-gray-700/50 hover:bg-gray-600/50 transition"
+                            title="Force re-check dispatch this tick">
+                        Reset
+                    </button>
+                </div>
             </div>
 
             <!-- Pending Quests with Countdown -->
@@ -1687,6 +1722,7 @@
                 toast: { show: false, message: '', type: 'info' },
                 dailyCheckin: { checked_in: false, timestamp: null },
                 tavernQuests: { assist_allies: { current: null, max: 5 }, plunder_others: { current: null, max: 5 }, timestamp: null },
+                tavernStatus: { gold_visible: null, question_visible: null, dispatchable_visible: null, checked_at: null, exhausted_today: false, claims_today: 0 },
                 researchQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 constructionQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 pendingQuests: [],
@@ -1770,6 +1806,7 @@
                         this.refreshFlows(),
                         this.refreshArmsRace(),
                         this.refreshPendingQuests(),
+                        this.refreshTavernStatus(),
                         this.loadTitles(),
                         this.loadZombieModes(),
                         this.loadZombieMode(),
@@ -1790,6 +1827,7 @@
                         // Refresh pending quests every 30s
                         if (!this._lastPendingQuestsRefresh || Date.now() - this._lastPendingQuestsRefresh > 30000) {
                             this.refreshPendingQuests();
+                            this.refreshTavernStatus();
                             this._lastPendingQuestsRefresh = Date.now();
                         }
                         // Refresh blocks every 30s (not every 3s)
@@ -1890,6 +1928,34 @@
                         const data = await res.json();
                         this.pendingQuests = data.quests || [];
                     } catch (e) { console.error('Pending quests fetch failed:', e); }
+                },
+
+                async refreshTavernStatus() {
+                    try {
+                        const res = await fetch('/api/tavern-status');
+                        const data = await res.json();
+                        this.tavernStatus = {
+                            gold_visible: data.gold_visible,
+                            question_visible: data.question_visible,
+                            dispatchable_visible: data.dispatchable_visible,
+                            checked_at: data.checked_at,
+                            exhausted_today: !!data.exhausted_today,
+                            claims_today: data.claims_today ?? 0,
+                        };
+                    } catch (e) { console.error('Tavern status fetch failed:', e); }
+                },
+
+                async clearTavernExhaustion() {
+                    try {
+                        const res = await fetch('/api/tavern-status/clear-exhaustion', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('Tavern exhaustion cleared — daemon will re-check on next dispatch', 'success');
+                            await this.refreshTavernStatus();
+                        } else {
+                            this.showToast('Failed to clear exhaustion', 'error');
+                        }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },
 
                 async loadPersistedState() {

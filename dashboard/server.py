@@ -269,6 +269,35 @@ async def api_tavern_quests() -> dict[str, Any]:
     }
 
 
+@app.get("/api/tavern-status")
+async def api_tavern_status() -> dict[str, Any]:
+    """Dispatch-related tavern status.
+
+    Returns the first-screen visible Go-button counts (captured during the
+    most recent dispatch attempt), the exhaustion flag for today, and the
+    daily claims counter. Lets the dashboard show "X dispatchable visible
+    (Y gold + Z question)" without doing its own probe.
+    """
+    scheduler = get_scheduler()
+    counts = scheduler.get_tavern_visible_counts() or {}
+    return {
+        "gold_visible": counts.get("gold"),
+        "question_visible": counts.get("question"),
+        "dispatchable_visible": counts.get("dispatchable"),
+        "checked_at": counts.get("checked_at"),
+        "exhausted_today": scheduler.is_tavern_dispatch_exhausted_today(),
+        "claims_today": scheduler.get_tavern_claims_today(),
+    }
+
+
+@app.post("/api/tavern-status/clear-exhaustion")
+async def api_clear_tavern_exhaustion() -> dict[str, Any]:
+    """Manually clear today's tavern dispatch exhaustion flag."""
+    scheduler = get_scheduler()
+    scheduler.clear_tavern_dispatch_exhausted_today()
+    return {"success": True, "exhausted_today": scheduler.is_tavern_dispatch_exhausted_today()}
+
+
 @app.get("/api/arms-race")
 async def api_arms_race() -> dict[str, Any]:
     """Get Arms Race status including next occurrence times for all events."""

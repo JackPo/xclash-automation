@@ -103,7 +103,10 @@ GO_BUTTON_CLICK_X = 2320  # Fixed Go button column center in 4K Tavern list
 # Restrict reward-template matching to quest list rows only.
 # Prevents false positives from similar icons in top/header UI.
 QUEST_LIST_Y_MIN = 820
-QUEST_LIST_Y_MAX = 1850
+# Mega Dispatch / Mega Refresh buttons sit at y~1750-1850; without this tighter
+# upper bound, the gold-scroll matcher false-positives on the Mega Dispatch
+# button (yellow rounded background matches the gold-scroll color profile).
+QUEST_LIST_Y_MAX = 1700
 # Gold scroll icon should be in the left quest-icon column (not reward/Go area).
 QUEST_ICON_X_MIN = 1300
 QUEST_ICON_X_MAX = 1750
@@ -1300,6 +1303,11 @@ def _dispatch_in_open_tavern(
     # none, dispatch is done for the day -- mark the exhaustion flag so we
     # skip dispatch attempts until midnight. Claim/ally are unaffected.
     found_any_go = False
+    # First-frame visible counts so the dashboard can show "X dispatchable
+    # visible (Y gold + Z question)" between dispatch attempts.
+    first_frame_gold = 0
+    first_frame_question = 0
+    first_frame_recorded = False
     scheduler = _get_scheduler()
 
     while no_action_count < max_no_action:
@@ -1333,6 +1341,14 @@ def _dispatch_in_open_tavern(
 
         if gold_go_buttons or question_go_buttons:
             found_any_go = True
+
+        # Capture first-screen visible counts for the dashboard. We do this
+        # on the first iteration only, before any scrolling, since the user
+        # wants the "no-scroll" first-screen number for the tile.
+        if not first_frame_recorded:
+            first_frame_gold = len(gold_go_buttons)
+            first_frame_question = len(question_go_buttons)
+            first_frame_recorded = True
 
         action_succeeded = False
 
@@ -1390,6 +1406,16 @@ def _dispatch_in_open_tavern(
             adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
             time.sleep(0.5)
 
+    # Record first-screen visible counts to scheduler for the dashboard.
+    # question_marks count toward "dispatchable" only when not a VS skip day.
+    qm_dispatchable = first_frame_question if _should_start_question_mark_quests() else 0
+    dispatchable_total = first_frame_gold + qm_dispatchable
+    scheduler.record_tavern_visible_counts(
+        gold_visible=first_frame_gold,
+        question_visible=first_frame_question,
+        dispatchable_visible=dispatchable_total,
+    )
+
     # If we made it through the whole search-and-scroll cycle without ever
     # spotting a Go button candidate, dispatch is done for the day. Set the
     # exhaustion flag so subsequent dispatch attempts today (including
@@ -1399,9 +1425,15 @@ def _dispatch_in_open_tavern(
 
     logger.info(
         f"DISPATCH in-tavern loop complete: {total_dispatches} quests started "
-        f"(found_any_go={found_any_go})"
+        f"(found_any_go={found_any_go}, first-screen gold={first_frame_gold} qm={first_frame_question})"
     )
-    return {"dispatches": total_dispatches, "found_any_go": found_any_go}
+    return {
+        "dispatches": total_dispatches,
+        "found_any_go": found_any_go,
+        "first_screen_gold": first_frame_gold,
+        "first_screen_question": first_frame_question,
+        "first_screen_dispatchable": dispatchable_total,
+    }
 
 
 def _run_dispatch_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: bool = False) -> dict[str, Any]:

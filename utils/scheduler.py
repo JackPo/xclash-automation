@@ -424,6 +424,36 @@ class DaemonScheduler:
         self.save()
         logger.info("[SCHEDULER] Cleared tavern dispatch exhaustion flag")
 
+    def record_tavern_visible_counts(
+        self,
+        gold_visible: int,
+        question_visible: int,
+        dispatchable_visible: int,
+    ) -> None:
+        """Record the dispatch-time visible Go-button counts.
+
+        Captured from the first frame of every dispatch attempt so the
+        dashboard can show "X dispatchable visible (Y gold + Z question)"
+        without doing its own probe.
+
+        - gold_visible: count of gold-scroll Gos on the first screen
+        - question_visible: count of question-mark Gos on the first screen
+        - dispatchable_visible: gold + (question if not a VS skip day)
+        """
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+        self.schedule["tavern_quests"]["visible_counts"] = {
+            "gold": int(gold_visible),
+            "question": int(question_visible),
+            "dispatchable": int(dispatchable_visible),
+            "checked_at": datetime.now().isoformat(),
+        }
+        self.save()
+
+    def get_tavern_visible_counts(self) -> dict[str, Any] | None:
+        """Return the most recent visible-Go counts, or None if never set."""
+        return self.schedule.get("tavern_quests", {}).get("visible_counts")
+
     # =========================================================================
     # Daily Limits (Rally Exhaustion)
     # =========================================================================
