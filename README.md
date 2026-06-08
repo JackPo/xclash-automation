@@ -465,6 +465,55 @@ re-checking the tavern across timing edge cases (a quest can become
 claimable mid-cycle, claim animation can race the next claim's
 appearance).
 
+### Tavern auto-refresh (re-roll unsupported quests)
+When the dispatch loop sees `dispatchable > 0` but `directly_startable == 0`
+on the first frame, it now clicks the in-game Refresh button to re-roll the
+quest list until at least one supported type appears (gold-scroll or
+question-mark post VS-day filter), then proceeds with the normal dispatch.
+Handles the common case where all visible slots are unsupported quest types
+(Soldier Training, Rescue Merchant, Explore Ancient Ruins) by rolling them
+into actionable types.
+
+Stop conditions for the inner refresh loop:
+- **success**: directly_startable > 0 after the latest refresh
+- **no_change**: pre/post Go-button signature identical → Refresh button is
+  disabled or out of resources
+- **button_not_visible** / **mode_switch_failed**: UI state we can't recover from
+- **safety_cap** = 20 attempts (logged as a warning; should never fire normally)
+
+Mode handling: if the panel lands in Mega mode (yellow Mega Dispatch + Mega
+Refresh + small "Normal" book toggle on the right), `_ensure_normal_mode()`
+clicks the toggle to switch. The signature includes a per-row icon hash so
+a successful refresh that swaps quest types in place (Y positions unchanged)
+still produces a different signature -- without the icon hash, the loop
+falsely concluded "no change" after one click. Live-verified:
+`dispatchable=2 directly_startable=0` → 1 refresh → `directly_startable=1`
+→ dispatched the resulting gold/? quest.
+
+New scheduler counter `tavern_quests.refreshes_today` (mirrors the
+claims_today daily-reset pattern). Dashboard tile subtitle gains
+`(R: N today)` once any refresh fires.
+
+Two new templates: `tavern_refresh_button_4k.png` (orange Refresh, Normal
+mode only) and `tavern_normal_mode_toggle_4k.png` (small "Normal" book toggle
+visible in Mega mode).
+
+### Daily check-in: template refresh after Giveaway Event reskin
+The community panel got a new top banner for a sports/soccer "Giveaway
+Event" and the Daily Sig tab moved into a small navigation strip in the
+top-right alongside Gift Center and Points M... The icon itself was
+reskinned to an orange calendar with a soccer ball. The old template
+(clean blue tile with white checkmark) stopped matching, so every hourly
+daemon retry silently failed at step 2 with `Daily Sig NOT FOUND` and the
+daily check-in stopped happening.
+
+**Fix**: re-extracted `daily_sig_icon_4k.png` to include the **"Daily Sig"
+text label** below the icon. Text label is stable across event themes, so
+the next reskin shouldn't break detection again. The old template is
+preserved as `.old_pre_giveaway` in case the original UI returns.
+Live-verified: template matches at score 0.0002, panel loads, blue Check-in
+clicked, state saved.
+
 ### Tavern dispatchable counter (three-tier model)
 The dashboard now shows how many quest slots are visible without
 re-opening the tavern. Three concentric tiers tracked per dispatch attempt:
