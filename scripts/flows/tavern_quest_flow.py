@@ -68,6 +68,11 @@ CLAIM_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "claim_button_tavern_4k.png")
 GOLD_SCROLL_TEMPLATE = str(TEMPLATE_DIR / "gold_scroll_4k.png")
 GOLD_SCROLL_MASK = str(TEMPLATE_DIR / "gold_scroll_mask_4k.png")
 QUESTION_MARK_TILE_TEMPLATE = str(TEMPLATE_DIR / "quest_question_tile_4k.png")
+# Raw Go button template (any quest type). Used to count all visible quest
+# slots regardless of whether the bot currently supports dispatching that
+# type -- see find_all_go_buttons().
+GO_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "go_button_4k.png")
+GO_BUTTON_THRESHOLD = 0.05  # TM_SQDIFF_NORMED; matches are well below this
 
 # Bounty Quest dialog templates
 BOUNTY_QUEST_TITLE_TEMPLATE = str(TEMPLATE_DIR / "bounty_quest_title_4k.png")
@@ -632,6 +637,53 @@ def find_question_mark_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, in
     matched_go_buttons_qmark.sort(key=lambda b: b[1])
 
     return matched_go_buttons_qmark
+
+
+def find_all_go_buttons(frame: npt.NDArray[Any]) -> list[tuple[int, int]]:
+    """
+    Find every visible Go button on the current quest list, regardless of
+    quest type. Used to count the total *dispatchable* universe (Tier 1) --
+    i.e., quest slots that have a clickable Go, including types the bot
+    doesn't yet directly support (e.g., Soldier Training, Rescue Merchant).
+
+    The directly-startable subset (gold scroll + question mark) is what the
+    bot can dispatch right now via find_gold_scroll_go_buttons() and
+    find_question_mark_go_buttons(). The difference (visible - startable)
+    is the *refresh candidate* count -- quests that could be re-rolled into
+    a supported type via in-game refresh actions.
+
+    Returns: list of (x, y) Go-button centers, sorted top-to-bottom.
+    """
+    template = load_template_color(GO_BUTTON_TEMPLATE)
+    th, tw = template.shape[:2]
+
+    # Match the Go button template, then restrict to the quest-list Y range
+    # and the Go-button column. The same Y range that excludes the Mega
+    # Dispatch / Mega Refresh row for the other matchers applies here too.
+    result = cv2.matchTemplate(frame, template, cv2.TM_SQDIFF_NORMED)
+    ys, xs = np.where(result <= GO_BUTTON_THRESHOLD)
+
+    candidates: list[tuple[int, int, float]] = []
+    x_min = GO_BUTTON_CLICK_X - GO_BUTTON_ROI_HALF_WIDTH
+    x_max = GO_BUTTON_CLICK_X + GO_BUTTON_ROI_HALF_WIDTH
+    for y, x in zip(ys, xs):
+        center_x = int(x) + tw // 2
+        center_y = int(y) + th // 2
+        if center_x < x_min or center_x > x_max:
+            continue
+        if center_y < QUEST_LIST_Y_MIN or center_y > QUEST_LIST_Y_MAX:
+            continue
+        candidates.append((center_x, center_y, float(result[y, x])))
+
+    # NMS by row -- one Go per visible row (rows are ~250px apart in 4K).
+    candidates.sort(key=lambda c: c[2])  # best score first (sqdiff: low = good)
+    deduped: list[tuple[int, int]] = []
+    min_row_spacing = 80
+    for cx, cy, _ in candidates:
+        if all(abs(cy - ky) >= min_row_spacing for _, ky in deduped):
+            deduped.append((cx, cy))
+    deduped.sort(key=lambda b: b[1])
+    return deduped
 
 
 def _row_has_go_button(frame: npt.NDArray[Any], row_y: int) -> bool:
@@ -1298,15 +1350,19 @@ def _dispatch_in_open_tavern(
     no_action_count = 0
     max_no_action = 2
     loop_idx = 0
-    # Track whether we saw ANY Go button candidate (gold or question, post
-    # VS-day filtering) during the search. If we exit the loop having seen
-    # none, dispatch is done for the day -- mark the exhaustion flag so we
-    # skip dispatch attempts until midnight. Claim/ally are unaffected.
-    found_any_go = False
-    # First-frame visible counts so the dashboard can show "X dispatchable
-    # visible (Y gold + Z question)" between dispatch attempts.
-    first_frame_gold = 0
-    first_frame_question = 0
+    # Tier 1 / exhaustion signal. Track whether we saw ANY visible Go button
+    # (any quest type) during the scroll search. If we exit the loop having
+    # seen NONE -- truly empty tavern -- mark the exhaustion flag so future
+    # dispatch attempts today skip immediately. If we saw visible Gos of
+    # unsupported types (e.g., Soldier Training), DON'T fire exhaustion --
+    # they're refresh candidates and we want to keep checking.
+    found_any_visible_go = False
+    # First-frame visible counts so the dashboard can show the breakdown
+    # without doing its own probe.
+    first_frame_dispatchable = 0      # Tier 1: total visible Gos
+    first_frame_directly_startable = 0  # Tier 2: gold + (question if !skip_day)
+    first_frame_gold = 0              # raw gold-scroll count (sub-component)
+    first_frame_question = 0          # raw question-mark count (sub-component)
     first_frame_recorded = False
     scheduler = _get_scheduler()
 
@@ -1339,15 +1395,21 @@ def _dispatch_in_open_tavern(
         if _should_start_question_mark_quests():
             question_go_buttons = find_question_mark_go_buttons(frame)
 
-        if gold_go_buttons or question_go_buttons:
-            found_any_go = True
+        # Tier 1: count ALL visible Go buttons (any quest type).
+        all_go_buttons = find_all_go_buttons(frame)
+        if all_go_buttons:
+            found_any_visible_go = True
 
-        # Capture first-screen visible counts for the dashboard. We do this
-        # on the first iteration only, before any scrolling, since the user
-        # wants the "no-scroll" first-screen number for the tile.
+        # Capture first-screen counts for the dashboard. We do this on the
+        # first iteration only, before any scrolling, since the user wants
+        # the "no-scroll" first-screen number for the tile.
         if not first_frame_recorded:
+            first_frame_dispatchable = len(all_go_buttons)
             first_frame_gold = len(gold_go_buttons)
             first_frame_question = len(question_go_buttons)
+            first_frame_directly_startable = (
+                first_frame_gold + (first_frame_question if _should_start_question_mark_quests() else 0)
+            )
             first_frame_recorded = True
 
         action_succeeded = False
@@ -1406,33 +1468,37 @@ def _dispatch_in_open_tavern(
             adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
             time.sleep(0.5)
 
-    # Record first-screen visible counts to scheduler for the dashboard.
-    # question_marks count toward "dispatchable" only when not a VS skip day.
-    qm_dispatchable = first_frame_question if _should_start_question_mark_quests() else 0
-    dispatchable_total = first_frame_gold + qm_dispatchable
+    # Record first-screen counts to scheduler for the dashboard. The
+    # 'dispatchable' field now means Tier 1 (all visible Gos), per the
+    # refactor. 'directly_startable' is Tier 2 (gold + ? post VS-day).
     scheduler.record_tavern_visible_counts(
         gold_visible=first_frame_gold,
         question_visible=first_frame_question,
-        dispatchable_visible=dispatchable_total,
+        dispatchable_visible=first_frame_dispatchable,
+        directly_startable_visible=first_frame_directly_startable,
     )
 
-    # If we made it through the whole search-and-scroll cycle without ever
-    # spotting a Go button candidate, dispatch is done for the day. Set the
-    # exhaustion flag so subsequent dispatch attempts today (including
-    # scan's dispatch-follow-up) skip immediately without reopening tavern.
-    if not found_any_go:
+    # Exhaustion: fire ONLY when zero visible Gos at all. If unsupported
+    # types are visible, they're refresh candidates -- keep checking next
+    # cycle. Claim/ally are independent of this flag.
+    if not found_any_visible_go:
         scheduler.mark_tavern_dispatch_exhausted_today()
 
+    refresh_candidates = max(0, first_frame_dispatchable - first_frame_directly_startable)
     logger.info(
-        f"DISPATCH in-tavern loop complete: {total_dispatches} quests started "
-        f"(found_any_go={found_any_go}, first-screen gold={first_frame_gold} qm={first_frame_question})"
+        f"DISPATCH in-tavern loop complete: {total_dispatches} started; "
+        f"first-screen: dispatchable={first_frame_dispatchable} "
+        f"(directly_startable={first_frame_directly_startable}, "
+        f"refresh_candidates={refresh_candidates}); "
+        f"found_any_visible_go={found_any_visible_go}"
     )
     return {
         "dispatches": total_dispatches,
-        "found_any_go": found_any_go,
+        "found_any_visible_go": found_any_visible_go,
+        "first_screen_dispatchable": first_frame_dispatchable,
+        "first_screen_directly_startable": first_frame_directly_startable,
         "first_screen_gold": first_frame_gold,
         "first_screen_question": first_frame_question,
-        "first_screen_dispatchable": dispatchable_total,
     }
 
 

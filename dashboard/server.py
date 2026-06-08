@@ -271,19 +271,33 @@ async def api_tavern_quests() -> dict[str, Any]:
 
 @app.get("/api/tavern-status")
 async def api_tavern_status() -> dict[str, Any]:
-    """Dispatch-related tavern status.
+    """Dispatch-related tavern status (three-tier model).
 
-    Returns the first-screen visible Go-button counts (captured during the
-    most recent dispatch attempt), the exhaustion flag for today, and the
-    daily claims counter. Lets the dashboard show "X dispatchable visible
-    (Y gold + Z question)" without doing its own probe.
+    Returns the first-screen counts captured during the most recent dispatch
+    attempt, plus exhaustion + daily claims. Tiers:
+
+    - dispatchable_visible: total Go buttons visible (any quest type).
+      The universe -- our addressable market.
+    - directly_startable_visible: subset our code can click Go on right
+      now (gold scroll + question marks post VS-day filter).
+    - refresh_candidates: dispatchable - directly_startable. Visible Gos
+      of unsupported types; refresh candidates the player could re-roll
+      in-game into a supported type. Derived here for UI convenience.
     """
     scheduler = get_scheduler()
     counts = scheduler.get_tavern_visible_counts() or {}
+    dispatchable = counts.get("dispatchable")
+    directly_startable = counts.get("directly_startable")
+    if dispatchable is not None and directly_startable is not None:
+        refresh_candidates: int | None = max(0, int(dispatchable) - int(directly_startable))
+    else:
+        refresh_candidates = None
     return {
         "gold_visible": counts.get("gold"),
         "question_visible": counts.get("question"),
-        "dispatchable_visible": counts.get("dispatchable"),
+        "dispatchable_visible": dispatchable,
+        "directly_startable_visible": directly_startable,
+        "refresh_candidates": refresh_candidates,
         "checked_at": counts.get("checked_at"),
         "exhausted_today": scheduler.is_tavern_dispatch_exhausted_today(),
         "claims_today": scheduler.get_tavern_claims_today(),

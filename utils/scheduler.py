@@ -429,16 +429,23 @@ class DaemonScheduler:
         gold_visible: int,
         question_visible: int,
         dispatchable_visible: int,
+        directly_startable_visible: int,
     ) -> None:
-        """Record the dispatch-time visible Go-button counts.
+        """Record the first-frame counts captured during a dispatch attempt.
 
-        Captured from the first frame of every dispatch attempt so the
-        dashboard can show "X dispatchable visible (Y gold + Z question)"
-        without doing its own probe.
+        Three-tier model (see docs/tavern_quests.md):
+        - dispatchable: total Go buttons visible, regardless of quest type.
+          This is the universe of quest slots. Tier 1.
+        - directly_startable: gold-scroll + (question-mark if not a VS skip
+          day) -- the subset our code currently knows how to click Go on
+          right now. Tier 2.
+        - The difference (dispatchable - directly_startable) is the count
+          of "refresh candidates" -- visible Gos of unsupported types that
+          the player could in-game-refresh to potentially roll into a
+          supported type. The dashboard computes this; we don't store it.
 
-        - gold_visible: count of gold-scroll Gos on the first screen
-        - question_visible: count of question-mark Gos on the first screen
-        - dispatchable_visible: gold + (question if not a VS skip day)
+        gold_visible / question_visible are sub-components for debugging /
+        UI subtitles.
         """
         if "tavern_quests" not in self.schedule:
             self.schedule["tavern_quests"] = {}
@@ -446,6 +453,7 @@ class DaemonScheduler:
             "gold": int(gold_visible),
             "question": int(question_visible),
             "dispatchable": int(dispatchable_visible),
+            "directly_startable": int(directly_startable_visible),
             "checked_at": datetime.now().isoformat(),
         }
         self.save()

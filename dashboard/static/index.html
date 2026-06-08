@@ -385,9 +385,10 @@
                             Dispatchable
                         </div>
                         <div class="text-[10px] text-gray-500"
+                             :title="'gold=' + (tavernStatus.gold_visible ?? 0) + ' ?=' + (tavernStatus.question_visible ?? 0)"
                              x-text="tavernStatus.exhausted_today
-                                    ? 'no Gos today; resets midnight'
-                                    : ((tavernStatus.gold_visible ?? 0) + ' gold + ' + (tavernStatus.question_visible ?? 0) + ' ?')">
+                                    ? 'no visible Gos today; resets midnight'
+                                    : ((tavernStatus.directly_startable_visible ?? 0) + ' startable now + ' + (tavernStatus.refresh_candidates ?? 0) + ' refresh candidates')">
                         </div>
                     </div>
                     <button @click="clearTavernExhaustion()"
@@ -1722,7 +1723,7 @@
                 toast: { show: false, message: '', type: 'info' },
                 dailyCheckin: { checked_in: false, timestamp: null },
                 tavernQuests: { assist_allies: { current: null, max: 5 }, plunder_others: { current: null, max: 5 }, timestamp: null },
-                tavernStatus: { gold_visible: null, question_visible: null, dispatchable_visible: null, checked_at: null, exhausted_today: false, claims_today: 0 },
+                tavernStatus: { gold_visible: null, question_visible: null, dispatchable_visible: null, directly_startable_visible: null, refresh_candidates: null, checked_at: null, exhausted_today: false, claims_today: 0 },
                 researchQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 constructionQueue: { queue1_seconds: null, queue1_name: null, queue2_seconds: null, queue2_name: null, timestamp: null },
                 pendingQuests: [],
@@ -1938,6 +1939,8 @@
                             gold_visible: data.gold_visible,
                             question_visible: data.question_visible,
                             dispatchable_visible: data.dispatchable_visible,
+                            directly_startable_visible: data.directly_startable_visible,
+                            refresh_candidates: data.refresh_candidates,
                             checked_at: data.checked_at,
                             exhausted_today: !!data.exhausted_today,
                             claims_today: data.claims_today ?? 0,
