@@ -3506,13 +3506,14 @@ class IconDaemon:
                             reason=f"last {arms_race_remaining_mins:.0f}min of Enhance Hero"
                         ))
 
-                # City Construction: last N minutes, speedup smallest queue
+                # City Construction: last N minutes, speedup smallest queue.
+                # NO idle requirement -- Arms Race chest scoring is time-critical
+                # and the flow self-checks current points before acting.
                 construction_candidate = False
                 construction_enabled = self._get_config('ARMS_RACE_CONSTRUCTION_ENABLED', ARMS_RACE_CONSTRUCTION_ENABLED)
                 if (construction_enabled and
                     arms_race_event == "City Construction" and
-                    arms_race_remaining_mins <= self.CONSTRUCTION_LAST_MINUTES and
-                    self._is_user_idle()):
+                    arms_race_remaining_mins <= self.CONSTRUCTION_LAST_MINUTES):
                     block_start = arms_race['block_start']
                     if self.construction_speedup_last_block_start != block_start:
                         construction_candidate = True
@@ -3524,13 +3525,14 @@ class IconDaemon:
                             reason=f"last {arms_race_remaining_mins:.0f}min of City Construction"
                         ))
 
-                # Technology Research: last N minutes, speedup smallest queue
+                # Technology Research: last N minutes, speedup smallest queue.
+                # NO idle requirement -- Arms Race chest scoring is time-critical
+                # and the flow self-checks current points before acting.
                 tech_research_candidate = False
                 tech_research_enabled = self._get_config('ARMS_RACE_TECH_RESEARCH_ENABLED', ARMS_RACE_TECH_RESEARCH_ENABLED)
                 if (tech_research_enabled and
                     arms_race_event == "Technology Research" and
-                    arms_race_remaining_mins <= self.TECH_RESEARCH_LAST_MINUTES and
-                    self._is_user_idle()):
+                    arms_race_remaining_mins <= self.TECH_RESEARCH_LAST_MINUTES):
                     block_start = arms_race['block_start']
                     if self.tech_research_speedup_last_block_start != block_start:
                         tech_research_candidate = True

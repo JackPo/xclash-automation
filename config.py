@@ -111,7 +111,7 @@ ZOMBIE_MODE_CONFIG = {
 # Flow checks current points from Events panel - skips if chest3 already reached
 # NO idle requirement - the quick progress check is non-disruptive
 ARMS_RACE_ENHANCE_HERO_ENABLED = True          # Enable/disable hero enhancement automation
-ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 10       # Trigger in last N minutes of Enhance Hero
+ARMS_RACE_ENHANCE_HERO_LAST_MINUTES = 60       # Trigger in last N minutes of Enhance Hero (flow self-skips if chest3 already reached)
 ARMS_RACE_ENHANCE_HERO_MAX_UPGRADES = 10       # Safety cap; real stop = EXP budget for chest3 (typically 3-6 clicks)
 
 # City Construction Arms Race settings
