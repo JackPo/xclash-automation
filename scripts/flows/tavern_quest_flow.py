@@ -1549,6 +1549,11 @@ def _dispatch_in_open_tavern(
     # Count of Refresh clicks performed in THIS dispatch run (separate from
     # the scheduler's day-wide refreshes_today counter).
     refresh_attempts_this_run = 0
+    # Refresh budget for this run. Starts True; flips False the first time a
+    # refresh round terminates with a reason other than "success" (no_change,
+    # button_not_visible, mode_switch_failed, safety_cap). Once flipped, we
+    # stop trying to refresh -- the in-game refresh is exhausted for now.
+    should_try_refresh = True
     scheduler = _get_scheduler()
 
     while no_action_count < max_no_action:
@@ -1585,9 +1590,38 @@ def _dispatch_in_open_tavern(
         if all_go_buttons:
             found_any_visible_go = True
 
-        # Capture first-screen counts for the dashboard. We do this on the
-        # first iteration only, before any scrolling, since the user wants
-        # the "no-scroll" first-screen number for the tile.
+        # Auto-refresh: any iteration where we see visible Gos but none are
+        # directly startable, try to re-roll via the in-game Refresh button.
+        # This fires on every iteration so AFTER dispatching the rolled
+        # quest, if any unsupported quests remain, we'll roll them too --
+        # not just on the very first frame. should_try_refresh stops us
+        # once a refresh round comes back with no_change/button_gone.
+        startable_count = len(gold_go_buttons) + (len(question_go_buttons) if _should_start_question_mark_quests() else 0)
+        if should_try_refresh and len(all_go_buttons) > 0 and startable_count == 0:
+            logger.info(
+                f"DISPATCH iter {loop_idx}: dispatchable={len(all_go_buttons)} "
+                f"directly_startable=0 -> entering refresh loop"
+            )
+            frame, refreshes_done, stop_info = _try_refresh_to_startable(adb, win, frame)
+            refresh_attempts_this_run += refreshes_done
+            logger.info(
+                f"DISPATCH iter {loop_idx}: refresh loop ended: "
+                f"reason={stop_info.get('reason')} attempts={refreshes_done}"
+            )
+            # If refresh exhausted (anything other than success), stop trying.
+            if stop_info.get('reason') != 'success':
+                should_try_refresh = False
+            # Re-capture counts off the post-refresh frame so subsequent
+            # logic (and the scheduler write) reflect the new state.
+            all_go_buttons = find_all_go_buttons(frame)
+            gold_go_buttons = find_gold_scroll_go_buttons(frame)
+            question_go_buttons = find_question_mark_go_buttons(frame)
+            if all_go_buttons:
+                found_any_visible_go = True
+
+        # Capture first-screen counts for the dashboard. ONE-TIME only,
+        # AFTER any initial refresh has happened so the dashboard's
+        # "first screen" number reflects what we actually had to work with.
         if not first_frame_recorded:
             first_frame_dispatchable = len(all_go_buttons)
             first_frame_gold = len(gold_go_buttons)
@@ -1596,39 +1630,6 @@ def _dispatch_in_open_tavern(
                 first_frame_gold + (first_frame_question if _should_start_question_mark_quests() else 0)
             )
             first_frame_recorded = True
-
-            # Auto-refresh: if we see visible Gos but none are directly
-            # startable, try to re-roll the quest list via the in-game
-            # Refresh button until directly_startable > 0 or the button
-            # stops working. This handles the common case where the slots
-            # are filled with unsupported quest types (Soldier Training,
-            # Rescue Merchant, etc.) -- we re-roll until a gold-scroll or
-            # question-mark (if not a VS skip day) appears.
-            if first_frame_dispatchable > 0 and first_frame_directly_startable == 0:
-                logger.info(
-                    f"DISPATCH: dispatchable={first_frame_dispatchable} "
-                    f"directly_startable=0 -> entering refresh loop"
-                )
-                frame, refreshes_done, stop_info = _try_refresh_to_startable(adb, win, frame)
-                refresh_attempts_this_run += refreshes_done
-                logger.info(
-                    f"DISPATCH: refresh loop ended: reason={stop_info.get('reason')} "
-                    f"attempts={refreshes_done}"
-                )
-                # Re-capture counts off the post-refresh frame so the rest
-                # of the dispatch loop and the scheduler write reflect the
-                # new state.
-                all_go_buttons = find_all_go_buttons(frame)
-                gold_go_buttons = find_gold_scroll_go_buttons(frame)
-                question_go_buttons = find_question_mark_go_buttons(frame)
-                first_frame_dispatchable = len(all_go_buttons)
-                first_frame_gold = len(gold_go_buttons)
-                first_frame_question = len(question_go_buttons)
-                first_frame_directly_startable = (
-                    first_frame_gold + (first_frame_question if _should_start_question_mark_quests() else 0)
-                )
-                if all_go_buttons:
-                    found_any_visible_go = True
 
         action_succeeded = False
 
