@@ -1676,7 +1676,15 @@ def _dispatch_in_open_tavern(
                 break
 
         if action_succeeded:
-            continue
+            # ONE dispatch per visit. The TAVERN_MIN_DISPATCH_GAP_MINUTES
+            # gate at the entry to dispatch mode enforces spacing between
+            # successful dispatches. If we kept the loop running here we'd
+            # rapid-fire multiple dispatches in one tavern visit, bypassing
+            # the gap entirely. Exit after one success and let the next
+            # scheduled dispatch attempt (>= 30 min later) handle the
+            # next round (including refreshing any remaining unsupported
+            # Gos that are still on screen).
+            break
 
         # No Go buttons found - scroll
         no_action_count += 1
