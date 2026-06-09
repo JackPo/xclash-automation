@@ -1427,6 +1427,28 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
     if in_tavern:
         frames_for_ocr.append((frame.copy(), screenshot_time))
 
+        # OCR the Assist Allies / Plunder Others counters off the FIRST frame
+        # too. The ally flow only OCRs these when it actually opens the
+        # tavern, but it skips early once assists are maxed -- which means
+        # plunder freezes at whatever value was last seen pre-maxing. Scan
+        # opens the tavern every 30 min regardless, so freeloading the OCR
+        # here keeps the dashboard fresh.
+        try:
+            from utils.tavern_counter_reader import read_assist_counter, read_plunder_counter
+            from utils.current_state import update_tavern_quests, get_tavern_quests
+            ac = read_assist_counter(frame)
+            pc = read_plunder_counter(frame)
+            if ac and pc:
+                update_tavern_quests(ac[0], ac[1], pc[0], pc[1])
+                logger.info(f"Scan-time counter OCR: assists={ac[0]}/{ac[1]} plunder={pc[0]}/{pc[1]}")
+            elif ac or pc:
+                cached = get_tavern_quests()
+                a_cur, a_max = (ac if ac else (cached.get("assist_allies", {}).get("current"), cached.get("assist_allies", {}).get("max", 5)))
+                p_cur, p_max = (pc if pc else (cached.get("plunder_others", {}).get("current"), cached.get("plunder_others", {}).get("max", 5)))
+                update_tavern_quests(a_cur, a_max, p_cur, p_max)
+        except Exception as e:
+            logger.warning(f"Scan-time counter OCR failed: {e}")
+
     # Scroll and capture
     while scroll_count < max_scrolls and in_tavern:
         adb.swipe(SCROLL_X, SCROLL_START_Y, SCROLL_X, SCROLL_END_Y, SCROLL_DURATION)
