@@ -1502,14 +1502,21 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
             logger.info("Before quest start time - skipping dispatch")
         dispatch_result: dict[str, Any] = {"dispatches": 0, "mode": "dispatch", "skipped": skip_reason}
     else:
-        # Scrolling during scan may have left us on a different row -- scroll
-        # back to top via repeated scroll-up before dispatch starts looking
-        # for Go buttons from the top.
-        for _ in range(scroll_count):
-            adb.swipe(SCROLL_X, SCROLL_END_Y, SCROLL_X, SCROLL_START_Y, SCROLL_DURATION)
-            time.sleep(0.3)
-        dispatch_result = _dispatch_in_open_tavern(adb, win, debug=debug)
-        dispatch_result["mode"] = "dispatch"
+        # Close + reopen tavern between scan and dispatch instead of trying
+        # to scroll back to the top. Reverse swipes don't fully restore the
+        # scroll position (gesture dynamics are asymmetric -- inertia +
+        # snap-at-bottom but not at top) -- dispatch would end up
+        # mid-panel and miss Gos at the top. Confirmed: live probe saw 4
+        # visible Gos on the panel while daemon's scan->dispatch reported
+        # dispatchable=0. Close+reopen restores a known-good state at the
+        # cost of one extra tavern open per scan trigger.
+        return_to_base_view(adb, win, debug=debug, respect_idle=False)
+        time.sleep(0.3)
+        if not _open_tavern(adb, win, target_tab="my_quests", debug=debug):
+            dispatch_result = {"dispatches": 0, "mode": "dispatch", "error": "reopen_failed"}
+        else:
+            dispatch_result = _dispatch_in_open_tavern(adb, win, debug=debug)
+            dispatch_result["mode"] = "dispatch"
 
     # Close tavern once at the end of the combined scan+dispatch session.
     return_to_base_view(adb, win, debug=debug, respect_idle=False)
