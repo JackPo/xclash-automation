@@ -1460,6 +1460,20 @@ def _run_scan_mode(adb: ADBHelper, win: WindowsScreenshotHelper, ocr: OCRClient,
     # complaint. Now: check dispatch gates; if they pass, run dispatch in
     # the already-open tavern. Then close the tavern once at the end.
     logger.info("Running DISPATCH follow-up after scan")
+    # Self-healing for the dispatch exhaustion flag: if scan can see Go
+    # buttons on the panel right now, but the exhaustion flag is set,
+    # reality has moved on (quests cycled, refresh became available again,
+    # etc.) -- clear the flag so the dispatch attempt proceeds. Without
+    # this, a flag set at e.g. 7am for an empty panel would persist all
+    # day even though new quests appeared.
+    scheduler = _get_scheduler()
+    if scheduler.is_tavern_dispatch_exhausted_today():
+        peek_frame = win.get_screenshot_cv2()
+        peek_in_tavern, _ = is_in_tavern(peek_frame)
+        if peek_in_tavern and find_all_go_buttons(peek_frame):
+            logger.info("Exhaustion flag was set but scan sees visible Gos -- clearing stale flag")
+            scheduler.clear_tavern_dispatch_exhausted_today()
+
     allowed, skip_reason = _dispatch_gates_passed()
     if not allowed:
         if skip_reason == "before_start_time":
