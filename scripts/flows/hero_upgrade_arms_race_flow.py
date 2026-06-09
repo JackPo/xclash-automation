@@ -209,12 +209,16 @@ def hero_upgrade_arms_race_flow(
     # stop once we project we've hit chest3.
 
     upgrades_done = 0
-    MAX_SCROLL_PAGES = 5  # 31 heroes / 12 per page -> 3 pages should cover all
+    MAX_SCROLL_PAGES = 6  # 31 heroes / 12 per page -> 3 pages; pad to 6 for slack
     # Page 1 (top of the grid) is consistently all maxed heroes -- sub-Lv150
     # heroes live at the BOTTOM. So we MUST scroll past at least one all-max
     # page before believing there are no upgradable heroes. Requiring 2
     # consecutive empty pages also tolerates a transient OCR misread.
-    EMPTY_PAGES_TO_STOP = 2
+    # Top of the grid is sometimes 2+ pages of maxed heroes; sub-Lv150 heroes
+    # live at the bottom. Set high enough to traverse all 31 heroes (~3 pages
+    # of 12 visible), with margin in case the panel layout varies. The MAX
+    # safety cap above stops infinite scroll.
+    EMPTY_PAGES_TO_STOP = 4
 
     chest3_target = chest3  # already fetched above
     exp_per_point = get_exp_per_arms_race_point("Enhance Hero") or 2000
