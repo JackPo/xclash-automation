@@ -344,8 +344,8 @@ def check_progress_quick(
     finally:
         try:
             return_to_base_view(adb, win, debug=debug)
-        except Exception:
-            pass
+        except Exception as nav_err:
+            logger.warning(f"return_to_base_view failed during cleanup: {nav_err}")
 
     return result
 

@@ -69,8 +69,8 @@ def ocr_time(
         if len(parts) == 3:
             hr, mn, sc = int(parts[0]), int(parts[1]), int(parts[2])
             return hr * 3600 + mn * 60 + sc, time_str
-    except Exception:
-        pass
+    except (ValueError, AttributeError):
+        pass  # OCR returned None or non-numeric text
     return None, time_str
 
 
@@ -301,8 +301,8 @@ def barracks_training_flow(
         try:
             frame = win.get_screenshot_cv2()
             save_debug_screenshot(frame, "barracks", f"EXCEPTION_{type(e).__name__}")
-        except Exception:
-            pass
+        except Exception as screenshot_err:
+            _log(f"debug screenshot failed: {screenshot_err}", debug)
         return False
 
     finally:

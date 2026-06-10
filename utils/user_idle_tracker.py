@@ -88,7 +88,7 @@ def _is_mouse_over_bluestacks() -> bool:
         rect = win32gui.GetWindowRect(hwnd)
         x, y = _get_mouse_position()
         return rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]
-    except:
+    except Exception:
         return False
 
 

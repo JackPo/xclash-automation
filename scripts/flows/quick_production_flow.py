@@ -305,8 +305,8 @@ def quick_production_flow(
         _save_debug_screenshot(win, f"ERROR_{type(e).__name__}")
         try:
             return_to_base_view(adb, win, debug=False)
-        except Exception:
-            pass
+        except Exception as nav_err:
+            print(f"    [QUICK-PROD] return_to_base_view failed during cleanup: {nav_err}")
         return False
 
 
@@ -482,7 +482,7 @@ def verify_quick_production_cooldown_flow(
         _save_debug_screenshot(win, f"verify_ERROR_{type(e).__name__}")
         try:
             return_to_base_view(adb, win, debug=False)
-        except Exception:
-            pass
+        except Exception as nav_err:
+            print(f"    [QP-VERIFY] return_to_base_view failed during cleanup: {nav_err}")
         return {"ok": False, "remaining_seconds": None, "raw_text": None,
                 "reason": f"exception: {e}"}

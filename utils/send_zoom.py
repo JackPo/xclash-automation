@@ -54,7 +54,7 @@ def send_zoom(direction: str) -> None:
     time.sleep(0.1)
     try:
         win32gui.SetForegroundWindow(hwnd)
-    except:
+    except Exception:
         # Windows may block foreground switch, but that's OK
         pass
     time.sleep(0.2)

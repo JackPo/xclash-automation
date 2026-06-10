@@ -146,7 +146,7 @@ def check_enhance_hero_progress(
         # Try to close panel
         try:
             click_back(adb)
-        except:
+        except Exception:
             pass
 
     return result

@@ -87,8 +87,8 @@ def ocr_training_time(frame, ocr):
         elif len(parts) == 2:
             m, s = int(parts[0]), int(parts[1])
             return m * 60 + s, time_str
-    except:
-        pass
+    except (ValueError, AttributeError):
+        pass  # OCR returned None or non-numeric text
 
     return None, time_str
 

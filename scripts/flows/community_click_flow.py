@@ -80,7 +80,7 @@ def _send_arrow_key(direction: str) -> None:
 
     try:
         win32gui.SetForegroundWindow(hwnd)
-    except:
+    except Exception:
         pass
     time.sleep(0.05)
 

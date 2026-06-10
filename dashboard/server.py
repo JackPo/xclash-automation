@@ -1006,7 +1006,7 @@ async def api_dm_sessions() -> dict[str, Any]:
                     "guild": data.get("guildname", ""),
                     "level": data.get("roleLv", 0),
                 }
-            except:
+            except Exception:
                 pass
 
         # Build session list
@@ -1035,7 +1035,7 @@ async def api_dm_sessions() -> dict[str, Any]:
                     "last_message": last_text,
                     "last_sender": last_sender,
                 })
-            except:
+            except Exception:
                 pass
 
         # Sort by last message time (most recent first)
@@ -1085,7 +1085,7 @@ async def api_dm_session_messages(other_id: str, limit: int = 50) -> dict[str, A
             try:
                 role_data = json.loads(unquote(role_match.group(1)))
                 other_name = role_data.get("name", other_name)
-            except:
+            except Exception:
                 pass
 
         # Format messages (last N)
@@ -1195,7 +1195,7 @@ async def api_player_profile() -> dict[str, Any]:
                     if data.get("name") or data.get("ce", 0) > 0:
                         our_info = (role_id, world_id, data)
                         break
-                except:
+                except Exception:
                     pass
 
         if not our_info:

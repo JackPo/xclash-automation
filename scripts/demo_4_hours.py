@@ -67,8 +67,8 @@ def ocr_time(frame, ocr):
         if len(parts) == 3:
             hr, mn, sc = int(parts[0]), int(parts[1]), int(parts[2])
             return hr * 3600 + mn * 60 + sc, time_str
-    except:
-        pass
+    except (ValueError, AttributeError):
+        pass  # OCR returned None or non-numeric text
     return None, time_str
 
 
