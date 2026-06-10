@@ -2,7 +2,7 @@
 
 Automation daemon for **X-Clash** (`com.xman.na.gp`) running on BlueStacks at
 4K (3840×2160). Drives the game with Windows-side screenshots, OpenCV
-template matching (with masks for transparent UI), a local Qwen2.5-VL OCR
+template matching (with masks for transparent UI), a local Qwen3-VL OCR
 server, and ADB taps/swipes. A persistent scheduler tracks cooldowns and
 daily limits across daemon restarts, a web dashboard surfaces live state,
 and a WebSocket API lets you trigger flows on demand.
@@ -120,8 +120,8 @@ VS-day gating turns question-mark quests on/off via
               |   - template_matcher (CPU/GPU)    |
               |   - mask-aware (sqdiff+mask)      |
               |   - view_state_detector           |
-              |   - qwen_ocr (HTTP -> local       |
-              |     Qwen2.5-VL-3B server)         |
+              |   - ocr_client (HTTP -> local     |
+              |     Qwen3-VL-2B bf16 server)      |
               +------------------+----------------+
                                  |
                                  v
@@ -198,11 +198,15 @@ slow-path does multi-step click + hardware-back to dig out of arbitrary modal
 hell.
 
 ### OCR
-A local Qwen2.5-VL-3B server handles all OCR. The client wraps it as
-`utils/ocr_client.py` with helpers for numbers, text, and JSON extraction.
-Refusal/hallucination outputs (Qwen sometimes returns "I cannot read this
-image" or hallucinates digits on empty crops) are **filtered out** in
-detection layers so they never become silently wrong actions.
+A local Qwen3-VL-2B server (bf16, ~190ms per read) handles all OCR. The
+client wraps it as `utils/ocr_client.py` with helpers for numbers, text, and
+JSON extraction. Refusal/hallucination outputs (the model sometimes returns
+"I cannot read this image" or hallucinates digits on empty crops) are
+**filtered out** in detection layers so they never become silently wrong
+actions. Arms Race score reads additionally enforce a monotonic floor:
+same-block readings below the last confirmed score are rejected unless all
+reads unanimously agree, in which case the stored score is presumed stale
+and overwritten (`utils/arms_race_ocr.py`).
 
 ---
 
@@ -210,9 +214,9 @@ detection layers so they never become silently wrong actions.
 
 ### Hardware
 - Windows 10/11
-- GPU with CUDA support recommended for OCR (Qwen2.5-VL-3B). RTX 30/40/50
+- GPU with CUDA support recommended for OCR (Qwen3-VL-2B bf16). RTX 30/40/50
   series tested.
-- ~8 GB free RAM during operation; 4 GB VRAM for OCR
+- ~8 GB free RAM during operation; ~5 GB VRAM for OCR
 
 ### Software
 - **Python 3.12+**
@@ -695,7 +699,7 @@ not affiliated with or endorsed by them.
 
 ## Acknowledgments
 
-- Qwen2.5-VL by Alibaba for the local OCR model
+- Qwen3-VL by Alibaba for the local OCR model
 - Gemini for one-off element location
 - OpenCV CUDA contrib for GPU template matching
 - BlueStacks for the Android emulator

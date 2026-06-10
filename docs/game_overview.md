@@ -82,7 +82,7 @@ The repo splits responsibilities into small, testable pieces because every UI el
 - Masked templates exist for icons with transparent backgrounds.
 
 ### Services
-- `services/ocr_server.py` runs the local Qwen2.5-VL OCR service for stamina and event points.
+- `services/ocr_server.py` runs the local Qwen3-VL-2B (bf16) OCR service for stamina and event points.
 
 ### Data and state
 - `data/daemon_schedule.json` persists cooldowns, rally limits, and Arms Race block state.

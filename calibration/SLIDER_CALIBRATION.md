@@ -202,7 +202,7 @@ success = barracks_training_flow(
    ```bash
    python services/ocr_server.py
    ```
-   The server loads Qwen2.5-VL-3B on GPU and handles time OCR requests.
+   The server loads Qwen3-VL-2B (bf16) on GPU and handles time OCR requests.
 
 2. **Training Panel Open**: Click a PENDING barrack bubble before running the flow.
 

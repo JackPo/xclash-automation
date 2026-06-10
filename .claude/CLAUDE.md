@@ -55,7 +55,7 @@ if found:
 - ADB: `C:\Program Files\BlueStacks_nxt\hd-adb.exe`
 - Device: `emulator-5554`
 - Resolution: 3840x2160 (4K)
-- OCR: Qwen2.5-VL-3B on GPU
+- OCR: Qwen3-VL-2B-Instruct (bf16) on GPU via `services/ocr_server.py`
 
 ## Directory Structure
 

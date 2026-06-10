@@ -139,24 +139,23 @@ if confirmed:
 
 ---
 
-## OCR with Qwen2.5-VL-3B
+## OCR with Qwen3-VL-2B
 
-Vision model for game text (better than Tesseract/EasyOCR).
+Vision model for game text (better than Tesseract/EasyOCR). Served by
+`services/ocr_server.py`; access it through the client:
 
 ```python
-from utils.qwen_ocr import QwenOCR
+from utils.ocr_client import OCRClient
 
-ocr = QwenOCR()  # Singleton
+ocr = OCRClient()
 number = ocr.extract_number(frame, region=(69, 203, 96, 60))
 ```
 
-**GPU Config (GTX 1080/Pascal)**:
-```python
-# MUST use float32 (Pascal runs float16 at 1/64th speed)
-bnb_4bit_compute_dtype=torch.float32
-```
+**GPU Config (RTX 5060 Ti 16GB)**: loaded in bf16, no quantization
+(`dtype=torch.bfloat16`). If accuracy ever regresses, bump MODEL_ID to
+`Qwen/Qwen3-VL-4B-Instruct` in `services/ocr_server.py`.
 
-**Performance**: ~1-2s inference, ~4GB VRAM
+**Performance**: ~190ms median per read, ~5GB VRAM
 
 ---
 

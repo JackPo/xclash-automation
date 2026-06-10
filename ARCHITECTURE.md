@@ -40,8 +40,11 @@ WindowsScreenshotHelper -> Matchers -> Gating -> Flow -> Scheduler/State
 - All templates are calibrated for 3840x2160.
 
 ### OCR
-- OCR runs through a local Qwen2.5-VL server (`utils/ocr_server.py`).
+- OCR runs through a local Qwen3-VL-2B server in bf16 (`services/ocr_server.py`), ~190ms per read.
 - Used for stamina and Arms Race points.
+- Arms Race scores are validated against a monotonic floor: same-block readings
+  below the last confirmed score are rejected unless all reads unanimously agree
+  (which instead overwrites a stale stored score). See `utils/arms_race_ocr.py`.
 - The daemon health-checks and restarts the OCR server as needed.
 
 ### Scheduler and state
