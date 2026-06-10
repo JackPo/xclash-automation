@@ -1098,6 +1098,79 @@
                                     </div>
                                 </div>
 
+                                <!-- Overlord 190+ First-Kill Gate -->
+                                <div class="override-item">
+                                    <div class="override-meta">
+                                        <div class="text-sm text-gray-200">Overlord 190+ Gate</div>
+                                        <div class="text-xs text-gray-500">First overlord after reset must be Lv190+; lower ones skipped until done</div>
+                                    </div>
+                                    <div class="override-controls">
+                                        <span x-show="configs.RALLY_OVERLORD_GATE_ENABLED?.overridden" class="text-xs text-amber-400"
+                                              x-text="formatOverrideTime(configs.RALLY_OVERLORD_GATE_ENABLED?.expires_in)"></span>
+                                        <div class="seg-wrap">
+                                            <div class="segmented">
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_ENABLED', false, null)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_ENABLED?.value === false ? 'active-off' : ''">
+                                                    OFF
+                                                </button>
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_ENABLED', true, null)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_ENABLED?.value !== false ? 'active-on' : ''">
+                                                    ON
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Overlord Gate Override (timed-ON: allow lower overlords temporarily) -->
+                                <div class="override-item">
+                                    <div class="override-meta">
+                                        <div class="text-sm text-gray-200">Gate Override</div>
+                                        <div class="text-xs text-amber-500/80">Allow lower-level overlords before the 190+ kill is done</div>
+                                    </div>
+                                    <div class="override-controls">
+                                        <span x-show="configs.RALLY_OVERLORD_GATE_OVERRIDE?.overridden" class="text-xs text-amber-400"
+                                              x-text="formatOverrideTime(configs.RALLY_OVERLORD_GATE_OVERRIDE?.expires_in)"></span>
+                                        <div class="seg-wrap">
+                                            <div class="seg-overlay">ON TIMERS</div>
+                                            <div class="segmented">
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_OVERRIDE', false, null)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_OVERRIDE?.value !== true ? 'active-off' : ''">
+                                                    OFF
+                                                </button>
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_OVERRIDE', true, 60)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_OVERRIDE?.overridden && configs.RALLY_OVERLORD_GATE_OVERRIDE?.value === true && configs.RALLY_OVERLORD_GATE_OVERRIDE?.expires_in ? 'active-timed' : ''">
+                                                    1h
+                                                </button>
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_OVERRIDE', true, 120)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_OVERRIDE?.overridden && configs.RALLY_OVERLORD_GATE_OVERRIDE?.value === true && configs.RALLY_OVERLORD_GATE_OVERRIDE?.expires_in ? 'active-timed' : ''">
+                                                    2h
+                                                </button>
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_OVERRIDE', true, 480)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_OVERRIDE?.overridden && configs.RALLY_OVERLORD_GATE_OVERRIDE?.value === true && configs.RALLY_OVERLORD_GATE_OVERRIDE?.expires_in ? 'active-timed' : ''">
+                                                    8h
+                                                </button>
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_OVERRIDE', true, 1440)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_OVERRIDE?.overridden && configs.RALLY_OVERLORD_GATE_OVERRIDE?.value === true && configs.RALLY_OVERLORD_GATE_OVERRIDE?.expires_in ? 'active-timed' : ''">
+                                                    24h
+                                                </button>
+                                                <button @click="setBoolOverride('RALLY_OVERLORD_GATE_OVERRIDE', true, null)"
+                                                        class="seg-btn"
+                                                        :class="configs.RALLY_OVERLORD_GATE_OVERRIDE?.value === true && !configs.RALLY_OVERLORD_GATE_OVERRIDE?.expires_in ? 'active-on' : ''">
+                                                    ON
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Default Daily Limit -->
                                 <div class="override-item">
                                     <div class="override-meta">
@@ -1261,7 +1334,7 @@
                                     <div class="h-label mb-2">Other</div>
                                     <div class="space-y-2">
                                         <template x-for="(cfg, key) in configs" :key="key">
-                                            <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key) && !key.startsWith('RALLY_MONSTER_') && !key.startsWith('RALLY_IGNORE_DAILY_LIMIT_')"
+                                            <div x-show="cfg.type === 'bool' && !['RALLY_JOIN_ENABLED', 'RALLY_IGNORE_DAILY_LIMIT', 'RALLY_OVERLORD_GATE_ENABLED', 'RALLY_OVERLORD_GATE_OVERRIDE', 'ARMS_RACE_BEAST_TRAINING_ENABLED', 'ARMS_RACE_SOLDIER_TRAINING_ENABLED', 'ARMS_RACE_ENHANCE_HERO_ENABLED'].includes(key) && !key.startsWith('RALLY_MONSTER_') && !key.startsWith('RALLY_IGNORE_DAILY_LIMIT_')"
                                                  class="override-item py-2 border-b border-[#1f1f2c] last:border-0">
                                                 <div class="override-meta">
                                                     <div class="text-sm text-gray-200" x-text="formatConfigName(key)"></div>
