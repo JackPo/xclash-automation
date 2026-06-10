@@ -124,6 +124,18 @@ CONFIG_DEFINITIONS = {
         "category": "timing",
         "description": "Seconds user must be idle before flows trigger (default 5 min)",
     },
+    "RALLY_OVERLORD_GATE_ENABLED": {
+        "default": True,
+        "type": "bool",
+        "category": "rally",
+        "description": "Require first Zombie Overlord join after server reset to be Lv190+ (skip lower ones until done)",
+    },
+    "RALLY_OVERLORD_GATE_OVERRIDE": {
+        "default": False,
+        "type": "bool",
+        "category": "rally",
+        "description": "Override: allow joining lower-level Zombie Overlords before the first Lv190+ kill is done",
+    },
     # Hospital Settings
     "HOSPITAL_HEAL_ENABLED": {
         "default": True,

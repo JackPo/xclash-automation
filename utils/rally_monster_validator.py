@@ -358,6 +358,25 @@ class RallyMonsterValidator:
                 if not auto_join_enabled:
                     return False, True  # Known but don't join
 
+                # Overlord first-kill gate: after server reset, the first
+                # Zombie Overlord we join must be Lv190+. Until that happens,
+                # skip lower overlords (dashboard override available); the
+                # qualifying join bypasses the normal max_level cap.
+                if config_name == "zombie overlord":
+                    from config import RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL
+                    from utils.config_overrides import get_override_manager
+                    from utils.scheduler import get_scheduler
+
+                    mgr = get_override_manager()
+                    gate_enabled, _ = mgr.get_effective("RALLY_OVERLORD_GATE_ENABLED", True)
+                    override_on, _ = mgr.get_effective("RALLY_OVERLORD_GATE_OVERRIDE", False)
+                    if gate_enabled and not override_on and not get_scheduler().is_overlord_first_kill_done():
+                        if level >= RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL:
+                            print(f"    [RALLY] Overlord gate: Lv.{level} qualifies as first kill (>= {RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL}), joining")
+                            return True, True
+                        print(f"    [RALLY] Overlord gate: Lv.{level} < {RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL} and first Lv190+ join not done since reset - skipping")
+                        return False, True
+
                 # Check level requirement
                 max_level = monster.get("max_level", float('inf'))
                 if level > max_level:

@@ -56,12 +56,14 @@ try:
         RALLY_IGNORE_DAILY_LIMIT as _RALLY_IGNORE_DAILY_LIMIT,
         RALLY_IGNORE_DAILY_LIMIT_EVENTS as _RALLY_IGNORE_DAILY_LIMIT_EVENTS,
         DEBUG_RALLY_JOIN_FLOW as _DEBUG_RALLY_JOIN_FLOW,
+        RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL as _RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL,
     )
     RALLY_MONSTERS: list[MonsterConfig] = _RALLY_MONSTERS
     RALLY_DATA_GATHERING_MODE: bool = _RALLY_DATA_GATHERING_MODE
     RALLY_IGNORE_DAILY_LIMIT: bool = _RALLY_IGNORE_DAILY_LIMIT
     RALLY_IGNORE_DAILY_LIMIT_EVENTS: list[EventConfig] = _RALLY_IGNORE_DAILY_LIMIT_EVENTS
     DEBUG_RALLY_JOIN_FLOW: bool = _DEBUG_RALLY_JOIN_FLOW
+    RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL: int = _RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL
 except ImportError:
     # Fallback defaults if config not updated yet
     RALLY_MONSTERS = [{"name": "Zombie Overlord", "auto_join": True, "max_level": 130, "has_level": True}]
@@ -69,6 +71,7 @@ except ImportError:
     RALLY_IGNORE_DAILY_LIMIT = False
     RALLY_IGNORE_DAILY_LIMIT_EVENTS = []
     DEBUG_RALLY_JOIN_FLOW = True  # Default to True for debugging
+    RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL = 190
 
 
 from datetime import datetime, timezone, timedelta
@@ -683,6 +686,14 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
 
     print(f"[RALLY-JOIN] Successfully joined {monster_name} Lv.{level} rally")
     update_rally_join_result(True, monster_name, level, None)
+
+    # Satisfy the overlord first-kill gate: a team was successfully sent
+    # to a qualifying Zombie Overlord, lower-level overlords unlock.
+    if (monster_name and "zombie overlord" in monster_name.lower()
+            and level is not None and level >= RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL):
+        from utils.scheduler import get_scheduler
+        get_scheduler().mark_overlord_first_kill_done(level)
+
     return {'success': True, 'monster_name': monster_name, 'level': level, 'abort_reason': None}
 
 

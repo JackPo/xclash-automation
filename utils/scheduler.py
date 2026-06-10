@@ -626,6 +626,40 @@ class DaemonScheduler:
         return next_reset.replace(tzinfo=None)
 
     # =========================================================================
+    # Overlord First-Kill Gate
+    # =========================================================================
+
+    @_locked
+    def mark_overlord_first_kill_done(self, level: int) -> None:
+        """Record that a team was successfully sent to a qualifying (Lv190+) Zombie Overlord."""
+        self.schedule["overlord_first_kill"] = {
+            "done_at": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+        }
+        self.save()
+        logger.info(f"Overlord first-kill gate satisfied (Lv.{level})")
+
+    @_locked
+    def is_overlord_first_kill_done(self) -> bool:
+        """True if a qualifying overlord join happened since the last server reset (02:00 UTC)."""
+        entry = self.schedule.get("overlord_first_kill")
+        if not entry or not entry.get("done_at"):
+            return False
+        try:
+            done_at = datetime.fromisoformat(entry["done_at"])
+        except (ValueError, TypeError):
+            return False
+        if done_at.tzinfo is None:
+            done_at = done_at.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        reset_hour = 2  # Must match get_next_server_reset
+        last_reset = now.replace(hour=reset_hour, minute=0, second=0, microsecond=0)
+        if now.hour < reset_hour:
+            last_reset -= timedelta(days=1)
+        return done_at >= last_reset
+
+    # =========================================================================
     # Arms Race Tracking
     # =========================================================================
 

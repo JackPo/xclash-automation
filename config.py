@@ -466,6 +466,11 @@ RALLY_IGNORE_DAILY_LIMIT_EVENTS = [
 UNION_BOSS_MODE_DURATION = 1800   # 30 minutes of faster rally joining
 UNION_BOSS_RALLY_COOLDOWN = 15    # 15 seconds between rally joins during Union Boss mode
 
+# Overlord first-kill gate: after server reset (02:00 UTC), do not join any
+# Zombie Overlord rally until one team has been successfully sent to an
+# overlord at or above this level. Dashboard override: RALLY_OVERLORD_GATE_OVERRIDE.
+RALLY_OVERLORD_FIRST_KILL_MIN_LEVEL = 190
+
 # Monster configuration: List of known monsters with metadata
 # Each monster has: name, auto_join, max_level, level_increment, level_range
 RALLY_MONSTERS = [
