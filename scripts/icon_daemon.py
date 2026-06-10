@@ -2104,6 +2104,7 @@ class IconDaemon:
                 "time_remaining": str(arms_race.get("time_remaining", "")),
             },
             "tavern_claims_today": self.scheduler.get_tavern_claims_today(),
+            "overlord_first_kill_done": self.scheduler.is_overlord_first_kill_done(),
             "server_port": DAEMON_SERVER_PORT,
         }
 

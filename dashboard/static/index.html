@@ -1103,8 +1103,17 @@
                                     <div class="override-meta">
                                         <div class="text-sm text-gray-200">Overlord 190+ Gate</div>
                                         <div class="text-xs text-gray-500">First overlord after reset must be Lv190+; lower ones skipped until done</div>
+                                        <div class="text-xs mt-0.5"
+                                             :class="status.overlord_first_kill_done ? 'text-green-400' : 'text-amber-400'"
+                                             x-text="status.overlord_first_kill_done ? '✓ Done this reset - all overlords joinable' : 'Not done yet this reset'"></div>
                                     </div>
                                     <div class="override-controls">
+                                        <button @click="markOverlordDone()"
+                                                x-show="!status.overlord_first_kill_done"
+                                                class="btn btn-xs btn-primary"
+                                                title="I already sent a team to a Lv190+ overlord manually - unlock all overlords until next reset">
+                                            I did it manually
+                                        </button>
                                         <span x-show="configs.RALLY_OVERLORD_GATE_ENABLED?.overridden" class="text-xs text-amber-400"
                                               x-text="formatOverrideTime(configs.RALLY_OVERLORD_GATE_ENABLED?.expires_in)"></span>
                                         <div class="seg-wrap">

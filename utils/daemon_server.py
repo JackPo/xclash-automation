@@ -154,6 +154,7 @@ class DaemonWebSocketServer:
             "list_flows": self._cmd_list_flows,
             "get_state": self._cmd_get_state,
             "set_tavern_claims": self._cmd_set_tavern_claims,
+            "mark_overlord_done": self._cmd_mark_overlord_done,
             "set_config": self._cmd_set_config,
             "pause": self._cmd_pause,
             "resume": self._cmd_resume,
@@ -327,6 +328,13 @@ class DaemonWebSocketServer:
         """Force save daemon state now."""
         self.daemon._save_runtime_state()
         return {"saved": True}
+
+    def _cmd_mark_overlord_done(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Manually satisfy the overlord first-kill gate for this reset cycle
+        (user already sent a team to a Lv190+ overlord by hand)."""
+        level = int(args.get("level", 0) or 0)
+        self.daemon.scheduler.mark_overlord_first_kill_done(level)
+        return {"done": True, "level": level}
 
     def _cmd_read_stamina(self, args: dict[str, Any]) -> dict[str, Any]:
         """Read current stamina from screen (fresh OCR)."""

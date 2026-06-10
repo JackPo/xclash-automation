@@ -1218,6 +1218,25 @@
                     }
                 },
 
+                async markOverlordDone() {
+                    try {
+                        const res = await fetch('/api/ws/command', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ cmd: 'mark_overlord_done', args: {} })
+                        });
+                        const data = await res.json();
+                        if (data.success === false || data.error) {
+                            this.showToast(`Failed: ${data.error || 'unknown error'}`, 'error');
+                            return;
+                        }
+                        this.status.overlord_first_kill_done = true;
+                        this.showToast('Overlord gate marked done for this reset - all overlords joinable', 'success');
+                    } catch (e) {
+                        this.showToast(`Failed to mark overlord done: ${e}`, 'error');
+                    }
+                },
+
                 async setRallyMonsterIgnoreOverride(monster, value, durationMinutes) {
                     const key = monster?.ignore_override_key;
                     if (!key) return;
