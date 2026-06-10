@@ -218,7 +218,7 @@ TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600  # Treat completions overdue by up to t
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
 UNKNOWN_LOOP_TIMEOUT = 480         # 8 minutes - force restart if recovery keeps cycling
-CHAT_STUCK_TIMEOUT = 15            # Seconds stuck in CHAT view before clicking back out
+CHAT_STUCK_TIMEOUT = 2             # Seconds stuck in CHAT before clicking back out (just debounces view flicker, ~2-3 loop iterations; the idle gate is what protects active chat use)
 CHAT_STUCK_IDLE_REQUIRED = 10      # User must be idle this long before we close their chat
 
 # Resolution check (prevents template matching failures from resolution drift)
