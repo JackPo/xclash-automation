@@ -11,17 +11,36 @@ All state is persisted to data/daemon_schedule.json and survives daemon restarts
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
 import tempfile
+import threading
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from config import IDLE_THRESHOLD
 
 logger = logging.getLogger(__name__)
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _locked(method: _F) -> _F:
+    """Serialize access to scheduler state.
+
+    The daemon thread, flow worker threads, and the WebSocket server thread
+    all mutate self.schedule and save() concurrently; without a lock the
+    interleaved read-modify-write sequences lose updates and json.dump can
+    crash on a dict mutated mid-serialization.
+    """
+    @functools.wraps(method)
+    def wrapper(self: "DaemonScheduler", *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper  # type: ignore[return-value]
 
 # Flow configurations: cooldown (seconds), idle required (seconds)
 # All flows use IDLE_THRESHOLD from config.py as the default idle requirement
@@ -74,6 +93,7 @@ class DaemonScheduler:
             config_overrides: Optional dict of flow_name -> {"cooldown": int, "idle_required": int}
                               to override default FLOW_CONFIGS
         """
+        self._lock = threading.RLock()  # Must exist before any @_locked method runs
         self.config_overrides = config_overrides or {}
         self.schedule = self._load_or_create()
         self._check_daily_reset()
@@ -83,6 +103,7 @@ class DaemonScheduler:
     # Core Flow Operations
     # =========================================================================
 
+    @_locked
     def is_flow_ready(self, flow_name: str, idle_seconds: float = 0) -> bool:
         """
         Check if a flow can run (cooldown passed + idle requirement met).
@@ -127,6 +148,7 @@ class DaemonScheduler:
             logger.warning(f"[SCHEDULER] {flow_name}: invalid last_run data, allowing")
             return True  # Invalid data, allow run
 
+    @_locked
     def record_flow_run(self, flow_name: str, cooldown_override: int | None = None) -> None:
         """
         Record that a flow ran now. Updates last_run and appends to history.
@@ -165,6 +187,7 @@ class DaemonScheduler:
         self.save()
         logger.info(f"[SCHEDULER] Recorded {flow_name} run #{run_count} at {now.strftime('%H:%M:%S')}")
 
+    @_locked
     def get_next_eligible(self, flow_name: str) -> datetime | None:
         """
         Get when a flow will next be eligible (last_run + cooldown).
@@ -194,6 +217,7 @@ class DaemonScheduler:
         except (ValueError, TypeError):
             return None
 
+    @_locked
     def get_missed_flows(self) -> list[str]:
         """
         Get flows that are past due (for catchup on restart).
@@ -212,6 +236,7 @@ class DaemonScheduler:
                         missed.append(flow_name)
         return missed
 
+    @_locked
     def get_flow_history(self, flow_name: str) -> list[datetime]:
         """
         Get today's run history for a flow.
@@ -241,6 +266,7 @@ class DaemonScheduler:
     # Tavern Quest Completions
     # =========================================================================
 
+    @_locked
     def get_tavern_completions(self) -> list[datetime]:
         """
         Get scheduled tavern quest completion times.
@@ -259,6 +285,7 @@ class DaemonScheduler:
                 pass
         return result
 
+    @_locked
     def set_tavern_completions(self, completions: list[datetime], dedup_threshold: int = 2) -> None:
         """
         Set tavern quest completion times, deduplicating within threshold.
@@ -297,6 +324,7 @@ class DaemonScheduler:
         else:
             logger.info(f"[SCHEDULER] Tavern completions cleared (no active quests)")
 
+    @_locked
     def is_tavern_completion_imminent(self, buffer_seconds: int = 5, overdue_grace_seconds: int = 600) -> bool:
         """
         Check if any tavern quest completion is imminent or recently overdue.
@@ -322,6 +350,7 @@ class DaemonScheduler:
                 return True
         return False
 
+    @_locked
     def get_next_tavern_completion(self) -> datetime | None:
         """Get the next upcoming tavern quest completion time."""
         completions = self.get_tavern_completions()
@@ -332,6 +361,7 @@ class DaemonScheduler:
             return None
         return min(future)
 
+    @_locked
     def get_last_tavern_dispatch(self) -> datetime | None:
         """Get last tavern quest dispatch time."""
         ts = self.schedule.get("tavern_quests", {}).get("last_dispatch")
@@ -342,6 +372,7 @@ class DaemonScheduler:
         except (ValueError, TypeError):
             return None
 
+    @_locked
     def record_tavern_dispatch(self) -> None:
         """Record that a tavern quest was dispatched now."""
         if "tavern_quests" not in self.schedule:
@@ -350,6 +381,7 @@ class DaemonScheduler:
         self.save()
         logger.info("[SCHEDULER] Recorded tavern dispatch")
 
+    @_locked
     def record_tavern_claims(self, count: int) -> None:
         """Record tavern quest claims. Adds to today's total."""
         if "tavern_quests" not in self.schedule:
@@ -370,6 +402,7 @@ class DaemonScheduler:
         self.save()
         logger.info(f"[SCHEDULER] Recorded {count} tavern claim(s), today total: {current + count}")
 
+    @_locked
     def get_tavern_claims_today(self) -> int:
         """Get number of tavern quests claimed today."""
         tavern_data = self.schedule.get("tavern_quests", {})
@@ -381,6 +414,7 @@ class DaemonScheduler:
 
         return tavern_data.get("claims_today", 0)
 
+    @_locked
     def set_tavern_claims_today(self, count: int) -> None:
         """Force-set today's tavern claims counter to an exact value."""
         if count < 0:
@@ -395,6 +429,7 @@ class DaemonScheduler:
         self.save()
         logger.info(f"[SCHEDULER] Force-set tavern claims for {today} to {count}")
 
+    @_locked
     def is_tavern_dispatch_exhausted_today(self) -> bool:
         """True if a dispatch attempt today found zero Go buttons.
 
@@ -406,6 +441,7 @@ class DaemonScheduler:
         stored_date = self.schedule.get("tavern_quests", {}).get("dispatch_exhausted_date")
         return stored_date == date.today().isoformat()
 
+    @_locked
     def mark_tavern_dispatch_exhausted_today(self) -> None:
         """Record that today's dispatch search came up empty."""
         if "tavern_quests" not in self.schedule:
@@ -415,6 +451,7 @@ class DaemonScheduler:
         self.save()
         logger.info(f"[SCHEDULER] Marked tavern dispatch exhausted for {today}")
 
+    @_locked
     def clear_tavern_dispatch_exhausted_today(self) -> None:
         """Manually clear today's exhaustion flag (e.g. from dashboard)."""
         tq = self.schedule.get("tavern_quests")
@@ -424,6 +461,7 @@ class DaemonScheduler:
         self.save()
         logger.info("[SCHEDULER] Cleared tavern dispatch exhaustion flag")
 
+    @_locked
     def record_tavern_refresh(self) -> None:
         """Increment today's tavern-refresh counter (auto-reset at midnight).
 
@@ -443,12 +481,14 @@ class DaemonScheduler:
         )
         self.save()
 
+    @_locked
     def get_tavern_refreshes_today(self) -> int:
         tq = self.schedule.get("tavern_quests", {})
         if tq.get("refreshes_date") != date.today().isoformat():
             return 0
         return int(tq.get("refreshes_today", 0))
 
+    @_locked
     def record_tavern_visible_counts(
         self,
         gold_visible: int,
@@ -485,6 +525,7 @@ class DaemonScheduler:
         }
         self.save()
 
+    @_locked
     def get_tavern_visible_counts(self) -> dict[str, Any] | None:
         """Return the most recent visible-Go counts, or None if never set."""
         return self.schedule.get("tavern_quests", {}).get("visible_counts")
@@ -493,6 +534,7 @@ class DaemonScheduler:
     # Daily Limits (Rally Exhaustion)
     # =========================================================================
 
+    @_locked
     def is_exhausted(self, limit_name: str) -> bool:
         """
         Check if a daily limit is exhausted.
@@ -519,6 +561,7 @@ class DaemonScheduler:
         except (ValueError, TypeError):
             return False
 
+    @_locked
     def mark_exhausted(self, limit_name: str, reset_time: datetime) -> None:
         """
         Mark a daily limit as exhausted.
@@ -538,6 +581,7 @@ class DaemonScheduler:
         self.save()
         logger.info(f"[SCHEDULER] Daily limit '{limit_name}' EXHAUSTED until {reset_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
+    @_locked
     def _clear_expired_limits(self) -> None:
         """Clear daily limits that have expired (called on load)."""
         limits = self.schedule.get("daily_limits", {})
@@ -585,6 +629,7 @@ class DaemonScheduler:
     # Arms Race Tracking
     # =========================================================================
 
+    @_locked
     def get_arms_race_state(self) -> dict[str, Any]:
         """
         Get current Arms Race block state.
@@ -596,6 +641,7 @@ class DaemonScheduler:
         result = self.schedule.get("arms_race", {})
         return dict(result) if result else {}
 
+    @_locked
     def update_arms_race_state(self, **kwargs: Any) -> None:
         """
         Update Arms Race block state.
@@ -614,6 +660,7 @@ class DaemonScheduler:
 
         self.save()
 
+    @_locked
     def reset_arms_race_block(self, block_start: datetime) -> None:
         """
         Reset Arms Race state for a new 4-hour block.
@@ -635,6 +682,7 @@ class DaemonScheduler:
     # Zombie Mode (for Beast Training)
     # =========================================================================
 
+    @_locked
     def get_zombie_mode(self) -> tuple[str, datetime | None]:
         """
         Get current zombie mode and expiry.
@@ -664,6 +712,7 @@ class DaemonScheduler:
                 return "elite", None
         return mode, None
 
+    @_locked
     def set_zombie_mode(self, mode: str, hours: float) -> datetime:
         """
         Set zombie mode for N hours.
@@ -685,6 +734,7 @@ class DaemonScheduler:
         logger.info(f"Zombie mode set to '{mode}' for {hours}h (expires {expires})")
         return expires
 
+    @_locked
     def clear_zombie_mode(self) -> None:
         """Clear zombie mode, revert to elite."""
         self.schedule.pop("zombie_mode", None)
@@ -695,6 +745,7 @@ class DaemonScheduler:
     # REINFORCE MODE - Loop reinforce camp, block other flows except handshake
     # =========================================================================
 
+    @_locked
     def get_reinforce_mode(self) -> tuple[bool, datetime | None]:
         """
         Get current reinforce mode status.
@@ -724,6 +775,7 @@ class DaemonScheduler:
                 return False, None
         return active, None
 
+    @_locked
     def set_reinforce_mode(self, hours: float | None = None) -> datetime | None:
         """
         Enable reinforce mode for N hours.
@@ -751,12 +803,14 @@ class DaemonScheduler:
         logger.info(f"Reinforce mode enabled (expires: {expires})")
         return expires
 
+    @_locked
     def clear_reinforce_mode(self) -> None:
         """Clear reinforce mode, stop looping."""
         self.schedule.pop("reinforce_mode", None)
         self.save()
         logger.info("Reinforce mode cleared")
 
+    @_locked
     def record_arms_race_progress(self, event: str, points: int, chest3_target: int | None, block_start: str) -> None:
         """
         Record Arms Race progress for data collection.
@@ -797,6 +851,7 @@ class DaemonScheduler:
 
     MAX_EVENT_LOG_SIZE = 500  # Keep last 500 events
 
+    @_locked
     def record_event(
         self,
         flow_name: str,
@@ -846,6 +901,7 @@ class DaemonScheduler:
         duration_str = f" ({duration:.1f}s)" if duration else ""
         logger.debug(f"[SCHEDULER] Event logged: {flow_name} [{status}]{duration_str}")
 
+    @_locked
     def get_events_in_range(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         """
         Get all events within a time range.
@@ -870,6 +926,7 @@ class DaemonScheduler:
 
         return sorted(result, key=lambda e: e["timestamp"])
 
+    @_locked
     def get_recent_events(self, hours: int = 12) -> list[dict[str, Any]]:
         """
         Get events from the last N hours.
@@ -888,6 +945,7 @@ class DaemonScheduler:
     # Daemon Runtime State
     # =========================================================================
 
+    @_locked
     def get_daemon_state(self) -> dict[str, Any]:
         """
         Get all daemon runtime state.
@@ -898,6 +956,7 @@ class DaemonScheduler:
         result = self.schedule.get("daemon_state", {})
         return dict(result) if result else {}
 
+    @_locked
     def update_daemon_state(self, **kwargs: Any) -> None:
         """
         Update daemon runtime state.
@@ -918,6 +977,7 @@ class DaemonScheduler:
 
         self.save()
 
+    @_locked
     def clear_daemon_state(self) -> None:
         """Clear all daemon runtime state (for clean restart)."""
         self.schedule["daemon_state"] = {}
@@ -928,6 +988,7 @@ class DaemonScheduler:
     # Persistence
     # =========================================================================
 
+    @_locked
     def save(self) -> None:
         """Save schedule to file with atomic write."""
         self.schedule["last_updated"] = datetime.now().isoformat()
@@ -994,6 +1055,7 @@ class DaemonScheduler:
             "event_log": [],
         }
 
+    @_locked
     def _check_daily_reset(self) -> None:
         """Reset daily history if it's a new day."""
         history_date_str = self.schedule.get("history_date")
@@ -1009,6 +1071,7 @@ class DaemonScheduler:
             self.schedule["history_date"] = today
             self.save()
 
+    @_locked
     def _prune_flow_histories(self) -> int:
         """
         Prune invalid/stale/oversized per-flow history arrays.
@@ -1058,6 +1121,7 @@ class DaemonScheduler:
 
         return removed_entries
 
+    @_locked
     def run_periodic_maintenance(self) -> dict[str, int | bool]:
         """
         Run lightweight scheduler maintenance for long-lived daemon processes.
@@ -1095,6 +1159,7 @@ class DaemonScheduler:
     # Logging / Visibility
     # =========================================================================
 
+    @_locked
     def log_status(self) -> None:
         """Log summary of all flows: last run, next eligible, run count today."""
         logger.info("=== SCHEDULER STATUS ===")
