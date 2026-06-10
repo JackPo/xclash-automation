@@ -28,11 +28,6 @@ logger = logging.getLogger(__name__)
 # previous block and must not be used as a monotonic floor.
 SAME_BLOCK_MAX_AGE_SECONDS = 4 * 3600
 
-# A reading this many times above the last confirmed score is treated as a
-# probable extra-digit OCR error (e.g. 15200 read as 152000) and held to the
-# same unanimity bar as a decrease.
-SUSPICIOUS_JUMP_FACTOR = 8
-
 # OCR region coordinates (4K resolution)
 # Format: (x, y, width, height)
 TITLE_REGION = (1405, 116, 791, 74)
@@ -122,14 +117,14 @@ def get_current_points_verified(
 
     Takes multiple screenshots and performs OCR on each. A value needs at
     least 2 matching readings. When last_known (same event, same block) is
-    provided, two extra rules apply, because scores within a block only go up:
+    provided, one extra rule applies, because scores within a block only go up:
 
     - A consensus value BELOW last_known is rejected unless every reading
       unanimously agrees (unanimity means our stored state was stale, not OCR
       noise - accept with a warning).
-    - A consensus value more than SUSPICIOUS_JUMP_FACTOR x last_known is held
-      to the same unanimity bar (catches extra-digit misreads like 15200 ->
-      152000).
+
+    Upward jumps of any size are accepted - scores legitimately leap when
+    rallies complete while the panel is closed.
 
     Args:
         win: WindowsScreenshotHelper instance
@@ -161,30 +156,18 @@ def get_current_points_verified(
         logger.warning(f"ARMS RACE OCR: no consensus across {retries} reads: {results}")
         return None
 
-    if last_known is not None:
-        unanimous = count == retries
-        if most_common < last_known:
-            if unanimous:
-                logger.warning(
-                    f"ARMS RACE OCR: unanimous reading {most_common} below last known "
-                    f"{last_known} - accepting, stored state was presumably stale"
-                )
-                return most_common
+    if last_known is not None and most_common < last_known:
+        if count == retries:
             logger.warning(
-                f"ARMS RACE OCR: reading {most_common} below last known {last_known} "
-                f"without unanimity ({count}/{retries}, all reads: {results}) - rejecting"
+                f"ARMS RACE OCR: unanimous reading {most_common} below last known "
+                f"{last_known} - accepting, stored state was presumably stale"
             )
-            return None
-        if last_known >= 1000 and most_common > last_known * SUSPICIOUS_JUMP_FACTOR:
-            if not unanimous:
-                logger.warning(
-                    f"ARMS RACE OCR: reading {most_common} is >{SUSPICIOUS_JUMP_FACTOR}x last known "
-                    f"{last_known} without unanimity ({count}/{retries}, all reads: {results}) - rejecting"
-                )
-                return None
-            logger.warning(
-                f"ARMS RACE OCR: unanimous large jump {last_known} -> {most_common} - accepting"
-            )
+            return most_common
+        logger.warning(
+            f"ARMS RACE OCR: reading {most_common} below last known {last_known} "
+            f"without unanimity ({count}/{retries}, all reads: {results}) - rejecting"
+        )
+        return None
 
     return most_common
 

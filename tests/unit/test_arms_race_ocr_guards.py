@@ -54,22 +54,16 @@ class TestMonotonicGuard:
         assert _verified([5000, 5000, 5000], last_known=5000) == 5000
 
 
-class TestJumpGuard:
-    """An extra-digit misread looks like a ~10x jump - needs unanimity."""
+class TestJumpsAccepted:
+    """Scores legitimately leap while the panel is closed - no upper guard."""
 
-    def test_majority_huge_jump_rejected(self) -> None:
-        # 15200 -> 152000 with only 2/3 agreement: probable extra digit
-        assert _verified([152000, 152000, 15300], last_known=15200) is None
+    def test_large_jump_accepted_with_consensus(self) -> None:
+        assert _verified([152000, 152000, 15300], last_known=15200) == 152000
 
-    def test_unanimous_huge_jump_accepted(self) -> None:
-        assert _verified([152000, 152000, 152000], last_known=15200) == 152000
-
-    def test_moderate_jump_accepted_without_unanimity(self) -> None:
-        # 2x jump is plausible (panel was closed a while) - normal consensus rules
+    def test_moderate_jump_accepted(self) -> None:
         assert _verified([10000, 10000, 9000], last_known=5000) == 10000
 
-    def test_jump_guard_skipped_for_small_last_known(self) -> None:
-        # Early block scores are tiny; 8x jumps are normal then
+    def test_jump_from_small_score_accepted(self) -> None:
         assert _verified([900, 900, 100], last_known=100) == 900
 
 
