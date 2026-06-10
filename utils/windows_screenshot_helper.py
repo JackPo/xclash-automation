@@ -9,6 +9,7 @@ Performance: ~50ms vs ~2700ms for ADB screencap
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import win32gui
@@ -37,6 +38,11 @@ class WindowsScreenshotHelper:
     # Target window size for consistent scaling
     TARGET_WINDOW_WIDTH = 1822
     TARGET_WINDOW_HEIGHT = 1040
+
+    # Class-level lock: daemon loop and flow threads each hold their own
+    # helper instance, but all capture the same HWND - concurrent GDI
+    # calls (PrintWindow/DC handling) crash, so serialize across instances.
+    _capture_lock = threading.Lock()
 
     def __init__(self, window_title: str = "BlueStacks App Player") -> None:
         """Initialize the screenshot helper.
@@ -173,14 +179,15 @@ class WindowsScreenshotHelper:
         Returns:
             np.ndarray: BGR image at 4K resolution (3840x2160x3)
         """
-        # Re-find window handle in case it became stale
-        self._find_window()
+        with WindowsScreenshotHelper._capture_lock:
+            # Re-find window handle in case it became stale
+            self._find_window()
 
-        # Ensure consistent window size before capture
-        self.ensure_window_size()
+            # Ensure consistent window size before capture
+            self.ensure_window_size()
 
-        # Capture raw window
-        raw_img = self.capture_window()
+            # Capture raw window
+            raw_img = self.capture_window()
 
         # Remove borders
         cropped_img = self.remove_borders(raw_img)
