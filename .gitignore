@@ -77,3 +77,4 @@ level_crops/
 
 # Windows path-mangled accident files (scripts writing literal 'C:\...' strings as filenames)
 C*Usersmail*
+*.backup
