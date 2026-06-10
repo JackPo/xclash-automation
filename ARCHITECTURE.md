@@ -45,8 +45,9 @@ WindowsScreenshotHelper -> Matchers -> Gating -> Flow -> Scheduler/State
 - Arms Race scores are validated against a monotonic floor: same-block readings
   below the last confirmed score are rejected unless all reads unanimously agree
   (which instead overwrites a stale stored score). See `utils/arms_race_ocr.py`.
-- Stamina OCR is bounded to 0-`STAMINA_OCR_MAX_VALID` (500); reads outside that
-  range (e.g. a misread `123456789`) are discarded as garbage, not cached.
+- Stamina OCR is bounded to 0-`STAMINA_OCR_MAX_VALID` (2500; real stamina reaches
+  ~2000 with items); reads outside that range (e.g. a misread `123456789`) are
+  discarded as garbage, not cached.
 - The daemon health-checks and restarts the OCR server as needed.
 
 ### View recovery

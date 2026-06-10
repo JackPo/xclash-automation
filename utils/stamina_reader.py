@@ -11,6 +11,11 @@ from __future__ import annotations
 
 from collections import Counter
 
+try:
+    from config import STAMINA_OCR_MAX_VALID as MAX_VALID
+except ImportError:
+    MAX_VALID = 2500
+
 
 class StaminaReader:
     """
@@ -42,9 +47,9 @@ class StaminaReader:
             (True, stamina) if 3 readings available (uses mode)
             (False, None) otherwise
         """
-        # Invalid reading resets history
-        # Cap raised to 500 - stamina can exceed 200 with recovery items
-        if stamina is None or not (0 <= stamina <= 500):
+        # Invalid reading resets history. Real stamina can reach ~2000 with
+        # recovery items; reject only clear OCR garbage above MAX_VALID.
+        if stamina is None or not (0 <= stamina <= MAX_VALID):
             self.history = []
             return False, None
 

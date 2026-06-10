@@ -246,12 +246,12 @@ class TestInvalidReadings:
         assert value is None
         assert len(reader.get_history()) == 0
 
-    def test_over_500_reading_resets_history(self, reader: StaminaReader) -> None:
-        """Test that stamina > 500 resets history."""
+    def test_over_max_reading_resets_history(self, reader: StaminaReader) -> None:
+        """Test that an implausible stamina (OCR garbage) resets history."""
         reader.add_reading(100)
         reader.add_reading(100)
 
-        confirmed, value = reader.add_reading(501)
+        confirmed, value = reader.add_reading(123456789)
 
         assert confirmed is False
         assert value is None
@@ -266,14 +266,14 @@ class TestInvalidReadings:
         assert confirmed is True
         assert value == 0
 
-    def test_boundary_value_500_is_valid(self, reader: StaminaReader) -> None:
-        """Test that stamina = 500 is valid (max with recovery items)."""
-        reader.add_reading(500)
-        reader.add_reading(500)
-        confirmed, value = reader.add_reading(500)
+    def test_high_stamina_with_items_is_valid(self, reader: StaminaReader) -> None:
+        """Test that a high but real stamina (e.g. 2000 with items) is valid."""
+        reader.add_reading(2000)
+        reader.add_reading(2000)
+        confirmed, value = reader.add_reading(2000)
 
         assert confirmed is True
-        assert value == 500
+        assert value == 2000
 
 
 class TestGetHistory:
