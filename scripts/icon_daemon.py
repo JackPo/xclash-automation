@@ -340,6 +340,7 @@ class IconDaemon:
     critical_flow_active: bool
     critical_flow_name: str | None
     critical_flow_start_time: float | None
+    critical_flow_thread: threading.Thread | None
     command_server: DaemonWebSocketServer | None
     paused: bool
     vs_chest_triggered: set[int]
@@ -408,6 +409,7 @@ class IconDaemon:
         self.critical_flow_active = False
         self.critical_flow_name = None
         self.critical_flow_start_time: float | None = None
+        self.critical_flow_thread: threading.Thread | None = None
         self.CRITICAL_FLOW_TIMEOUT = 120  # Auto-clear after 2 minutes
         self.DEFERRED_FLOW_TTL = 1800  # 30 min: drop stale deferred flows
 
@@ -1230,6 +1232,7 @@ class IconDaemon:
                         self.critical_flow_active = False
                         self.critical_flow_name = None
                         self.critical_flow_start_time = None
+                        self.critical_flow_thread = None
 
                 if run_post_treasure_claim:
                     self._run_post_treasure_tavern_claim_if_due()
@@ -1258,6 +1261,9 @@ class IconDaemon:
             self.active_flows.add(flow_name)
 
         thread = threading.Thread(target=wrapper, daemon=True)
+        if critical:
+            with self.flow_lock:
+                self.critical_flow_thread = thread
         thread.start()
         return True
 
@@ -1913,6 +1919,8 @@ class IconDaemon:
                 with self.flow_lock:
                     self.critical_flow_active = True
                     self.critical_flow_name = flow_name
+                    self.critical_flow_start_time = time.time()
+                    self.critical_flow_thread = threading.current_thread()
                 self.logger.info(f"CRITICAL FLOW START: {flow_name}")
             else:
                 self.logger.info(f"FLOW START: {flow_name}")
@@ -1965,6 +1973,8 @@ class IconDaemon:
                 if critical and self.critical_flow_name == flow_name:
                     self.critical_flow_active = False
                     self.critical_flow_name = None
+                    self.critical_flow_start_time = None
+                    self.critical_flow_thread = None
 
             if run_post_treasure_claim:
                 self._run_post_treasure_tavern_claim_if_due()
@@ -2223,12 +2233,24 @@ class IconDaemon:
                         is_treasure = self.critical_flow_name and "treasure" in self.critical_flow_name.lower()
                         timeout = 600 if is_treasure else self.CRITICAL_FLOW_TIMEOUT  # 10 min vs 2 min
                         if elapsed > timeout:
+                            flow_thread = self.critical_flow_thread
+                            if flow_thread is not None and flow_thread.is_alive():
+                                # Flow thread is still running - clearing the flags now would
+                                # let the daemon screenshot/tap concurrently with it (crash risk).
+                                # Keep blocking until the thread actually exits.
+                                self.logger.error(
+                                    f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} "
+                                    f"stuck for {elapsed:.0f}s but its thread is still alive - waiting for exit"
+                                )
+                                time.sleep(self.interval)
+                                continue
                             self.logger.error(f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} stuck for {elapsed:.0f}s - force clearing!")
                             with self.flow_lock:
                                 self.active_flows.discard(self.critical_flow_name)
                                 self.critical_flow_active = False
                                 self.critical_flow_name = None
                                 self.critical_flow_start_time = None
+                                self.critical_flow_thread = None
                             # Fall through to take screenshot and continue
                         else:
                             self.logger.info(f"[{iteration}] BLOCKED: Critical flow active ({self.critical_flow_name}, {elapsed:.0f}s)")
