@@ -1213,7 +1213,7 @@ class IconDaemon:
                 # - SKIPPED (dict with "skipped"): Short 5-min retry
                 # - SUCCESS (True or dict): Full cooldown
                 if record_to_scheduler:
-                    if flow_result is False:
+                    if flow_result is False or status == "failed":
                         # FAILED - retry in 15 minutes instead of full cooldown
                         self.scheduler.record_flow_run(flow_name, cooldown_override=900)
                         self.logger.warning(f"[SCHEDULER] {flow_name} FAILED - will retry in 15 min")
