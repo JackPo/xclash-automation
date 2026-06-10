@@ -110,14 +110,19 @@ async def get_daemon_status_via_ws() -> dict[str, Any]:
             response = json.loads(await ws.recv())
             if response.get('success'):
                 data = response.get('data', {})
-                return {
-                    "paused": data.get('paused', False),
-                    "active_flows": data.get('active_flows', []),
-                    "critical_flow": data.get('critical_flow'),
-                    "stamina": data.get('stamina'),
-                    "idle_seconds": data.get('idle_seconds', 0),
-                    "view": data.get('view'),
+                # Pass through ALL daemon status fields (new fields like
+                # overlord_first_kill_done must not be silently dropped),
+                # with defaults for the core ones the frontend relies on.
+                status = {
+                    "paused": False,
+                    "active_flows": [],
+                    "critical_flow": None,
+                    "stamina": None,
+                    "idle_seconds": 0,
+                    "view": None,
                 }
+                status.update(data)
+                return status
     except Exception as e:
         print(f"[DASHBOARD] WebSocket error: {e}")
 
