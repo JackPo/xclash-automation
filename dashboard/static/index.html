@@ -557,11 +557,11 @@
                             </template>
                         </div>
 
-                        <div class="relative">
+                        <div class="relative overflow-x-clip">
                             <!-- Time axis -->
                             <div class="flex mb-1.5">
                                 <template x-for="(block, idx) in (blocks.blocks || [])" :key="'time_' + idx">
-                                    <div class="flex-1 text-center text-[10px] text-gray-600"
+                                    <div class="flex-1 min-w-0 text-center text-[10px] text-gray-600"
                                          x-text="block?.start_time ? block.start_time.substring(11, 16) : ''"></div>
                                 </template>
                             </div>
@@ -581,7 +581,7 @@
 
                                 <!-- Blocks -->
                                 <template x-for="(block, idx) in (blocks.blocks || [])" :key="'block_' + idx">
-                                    <div class="flex-1 relative rounded-lg p-2.5 border transition-all min-h-[96px]"
+                                    <div class="flex-1 min-w-0 relative rounded-lg p-2.5 border transition-all min-h-[96px]"
                                          :class="{
                                              'bg-white/[0.02] border-[#262635] opacity-50': block.status === 'completed',
                                              'bg-indigo-500/10 border-indigo-500/60 ring-1 ring-indigo-500/40': block.status === 'current',
