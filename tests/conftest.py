@@ -11,10 +11,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# Add project root to path so imports work
+# Add project root to path so imports work.
+# Do NOT add scripts/ here: that would make flow modules importable under two
+# names (flows.x and scripts.flows.x), creating duplicate module instances
+# with divergent state. scripts.flows.* is the canonical name.
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / "scripts"))
 
 if TYPE_CHECKING:
     import numpy.typing as npt

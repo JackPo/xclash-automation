@@ -166,18 +166,18 @@ LOGCAT_THREADTIME_RE = re.compile(
     r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\.(?P<millis>\d{3})"
 )
 
-from flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow, quick_production_flow
-from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
-from flows.faction_trials_flow import faction_trials_flow
-from flows.zombie_attack_flow import zombie_attack_flow
-from flows.community_click_flow import community_click_flow
-from flows.royal_city_attack_flow import royal_city_attack_flow
-from flows.union_coal_flow import union_coal_flow
-from flows.union_furnace_flow import union_furnace_flow
-from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
-from flows.beast_training_flow import aggressive_beast_training_flow
-from flows.city_construction_flow import city_construction_speedup_flow
-from flows.technology_research_flow import technology_research_speedup_flow
+from scripts.flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow, quick_production_flow
+from scripts.flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
+from scripts.flows.faction_trials_flow import faction_trials_flow
+from scripts.flows.zombie_attack_flow import zombie_attack_flow
+from scripts.flows.community_click_flow import community_click_flow
+from scripts.flows.royal_city_attack_flow import royal_city_attack_flow
+from scripts.flows.union_coal_flow import union_coal_flow
+from scripts.flows.union_furnace_flow import union_furnace_flow
+from scripts.flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
+from scripts.flows.beast_training_flow import aggressive_beast_training_flow
+from scripts.flows.city_construction_flow import city_construction_speedup_flow
+from scripts.flows.technology_research_flow import technology_research_speedup_flow
 from utils.arms_race import get_arms_race_status, get_time_until_beast_training
 from utils.arms_race_data_collector import (
     load_persisted_into_memory,
@@ -1992,17 +1992,17 @@ class IconDaemon:
         # List of modules to reload (in dependency order)
         modules_to_reload = [
             'utils.windows_screenshot_helper',
-            'flows.bag_use_item_subflow',
-            'flows.bag_special_flow',
-            'flows.bag_hero_flow',
-            'flows.bag_resources_flow',
-            'flows.bag_flow',
-            'flows.union_technology_flow',
-            'flows.tavern_quest_flow',
-            'flows.faction_trials_flow',
-            'flows.community_click_flow',
-            'flows.marshall_speedup_all_flow',
-            'flows',
+            'scripts.flows.bag_use_item_subflow',
+            'scripts.flows.bag_special_flow',
+            'scripts.flows.bag_hero_flow',
+            'scripts.flows.bag_resources_flow',
+            'scripts.flows.bag_flow',
+            'scripts.flows.union_technology_flow',
+            'scripts.flows.tavern_quest_flow',
+            'scripts.flows.faction_trials_flow',
+            'scripts.flows.community_click_flow',
+            'scripts.flows.marshall_speedup_all_flow',
+            'scripts.flows',
         ]
 
         for mod_name in modules_to_reload:
@@ -2022,18 +2022,18 @@ class IconDaemon:
         global zombie_attack_flow, community_click_flow, marshall_speedup_all_flow, apply_marshall_and_verify
         global quick_production_flow
 
-        from flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
+        from scripts.flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
                           gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow,
                           cabbage_flow, equipment_enhancement_flow, elite_zombie_flow,
                           afk_rewards_flow, union_gifts_flow, union_technology_flow,
                           hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow,
                           soldier_training_flow, soldier_upgrade_flow, rally_join_flow,
                           healing_flow, bag_flow, gift_box_flow, quick_production_flow)
-        from flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
-        from flows.faction_trials_flow import faction_trials_flow
-        from flows.zombie_attack_flow import zombie_attack_flow
-        from flows.community_click_flow import community_click_flow
-        from flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
+        from scripts.flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
+        from scripts.flows.faction_trials_flow import faction_trials_flow
+        from scripts.flows.zombie_attack_flow import zombie_attack_flow
+        from scripts.flows.community_click_flow import community_click_flow
+        from scripts.flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
 
