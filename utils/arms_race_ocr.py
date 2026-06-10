@@ -10,6 +10,8 @@ All coordinates are for 4K resolution (3840x2160).
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +21,17 @@ import numpy.typing as npt
 
 if TYPE_CHECKING:
     from utils.windows_screenshot_helper import WindowsScreenshotHelper
+
+logger = logging.getLogger(__name__)
+
+# Arms Race blocks last 4 hours; a stored score older than this is from a
+# previous block and must not be used as a monotonic floor.
+SAME_BLOCK_MAX_AGE_SECONDS = 4 * 3600
+
+# A reading this many times above the last confirmed score is treated as a
+# probable extra-digit OCR error (e.g. 15200 read as 152000) and held to the
+# same unanimity bar as a decrease.
+SUSPICIOUS_JUMP_FACTOR = 8
 
 # OCR region coordinates (4K resolution)
 # Format: (x, y, width, height)
@@ -55,19 +68,76 @@ def get_current_points(frame: npt.NDArray[Any]) -> int | None:
     return ocr_number_from_region(frame, CURRENT_POINTS_REGION)
 
 
-def get_current_points_verified(win: WindowsScreenshotHelper, retries: int = 3) -> int | None:
+def get_last_confirmed_points(
+    event: str | None,
+    block_start: datetime | None = None,
+) -> int | None:
     """
-    Get the player's current points with triple verification.
+    Last confirmed Arms Race score usable as a monotonic floor.
 
-    Takes multiple screenshots and performs OCR on each, returning
-    result only if at least 2 readings match.
+    Returns the score stored in current_state only if it is for the same
+    event AND from the current block (timestamp >= block_start when given,
+    otherwise younger than one block length). Scores from a previous block
+    must not constrain the new block, which starts back at 0.
+    """
+    from utils.current_state import get_arms_race_score
+
+    last = get_arms_race_score()
+    points = last.get("current_points")
+    if points is None:
+        return None
+
+    if event and last.get("event") and last["event"] != event:
+        return None
+
+    ts_raw = last.get("timestamp")
+    if not ts_raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(ts_raw)
+    except (ValueError, TypeError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    if block_start is not None:
+        try:
+            if ts < block_start:
+                return None
+        except TypeError:
+            return None  # naive/aware mismatch - can't trust the comparison
+    elif (datetime.now(timezone.utc) - ts).total_seconds() > SAME_BLOCK_MAX_AGE_SECONDS:
+        return None
+
+    return int(points)
+
+
+def get_current_points_verified(
+    win: WindowsScreenshotHelper,
+    retries: int = 3,
+    last_known: int | None = None,
+) -> int | None:
+    """
+    Get the player's current points with consensus + plausibility verification.
+
+    Takes multiple screenshots and performs OCR on each. A value needs at
+    least 2 matching readings. When last_known (same event, same block) is
+    provided, two extra rules apply, because scores within a block only go up:
+
+    - A consensus value BELOW last_known is rejected unless every reading
+      unanimously agrees (unanimity means our stored state was stale, not OCR
+      noise - accept with a warning).
+    - A consensus value more than SUSPICIOUS_JUMP_FACTOR x last_known is held
+      to the same unanimity bar (catches extra-digit misreads like 15200 ->
+      152000).
 
     Args:
         win: WindowsScreenshotHelper instance
         retries: Number of screenshot/OCR attempts (default 3)
+        last_known: Last confirmed score for this event in this block, if any
 
     Returns:
-        Points if consistent across retries, None otherwise
+        Points if consistent and plausible, None otherwise
     """
     import time
     from collections import Counter
@@ -84,15 +154,39 @@ def get_current_points_verified(win: WindowsScreenshotHelper, retries: int = 3) 
     if not results:
         return None
 
-    # Return most common value if it appears at least 2 times
     counter = Counter(results)
     most_common, count = counter.most_common(1)[0]
 
-    if count >= 2:
-        return most_common
+    if count < 2:
+        logger.warning(f"ARMS RACE OCR: no consensus across {retries} reads: {results}")
+        return None
 
-    # If no consensus, return None
-    return None
+    if last_known is not None:
+        unanimous = count == retries
+        if most_common < last_known:
+            if unanimous:
+                logger.warning(
+                    f"ARMS RACE OCR: unanimous reading {most_common} below last known "
+                    f"{last_known} - accepting, stored state was presumably stale"
+                )
+                return most_common
+            logger.warning(
+                f"ARMS RACE OCR: reading {most_common} below last known {last_known} "
+                f"without unanimity ({count}/{retries}, all reads: {results}) - rejecting"
+            )
+            return None
+        if last_known >= 1000 and most_common > last_known * SUSPICIOUS_JUMP_FACTOR:
+            if not unanimous:
+                logger.warning(
+                    f"ARMS RACE OCR: reading {most_common} is >{SUSPICIOUS_JUMP_FACTOR}x last known "
+                    f"{last_known} without unanimity ({count}/{retries}, all reads: {results}) - rejecting"
+                )
+                return None
+            logger.warning(
+                f"ARMS RACE OCR: unanimous large jump {last_known} -> {most_common} - accepting"
+            )
+
+    return most_common
 
 
 def get_chest_thresholds(frame: npt.NDArray[Any]) -> dict[str, int | None]:

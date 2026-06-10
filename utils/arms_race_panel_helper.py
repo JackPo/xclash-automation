@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -337,8 +338,20 @@ def check_beast_training_progress(
         else:
             logger.info(f"Mystic Beast Training verified (score={header_score:.4f})")
 
-        # OCR current points (triple verification)
-        current_points = get_current_points_verified(win, retries=3)
+        # OCR current points (triple verification + monotonic guard:
+        # scores within a block only go up, so a same-block reading below
+        # the last confirmed score needs unanimous reads to be accepted)
+        from utils.arms_race_ocr import get_last_confirmed_points
+        block_start_dt = None
+        if scheduler:
+            block_start_raw = scheduler.get_arms_race_state().get("current_block_start")
+            if block_start_raw:
+                try:
+                    block_start_dt = datetime.fromisoformat(block_start_raw)
+                except (ValueError, TypeError):
+                    block_start_dt = None
+        last_known = get_last_confirmed_points("Mystic Beast Training", block_start_dt)
+        current_points = get_current_points_verified(win, retries=3, last_known=last_known)
         if current_points is None:
             logger.warning("Failed to OCR current points (no consensus after 3 attempts)")
             # Return to base view before failing - don't respect idle, we MUST exit panels
@@ -422,8 +435,10 @@ def check_arms_race_progress(adb: ADBHelper, win: WindowsScreenshotHelper, debug
         else:
             logger.info(f"Event validated: {detected_event}")
 
-        # OCR current points (triple verification)
-        current_points = get_current_points_verified(win, retries=3)
+        # OCR current points (triple verification + monotonic guard)
+        from utils.arms_race_ocr import get_last_confirmed_points
+        last_known = get_last_confirmed_points(detected_event or expected_event)
+        current_points = get_current_points_verified(win, retries=3, last_known=last_known)
         result["current_points"] = current_points
 
         if current_points is None:
