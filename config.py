@@ -215,6 +215,7 @@ TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
 TAVERN_MIN_DISPATCH_GAP_MINUTES = 30  # Minimum minutes between dispatching quests
 TAVERN_BLOCKING_FLOW_GUARD_SECONDS = 60   # Block critical flows this long before a tavern completion
 TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600  # Treat completions overdue by up to this as claim-urgent
+TAVERN_PAID_REFRESH_DAILY_CAP = 10        # Max diamond-paid tavern refreshes per day (10 x 100 = 1000 diamonds); confirm up to this, then cancel
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery

@@ -798,14 +798,68 @@ def _capture_go_signature(frame: npt.NDArray[Any]) -> tuple[int, int, int, tuple
     return (len(all_gos), len(gold), len(qmark), rows)
 
 
+# Generic game Confirm/Cancel buttons (the "Spend 100 Diamonds to refresh?"
+# Tips dialog uses these exact buttons; they never appear in the normal quest
+# list, so matching Confirm is a reliable signal the paid-refresh dialog popped.
+REFRESH_CONFIRM_TEMPLATE = "confirm_button_4k.png"
+REFRESH_CANCEL_TEMPLATE = "cancel_button_4k.png"
+REFRESH_DIALOG_THRESHOLD = 0.1
+
+
+def _handle_paid_refresh_dialog(adb: ADBHelper, win: WindowsScreenshotHelper,
+                                frame: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    """If the 'Spend 100 Diamonds to refresh quests?' dialog is showing,
+    confirm it (spending diamonds) up to the daily cap, otherwise cancel.
+
+    Free refreshes don't raise this dialog; once they're exhausted the game
+    asks to spend 100 diamonds per refresh. We confirm up to
+    TAVERN_PAID_REFRESH_DAILY_CAP times/day (capping the spend), then cancel
+    so the bot stops re-triggering it. Returns the resulting frame.
+    """
+    found_confirm, _, confirm_center = match_template(
+        frame, REFRESH_CONFIRM_TEMPLATE, threshold=REFRESH_DIALOG_THRESHOLD
+    )
+    if not found_confirm or confirm_center is None:
+        return frame  # No paid-refresh dialog
+
+    scheduler = _get_scheduler()
+    paid_today = scheduler.get_paid_tavern_refreshes_today()
+    if paid_today < TAVERN_PAID_REFRESH_DAILY_CAP:
+        logger.info(
+            f"PAID REFRESH: confirming diamond refresh "
+            f"({paid_today + 1}/{TAVERN_PAID_REFRESH_DAILY_CAP} today)"
+        )
+        adb.tap(*confirm_center, source="flow:tavern_quest:paid_refresh_confirm")
+        scheduler.record_paid_tavern_refresh()
+        time.sleep(REFRESH_ANIMATION_SLEEP_SECS)
+    else:
+        logger.info(
+            f"PAID REFRESH: daily cap {TAVERN_PAID_REFRESH_DAILY_CAP} reached "
+            f"(1000 diamonds), cancelling"
+        )
+        found_cancel, _, cancel_center = match_template(
+            frame, REFRESH_CANCEL_TEMPLATE, threshold=REFRESH_DIALOG_THRESHOLD
+        )
+        if found_cancel and cancel_center is not None:
+            adb.tap(*cancel_center, source="flow:tavern_quest:paid_refresh_cancel")
+        else:
+            # Cancel sits left of Confirm in this dialog; mirror across center.
+            cx, cy = confirm_center
+            adb.tap(2 * 1920 - cx, cy, source="flow:tavern_quest:paid_refresh_cancel_fallback")
+        time.sleep(0.5)
+    return win.get_screenshot_cv2()
+
+
 def _refresh_once(adb: ADBHelper, win: WindowsScreenshotHelper, click_pos: tuple[int, int]) -> npt.NDArray[Any]:
     """Click the Refresh button and wait for the re-roll animation.
 
-    Returns the post-refresh frame for the caller to inspect.
+    Handles the paid-refresh confirmation dialog (spend diamonds up to the
+    daily cap). Returns the post-refresh frame for the caller to inspect.
     """
     adb.tap(*click_pos, source="flow:tavern_quest:refresh")
     time.sleep(REFRESH_ANIMATION_SLEEP_SECS)
-    return win.get_screenshot_cv2()
+    frame = win.get_screenshot_cv2()
+    return _handle_paid_refresh_dialog(adb, win, frame)
 
 
 def _try_refresh_to_startable(
@@ -945,7 +999,7 @@ def is_in_tavern(frame: npt.NDArray[Any]) -> tuple[bool, str | None]:
 
 
 # Import back button from centralized config
-from config import BACK_BUTTON_CLICK
+from config import BACK_BUTTON_CLICK, TAVERN_PAID_REFRESH_DAILY_CAP
 from utils.ui_helpers import click_back
 
 

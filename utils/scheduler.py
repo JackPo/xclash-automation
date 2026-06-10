@@ -489,6 +489,33 @@ class DaemonScheduler:
         return int(tq.get("refreshes_today", 0))
 
     @_locked
+    def record_paid_tavern_refresh(self) -> None:
+        """Increment today's PAID (diamond) tavern-refresh counter.
+
+        Separate from record_tavern_refresh (which counts all refresh clicks):
+        this tracks only refreshes that cost diamonds via the 'Spend 100
+        Diamonds?' confirmation, so the daily spend can be capped. Auto-resets
+        at midnight.
+        """
+        if "tavern_quests" not in self.schedule:
+            self.schedule["tavern_quests"] = {}
+        today = date.today().isoformat()
+        if self.schedule["tavern_quests"].get("paid_refreshes_date") != today:
+            self.schedule["tavern_quests"]["paid_refreshes_date"] = today
+            self.schedule["tavern_quests"]["paid_refreshes_today"] = 0
+        self.schedule["tavern_quests"]["paid_refreshes_today"] = (
+            self.schedule["tavern_quests"].get("paid_refreshes_today", 0) + 1
+        )
+        self.save()
+
+    @_locked
+    def get_paid_tavern_refreshes_today(self) -> int:
+        tq = self.schedule.get("tavern_quests", {})
+        if tq.get("paid_refreshes_date") != date.today().isoformat():
+            return 0
+        return int(tq.get("paid_refreshes_today", 0))
+
+    @_locked
     def record_tavern_visible_counts(
         self,
         gold_visible: int,

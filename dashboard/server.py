@@ -304,6 +304,7 @@ async def api_tavern_status() -> dict[str, Any]:
         "directly_startable_visible": directly_startable,
         "refresh_candidates": refresh_candidates,
         "refreshes_today": scheduler.get_tavern_refreshes_today(),
+        "paid_refreshes_today": scheduler.get_paid_tavern_refreshes_today(),
         "refreshes_this_attempt": counts.get("refreshes_this_attempt"),
         "checked_at": counts.get("checked_at"),
         "exhausted_today": scheduler.is_tavern_dispatch_exhausted_today(),
