@@ -2874,65 +2874,24 @@ class IconDaemon:
                 # Corn, Gold, Iron, Gem, Cabbage, Equip - quick bubble clicks in TOWN
                 # Skip if Beast Training rally has priority (time-critical)
                 # Collect as flow candidates - execution happens via _execute_best_flow()
-                if (harvest_bubbles_enabled and corn_present and corn_score <= HARVEST_STRONG_MATCH_MAX and
-                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
-                    flow_candidates.append(FlowCandidate(
-                        name="corn_harvest",
-                        flow_func=corn_harvest_flow,
-                        priority=FlowPriority.LOW,
-                        reason=f"score={corn_score:.4f}",
-                        record_to_scheduler=True
-                    ))
-
-                if (harvest_bubbles_enabled and gold_present and gold_score <= HARVEST_STRONG_MATCH_MAX and
-                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
-                    flow_candidates.append(FlowCandidate(
-                        name="gold_coin",
-                        flow_func=gold_coin_flow,
-                        priority=FlowPriority.LOW,
-                        reason=f"score={gold_score:.4f}",
-                        record_to_scheduler=True
-                    ))
-
-                if (harvest_bubbles_enabled and iron_present and iron_score <= HARVEST_STRONG_MATCH_MAX and
-                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
-                    flow_candidates.append(FlowCandidate(
-                        name="iron_bar",
-                        flow_func=iron_bar_flow,
-                        priority=FlowPriority.LOW,
-                        reason=f"score={iron_score:.4f}",
-                        record_to_scheduler=True
-                    ))
-
-                if (harvest_bubbles_enabled and gem_present and gem_score <= HARVEST_STRONG_MATCH_MAX and
-                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
-                    flow_candidates.append(FlowCandidate(
-                        name="gem",
-                        flow_func=gem_flow,
-                        priority=FlowPriority.LOW,
-                        reason=f"score={gem_score:.4f}",
-                        record_to_scheduler=True
-                    ))
-
-                if (harvest_bubbles_enabled and cabbage_present and cabbage_score <= HARVEST_STRONG_MATCH_MAX and
-                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
-                    flow_candidates.append(FlowCandidate(
-                        name="cabbage",
-                        flow_func=cabbage_flow,
-                        priority=FlowPriority.LOW,
-                        reason=f"score={cabbage_score:.4f}",
-                        record_to_scheduler=True
-                    ))
-
-                if (harvest_bubbles_enabled and equip_present and equip_score <= HARVEST_STRONG_MATCH_MAX and
-                    world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
-                    flow_candidates.append(FlowCandidate(
-                        name="equipment_enhancement",
-                        flow_func=equipment_enhancement_flow,
-                        priority=FlowPriority.LOW,
-                        reason=f"score={equip_score:.4f}",
-                        record_to_scheduler=True
-                    ))
+                harvest_bubbles = [
+                    ("corn_harvest", corn_present, corn_score, corn_harvest_flow),
+                    ("gold_coin", gold_present, gold_score, gold_coin_flow),
+                    ("iron_bar", iron_present, iron_score, iron_bar_flow),
+                    ("gem", gem_present, gem_score, gem_flow),
+                    ("cabbage", cabbage_present, cabbage_score, cabbage_flow),
+                    ("equipment_enhancement", equip_present, equip_score, equipment_enhancement_flow),
+                ]
+                for bubble_name, bubble_present, bubble_score, bubble_flow in harvest_bubbles:
+                    if (harvest_bubbles_enabled and bubble_present and bubble_score <= HARVEST_STRONG_MATCH_MAX and
+                        world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
+                        flow_candidates.append(FlowCandidate(
+                            name=bubble_name,
+                            flow_func=bubble_flow,
+                            priority=FlowPriority.LOW,
+                            reason=f"score={bubble_score:.4f}",
+                            record_to_scheduler=True
+                        ))
 
                 # Hospital state detection with majority vote (same 60% rule as barracks)
                 # History accumulates when in TOWN, idle check is only for ACTION
