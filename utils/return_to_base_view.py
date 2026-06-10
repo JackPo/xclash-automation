@@ -370,18 +370,22 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
         When respect_idle=True we re-check continuously, not just once at entry.
         This prevents return_to_base loops from fighting the user mid-navigation.
+
+        "Active" means input within the last few seconds (RETURN_ACTIVE_ABORT_SECONDS),
+        NOT the 5-minute IDLE_THRESHOLD - flows finishing their cleanup would
+        otherwise leave panels open whenever the user recently touched the mouse.
         """
         if not respect_idle:
             return False
         try:
             from utils.user_idle_tracker import get_user_idle_seconds
-            from config import IDLE_THRESHOLD
+            from config import RETURN_ACTIVE_ABORT_SECONDS
             idle_secs = get_user_idle_seconds()
-            if idle_secs < IDLE_THRESHOLD:
+            if idle_secs < RETURN_ACTIVE_ABORT_SECONDS:
                 if debug:
                     print(
                         f"    [RETURN] User is active during {context} "
-                        f"(idle={idle_secs:.1f}s < {IDLE_THRESHOLD}s), stopping recovery"
+                        f"(idle={idle_secs:.1f}s < {RETURN_ACTIVE_ABORT_SECONDS}s), stopping recovery"
                     )
                 return True  # Assume user is handling it
         except Exception:

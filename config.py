@@ -220,6 +220,7 @@ UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before 
 UNKNOWN_LOOP_TIMEOUT = 480         # 8 minutes - force restart if recovery keeps cycling
 CHAT_STUCK_TIMEOUT = 2             # Seconds stuck in CHAT before clicking back out (just debounces view flicker, ~2-3 loop iterations; the idle gate is what protects active chat use)
 CHAT_STUCK_IDLE_REQUIRED = 10      # User must be idle this long before we close their chat
+RETURN_ACTIVE_ABORT_SECONDS = 3    # return_to_base_view yields to the user only if they gave input within this many seconds (was IDLE_THRESHOLD=300s, which skipped flow cleanup whenever the user had touched the mouse in the last 5 min)
 
 # Resolution check (prevents template matching failures from resolution drift)
 RESOLUTION_CHECK_INTERVAL = 10     # Check resolution every N daemon iterations (~30 seconds)
