@@ -212,6 +212,8 @@ BAG_FLOW_COOLDOWN = 1200           # 20 minutes between bag flow runs
 GIFT_BOX_COOLDOWN = 3600           # 1 hour between gift box claims (WORLD view)
 TAVERN_SCAN_COOLDOWN = 1800        # 30 minutes between tavern scans
 TAVERN_MIN_DISPATCH_GAP_MINUTES = 30  # Minimum minutes between dispatching quests
+TAVERN_BLOCKING_FLOW_GUARD_SECONDS = 60   # Block critical flows this long before a tavern completion
+TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600  # Treat completions overdue by up to this as claim-urgent
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery
@@ -293,6 +295,10 @@ THRESHOLDS_SQDIFF = {
 
 # Combined for backward compatibility - matchers use this
 THRESHOLDS = {**THRESHOLDS_SQDIFF, **THRESHOLDS_MASKED}
+
+# return_to_base_view recovery detection (TM_SQDIFF_NORMED, lower=better)
+FORM_TEAM_THRESHOLD = 0.1     # form_team_button_4k.png (troop-selected state)
+RESOURCE_BAR_THRESHOLD = 0.1  # resource_bar_4k.png (in-game HUD present)
 
 # =============================================================================
 # BARRACKS POSITIONS (4K resolution)

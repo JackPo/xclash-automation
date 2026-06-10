@@ -29,7 +29,12 @@ from utils.send_zoom import send_zoom
 from utils.template_matcher import match_template
 
 # Import from centralized config
-from config import BACK_BUTTON_CLICK, EXPECTED_RESOLUTION
+from config import (
+    BACK_BUTTON_CLICK,
+    EXPECTED_RESOLUTION,
+    FORM_TEAM_THRESHOLD,
+    RESOURCE_BAR_THRESHOLD,
+)
 
 # Click positions
 MAP_DESELECT_CLICK = (500, 1000)  # Click on empty map area to deselect troops
@@ -72,7 +77,7 @@ def _detect_troop_selected(frame: npt.NDArray[Any] | None) -> tuple[bool, float]
     result = cv2.matchTemplate(search_region, _form_team_template, cv2.TM_SQDIFF_NORMED)
     min_val: float
     min_val, _, _, _ = cv2.minMaxLoc(result)
-    return min_val < 0.1, min_val
+    return min_val < FORM_TEAM_THRESHOLD, min_val
 
 
 def _detect_resource_bar(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:
@@ -84,7 +89,7 @@ def _detect_resource_bar(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:
     result = cv2.matchTemplate(search_region, _resource_bar_template, cv2.TM_SQDIFF_NORMED)
     min_val: float
     min_val, _, _, _ = cv2.minMaxLoc(result)
-    return min_val < 0.1, min_val
+    return min_val < RESOURCE_BAR_THRESHOLD, min_val
 
 
 def _detect_union_donate_dialog(frame: npt.NDArray[Any] | None) -> tuple[bool, float]:

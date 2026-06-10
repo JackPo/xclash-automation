@@ -249,6 +249,8 @@ from config import (
     TAVERN_SCAN_COOLDOWN,
     TAVERN_QUEST_START_HOUR,
     TAVERN_QUEST_START_MINUTE,
+    TAVERN_BLOCKING_FLOW_GUARD_SECONDS,
+    TAVERN_OVERDUE_GUARD_GRACE_SECONDS,
     # WebSocket API server
     DAEMON_SERVER_PORT,
     DAEMON_SERVER_ENABLED,
@@ -442,9 +444,9 @@ class IconDaemon:
         # Tavern quest cooldown - every 30 minutes, requires 5 min idle + TOWN view
         self.TAVERN_QUEST_COOLDOWN = TAVERN_SCAN_COOLDOWN
         # Guard critical flows around tavern completion windows (except treasure/tavern_claim).
-        self.TAVERN_BLOCKING_FLOW_GUARD_SECONDS = 60
+        self.TAVERN_BLOCKING_FLOW_GUARD_SECONDS = TAVERN_BLOCKING_FLOW_GUARD_SECONDS
         # Treat recently-overdue completions as claim-urgent to recover after blocking flows.
-        self.TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600
+        self.TAVERN_OVERDUE_GUARD_GRACE_SECONDS = TAVERN_OVERDUE_GUARD_GRACE_SECONDS
 
         # VS Day 7 chest surprise - trigger bag flow at 10, 5, 1 min remaining
         self.VS_CHEST_CHECKPOINTS: list[int] = [10, 5, 1]  # Minutes before day ends
