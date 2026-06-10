@@ -83,6 +83,14 @@ def start_ocr_server() -> bool:
     try:
         _OCR_SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
 
+        # Close the previous handle (server restarts would otherwise leak one per restart)
+        if _server_log_file is not None:
+            try:
+                _server_log_file.close()
+            except OSError:
+                pass
+            _server_log_file = None
+
         _server_log_file = open(_OCR_SERVER_LOG, 'a', buffering=1)
         print(f"  OCR server output will be logged to: {_OCR_SERVER_LOG}")
 
@@ -109,6 +117,12 @@ def start_ocr_server() -> bool:
 
     except Exception as e:
         print(f"  ERROR: Failed to start server: {e}")
+        if _server_log_file is not None:
+            try:
+                _server_log_file.close()
+            except OSError:
+                pass
+            _server_log_file = None
         return False
 
 
