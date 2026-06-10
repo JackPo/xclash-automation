@@ -166,7 +166,7 @@ LOGCAT_THREADTIME_RE = re.compile(
     r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\.(?P<millis>\d{3})"
 )
 
-from scripts.flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow, quick_production_flow
+from scripts.flows import handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow, harvest_box_flow, iron_bar_flow, gem_flow, cabbage_flow, equipment_enhancement_flow, elite_zombie_flow, afk_rewards_flow, union_gifts_flow, union_technology_flow, hero_upgrade_arms_race_flow, stamina_claim_flow, stamina_use_flow, soldier_training_flow, soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow, marshall_speedup_all_flow, quick_production_flow, back_from_chat_flow
 from scripts.flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_quest_flow
 from scripts.flows.faction_trials_flow import faction_trials_flow
 from scripts.flows.zombie_attack_flow import zombie_attack_flow
@@ -208,6 +208,8 @@ from config import (
     GIFT_BOX_COOLDOWN,
     UNKNOWN_STATE_TIMEOUT,
     UNKNOWN_LOOP_TIMEOUT,
+    CHAT_STUCK_TIMEOUT,
+    CHAT_STUCK_IDLE_REQUIRED,
     STAMINA_REGION,
     # Arms Race automation settings
     ARMS_RACE_BEAST_TRAINING_ENABLED,
@@ -506,6 +508,14 @@ class IconDaemon:
         self.unknown_state_left_time: float | None = None  # When we left UNKNOWN (for hysteresis)
         self.UNKNOWN_STATE_TIMEOUT = UNKNOWN_STATE_TIMEOUT
         self.UNKNOWN_HYSTERESIS = 10  # Seconds out of UNKNOWN before resetting timer
+
+        # CHAT stuck tracking: CHAT is a known view so UNKNOWN recovery never
+        # fires, and the back button matcher was removed from the main loop -
+        # without this the daemon idles in chat forever.
+        self.chat_state_start: float | None = None
+        self.last_chat_back_attempt = 0.0
+        self.CHAT_STUCK_TIMEOUT = CHAT_STUCK_TIMEOUT
+        self.CHAT_STUCK_IDLE_REQUIRED = CHAT_STUCK_IDLE_REQUIRED
 
         # UNKNOWN recovery loop detection - force restart if recovery keeps cycling
         self.unknown_recovery_count = 0  # How many times recovery ran
@@ -2997,6 +3007,32 @@ class IconDaemon:
                             critical=True,
                             reason=f"{ready_count} READY, {pending_count} PENDING"
                         ))
+
+                # =================================================================
+                # CHAT STUCK ESCAPE
+                # CHAT is a known view, so UNKNOWN recovery never fires for it,
+                # and the back-button matcher is no longer run every frame.
+                # If we sit in CHAT while the user is idle, click back out.
+                # =================================================================
+                if view_state_enum == ViewState.CHAT:
+                    if self.chat_state_start is None:
+                        self.chat_state_start = time.time()
+                    chat_duration = time.time() - self.chat_state_start
+                    if (chat_duration >= self.CHAT_STUCK_TIMEOUT
+                            and idle_secs >= self.CHAT_STUCK_IDLE_REQUIRED
+                            and time.time() - self.last_chat_back_attempt >= self.CHAT_STUCK_TIMEOUT
+                            and not self.active_flows):
+                        self.last_chat_back_attempt = time.time()
+                        self.logger.info(
+                            f"[{iteration}] CHAT STUCK: in chat {chat_duration:.0f}s, "
+                            f"user idle {idle_secs:.0f}s - clicking back out"
+                        )
+                        self._run_flow(
+                            "back_from_chat",
+                            lambda adb: back_from_chat_flow(adb, self.windows_helper),
+                        )
+                else:
+                    self.chat_state_start = None
 
                 # =================================================================
                 # UNKNOWN STATE TRACKING AND RECOVERY
