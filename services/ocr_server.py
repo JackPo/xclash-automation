@@ -27,7 +27,7 @@ import threading
 import traceback
 
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 from PIL import Image
 
 # Server config
@@ -64,21 +64,17 @@ def load_model():
     """Load Qwen model on GPU."""
     global model, processor, inference_healthy, inference_last_error
 
-    MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
+    MODEL_ID = "Qwen/Qwen3-VL-2B-Instruct"
     print(f"Loading {MODEL_ID} on GPU...")
 
-    # 4-bit quantization for GTX 1080 (Pascal)
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float32,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-    )
-
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    # bf16, no quantization: RTX 5060 Ti 16GB has fast bf16 tensor cores;
+    # 2B weights are ~4-5 GB, leaving headroom for BlueStacks + GPU template cache.
+    # If OCR accuracy regresses, bump MODEL_ID to Qwen/Qwen3-VL-4B-Instruct (~9 GB).
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_ID,
-        quantization_config=quantization_config,
+        dtype=torch.bfloat16,
         device_map="cuda",
+        attn_implementation="sdpa",
     )
 
     processor = AutoProcessor.from_pretrained(MODEL_ID)
@@ -87,9 +83,15 @@ def load_model():
     print("Model loaded successfully!")
 
 
-def extract_text(image: Image.Image, prompt: str = None) -> str:
+# Free cached GPU blocks only periodically: per-call empty_cache forces the
+# allocator to re-request memory from the driver on every inference (latency).
+_EMPTY_CACHE_EVERY = 100
+_inference_count = 0
+
+
+def extract_text(image: Image.Image, prompt: str = None, max_new_tokens: int = 128) -> str:
     """Extract text from image using Qwen."""
-    global model, processor
+    global model, processor, _inference_count
 
     if prompt is None:
         prompt = "Read the text in this image. Return only the text, nothing else."
@@ -118,7 +120,7 @@ def extract_text(image: Image.Image, prompt: str = None) -> str:
     with torch.inference_mode():
         output_ids = model.generate(
             **inputs,
-            max_new_tokens=128,
+            max_new_tokens=max_new_tokens,
             do_sample=False,
         )
 
@@ -127,9 +129,10 @@ def extract_text(image: Image.Image, prompt: str = None) -> str:
         generated_ids, skip_special_tokens=True
     )[0]
 
-    # Clean up GPU memory after each inference to prevent gradual memory accumulation
     del inputs, output_ids, generated_ids
-    torch.cuda.empty_cache()
+    _inference_count += 1
+    if _inference_count % _EMPTY_CACHE_EVERY == 0:
+        torch.cuda.empty_cache()
 
     return result.strip()
 
@@ -138,7 +141,8 @@ def extract_number(image: Image.Image) -> int | None:
     """Extract number from image."""
     text = extract_text(
         image,
-        prompt="Read the number in this image. Return only the digits, nothing else."
+        prompt="Read the number in this image. Return only the digits, nothing else.",
+        max_new_tokens=16,  # digits only - cap worst-case generation
     )
     digits = ''.join(c for c in text if c.isdigit())
     return int(digits) if digits else None
