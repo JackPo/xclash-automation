@@ -50,8 +50,7 @@ MARCH_BUTTON_TEMPLATE = "rally_march_button_4k.png"
 BUTTON_SEARCH_REGION = (1300, 1100, 1200, 800)  # x, y, w, h
 
 # Timing
-CLICK_DELAY = 0.5
-SCREEN_TRANSITION_DELAY = 1.5
+from utils.timings import CLICK_DELAY, SCREEN_TRANSITION_DELAY
 
 
 def _log(msg: str) -> None:

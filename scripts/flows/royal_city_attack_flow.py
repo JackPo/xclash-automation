@@ -34,8 +34,7 @@ ROYAL_CITY_CLICK_POS = (1920, 900)  # Center of screen after go_to_mark
 TEMPLATE_THRESHOLD = 0.05
 
 # Timeouts
-POLL_TIMEOUT = 10.0
-POLL_INTERVAL = 0.3
+from utils.timings import POLL_INTERVAL, POLL_TIMEOUT_LONG as POLL_TIMEOUT
 
 
 def royal_city_attack_flow(

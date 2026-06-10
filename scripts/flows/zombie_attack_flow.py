@@ -95,9 +95,11 @@ ZOMBIE_CARDS: dict[str, ZombieCardConfig] = {
 }
 
 # Timing constants
-CLICK_DELAY = 0.3
+from utils.timings import (
+    CLICK_DELAY_FAST as CLICK_DELAY,
+    SCREEN_TRANSITION_DELAY_FAST as SCREEN_TRANSITION_DELAY,
+)
 PLUS_CLICK_DELAY = 0.2
-SCREEN_TRANSITION_DELAY = 1.0
 SEARCH_RESULT_DELAY = 2.0
 
 # Verification thresholds
@@ -128,7 +130,7 @@ PLUS_BUTTON_REGION = (2050, 1800, 300, 150)   # x, y, w, h - RIGHT side of slide
 
 # Poll settings
 MAX_POLL_ATTEMPTS = 10
-POLL_INTERVAL = 0.3
+from utils.timings import POLL_INTERVAL
 
 
 def _save_debug_screenshot(frame: npt.NDArray[Any], name: str, click_pos: tuple[int, int] | None = None) -> str:

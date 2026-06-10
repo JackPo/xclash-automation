@@ -74,8 +74,8 @@ MIN_DISTANCE_BETWEEN_MATCHES = 50  # Pixels, to avoid duplicate detections
 UNION_TECH_BUTTON_THRESHOLD = 0.08  # TM_SQDIFF_NORMED for menu button
 
 # Timing constants
-CLICK_DELAY = 0.5
-POLL_INTERVAL = 0.1  # Poll every 100ms
+from utils.timings import CLICK_DELAY
+POLL_INTERVAL = 0.1  # unique: tech donate spam-polls every 100ms
 MAX_POLL_TIME = 2.0  # Max wait time when polling
 BADGE_MAX_POLL_TIME = 1.5  # Short settle window for donation list/badges after panel appears
 MENU_BUTTON_MAX_POLL_TIME = 1.2  # Wait for Union menu item to render after opening Union panel

@@ -36,8 +36,8 @@ NDArray = npt.NDArray[Any]
 # Thresholds - all SQDIFF (lower=better)
 SQDIFF_THRESHOLD = 0.1   # For non-masked templates
 MASKED_THRESHOLD = 0.05  # For masked templates (stricter)
-POLL_TIMEOUT = 4.5
-POLL_INTERVAL = 0.3
+POLL_TIMEOUT = 4.5  # unique: mark navigation needs slightly longer than POLL_TIMEOUT_SHORT
+from utils.timings import POLL_INTERVAL
 ARRIVAL_TIMEOUT = 8.0
 
 # Fixed position for Mark tab (rightmost tab in search panel)

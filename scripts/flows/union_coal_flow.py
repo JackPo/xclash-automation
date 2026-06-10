@@ -47,8 +47,7 @@ COAL_OUTPUT_TAB_CLICK = (1670, 185)  # Coal Output tab
 CLAIM_ALL_CLICK = (1914, 2036)     # Claim All button
 
 # Timing constants
-CLICK_DELAY = 0.5
-SCREEN_TRANSITION_DELAY = 1.5
+from utils.timings import CLICK_DELAY, SCREEN_TRANSITION_DELAY
 
 # Thresholds
 THRESHOLD = 0.08

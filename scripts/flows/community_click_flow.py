@@ -106,8 +106,7 @@ MASKED_THRESHOLD = 0.05
 SQDIFF_THRESHOLD = 0.01  # Tight threshold for button matching
 
 # Polling
-POLL_TIMEOUT = 10.0
-POLL_INTERVAL = 0.5
+from utils.timings import POLL_INTERVAL_SLOW as POLL_INTERVAL, POLL_TIMEOUT_LONG as POLL_TIMEOUT
 
 # Search region for Daily Sig (fixed position in Community panel)
 # Detected at center (3008, 172), template 219x155

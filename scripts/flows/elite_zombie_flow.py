@@ -88,9 +88,11 @@ ELITE_ZOMBIE_TAB_REGION = (1923, 1045, 269, 101)  # x, y, w, h
 ELITE_ZOMBIE_TAB_THRESHOLD = 0.06
 
 # Timing constants
-CLICK_DELAY = 0.3  # Delay after each click
+from utils.timings import (
+    CLICK_DELAY_FAST as CLICK_DELAY,  # Delay after each click
+    SCREEN_TRANSITION_DELAY_FAST as SCREEN_TRANSITION_DELAY,  # Delay for screen transitions
+)
 PLUS_CLICK_DELAY = 0.2  # Faster delay for plus button spam
-SCREEN_TRANSITION_DELAY = 1.0  # Delay for screen transitions
 SEARCH_RESULT_DELAY = 2.0  # Delay for search results to appear
 RALLY_SCREEN_DELAY = 1.5  # Delay for rally screen to appear
 
@@ -106,7 +108,7 @@ UNFREEZE_BUTTON_THRESHOLD = 0.05  # Masked SQDIFF
 
 # Poll settings for verification
 MAX_POLL_ATTEMPTS = 10
-POLL_INTERVAL = 0.3  # seconds between poll attempts
+from utils.timings import POLL_INTERVAL  # seconds between poll attempts
 
 # Level button search regions (4K) - constrain search to LEFT or RIGHT of slider
 # This prevents finding the wrong button since plus/minus templates look similar

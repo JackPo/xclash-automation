@@ -47,7 +47,7 @@ AFK_CHEST_CLICK = (805, 1709)  # Center of AFK rewards chest
 CLAIM_BUTTON_CLICK = (1917, 1718)  # Center of Claim button
 
 # Timing
-CLICK_DELAY = 1.0  # Delay between claim clicks
+from utils.timings import CLICK_DELAY_SLOW as CLICK_DELAY  # Delay between claim clicks
 MAX_CLAIM_ATTEMPTS = 3  # Maximum claim button clicks
 
 

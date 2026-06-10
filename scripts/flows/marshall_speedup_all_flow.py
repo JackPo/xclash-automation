@@ -45,8 +45,7 @@ TITLE_ACTIVE_ICON_POS = (203, 216)
 TITLE_ACTIVE_ICON_SIZE = (69, 62)
 TITLE_ACTIVE_THRESHOLD = 0.05  # SQDIFF_NORMED (with mask) - lower is better
 
-POLL_TIMEOUT = 5.0
-POLL_INTERVAL = 0.3
+from utils.timings import POLL_INTERVAL, POLL_TIMEOUT_MEDIUM as POLL_TIMEOUT
 
 
 def verify_title_active(win: WindowsScreenshotHelper, debug: bool = False) -> bool:

@@ -38,8 +38,7 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "ground_truth
 # Thresholds - all SQDIFF (lower=better)
 SQDIFF_THRESHOLD = 0.1   # For non-masked templates
 MASKED_THRESHOLD = 0.05  # For masked templates (stricter)
-POLL_TIMEOUT = 3.0
-POLL_INTERVAL = 0.3
+from utils.timings import POLL_INTERVAL, POLL_TIMEOUT_SHORT as POLL_TIMEOUT
 
 # Fixed position for Mark tab (rightmost tab in search panel)
 MARK_TAB_POS: tuple[int, int] = (2206, 1047)

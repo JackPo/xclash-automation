@@ -80,8 +80,7 @@ def _is_back_button_present(frame: npt.NDArray[Any]) -> tuple[bool, float]:
     return is_present, score
 
 # Timing constants
-CLICK_DELAY = 0.5  # Delay after each click
-SCREEN_TRANSITION_DELAY = 1.5  # Delay for screen transitions
+from utils.timings import CLICK_DELAY, SCREEN_TRANSITION_DELAY
 CLAIM_DELAY = 1.0  # Delay after claiming
 
 

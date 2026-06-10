@@ -53,8 +53,7 @@ SCROLL_END = (1920, 1200)
 SCROLL_DURATION = 500
 
 # Timing constants
-CLICK_DELAY = 0.5
-SCREEN_TRANSITION_DELAY = 1.5
+from utils.timings import CLICK_DELAY, SCREEN_TRANSITION_DELAY
 LONG_PRESS_DURATION = 3000  # 3 seconds in milliseconds
 
 # Thresholds

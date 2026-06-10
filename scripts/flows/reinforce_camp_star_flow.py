@@ -38,8 +38,7 @@ HERO_SLOT_1_CLICK = (1467, 1869)  # Leftmost hero slot
 MARCH_BUTTON_CLICK = (1924, 1648)  # Same as zombie_attack_flow (from Gemini detection)
 
 # Polling settings
-POLL_TIMEOUT = 3.0
-POLL_INTERVAL = 0.3
+from utils.timings import POLL_INTERVAL, POLL_TIMEOUT_SHORT as POLL_TIMEOUT
 
 
 def reinforce_camp_star_flow(
