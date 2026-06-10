@@ -3775,7 +3775,6 @@ class IconDaemon:
                                 # intervention. respect_idle=False so we recover even
                                 # if the user is actively touching the screen.
                                 try:
-                                    from utils.return_to_base_view import return_to_base_view
                                     return_to_base_view(
                                         self.adb, self.windows_helper,
                                         target=ViewState.TOWN, respect_idle=False, debug=False,
