@@ -45,7 +45,21 @@ WindowsScreenshotHelper -> Matchers -> Gating -> Flow -> Scheduler/State
 - Arms Race scores are validated against a monotonic floor: same-block readings
   below the last confirmed score are rejected unless all reads unanimously agree
   (which instead overwrites a stale stored score). See `utils/arms_race_ocr.py`.
+- Stamina OCR is bounded to 0-`STAMINA_OCR_MAX_VALID` (500); reads outside that
+  range (e.g. a misread `123456789`) are discarded as garbage, not cached.
 - The daemon health-checks and restarts the OCR server as needed.
+
+### View recovery
+- `utils/return_to_base_view.py` is the unified recovery primitive (fast back-tap
+  path, then full multi-step recovery). It is name-imported once at module scope
+  in `icon_daemon.py` — never re-import it locally inside the loop, or Python
+  scopes the name function-local and the recovery calls raise `UnboundLocalError`.
+- Cleanup/recovery yields to the user only on *active* input
+  (`RETURN_ACTIVE_ABORT_SECONDS`, 3s), not the 5-min `IDLE_THRESHOLD`, so finished
+  flows close their panels promptly.
+- CHAT is a known view (so UNKNOWN recovery never fires for it); a dedicated
+  CHAT-stuck escape clicks back out after `CHAT_STUCK_TIMEOUT` once the user has
+  been idle `CHAT_STUCK_IDLE_REQUIRED` seconds.
 
 ### Scheduler and state
 - `utils/scheduler.py` manages cooldowns, daily limits, and Arms Race block state.
