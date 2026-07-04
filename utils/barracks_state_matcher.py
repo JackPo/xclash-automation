@@ -52,6 +52,7 @@ class BarracksStateMatcher:
         "yellow_soldier_barrack_v4_4k.png",
         "yellow_soldier_barrack_v5_4k.png",
         "yellow_soldier_barrack_v6_4k.png",
+        "yellow_soldier_barrack_v7_4k.png",  # Lv10 head: gold visored helmet + red plume
     ]
     WHITE_TEMPLATE = "white_soldier_barrack_4k.png"
     STOPWATCH_TEMPLATE = "stopwatch_barrack_4k.png"

@@ -349,7 +349,7 @@ BARRACKS_YELLOW_PIXEL_THRESHOLD = 1000
 
 # Default soldier level to train when NOT in Arms Race Soldier Training event
 # During Arms Race Soldier Training, this may be overridden to train higher levels
-SOLDIER_TRAINING_DEFAULT_LEVEL = 5
+SOLDIER_TRAINING_DEFAULT_LEVEL = 6
 
 # =============================================================================
 # HOSPITAL STATE DETECTION (4K resolution)

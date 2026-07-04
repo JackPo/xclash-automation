@@ -57,6 +57,7 @@ class TestTemplateExistence:
         'yellow_soldier_barrack_v4_4k.png',
         'yellow_soldier_barrack_v5_4k.png',
         'yellow_soldier_barrack_v6_4k.png',
+        'yellow_soldier_barrack_v7_4k.png',
     ]
 
     @pytest.fixture

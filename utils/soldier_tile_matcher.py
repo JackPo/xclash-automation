@@ -6,7 +6,7 @@ which soldier levels are visible in the panel.
 
 Uses template_matcher for search-based detection.
 
-Templates: half_soldier_lv5_4k.png through half_soldier_lv9_4k.png (78x148 pixels)
+Templates: half_soldier_lv5_4k.png through half_soldier_lv10_4k.png (78x148 pixels)
 Uses HALF templates (top half only) to avoid overlapping detections.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ class SoldierTileMatcher:
         # Template names for levels 3-8
         self.template_names = {
             level: f"half_soldier_lv{level}_4k.png"
-            for level in range(5, 10)  # Levels 5-9
+            for level in range(5, 11)  # Levels 5-10
         }
 
     def find_visible_soldiers(self, frame: npt.NDArray[Any], debug_timing: bool = False) -> dict[int, dict[str, Any]]:
