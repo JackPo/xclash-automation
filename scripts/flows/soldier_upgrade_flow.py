@@ -68,7 +68,7 @@ UPGRADE_BUTTON_CLICK = (2351, 1301)  # Center of upgrade button
 
 # Soldier levels range
 MIN_LEVEL = 5
-MAX_LEVEL = 9
+MAX_LEVEL = 10
 
 # Template matching threshold
 MATCH_THRESHOLD = 0.1
@@ -122,6 +122,7 @@ def soldier_upgrade_flow(
     debug: bool = False,
     detect_only: bool = False,
     scroll_and_select: bool = False,
+    budget_seconds: float = 120.0,
 ) -> bool | int:
     """
     Upgrade soldiers at a specific barracks.
@@ -140,11 +141,15 @@ def soldier_upgrade_flow(
         debug: Enable debug logging
         detect_only: If True, only detect tiles and report highest unlocked, then exit
         scroll_and_select: If True, scroll to find target level, select it, then exit
+        budget_seconds: Wall-clock budget for the whole call (default 120s). Bounds the
+                cleanup recovery in the finally block so an occluded-window recovery loop
+                can't freeze the daemon for ~11 min (see return_to_base_view deadline).
 
     Returns:
         bool: True if upgrade succeeded, or highest_level (int) if detect_only=True
     """
     win = WindowsScreenshotHelper()
+    flow_deadline = time.time() + budget_seconds
 
     if debug:
         print("Soldier Upgrade Flow")
@@ -242,6 +247,10 @@ def soldier_upgrade_flow(
         max_scrolls = 3
         scroll_count = 0
         while target_info is None and scroll_count < max_scrolls:
+            if time.time() > flow_deadline:
+                if debug:
+                    print("  Budget exceeded during scroll search - aborting")
+                break
             if debug:
                 print(f"  Lv{target_level} not visible, swiping right from tile center... (attempt {scroll_count + 1}/{max_scrolls})")
             _save_step_screenshot(frame, f"STEP2 Scroll attempt {scroll_count+1}", f"looking for Lv{target_level}")
@@ -399,11 +408,13 @@ def soldier_upgrade_flow(
         return False
 
     finally:
-        # ALWAYS return to base view (unless detect_only mode where we didn't open it)
+        # ALWAYS return to base view (unless detect_only mode where we didn't open it).
+        # Pass the flow deadline so recovery can't spin/restart-recurse past our budget
+        # when the emulator window is occluded (the ~11-min freeze root cause).
         if not detect_only:
             if debug:
                 print("Returning to base view...")
-            return_to_base_view(adb, win, debug=debug)
+            return_to_base_view(adb, win, debug=debug, deadline=flow_deadline)
 
 
 def upgrade_all_pending_barracks(adb: ADBHelper, debug: bool = False) -> int:

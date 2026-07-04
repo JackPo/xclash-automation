@@ -342,7 +342,8 @@ def _ensure_target_view(adb: ADBHelper, win: WindowsScreenshotHelper, current: V
 
 def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelper | None = None,
                         debug: bool = False, respect_idle: bool = True,
-                        target: ViewState | None = None) -> bool:
+                        target: ViewState | None = None,
+                        deadline: float | None = None) -> bool:
     """
     Return to TOWN or WORLD view. THE unified navigation/recovery function.
 
@@ -355,6 +356,12 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         target: Optional specific view to navigate to (ViewState.TOWN or ViewState.WORLD).
                 If None, returns True when reaching either TOWN or WORLD.
                 If specified, will toggle to that view after reaching base view.
+        deadline: Optional time.time() wall-clock cutoff. When set and exceeded, the
+                slow recovery path bails out (returns False) instead of force-restarting
+                the app and recursing forever. Used by callers (e.g. soldier_upgrade_flow)
+                to bound cleanup time so a single flow can't freeze the daemon loop when
+                the emulator window is occluded and recovery is futile. The next daemon
+                cycle retries recovery once the window is capturable again.
 
     Returns:
         True if successfully reached target view (or any base view if target=None)
@@ -555,6 +562,11 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
         if _should_abort_for_user_activity("full recovery attempt"):
             return True
+
+        if deadline is not None and time.time() > deadline:
+            print(f"    [RETURN] Deadline exceeded during recovery (attempt {attempt + 1}) - "
+                  f"aborting, will retry next cycle")
+            return False
 
         if debug:
             print(f"    [RETURN] Attempt {attempt + 1}/{MAX_RECOVERY_ATTEMPTS}")
@@ -925,6 +937,14 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if debug:
             print(f"    [RETURN] Still stuck after attempt {attempt + 1}")
 
+    # Deadline guard: an app restart + recursion is the pathological path that can
+    # freeze the daemon for ~11 min when the window is merely occluded (restarting
+    # the app cannot fix occlusion). Bail before paying that cost.
+    if deadline is not None and time.time() > deadline:
+        print("    [RETURN] Deadline exceeded before app restart - aborting recovery "
+              "(will retry next cycle)")
+        return False
+
     # STEP 3: All attempts failed - restart app and RETRY (never give up)
     _consecutive_restarts += 1
 
@@ -958,7 +978,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
     if debug:
         print("    [RETURN] Retrying recovery after restart...")
-    return return_to_base_view(adb, win, debug)  # Recursive - keeps trying until success
+    return return_to_base_view(adb, win, debug, deadline=deadline)  # Recursive - keeps trying until success (or deadline)
 
 
 if __name__ == '__main__':

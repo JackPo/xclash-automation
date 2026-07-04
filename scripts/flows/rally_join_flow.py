@@ -413,6 +413,20 @@ def rally_join_flow(adb: ADBHelper, union_boss_mode: bool = False) -> dict[str, 
     print(f"[RALLY-JOIN]   Details: heading={details['heading_present']} (score={details['heading_score']:.4f}), " +
           f"tab={details['tab_selected']} (score={details['tab_score']:.4f})")
 
+    # The "UNION WAR" heading region is intermittently blacked out by a
+    # PrintWindow capture artifact even when the panel is genuinely open (the
+    # daemon already confirmed it via is_union_war_panel before invoking this
+    # flow, and the artifact corrupts ONLY the top heading strip - the rally
+    # list below renders fine). So do not abort on the heading alone: if rally
+    # plus-buttons are present, the panel is open with rallies, so proceed.
+    if not valid:
+        fallback_plus = plus_matcher.find_all_plus_buttons(frame)
+        if fallback_plus:
+            print(f"[RALLY-JOIN]   Heading check failed ({message}) but "
+                  f"{len(fallback_plus)} plus-button(s) detected - panel open, proceeding")
+            _save_debug_screenshot(frame, "STEP1 heading-fail but plus present", message)
+            valid = True
+
     if not valid:
         print(f"[RALLY-JOIN] Panel not valid: {message}. Exiting.")
         _save_debug_screenshot(frame, "STEP1 FAIL panel invalid", message)

@@ -9,7 +9,9 @@ Performance: ~50ms vs ~2700ms for ADB screencap
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from typing import Any
 
 import win32gui
@@ -20,6 +22,8 @@ from PIL import Image
 import numpy as np
 import numpy.typing as npt
 import cv2
+
+logger = logging.getLogger(__name__)
 
 
 class WindowsScreenshotHelper:
@@ -43,6 +47,18 @@ class WindowsScreenshotHelper:
     # helper instance, but all capture the same HWND - concurrent GDI
     # calls (PrintWindow/DC handling) crash, so serialize across instances.
     _capture_lock = threading.Lock()
+
+    # Corrupt-frame guard: PrintWindow intermittently returns a frame with a
+    # wide near-black band across the top while the rest renders fine, which
+    # silently breaks fixed-region template detection (rally panel, tavern
+    # tabs, harvest bubbles). Detect that signature - a large dark band in an
+    # otherwise BRIGHT frame - and re-capture. The brightness gate ensures a
+    # genuinely dark screen (loading/night) is NOT treated as corrupt.
+    CORRUPT_BRIGHT_MIN = 60       # frame mean below this = legitimately dark, skip check
+    CORRUPT_DARK_MAX = 12         # pixel value <= this counts as near-black ("unwritten")
+    CORRUPT_BLOB_MIN_FRAC = 0.003  # largest CONTIGUOUS near-black blob >= 0.3% of frame = corrupt
+    MAX_CORRUPT_RETRIES = 2       # extra re-captures when a corrupt frame is seen
+    CORRUPT_RETRY_DELAY = 0.12    # seconds between corrupt-frame re-captures
 
     def __init__(self, window_title: str = "BlueStacks App Player") -> None:
         """Initialize the screenshot helper.
@@ -171,13 +187,12 @@ class WindowsScreenshotHelper:
         scaled: npt.NDArray[Any] = cv2.resize(arr, (self.TARGET_WIDTH, self.TARGET_HEIGHT), interpolation=cv2.INTER_LINEAR)
         return scaled
 
-    def get_screenshot_cv2(self) -> npt.NDArray[Any]:
-        """Get a 4K screenshot as cv2 numpy array (compatible with template matching).
+    def _capture_once(self) -> npt.NDArray[Any]:
+        """Perform a single capture and return a 4K BGR numpy array.
 
-        This is the main method to use for template matching pipelines.
-
-        Returns:
-            np.ndarray: BGR image at 4K resolution (3840x2160x3)
+        Holds the class capture lock only for the GDI section (concurrent
+        PrintWindow/DC access on the shared HWND crashes); border removal,
+        scaling and color conversion run outside the lock.
         """
         with WindowsScreenshotHelper._capture_lock:
             # Re-find window handle in case it became stale
@@ -199,6 +214,63 @@ class WindowsScreenshotHelper:
         img_bgr: npt.NDArray[Any] = cv2.cvtColor(scaled_rgb, cv2.COLOR_RGB2BGR)
 
         return img_bgr
+
+    def _frame_looks_corrupt(self, img_bgr: npt.NDArray[Any]) -> bool:
+        """True if the frame shows the PrintWindow partial-capture artifact: a
+        large CONTIGUOUS near-black region (the "unwritten" band/rectangle) in
+        an otherwise bright frame.
+
+        Cheap (~3ms): operates on a downscaled grayscale. The brightness gate
+        returns False for genuinely dark screens (loading/night) so the capture
+        loop never spins on a legitimate dark frame. Requiring contiguity (a
+        connected blob, not a total dark-pixel count) avoids false positives
+        from the game's scattered black art outlines.
+        """
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(gray, (256, 144), interpolation=cv2.INTER_AREA)
+
+        if float(small.mean()) < self.CORRUPT_BRIGHT_MIN:
+            return False  # legitimately dark screen, not a capture artifact
+
+        mask = (small <= self.CORRUPT_DARK_MAX).astype(np.uint8)
+        num, _labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=4)
+        if num <= 1:
+            return False  # no near-black pixels at all
+
+        # stats[0] is the background label; take the largest foreground blob.
+        largest = int(stats[1:, cv2.CC_STAT_AREA].max())
+        frac = largest / float(small.shape[0] * small.shape[1])
+        return frac >= self.CORRUPT_BLOB_MIN_FRAC
+
+    def get_screenshot_cv2(self) -> npt.NDArray[Any]:
+        """Get a 4K screenshot as cv2 numpy array (compatible with template matching).
+
+        This is the main method to use for template matching pipelines.
+
+        Re-captures up to MAX_CORRUPT_RETRIES times if the frame shows the
+        PrintWindow black-band artifact; always returns a frame (never raises
+        or hangs on persistent corruption).
+
+        Returns:
+            np.ndarray: BGR image at 4K resolution (3840x2160x3)
+        """
+        last: npt.NDArray[Any] | None = None
+        for attempt in range(self.MAX_CORRUPT_RETRIES + 1):
+            last = self._capture_once()
+            if not self._frame_looks_corrupt(last):
+                return last
+            logger.warning(
+                "Corrupt capture frame detected (black band), re-capturing "
+                "(attempt %d/%d)", attempt + 1, self.MAX_CORRUPT_RETRIES
+            )
+            time.sleep(self.CORRUPT_RETRY_DELAY)
+
+        logger.warning(
+            "Capture still corrupt after %d retries; returning last frame",
+            self.MAX_CORRUPT_RETRIES
+        )
+        assert last is not None  # loop runs at least once
+        return last
 
     def save_screenshot(self, output_path: str) -> str:
         """Capture and save a 4K screenshot.
