@@ -2725,8 +2725,10 @@ class IconDaemon:
                                         self.logger.info(
                                             f"[{iteration}] RALLY: {abort_reason}, suppressing march retries for {suppress_seconds}s"
                                         )
-                                    # Check if Union Boss was joined - enter Union Boss mode
-                                    if result.get('monster_name') == 'Union Boss':
+                                    # Check if Union Boss was joined - enter Union Boss mode.
+                                    # Validator returns the name lowercased ('union boss'), so
+                                    # compare case-insensitively (was '== Union Boss', never matched).
+                                    if (result.get('monster_name') or '').strip().lower() == 'union boss':
                                         self.union_boss_mode_until = current_time + UNION_BOSS_MODE_DURATION
                                         self.logger.info(f"[{iteration}] UNION BOSS detected! Entering Union Boss mode for 30 minutes")
                                 elif flow_result.get("error"):
@@ -3052,6 +3054,16 @@ class IconDaemon:
                     states = self.barracks_matcher.get_all_states(frame)
                     ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
                     pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
+
+                    # Respect the claim toggle (same flag the Arms-Race path checks).
+                    # If claiming is disabled, READY barracks must NOT trigger
+                    # soldier_training: the flow can't clear them, so it would
+                    # re-trigger every iteration - an infinite HIGH-priority loop
+                    # that starves rally/AFK/tavern via the flow lock.
+                    from utils.config_overrides import get_override_manager
+                    claim_enabled, _ = get_override_manager().get_effective("BARRACKS_CLAIM_ENABLED", True)
+                    if not claim_enabled:
+                        ready_count = 0
 
                     if ready_count > 0 or pending_count > 0:
                         flow_candidates.append(FlowCandidate(
