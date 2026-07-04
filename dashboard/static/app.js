@@ -61,6 +61,8 @@
                 // Under attack state
                 underAttack: false,
                 underAttackTime: null,
+                // Community daily check-in health (warns when the game changes its UI)
+                checkinAlert: { ok: true, reason: null, at: null },
                 // Bloodlust state
                 bloodlust: { active: false, started_at: null, expected_end: null, seconds_remaining: null },
                 // Shield protection state
@@ -225,6 +227,14 @@
                         // Refresh shield protection status
                         if (state.shield_active) {
                             this.shieldProtectionActive = state.shield_active.is_active || false;
+                        }
+                        // Community check-in health (top warning banner when broken)
+                        if (state.community_checkin_health) {
+                            this.checkinAlert = {
+                                ok: state.community_checkin_health.ok !== false,
+                                reason: state.community_checkin_health.reason || null,
+                                at: state.community_checkin_health.at || null,
+                            };
                         }
                     } catch (e) { /* ignore */ }
                 },

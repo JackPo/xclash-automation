@@ -171,6 +171,7 @@ from scripts.flows.tavern_quest_flow import tavern_quest_claim_flow, run_tavern_
 from scripts.flows.faction_trials_flow import faction_trials_flow
 from scripts.flows.zombie_attack_flow import zombie_attack_flow
 from scripts.flows.community_click_flow import community_click_flow
+from scripts.flows.community_click_flow2 import community_click_flow2
 from scripts.flows.royal_city_attack_flow import royal_city_attack_flow
 from scripts.flows.union_coal_flow import union_coal_flow
 from scripts.flows.union_furnace_flow import union_furnace_flow
@@ -2012,6 +2013,7 @@ class IconDaemon:
             'scripts.flows.tavern_quest_flow',
             'scripts.flows.faction_trials_flow',
             'scripts.flows.community_click_flow',
+            'scripts.flows.community_click_flow2',
             'scripts.flows.marshall_speedup_all_flow',
             'scripts.flows',
         ]
@@ -2030,7 +2032,7 @@ class IconDaemon:
         global stamina_claim_flow, stamina_use_flow, soldier_training_flow
         global soldier_upgrade_flow, rally_join_flow, healing_flow, bag_flow, gift_box_flow
         global tavern_quest_claim_flow, run_tavern_quest_flow, faction_trials_flow
-        global zombie_attack_flow, community_click_flow, marshall_speedup_all_flow, apply_marshall_and_verify
+        global zombie_attack_flow, community_click_flow, community_click_flow2, marshall_speedup_all_flow, apply_marshall_and_verify
         global quick_production_flow
 
         from scripts.flows import (handshake_flow, treasure_map_flow, corn_harvest_flow,
@@ -2044,6 +2046,7 @@ class IconDaemon:
         from scripts.flows.faction_trials_flow import faction_trials_flow
         from scripts.flows.zombie_attack_flow import zombie_attack_flow
         from scripts.flows.community_click_flow import community_click_flow
+        from scripts.flows.community_click_flow2 import community_click_flow2
         from scripts.flows.marshall_speedup_all_flow import marshall_speedup_all_flow, apply_marshall_and_verify
 
         self.logger.info("HOT-RELOAD: All flow modules reloaded")
@@ -2085,7 +2088,7 @@ class IconDaemon:
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
             "arms_race_check": (lambda adb: check_arms_race_progress(adb, self.windows_helper, debug=True), False),  # type: ignore[arg-type]
             "beast_training": (lambda adb: aggressive_beast_training_flow(adb, self.windows_helper), True),
-            "community_checkin": (lambda adb: community_click_flow(adb, self.windows_helper), False),
+            "community_checkin": (lambda adb: community_click_flow2(adb, self.windows_helper), False),
             "royal_city_attack": (lambda adb: royal_city_attack_flow(adb, self.windows_helper), False),
             "union_coal": (union_coal_flow, False),
             "union_furnace": (union_furnace_flow, False),
@@ -3915,7 +3918,7 @@ class IconDaemon:
                     self.scheduler.is_flow_ready("community_checkin", idle_seconds=effective_idle_secs)):
                     flow_candidates.append(FlowCandidate(
                         name="community_checkin",
-                        flow_func=lambda adb: community_click_flow(adb, self.windows_helper),
+                        flow_func=lambda adb: community_click_flow2(adb, self.windows_helper),
                         priority=FlowPriority.NORMAL,
                         reason=f"idle={idle_str}",
                         record_to_scheduler=True

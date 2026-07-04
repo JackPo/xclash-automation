@@ -123,6 +123,11 @@ def _get_default_state() -> dict[str, Any]:
             "is_active": False,
             "detected_at": None,
         },
+        "community_checkin_health": {
+            "ok": True,          # False => navigation/pattern broke; dashboard shows a warning
+            "reason": None,      # short machine tag of where it failed
+            "at": None,          # ISO timestamp of last status change
+        },
         "research_queue": {
             "queue1_seconds": None,
             "queue1_name": None,
@@ -245,6 +250,22 @@ def update_zombie_mode(mode: str, expires: str | None = None) -> None:
     state["zombie_mode"] = {
         "mode": mode,
         "expires": expires,
+    }
+    save_state(state)
+
+
+def update_community_checkin_health(ok: bool, reason: str | None = None) -> None:
+    """Record whether the community daily check-in flow can still navigate the UI.
+
+    Set ok=False with a short reason tag when the flow fails to reach or operate
+    the sign-in panel (the game changed the community layout). The dashboard reads
+    this and shows a top-of-page warning so a silently-broken check-in is visible.
+    """
+    state = load_state()
+    state["community_checkin_health"] = {
+        "ok": ok,
+        "reason": reason,
+        "at": datetime.now(timezone.utc).isoformat(),
     }
     save_state(state)
 

@@ -136,6 +136,23 @@ BARRACKS_POSITIONS = [
 
 ---
 
+## Community Daily Check-in Templates (v2 webview nav)
+
+| Template | Position | Size | Threshold | Notes |
+|----------|----------|------|-----------|-------|
+| `community_icon_4k.png` (+mask) | Search | - | 0.05 | Opens community webview; matched ~(3540,290) |
+| `community_hamburger_4k.png` | region (300,0,900,260) | 92x86 | 0.05 | Home-page hamburger ☰ next to X-Clash logo; presence = Home feed reached |
+| `community_daily_signin_row_4k.png` | region (0,850,1000,300) | 450x84 | 0.05 | "Daily Sign-In" drawer row; click ~(295,990) |
+| `daily_signin_loading_bear_4k.png` | region (750,300,450,400) | - | 0.01 | Polar-bear panel header = sign-in panel loaded |
+| `daily_signin_checkin_button_4k.png` | region (700,400,2400,1400) | - | 0.01 | Blue "Check in" (scroll down to reveal) |
+| `daily_signin_checked_button_4k.png` | region (700,400,2400,1400) | - | 0.01 | Grey "Checked in" (already done) |
+| `daily_signin_success_close_4k.png` | region (2100,500,700,400) | 73x75 | 0.05 | Red X on "Check-in Success" popup ~(2378,648) |
+| `daily_sig_icon_4k.png` | region (2850,50,300,250) | 219x155 | 0.03 | OLD top-right icon; presence triggers v2→v1 revert fallback |
+
+Exit webview: top-right X at fixed (3755,96), tap until view=TOWN/WORLD.
+
+---
+
 ## Bag Templates
 
 **Tab Templates (region for active/inactive same)**:

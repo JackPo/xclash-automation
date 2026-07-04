@@ -430,6 +430,32 @@ python scripts/flows/reinforce_camp_star_flow.py --debug
 
 **Double-Pass Strategy**: After Claim, exit tavern completely, re-enter, repeat.
 
+## Community Daily Check-in
+
+Two implementations exist. The daemon runs **v2**; v1 is kept as a revert fallback.
+
+**v2** (`scripts/flows/community_click_flow2.py`, `community_click_flow2()`) —
+the game reworked Community into a webview with a left nav (Home/News/Circle/Me):
+1. `go_to_town`, click Community icon (`community_icon_4k.png`, masked)
+2. Reach Home feed: poll for `community_hamburger_4k.png` (region 300,0,900,260);
+   nudge the Home left-nav tab (224,470) halfway through if a splash/other tab shows
+3. Click hamburger → drawer; click `community_daily_signin_row_4k.png` (region 0,850,1000,300)
+4. Wait for `daily_signin_loading_bear_4k.png`; swipe up to find the button
+5. Click blue `daily_signin_checkin_button_4k.png`, or note grey `daily_signin_checked_button_4k.png`
+6. Dismiss success popup (`daily_signin_success_close_4k.png`), exit webview via top-right X (3755,96)
+
+**Resilience:**
+- REVERT: if the old top-right `daily_sig_icon_4k.png` reappears, v2 delegates to v1.
+- HEALTH: nav failures call `update_community_checkin_health(False, reason)`; the
+  dashboard shows an amber top banner. Success sets it back to OK.
+
+**v1** (`community_click_flow.py`) — old path (Community icon → top-right Daily Sig
+icon → panel). Unchanged, used only via the v2 revert fallback.
+
+---
+
+## Tavern My-Quests Flow
+
 **My Quests Flow**:
 1. Navigate to TOWN
 2. Click tavern button
