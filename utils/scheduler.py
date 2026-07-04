@@ -286,16 +286,42 @@ class DaemonScheduler:
         return result
 
     @_locked
-    def set_tavern_completions(self, completions: list[datetime], dedup_threshold: int = 2) -> None:
+    def set_tavern_completions(
+        self,
+        completions: list[datetime],
+        dedup_threshold: int = 2,
+        merge: bool = False,
+        stale_grace_seconds: int = 900,
+    ) -> None:
         """
         Set tavern quest completion times, deduplicating within threshold.
 
         Args:
             completions: List of datetime objects
-            dedup_threshold: Seconds within which to merge duplicates (default 15)
+            dedup_threshold: Seconds within which to merge duplicates
+            merge: If True, UNION the incoming completions with the ones already
+                stored (dropping only entries staler than stale_grace_seconds)
+                instead of replacing them. Tavern scans must use merge=True: the
+                scan's quest detection is flaky, and a replace would erase
+                completions a prior scan recorded for quests this scan happened
+                to miss -- those quests then never trigger a claim. The claim
+                cleanup path uses merge=False to genuinely prune overdue entries.
+            stale_grace_seconds: In merge mode, existing entries more than this
+                many seconds past are dropped (claimed or permanently missed),
+                preventing unbounded accumulation. Kept > the claim trigger's
+                overdue grace (600s) so claimable entries are not lost.
         """
+        incoming = list(completions)
+        if merge:
+            now = datetime.now()
+            existing = self.get_tavern_completions()
+            # Keep existing entries that are still future or only recently
+            # overdue (still claimable); union them with the incoming ones.
+            kept = [c for c in existing if (now - c).total_seconds() < stale_grace_seconds]
+            incoming = incoming + kept
+
         # Deduplicate
-        sorted_completions = sorted(completions)
+        sorted_completions = sorted(incoming)
         deduped: list[datetime] = []
 
         for dt in sorted_completions:
@@ -320,7 +346,7 @@ class DaemonScheduler:
         # Log each completion time
         if deduped:
             completion_strs = [dt.strftime('%H:%M:%S') for dt in deduped]
-            logger.info(f"[SCHEDULER] Tavern completions updated: {completion_strs} (deduped {len(completions)} -> {len(deduped)})")
+            logger.info(f"[SCHEDULER] Tavern completions updated: {completion_strs} (merged {len(incoming)} -> {len(deduped)})")
         else:
             logger.info(f"[SCHEDULER] Tavern completions cleared (no active quests)")
 
@@ -460,6 +486,37 @@ class DaemonScheduler:
         del tq["dispatch_exhausted_date"]
         self.save()
         logger.info("[SCHEDULER] Cleared tavern dispatch exhaustion flag")
+
+    @_locked
+    def force_tavern_rescan(self) -> dict[str, bool]:
+        """Manually force a fresh tavern scan + dispatch (e.g. from the dashboard
+        when the dispatchable state looks stuck or buggy).
+
+        Clears the three gates that can independently suppress a rescan:
+        - dispatch_exhausted_date: the "no Go buttons found today" exhaustion
+          flag (see is_tavern_dispatch_exhausted_today).
+        - last_dispatch: the TAVERN_MIN_DISPATCH_GAP_MINUTES "too soon" gap
+          checked in _dispatch_gates_passed.
+        - flows.tavern_scan.last_run: the TAVERN_SCAN_COOLDOWN (30 min) flow
+          cooldown that otherwise keeps the daemon from re-running the scan.
+
+        The daemon still honours its idle requirement, so the rescan fires on
+        the next idle tick rather than instantly. Returns which gates were
+        actually cleared (all-False means nothing was blocking).
+        """
+        tq = self.schedule.setdefault("tavern_quests", {})
+        cleared = {
+            "exhaustion": tq.pop("dispatch_exhausted_date", None) is not None,
+            "dispatch_gap": tq.pop("last_dispatch", None) is not None,
+            "scan_cooldown": False,
+        }
+        scan_flow = self.schedule.get("flows", {}).get("tavern_scan")
+        if scan_flow and scan_flow.get("last_run"):
+            scan_flow["last_run"] = None
+            cleared["scan_cooldown"] = True
+        self.save()
+        logger.info(f"[SCHEDULER] Forced tavern rescan: cleared {cleared}")
+        return cleared
 
     @_locked
     def record_tavern_refresh(self) -> None:

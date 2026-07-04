@@ -263,15 +263,15 @@
                     } catch (e) { console.error('Tavern status fetch failed:', e); }
                 },
 
-                async clearTavernExhaustion() {
+                async forceTavernRescan() {
                     try {
-                        const res = await fetch('/api/tavern-status/clear-exhaustion', { method: 'POST' });
+                        const res = await fetch('/api/tavern-status/force-rescan', { method: 'POST' });
                         const data = await res.json();
                         if (data.success) {
-                            this.showToast('Tavern exhaustion cleared — daemon will re-check on next dispatch', 'success');
+                            this.showToast('Tavern reset — daemon will re-scan on its next idle tick', 'success');
                             await this.refreshTavernStatus();
                         } else {
-                            this.showToast('Failed to clear exhaustion', 'error');
+                            this.showToast('Failed to reset tavern', 'error');
                         }
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },

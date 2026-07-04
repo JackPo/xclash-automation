@@ -320,6 +320,18 @@ async def api_clear_tavern_exhaustion() -> dict[str, Any]:
     return {"success": True, "exhausted_today": scheduler.is_tavern_dispatch_exhausted_today()}
 
 
+@app.post("/api/tavern-status/force-rescan")
+async def api_force_tavern_rescan() -> dict[str, Any]:
+    """Force the daemon to re-scan + re-dispatch tavern on its next idle tick.
+
+    Clears the exhaustion flag, the dispatch gap, and the scan cooldown. Use
+    when the dispatchable state looks stuck or buggy and you want a fresh scan.
+    """
+    scheduler = get_scheduler()
+    cleared = scheduler.force_tavern_rescan()
+    return {"success": True, "cleared": cleared}
+
+
 @app.get("/api/arms-race")
 async def api_arms_race() -> dict[str, Any]:
     """Get Arms Race status including next occurrence times for all events."""

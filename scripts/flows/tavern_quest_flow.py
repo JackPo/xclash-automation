@@ -260,9 +260,14 @@ def _get_scheduler() -> DaemonScheduler:
 
 
 def save_quest_schedule(completions: list[datetime]) -> None:
-    """Save quest completion times to unified scheduler."""
+    """Save quest completion times to unified scheduler.
+
+    merge=True so a flaky scan that detects fewer running quests than a prior
+    scan does NOT erase the completions the prior scan recorded (which would
+    drop those quests' claim triggers and leave them unclaimed).
+    """
     scheduler = _get_scheduler()
-    scheduler.set_tavern_completions(completions)
+    scheduler.set_tavern_completions(completions, merge=True)
 
 
 def load_quest_schedule() -> list[datetime]:

@@ -524,10 +524,9 @@
                                                      : ((tavernStatus.dispatchable_visible ?? 0) >= 3
                                                          ? '3+'
                                                          : (tavernStatus.dispatchable_visible ?? '-'))"></span>
-                                        <button @click="clearTavernExhaustion()"
-                                                x-show="tavernStatus.exhausted_today"
+                                        <button @click="forceTavernRescan()"
                                                 class="btn btn-xs btn-secondary"
-                                                title="Force re-check dispatch this tick">
+                                                title="Force a fresh tavern rescan — clears exhaustion, dispatch gap, and scan cooldown so the daemon re-scans on its next idle tick">
                                             Reset
                                         </button>
                                     </div>
