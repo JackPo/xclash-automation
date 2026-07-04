@@ -57,7 +57,7 @@ The box_2d should be [ymin, xmin, ymax, xmax] normalized to 0-1000."""
     )
 
     response = client.models.generate_content(
-        model="gemini-3-pro-preview",
+        model="gemini-3.1-pro-preview",
         contents=[image, prompt],
         config=config
     )

@@ -91,6 +91,20 @@ MAX_REFRESH_ATTEMPTS_PER_RUN = 20
 REFRESH_ANIMATION_SLEEP_SECS = 1.2
 MODE_TOGGLE_SLEEP_SECS = 0.7
 
+# Mega mode: the bottom-row toggle shows "Mega" in Normal mode (clicking it
+# enters Mega mode, where it shows "Normal"). Mega mode replaces the Refresh
+# button with "Mega Dispatch" + "Mega Refresh" (bulk re-roll of all quests).
+# Used on gold-only VS days instead of individual refreshes.
+TAVERN_MEGA_MODE_TOGGLE_TEMPLATE = str(TEMPLATE_DIR / "tavern_mega_mode_toggle_4k.png")
+TAVERN_MEGA_REFRESH_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "tavern_mega_refresh_button_4k.png")
+# The Mega Refresh template is text-focused because Mega Dispatch differs only
+# by its label (cross-match score ~0.047): keep this threshold BELOW that, and
+# only search right of Mega Dispatch (which spans x 1530-1910 in the fixed
+# panel layout) so a dispatch click is impossible.
+TAVERN_MEGA_REFRESH_THRESHOLD = 0.02
+TAVERN_MEGA_REFRESH_X_MIN = 1930
+MAX_MEGA_REFRESH_ATTEMPTS_PER_RUN = 10
+
 # Bounty Quest dialog templates
 BOUNTY_QUEST_TITLE_TEMPLATE = str(TEMPLATE_DIR / "bounty_quest_title_4k.png")
 AUTO_DISPATCH_BUTTON_TEMPLATE = str(TEMPLATE_DIR / "auto_dispatch_button_4k.png")
@@ -761,6 +775,71 @@ def _ensure_normal_mode(adb: ADBHelper, win: WindowsScreenshotHelper, debug: boo
     return find_refresh_button(frame2) is not None
 
 
+def find_mega_mode_toggle(frame: npt.NDArray[Any]) -> tuple[int, int] | None:
+    """Find the small 'Mega' book toggle on the right of the bottom row.
+
+    Visible only in Normal mode (its label is its destination -- clicking it
+    switches to Mega mode). Returns center (x, y) or None.
+    """
+    from utils.template_matcher import match_template
+    h = TAVERN_BOTTOM_ROW_Y_MAX - TAVERN_BOTTOM_ROW_Y_MIN
+    found, _, center = match_template(
+        frame,
+        Path(TAVERN_MEGA_MODE_TOGGLE_TEMPLATE).name,
+        search_region=(0, TAVERN_BOTTOM_ROW_Y_MIN, frame.shape[1], h),
+        threshold=TAVERN_REFRESH_THRESHOLD,
+    )
+    return center if (found and center is not None) else None
+
+
+def find_mega_refresh_button(frame: npt.NDArray[Any]) -> tuple[int, int] | None:
+    """Find the Mega Refresh button (visible only in Mega mode).
+
+    Restricted to x >= TAVERN_MEGA_REFRESH_X_MIN so the near-identical Mega
+    Dispatch button (left of it) can never be matched. Returns center or None.
+    """
+    from utils.template_matcher import match_template
+    h = TAVERN_BOTTOM_ROW_Y_MAX - TAVERN_BOTTOM_ROW_Y_MIN
+    found, _, center = match_template(
+        frame,
+        Path(TAVERN_MEGA_REFRESH_BUTTON_TEMPLATE).name,
+        search_region=(
+            TAVERN_MEGA_REFRESH_X_MIN,
+            TAVERN_BOTTOM_ROW_Y_MIN,
+            frame.shape[1] - TAVERN_MEGA_REFRESH_X_MIN,
+            h,
+        ),
+        threshold=TAVERN_MEGA_REFRESH_THRESHOLD,
+    )
+    if not (found and center is not None):
+        return None
+    if center[0] < TAVERN_MEGA_REFRESH_X_MIN:
+        logger.warning(f"MEGA REFRESH: match at {center} left of safety bound -- ignoring")
+        return None
+    return center
+
+
+def _ensure_mega_mode(adb: ADBHelper, win: WindowsScreenshotHelper) -> bool:
+    """Make sure the tavern panel is in Mega mode so Mega Refresh is clickable.
+
+    If Mega Refresh is already visible: no-op, return True.
+    Else if Mega toggle is visible (Normal mode): click it, wait, verify.
+    Else: return False (unknown UI state).
+    """
+    frame = win.get_screenshot_cv2()
+    if find_mega_refresh_button(frame) is not None:
+        return True
+    toggle = find_mega_mode_toggle(frame)
+    if toggle is None:
+        logger.warning("MEGA REFRESH: neither Mega Refresh button nor Mega toggle visible -- can't switch modes")
+        return False
+    logger.info(f"MEGA REFRESH: clicking Mega toggle at {toggle} to switch into Mega mode")
+    adb.tap(*toggle, source="flow:tavern_quest:mode_toggle_mega")
+    time.sleep(MODE_TOGGLE_SLEEP_SECS)
+    frame2 = win.get_screenshot_cv2()
+    return find_mega_refresh_button(frame2) is not None
+
+
 def _row_icon_hash(frame: npt.NDArray[Any], row_y: int) -> int:
     """Cheap 8-hex-digit hash of the quest icon area at this row.
 
@@ -920,6 +999,82 @@ def _try_refresh_to_startable(
 
     logger.warning(f"REFRESH LOOP: hit safety cap {MAX_REFRESH_ATTEMPTS_PER_RUN} -- bailing")
     return frame, refreshes, {"reason": "safety_cap", "attempts": MAX_REFRESH_ATTEMPTS_PER_RUN}
+
+
+def _try_mega_refresh_to_startable(
+    adb: ADBHelper,
+    win: WindowsScreenshotHelper,
+    initial_frame: npt.NDArray[Any],
+) -> tuple[npt.NDArray[Any], int, dict[str, Any]]:
+    """Bulk re-roll via Mega Refresh until directly_startable > 0.
+
+    Gold-only-day alternative to _try_refresh_to_startable(): instead of
+    re-rolling quests one at a time with the Normal-mode Refresh button,
+    switch to Mega mode and use Mega Refresh, which re-rolls ALL visible
+    quests at once. The confirm dialog is handled by the same paid-refresh
+    handler (spend up to the daily cap, then cancel).
+
+    Each attempt toggles back to Normal mode before scanning, since the
+    gold-scroll/Go matchers are calibrated for the Normal-mode list, and
+    always leaves the panel in Normal mode on return.
+
+    Stops when ANY of:
+    - directly_startable_visible > 0 (success)
+    - signature unchanged from previous iteration (refresh disabled/capped)
+    - Mega mode can't be reached / Mega Refresh button not found
+    - MAX_MEGA_REFRESH_ATTEMPTS_PER_RUN hit (safety cap)
+
+    Returns (final_frame, refresh_count, stop_info) like the individual loop,
+    with mega-specific stop reasons ("mega_mode_switch_failed",
+    "mega_button_not_visible") the caller can use to fall back.
+    """
+    scheduler = _get_scheduler()
+    frame = initial_frame
+    refreshes = 0
+    prev_signature = _capture_go_signature(frame)
+    logger.info(f"MEGA REFRESH LOOP: starting at signature={prev_signature}")
+    for attempt in range(1, MAX_MEGA_REFRESH_ATTEMPTS_PER_RUN + 1):
+        if not _ensure_mega_mode(adb, win):
+            _ensure_normal_mode(adb, win)
+            return frame, refreshes, {"reason": "mega_mode_switch_failed", "attempts": attempt - 1}
+        frame = win.get_screenshot_cv2()
+        mega_pos = find_mega_refresh_button(frame)
+        if mega_pos is None:
+            _ensure_normal_mode(adb, win)
+            return win.get_screenshot_cv2(), refreshes, {"reason": "mega_button_not_visible", "attempts": attempt - 1}
+
+        logger.info(f"MEGA REFRESH attempt {attempt}: clicking at {mega_pos}")
+        adb.tap(*mega_pos, source="flow:tavern_quest:mega_refresh")
+        time.sleep(REFRESH_ANIMATION_SLEEP_SECS)
+        frame = win.get_screenshot_cv2()
+        frame = _handle_paid_refresh_dialog(adb, win, frame)
+        refreshes += 1
+        scheduler.record_tavern_refresh()
+
+        # Scan in Normal mode -- the Go/reward matchers are calibrated for it.
+        if not _ensure_normal_mode(adb, win):
+            return frame, refreshes, {"reason": "mode_restore_failed", "attempts": attempt}
+        frame = win.get_screenshot_cv2()
+        post_signature = _capture_go_signature(frame)
+        post_dispatchable, post_gold, post_question, _ys = post_signature
+        post_startable = post_gold + (post_question if _should_start_question_mark_quests() else 0)
+        logger.info(
+            f"MEGA REFRESH attempt {attempt}: post-sig={post_signature} -> "
+            f"directly_startable={post_startable}"
+        )
+
+        if post_startable > 0:
+            return frame, refreshes, {"reason": "success", "attempts": attempt}
+        if post_signature == prev_signature:
+            logger.info(
+                "MEGA REFRESH attempt {}: signature unchanged -- refresh likely disabled/capped, stopping"
+                .format(attempt)
+            )
+            return frame, refreshes, {"reason": "no_change", "attempts": attempt}
+        prev_signature = post_signature
+
+    logger.warning(f"MEGA REFRESH LOOP: hit safety cap {MAX_MEGA_REFRESH_ATTEMPTS_PER_RUN} -- bailing")
+    return frame, refreshes, {"reason": "safety_cap", "attempts": MAX_MEGA_REFRESH_ATTEMPTS_PER_RUN}
 
 
 def _row_has_go_button(frame: npt.NDArray[Any], row_y: int) -> bool:
@@ -1702,11 +1857,26 @@ def _dispatch_in_open_tavern(
             # Rescue Merchant, etc.) -- we re-roll until a gold-scroll or
             # question-mark (if not a VS skip day) appears.
             if first_frame_dispatchable > 0 and first_frame_directly_startable == 0:
+                from config import TAVERN_MEGA_REFRESH_ON_GOLD_DAYS
+                gold_only_day = not _should_start_question_mark_quests()
+                use_mega = TAVERN_MEGA_REFRESH_ON_GOLD_DAYS and gold_only_day
                 logger.info(
                     f"DISPATCH: dispatchable={first_frame_dispatchable} "
-                    f"directly_startable=0 -> entering refresh loop"
+                    f"directly_startable=0 -> entering {'MEGA' if use_mega else 'individual'} refresh loop"
+                    f"{' (gold-only VS day)' if gold_only_day else ''}"
                 )
-                frame, refreshes_done, stop_info = _try_refresh_to_startable(adb, win, frame)
+                if use_mega:
+                    frame, refreshes_done, stop_info = _try_mega_refresh_to_startable(adb, win, frame)
+                    if refreshes_done == 0 and stop_info.get("reason") in (
+                        "mega_mode_switch_failed", "mega_button_not_visible"
+                    ):
+                        # Mega UI unreachable (e.g. game update moved it) --
+                        # fall back to the individual refresh loop.
+                        logger.info("DISPATCH: mega refresh unavailable -> falling back to individual refresh")
+                        frame, extra_refreshes, stop_info = _try_refresh_to_startable(adb, win, frame)
+                        refreshes_done += extra_refreshes
+                else:
+                    frame, refreshes_done, stop_info = _try_refresh_to_startable(adb, win, frame)
                 refresh_attempts_this_run += refreshes_done
                 logger.info(
                     f"DISPATCH: refresh loop ended: reason={stop_info.get('reason')} "

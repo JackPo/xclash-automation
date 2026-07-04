@@ -792,6 +792,54 @@
                 <!-- =========== RIGHT RAIL =========== -->
                 <div class="lg:col-span-3 space-y-3">
 
+                    <!-- Steal Sniper Mode -->
+                    <section class="card"
+                             :class="{
+                                 'border border-amber-500/40': sniperMode.active && sniperMode.state === 'searching',
+                                 'border-2 border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.35)]': sniperMode.state === 'locked',
+                                 'border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]': sniperMode.state === 'sniping'
+                             }">
+                        <div class="flex items-center justify-between mb-2.5">
+                            <h2 class="h-label">Steal Sniper</h2>
+                            <span x-show="sniperMode.active && sniperMode.state === 'searching'"
+                                  class="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/40 text-amber-300 animate-pulse">SCANNING</span>
+                            <span x-show="sniperMode.state === 'locked'"
+                                  class="text-[10px] px-2 py-0.5 rounded bg-green-500/15 border border-green-500/40 text-green-400 font-bold">SNIPE ACTIVATED</span>
+                            <span x-show="sniperMode.state === 'sniping'"
+                                  class="text-[10px] px-2 py-0.5 rounded bg-red-500/20 border border-red-500/60 text-red-300 font-bold animate-pulse">FIRING</span>
+                        </div>
+
+                        <!-- Lock countdown -->
+                        <div x-show="sniperMode.state === 'locked' || sniperMode.state === 'sniping'" class="mb-2.5 text-center">
+                            <div class="text-3xl font-mono font-bold"
+                                 :class="sniperMode.state === 'sniping' ? 'text-red-400' : 'text-green-400'"
+                                 x-text="formatSniperCountdown(sniperMode.seconds_left)"></div>
+                            <div class="text-[10px] text-gray-500">until steal unlocks (fires at T-2s)</div>
+                        </div>
+
+                        <div x-show="sniperMode.active && sniperMode.state === 'searching'" class="mb-2.5 text-[11px] text-gray-400">
+                            Scanning for the Steal button... leave the game parked on the chest.
+                        </div>
+
+                        <div x-show="sniperMode.last_result" class="mb-2.5 text-[11px] text-gray-500">
+                            Last snipe: <span class="text-gray-300" x-text="sniperMode.last_result"></span>
+                            <span x-show="sniperMode.taps_last_snipe" x-text="`(${sniperMode.taps_last_snipe} taps)`"></span>
+                            <span x-show="sniperMode.snipes_attempted" x-text="` - ${sniperMode.snipes_attempted} attempted`"></span>
+                        </div>
+
+                        <button @click="startSniper()" x-show="!sniperMode.active"
+                                class="btn btn-primary w-full font-bold">
+                            ARM SNIPER
+                        </button>
+                        <button @click="stopSniper()" x-show="sniperMode.active"
+                                class="btn btn-danger w-full font-bold">
+                            DISARM
+                        </button>
+                        <div class="mt-2 text-[10px] text-gray-600">
+                            Blocks all flows except tavern quest claims while armed.
+                        </div>
+                    </section>
+
                     <!-- Quick Actions -->
                     <section class="card">
                         <h2 class="h-label mb-2.5">Quick Actions</h2>

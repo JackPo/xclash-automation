@@ -871,6 +871,74 @@ class DaemonScheduler:
         self.save()
         logger.info("Reinforce mode cleared")
 
+    # =========================================================================
+    # TAVERN STEAL SNIPER MODE - watch for Steal button, spam-click at timer end
+    # Blocks all other flows except tavern quest claims (mode exits for those).
+    # =========================================================================
+
+    @_locked
+    def get_sniper_mode(self) -> tuple[bool, datetime | None]:
+        """
+        Get current steal sniper mode status.
+
+        Returns:
+            (active, expires) tuple. expires is None if not set or permanent.
+        """
+        state = self.schedule.get("sniper_mode", {})
+        active = state.get("active", False)
+        expires_str = state.get("expires")
+
+        if not active:
+            return False, None
+
+        if expires_str:
+            try:
+                expires = datetime.fromisoformat(expires_str)
+                now = datetime.now(timezone.utc)
+                if now > expires:
+                    self.clear_sniper_mode()
+                    logger.info("Sniper mode expired")
+                    return False, None
+                return True, expires
+            except (ValueError, TypeError):
+                return False, None
+        return active, None
+
+    @_locked
+    def set_sniper_mode(self, hours: float | None = None) -> datetime | None:
+        """
+        Enable steal sniper mode for N hours.
+
+        Args:
+            hours: Duration in hours. None = until manually stopped.
+
+        Returns:
+            Expiry datetime, or None if permanent.
+        """
+        expires = None
+        if hours:
+            expires = datetime.now(timezone.utc) + timedelta(hours=hours)
+            self.schedule["sniper_mode"] = {
+                "active": True,
+                "expires": expires.isoformat(),
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
+        else:
+            self.schedule["sniper_mode"] = {
+                "active": True,
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
+        self.save()
+        logger.info(f"Sniper mode enabled (expires: {expires})")
+        return expires
+
+    @_locked
+    def clear_sniper_mode(self) -> None:
+        """Clear steal sniper mode."""
+        self.schedule.pop("sniper_mode", None)
+        self.save()
+        logger.info("Sniper mode cleared")
+
     @_locked
     def record_arms_race_progress(self, event: str, points: int, chest3_target: int | None, block_start: str) -> None:
         """

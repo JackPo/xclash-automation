@@ -48,6 +48,12 @@ Reinforce Camp Loop:
     python daemon_cli.py start_reinforce 2                   # Start for 2 hours
     python daemon_cli.py stop_reinforce                      # Stop reinforce loop
 
+Steal Sniper Mode:
+    python daemon_cli.py start_sniper                        # Arm steal sniper (until stopped)
+    python daemon_cli.py start_sniper 2                      # Arm for 2 hours
+    python daemon_cli.py stop_sniper                         # Disarm steal sniper
+    python daemon_cli.py get_sniper_status                   # Lock state + countdown
+
 Examples:
     python daemon_cli.py run_flow bag_flow
     python daemon_cli.py set_config IDLE_THRESHOLD 600
@@ -295,6 +301,11 @@ def main():
 
     elif cmd == "start_reinforce":
         # Usage: daemon_cli.py start_reinforce [hours]
+        if len(sys.argv) >= 3:
+            args["hours"] = float(sys.argv[2])
+
+    elif cmd == "start_sniper":
+        # Usage: daemon_cli.py start_sniper [hours]
         if len(sys.argv) >= 3:
             args["hours"] = float(sys.argv[2])
 

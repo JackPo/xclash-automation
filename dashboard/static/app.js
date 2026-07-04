@@ -15,6 +15,8 @@
                 // Reinforce loop mode
                 reinforceMode: { active: false, interval: 10, expires: null, hours_remaining: null },
                 reinforceInterval: 10,  // Seconds between runs
+                // Steal sniper mode
+                sniperMode: { active: false, state: 'idle', seconds_left: null, last_result: null, snipes_attempted: 0, taps_last_snipe: 0, hours_remaining: null },
                 // Burst mode state (uses selectedZombieMode for flow type)
                 burstMode: {
                     running: false,
@@ -117,6 +119,7 @@
                         this.loadZombieModes(),
                         this.loadZombieMode(),
                         this.loadReinforceMode(),
+                        this.loadSniperMode(),
                         this.loadConfig(),
                         this.refreshBlocks(),
                         this.refreshEvents(),
@@ -126,6 +129,7 @@
                         this.refreshStatus();
                         this.refreshFlows();
                         this.refreshArmsRace();
+                        this.loadSniperMode();
                         // Refresh under attack state every 10s
                         this.refreshUnderAttack();
                         // Refresh scheduled shield
@@ -160,6 +164,10 @@
                             if (this.bloodlust.seconds_remaining <= 0) {
                                 this.bloodlust.active = false; // Clear when expired
                             }
+                        }
+                        // Decrement sniper snipe countdown (server value re-syncs every poll)
+                        if (this.sniperMode.seconds_left !== null && this.sniperMode.seconds_left > -5) {
+                            this.sniperMode.seconds_left = Math.round((this.sniperMode.seconds_left - 1) * 10) / 10;
                         }
                         // Decrement pending quest countdowns
                         this.pendingQuests.forEach(q => q.remaining_seconds--);
@@ -978,6 +986,68 @@
                             this.showToast(`Failed: ${data.detail}`, 'error');
                         }
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                // =============================================
+                // Steal Sniper Mode Methods
+                // =============================================
+
+                async loadSniperMode() {
+                    try {
+                        const res = await fetch('/api/sniper-mode');
+                        const data = await res.json();
+                        const wasLocked = this.sniperMode.state === 'locked' || this.sniperMode.state === 'sniping';
+                        const isLocked = data.state === 'locked' || data.state === 'sniping';
+                        this.sniperMode = {
+                            active: data.active || false,
+                            state: data.state || 'idle',
+                            seconds_left: (data.seconds_left !== undefined && data.seconds_left !== null) ? data.seconds_left : null,
+                            last_result: data.last_result || null,
+                            snipes_attempted: data.snipes_attempted || 0,
+                            taps_last_snipe: data.taps_last_snipe || 0,
+                            hours_remaining: data.hours_remaining
+                        };
+                        if (isLocked && !wasLocked) {
+                            this.showToast('SNIPE ACTIVATED - target locked', 'success');
+                        }
+                    } catch (e) { console.error('Sniper mode load failed:', e); }
+                },
+
+                async startSniper() {
+                    try {
+                        const res = await fetch('/api/sniper-mode/start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('Sniper armed - scanning for steal button', 'success');
+                            await this.loadSniperMode();
+                        } else {
+                            this.showToast(`Failed: ${data.detail}`, 'error');
+                        }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async stopSniper() {
+                    try {
+                        const res = await fetch('/api/sniper-mode/stop', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('Sniper disarmed', 'success');
+                            await this.loadSniperMode();
+                        } else {
+                            this.showToast(`Failed: ${data.detail}`, 'error');
+                        }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                formatSniperCountdown(seconds) {
+                    if (seconds === null || seconds === undefined) return '--:--';
+                    const s = Math.max(0, Math.floor(seconds));
+                    const m = Math.floor(s / 60);
+                    return `${m}:${String(s % 60).padStart(2, '0')}`;
                 },
 
                 // =============================================

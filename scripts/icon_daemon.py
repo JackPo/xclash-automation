@@ -2239,7 +2239,9 @@ class IconDaemon:
                 # BLOCKED CHECK - Must happen BEFORE screenshot to avoid race condition
                 # Both daemon and flow threads use windows_helper - concurrent access crashes
                 # =================================================================
-                if self.critical_flow_active and self.critical_flow_name != "reinforce_loop":
+                # reinforce_loop and tavern_steal_sniper run inline in this thread (no
+                # concurrent windows_helper access), so they skip the early block.
+                if self.critical_flow_active and self.critical_flow_name not in ("reinforce_loop", "tavern_steal_sniper"):
                     # Check for timeout - auto-clear stuck critical flows
                     # Treasure flows get 10 min timeout, others get 2 min
                     if self.critical_flow_start_time is not None:
@@ -2536,6 +2538,50 @@ class IconDaemon:
                         self.critical_flow_name = None
                         self.critical_flow_start_time = None
                         self.logger.info(f"[{iteration}] REINFORCE LOOP: Deactivated")
+
+                # =================================================================
+                # TAVERN STEAL SNIPER MODE - exclusive chest sniping
+                # Blocks everything except tavern quests: if a tavern claim is
+                # due, the mode exits so the normal claim machinery takes over.
+                # =================================================================
+                sniper_active, _ = self.scheduler.get_sniper_mode()
+                if sniper_active:
+                    if self.scheduler.is_tavern_completion_imminent(buffer_seconds=30):
+                        self.logger.info(f"[{iteration}] STEAL SNIPER: tavern claim due - exiting sniper mode")
+                        self.scheduler.clear_sniper_mode()
+                        sniper_active = False
+                    else:
+                        if not self.critical_flow_active:
+                            self.critical_flow_active = True
+                            self.critical_flow_name = "tavern_steal_sniper"
+                            self.critical_flow_start_time = time.time()
+                            self.logger.info(f"[{iteration}] STEAL SNIPER: Activated as critical flow")
+
+                        from config import SNIPER_TICK_SLEEP
+                        from scripts.flows.tavern_steal_sniper_flow import sniper_tick
+                        try:
+                            tick = sniper_tick(self.adb, self.windows_helper)
+                            if tick.get("newly_locked"):
+                                self.logger.info(
+                                    f"[{iteration}] STEAL SNIPER: SNIPE ACTIVATED - "
+                                    f"{tick.get('seconds_left')}s until steal"
+                                )
+                            if tick.get("last_result"):
+                                self.logger.info(f"[{iteration}] STEAL SNIPER: result={tick['last_result']}")
+                        except Exception as e:
+                            self.logger.error(f"[{iteration}] STEAL SNIPER tick failed: {e}")
+
+                        time.sleep(SNIPER_TICK_SLEEP)
+                        continue
+                if not sniper_active:
+                    # Clear critical flow if sniper mode was just disabled
+                    if self.critical_flow_active and self.critical_flow_name == "tavern_steal_sniper":
+                        self.critical_flow_active = False
+                        self.critical_flow_name = None
+                        self.critical_flow_start_time = None
+                        from scripts.flows.tavern_steal_sniper_flow import reset_sniper_status
+                        reset_sniper_status()
+                        self.logger.info(f"[{iteration}] STEAL SNIPER: Deactivated")
 
                 # =================================================================
                 # SCHEDULED FLOWS - Royal City Reinforce (Fridays 6:15-9:00 AM PT)

@@ -179,6 +179,10 @@ class DaemonWebSocketServer:
             "start_reinforce": self._cmd_start_reinforce,
             "stop_reinforce": self._cmd_stop_reinforce,
             "get_reinforce_status": self._cmd_get_reinforce_status,
+            # Steal sniper mode commands
+            "start_sniper": self._cmd_start_sniper,
+            "stop_sniper": self._cmd_stop_sniper,
+            "get_sniper_status": self._cmd_get_sniper_status,
             # Flow with arguments
             "run_zombie_attack": self._cmd_run_zombie_attack,
             "run_elite_zombie": self._cmd_run_elite_zombie,
@@ -804,6 +808,52 @@ class DaemonWebSocketServer:
             result["expires"] = expires.isoformat()
             result["hours_remaining"] = round(remaining, 2)
 
+        return result
+
+    # =========================================================================
+    # Steal Sniper Mode Commands
+    # =========================================================================
+
+    def _cmd_start_sniper(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Start tavern steal sniper mode. Blocks all flows except tavern quests."""
+        hours = args.get("hours")  # None = until manually stopped
+
+        expires = self.daemon.scheduler.set_sniper_mode(hours)
+
+        result: dict[str, Any] = {
+            "active": True,
+            "message": "Steal sniper armed - scanning for steal button",
+        }
+        if expires:
+            result["expires"] = expires.isoformat()
+            result["hours"] = hours
+        return result
+
+    def _cmd_stop_sniper(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Stop tavern steal sniper mode."""
+        self.daemon.scheduler.clear_sniper_mode()
+        from scripts.flows.tavern_steal_sniper_flow import reset_sniper_status
+        reset_sniper_status()
+        return {
+            "active": False,
+            "message": "Steal sniper disarmed",
+        }
+
+    def _cmd_get_sniper_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get steal sniper mode status including lock state and countdown."""
+        active, expires = self.daemon.scheduler.get_sniper_mode()
+
+        from scripts.flows.tavern_steal_sniper_flow import get_sniper_status
+        result: dict[str, Any] = {"active": active}
+        result.update(get_sniper_status())
+        if not active:
+            result["state"] = "idle"
+
+        if expires:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            result["expires"] = expires.isoformat()
+            result["hours_remaining"] = round((expires - now).total_seconds() / 3600, 2)
         return result
 
     # =========================================================================

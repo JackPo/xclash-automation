@@ -882,6 +882,45 @@ async def api_stop_reinforce() -> dict[str, Any]:
 
 
 # ============================================================================
+# Steal Sniper Mode Endpoints
+# ============================================================================
+
+@app.get("/api/sniper-mode")
+async def api_get_sniper_mode() -> dict[str, Any]:
+    """Get steal sniper mode status (lock state, countdown, last result)."""
+    response = await send_daemon_command('get_sniper_status')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+class SniperStartRequest(BaseModel):
+    """Request to arm the steal sniper."""
+    hours: float | None = None  # None = until manually stopped
+
+
+@app.post("/api/sniper-mode/start")
+async def api_start_sniper(request: SniperStartRequest) -> dict[str, Any]:
+    """Arm steal sniper mode."""
+    args: dict[str, Any] = {}
+    if request.hours:
+        args['hours'] = request.hours
+    response = await send_daemon_command('start_sniper', args)
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/sniper-mode/stop")
+async def api_stop_sniper() -> dict[str, Any]:
+    """Disarm steal sniper mode."""
+    response = await send_daemon_command('stop_sniper')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
 # Config Override Endpoints
 # ============================================================================
 

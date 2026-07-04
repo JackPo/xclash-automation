@@ -216,6 +216,18 @@ TAVERN_MIN_DISPATCH_GAP_MINUTES = 30  # Minimum minutes between dispatching ques
 TAVERN_BLOCKING_FLOW_GUARD_SECONDS = 60   # Block critical flows this long before a tavern completion
 TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600  # Treat completions overdue by up to this as claim-urgent
 TAVERN_PAID_REFRESH_DAILY_CAP = 10        # Max diamond-paid tavern refreshes per day (10 x 100 = 1000 diamonds); confirm up to this, then cancel
+TAVERN_MEGA_REFRESH_ON_GOLD_DAYS = True   # On gold-only VS days (VS_QUESTION_MARK_SKIP_DAYS), use Mega Refresh (bulk re-roll) instead of individual refreshes when no gold quests are dispatchable
+
+# Tavern Steal Sniper mode (exclusive mode: spam-click Steal as its timer expires)
+STEAL_BUTTON_TEMPLATE = "steal_button_4k.png"
+STEAL_BUTTON_THRESHOLD = 0.10          # perfect match ~0.0, garbage floor ~0.15 when absent
+STEAL_TIMER_REGION_OFFSET = (-190, -435, 380, 120)  # OCR region relative to steal button center (dx, dy, w, h) - countdown floats above the button
+STEAL_FINAL_APPROACH_SECONDS = 20      # within this, sniper_tick blocks through the snipe
+STEAL_REFINE_AT_SECONDS = 8            # re-OCR the timer once when this close (drift correction)
+STEAL_SPAM_LEAD = 2.0                  # start spamming this many seconds BEFORE timer hits 0
+STEAL_SPAM_TAIL = 2.0                  # keep spamming this many seconds AFTER timer hits 0
+STEAL_SPAM_TAP_DELAY = 0.03            # sleep between spam taps (adb tap itself adds ~50-100ms)
+SNIPER_TICK_SLEEP = 2.0                # daemon sleep between sniper scans
 
 # Recovery
 UNKNOWN_STATE_TIMEOUT = 180        # Seconds in CONTINUOUS UNKNOWN state before recovery

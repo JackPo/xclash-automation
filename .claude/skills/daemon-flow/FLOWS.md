@@ -438,6 +438,45 @@ python scripts/flows/reinforce_camp_star_flow.py --debug
 5. If Claim → click, dismiss, EXIT tavern
 6. If none → scroll, rescan (max 2 scrolls with no claims)
 
+**Auto-Refresh (dispatch mode)**: when quests are visible but none are
+directly startable (no gold scroll; question-mark also counts except on VS
+skip days), the flow re-rolls the quest list:
+
+- **Individual refresh** (default): Normal-mode `Refresh` button, one re-roll
+  per click, until startable > 0 / signature unchanged / 20-attempt cap.
+- **Mega Refresh** (gold-only VS days 2/6, `TAVERN_MEGA_REFRESH_ON_GOLD_DAYS`):
+  clicks the "Mega" toggle (bottom-right golden book) to enter Mega mode,
+  clicks **Mega Refresh** (bulk re-roll of ALL quests at once), then toggles
+  back to Normal to re-scan. Falls back to individual refresh if the Mega UI
+  is unreachable. `_try_mega_refresh_to_startable()` in tavern_quest_flow.py.
+  - SAFETY: Mega Dispatch sits left of Mega Refresh and differs only by
+    label — the matcher is text-focused, threshold 0.02, and only searches
+    x>=1930 so Mega Dispatch can never be clicked.
+- Both paths confirm the "Spend 100 Diamonds" dialog up to
+  `TAVERN_PAID_REFRESH_DAILY_CAP` (10/day), then cancel.
+
+---
+
+## Tavern Steal Sniper Mode
+
+**Trigger**: manual only — dashboard "Steal Sniper" card or `daemon_cli.py start_sniper`
+
+**Flow**: `scripts/flows/tavern_steal_sniper_flow.py` (`sniper_tick()` called
+from the daemon loop as inline critical flow `tavern_steal_sniper`)
+
+**Sequence**:
+1. Scan (every ~2s) for `steal_button_4k.png` anywhere on screen
+2. Found → OCR countdown at offset (-190, -435, 380, 120) from button center
+3. Lock: "SNIPE ACTIVATED" (log, dashboard toast + live countdown)
+4. T-8s: one re-OCR to correct drift; T-2s → T+2s: spam-tap Steal (~30-60 taps)
+5. Verify: button gone = likely stolen; report result + tap count
+
+**Blocking**: everything except tavern quests — exits itself if a tavern
+completion is imminent (30s buffer). Survives daemon restart (persisted in
+schedule as `sniper_mode`).
+
+**Templates**: `steal_button_4k.png` (146x169, threshold 0.10)
+
 ---
 
 ## Snowman Party Flow (Scaffolding)

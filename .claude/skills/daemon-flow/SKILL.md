@@ -18,6 +18,8 @@ Control the icon daemon via WebSocket commands using `daemon_cli.py`.
 | Clear zombie mode | `python scripts/daemon_cli.py clear_zombie_mode` |
 | Apply title | `python scripts/daemon_cli.py apply_title ministry_of_construction` |
 | Get status | `python scripts/daemon_cli.py status` |
+| Arm steal sniper | `python scripts/daemon_cli.py start_sniper` |
+| Disarm steal sniper | `python scripts/daemon_cli.py stop_sniper` |
 
 ---
 
@@ -64,6 +66,34 @@ python scripts/daemon_cli.py clear_zombie_mode
 - Elite: 20 stamina/rally, 2000 points/rally (15 rallies for 30k)
 - Zombie: 10 stamina/attack, 1000 points/attack (30 attacks for 30k)
 - Mode auto-expires after set duration, reverting to elite
+
+---
+
+## Steal Sniper Mode
+
+Exclusive mode that snipes tavern chests on the WORLD map. Park the game so
+the floating hexagonal **Steal** button and its countdown are visible, then arm.
+
+```bash
+python scripts/daemon_cli.py start_sniper        # Arm until stopped
+python scripts/daemon_cli.py start_sniper 2      # Arm for 2 hours
+python scripts/daemon_cli.py get_sniper_status   # Lock state + countdown
+python scripts/daemon_cli.py stop_sniper         # Disarm
+```
+
+Also on the dashboard: prominent "Steal Sniper" card (top of right rail) with
+ARM SNIPER / DISARM and a live countdown once locked.
+
+**How it works** (`scripts/flows/tavern_steal_sniper_flow.py`):
+- Scans every ~2s for `steal_button_4k.png` (threshold 0.10)
+- On find: OCRs the countdown floating above the button → "SNIPE ACTIVATED" + lock
+- Re-OCRs once at T-8s (drift correction), then spam-taps from **T-2s to T+2s**
+- Verifies afterwards: `button_gone` vs `button_still_present`
+
+**Blocking**: runs as critical flow `tavern_steal_sniper` — blocks ALL other
+flows except tavern quests: if a tavern completion is imminent (30s buffer),
+sniper mode exits itself so the claim machinery can run. Do not pan/zoom
+while armed. Tuning knobs: `STEAL_SPAM_LEAD/TAIL/TAP_DELAY` etc. in config.py.
 
 ---
 
