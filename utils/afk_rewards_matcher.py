@@ -34,7 +34,7 @@ class AfkRewardsMatcher:
     CLICK_Y = 1709
 
     TEMPLATE_NAME = "chest_timer_4k.png"
-    DEFAULT_THRESHOLD = 0.06
+    DEFAULT_THRESHOLD = 0.07
 
     def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         # debug_dir ignored - kept for backward compatibility

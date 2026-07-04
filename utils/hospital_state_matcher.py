@@ -59,6 +59,7 @@ class HospitalStateMatcher:
         "yellow_soldier_barrack_v4_4k.png",
         "yellow_soldier_barrack_v5_4k.png",
         "yellow_soldier_barrack_v6_4k.png",
+        "yellow_soldier_barrack_v7_4k.png",  # Lv10 head: gold visored helmet + red plume
     ]
 
     def __init__(self) -> None:
