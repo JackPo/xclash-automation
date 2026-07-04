@@ -77,4 +77,36 @@ level_crops/
 
 # Windows path-mangled accident files (scripts writing literal 'C:\...' strings as filenames)
 C*Usersmail*
+usersmailxclash*
+
+# Large binary asset dumps / reverse-engineering artifacts (kept local only)
+apks/
+art_assets/
+art_assets_game/
+art_assets_game_base/
+asset_bundles_raw/
+tools/il2cppdumper.zip
+*.apk
+*.exe
+*.zip
+*.xz
+frida-server*
+
+# Bulk data dumps, telemetry, and game-state exports (data/ except tracked JSON configs)
+data/*
+!data/kingdom_titles.json
+!data/*.json.example
+
+# Coverage / temp / scratch
+.coverage
+tmp/
+tmp_*.txt
+temp_releases.json
+
+# Deprecated/backup source snapshots kept local
+*_old_schedule_*.py
+
+# Debug/backup template artifacts (not real ground-truth)
+templates/ground_truth/*.old_pre_*
+templates/ground_truth/tavern_live_*
 *.backup
