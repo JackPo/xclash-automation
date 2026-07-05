@@ -616,14 +616,8 @@ def elite_zombie_flow(
                 unfreeze_result = _check_and_click_unfreeze(adb, win)
 
                 if unfreeze_result == "unfreeze_to_march":
-                    # Unfreezing a frozen zombie opens the SOLO ATTACK march screen
-                    # (troops already loaded, "Victory is assured"). Clicking March
-                    # here LAUNCHES the attack -- that IS the beast-training action
-                    # and scores points. Do NOT loop back to search for a rally: the
-                    # attack is the completed action. (Old behavior re-searched, found
-                    # the same still-frozen zombie, and burned all 3 attempts doing
-                    # nothing -> "Rally button not found" -> 0 rallies.)
-                    _log("  Unfreeze opened attack march screen, clicking March to ATTACK...")
+                    # Unfreeze shows march screen - click march to unfreeze, then retry search for rally
+                    _log("  Unfreeze opened march screen, clicking March to unfreeze...")
                     frame = win.get_screenshot_cv2()
                     found, score, loc = match_template(
                         frame, "march_button_4k.png",
@@ -631,24 +625,22 @@ def elite_zombie_flow(
                         threshold=0.08
                     )
                     if found and loc:
-                        _save_debug_screenshot(frame, "unfreeze_march_attack", click_pos=loc)
-                        adb.tap(*loc, source="flow:elite_zombie:unfreeze_attack_march")
-                        time.sleep(SCREEN_TRANSITION_DELAY)
-                        # Confirm the attack launched: the march screen should close.
-                        after = win.get_screenshot_cv2()
-                        still_open, _, _ = match_template(
-                            after, "march_button_4k.png",
-                            search_region=(1500, 1400, 900, 500),
-                            threshold=0.08
-                        )
-                        if still_open:
-                            # March didn't launch (not enough troops / stale panel).
-                            _log("  March did not launch after unfreeze attack -- treating as failed")
-                            return_to_base_view(adb, win, target=ViewState.WORLD, debug=False)
-                            return False
-                        _log("  Unfreeze ATTACK launched (march away) -- counts as rally")
+                        _save_debug_screenshot(frame, "unfreeze_march", click_pos=loc)
+                        adb.tap(*loc, source="flow:elite_zombie:march_to_unfreeze")
+                        time.sleep(3.0)  # Wait for march to complete unfreezing
+                        _log("  Zombie unfrozen, need to search again for rally...")
+                        # Go back to WORLD view and restart search
                         return_to_base_view(adb, win, target=ViewState.WORLD, debug=False)
-                        return True
+                        time.sleep(1.0)
+                        # Click magnifying glass again (must be in WORLD view)
+                        adb.tap(*MAGNIFYING_GLASS_CLICK, source="flow:elite_zombie:magnifying_glass_retry")
+                        time.sleep(SCREEN_TRANSITION_DELAY)
+                        # Re-apply level adjustment (panel reset to default)
+                        if target_level is not None or (level_clicks is not None and level_clicks != 0):
+                            time.sleep(0.5)  # Wait for slider to be ready
+                            _apply_level_adjustment(adb, win, level_clicks, target_level)
+                            time.sleep(0.3)
+                        continue  # Retry search
                     else:
                         _log("FAILED: March button not found after unfreeze")
                         return_to_base_view(adb, win, debug=False)
