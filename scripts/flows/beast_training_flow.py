@@ -461,6 +461,8 @@ def aggressive_beast_training_flow(
             # Step 4: Do the rallies for this iteration
             logger.info(f"Step 2: Doing {rallies_needed} rallies...")
             rallies_done_this_iteration = 0
+            rally_attempts_this_iteration = 0  # times we actually reached the rally call
+            stamina_blocked = False            # True only if stamina genuinely ran out
 
             for i in range(rallies_needed):
                 logger.info(f"  Rally {i+1}/{rallies_needed}...")
@@ -491,6 +493,7 @@ def aggressive_beast_training_flow(
 
                 if stamina < ELITE_STAMINA_COST:
                     logger.warning(f"    Cannot get enough stamina ({stamina} < {ELITE_STAMINA_COST}), stopping rallies")
+                    stamina_blocked = True
                     break
 
                 # Return to base view before rally
@@ -499,6 +502,7 @@ def aggressive_beast_training_flow(
 
                 # Do the rally
                 logger.info(f"    Executing elite zombie rally...")
+                rally_attempts_this_iteration += 1
                 rally_success = elite_zombie_flow(adb, target_level=ELITE_ZOMBIE_TARGET_LEVEL)
 
                 if rally_success:
@@ -512,10 +516,23 @@ def aggressive_beast_training_flow(
 
             logger.info(f"  Iteration {iteration}: {rallies_done_this_iteration} rallies done")
 
-            # If no rallies done this iteration and still short, we have a problem
+            # If no rallies done this iteration and still short, figure out WHY.
+            # Only report "Out of stamina" when stamina genuinely ran out with no
+            # rally even attempted -- the daemon latches the whole 4h block on that
+            # string, so mislabeling a transient rally failure (e.g. every nearby
+            # zombie frozen) as stamina permanently abandons the chest. When rallies
+            # were attempted but failed, report a non-latching error so the daemon
+            # retries at the next checkpoint (zombies unfreeze over time).
             if rallies_done_this_iteration == 0 and rallies_needed > 0:
-                logger.error("No rallies done but still need more - out of stamina?")
-                result["error"] = "Out of stamina"
+                if stamina_blocked and rally_attempts_this_iteration == 0:
+                    logger.error("No rallies done - genuinely out of stamina")
+                    result["error"] = "Out of stamina"
+                else:
+                    logger.error(
+                        f"No rallies done but {rally_attempts_this_iteration} attempted "
+                        f"- rally failures (frozen/no zombie available), will retry later"
+                    )
+                    result["error"] = "Rallies failed (no rally-able zombie)"
                 break
 
             # Wait for marches to complete before re-checking score

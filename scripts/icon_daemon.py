@@ -1669,6 +1669,11 @@ class IconDaemon:
         self.vs_chest_last_day = state.get("vs_chest_last_day")
         self.beast_training_last_rally = state.get("beast_training_last_rally", 0)
         self.beast_training_rally_count = state.get("beast_training_rally_count", 0)
+        # Cooldown before retrying the aggressive flow after a NON-stamina failure
+        # (e.g. all nearby zombies frozen). Lets zombies unfreeze without thrashing
+        # the heavy aggressive flow every daemon loop. In-memory only.
+        self._beast_aggressive_retry_after = 0.0
+        self.BEAST_AGGRESSIVE_RETRY_COOLDOWN = 300  # 5 min
         self.last_rally_march_click = state.get("last_rally_march_click", 0)
         self.union_boss_mode_until = state.get("union_boss_mode_until", 0)
         self.rally_march_suppress_until = state.get("rally_march_suppress_until", 0)
@@ -3516,7 +3521,7 @@ class IconDaemon:
                     phase_state = self.scheduler.get_arms_race_state()
                     aggressive_60_block = phase_state.get("beast_training_aggressive_60_block")
 
-                    if aggressive_60_block != str(block_start):  # Not done for this block
+                    if aggressive_60_block != str(block_start) and time.time() >= self._beast_aggressive_retry_after:  # Not done + not in retry cooldown
                         self.logger.info(f"[{iteration}] BEAST TRAINING: 60-MIN CHECKPOINT - Running aggressive flow...")
 
                         result = aggressive_beast_training_flow(
@@ -3546,12 +3551,21 @@ class IconDaemon:
                                     f"[{iteration}] BEAST TRAINING: marking checkpoint(s) complete for block "
                                     f"{block_start} after Out of stamina to prevent retry loop"
                                 )
+                            else:
+                                # Non-stamina failure (e.g. all zombies frozen): DON'T
+                                # latch the block -- just cool down and retry so the
+                                # zombies have time to unfreeze.
+                                self._beast_aggressive_retry_after = time.time() + self.BEAST_AGGRESSIVE_RETRY_COOLDOWN
+                                self.logger.warning(
+                                    f"[{iteration}] BEAST TRAINING: 60-min failed (non-stamina) - "
+                                    f"retrying in {self.BEAST_AGGRESSIVE_RETRY_COOLDOWN // 60}min (not latching block)"
+                                )
 
                     # 30-MINUTE CHECKPOINT: Re-check and do remaining rallies
                     if arms_race_remaining_mins <= 30:
                         aggressive_30_block = phase_state.get("beast_training_aggressive_30_block")
 
-                        if aggressive_30_block != str(block_start):  # Not done for this block
+                        if aggressive_30_block != str(block_start) and time.time() >= self._beast_aggressive_retry_after:  # Not done + not in retry cooldown
                             self.logger.info(f"[{iteration}] BEAST TRAINING: 30-MIN CHECKPOINT - Re-checking progress...")
 
                             result = aggressive_beast_training_flow(
@@ -3574,6 +3588,13 @@ class IconDaemon:
                                     self.logger.warning(
                                         f"[{iteration}] BEAST TRAINING: marking 30-min checkpoint complete for block "
                                         f"{block_start} after Out of stamina to prevent retry loop"
+                                    )
+                                else:
+                                    # Non-stamina failure: cool down and retry (don't latch).
+                                    self._beast_aggressive_retry_after = time.time() + self.BEAST_AGGRESSIVE_RETRY_COOLDOWN
+                                    self.logger.warning(
+                                        f"[{iteration}] BEAST TRAINING: 30-min failed (non-stamina) - "
+                                        f"retrying in {self.BEAST_AGGRESSIVE_RETRY_COOLDOWN // 60}min (not latching block)"
                                     )
 
                 # Enhance Hero: last N minutes, runs once per block
