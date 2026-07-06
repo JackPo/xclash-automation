@@ -218,6 +218,12 @@ TAVERN_OVERDUE_GUARD_GRACE_SECONDS = 600  # Treat completions overdue by up to t
 TAVERN_PAID_REFRESH_DAILY_CAP = 10        # Max diamond-paid tavern refreshes per day (10 x 100 = 1000 diamonds); confirm up to this, then cancel
 TAVERN_MEGA_REFRESH_ON_GOLD_DAYS = True   # On gold-only VS days (VS_QUESTION_MARK_SKIP_DAYS), use Mega Refresh (bulk re-roll) instead of individual refreshes when no gold quests are dispatchable
 
+# Bind address for the daemon's control APIs (WebSocket :9876 and dashboard :8080).
+# "127.0.0.1" = localhost only. "0.0.0.0" = reachable on the LAN (needed so the
+# fremontbeast xclash-mcp server can reach this box; access is restricted to
+# fremontbeast by a UniFi inter-VLAN firewall rule). Override in config_local.py.
+API_BIND_HOST = "0.0.0.0"
+
 # Tavern Steal Sniper mode (exclusive mode: spam-click Steal as its timer expires)
 STEAL_BUTTON_TEMPLATE = "steal_button_4k.png"
 STEAL_BUTTON_THRESHOLD = 0.10          # perfect match ~0.0, garbage floor ~0.15 when absent

@@ -258,6 +258,8 @@ from config import (
     # WebSocket API server
     DAEMON_SERVER_PORT,
     DAEMON_SERVER_ENABLED,
+    # Control API bind address (localhost vs LAN)
+    API_BIND_HOST,
     # Dashboard web server
     DASHBOARD_ENABLED,
     DASHBOARD_PORT,
@@ -824,6 +826,42 @@ class IconDaemon:
         self.last_union_war_panel_back_click: float = 0
         self.UNION_WAR_PANEL_BACK_COOLDOWN = 2.0
 
+        # Load runtime state from persistent storage
+        self._load_runtime_state()
+
+        # Start the control APIs FIRST, before the (potentially blocking) startup
+        # recovery. return_to_base_view can loop for a long time when the game is
+        # unreachable (server maintenance, occluded window), and we don't want that
+        # to prevent status/control access. The WebSocket + dashboard only expose
+        # the daemon object, which is fully constructed by now.
+
+        # Start WebSocket API server (for external control via daemon_cli.py / MCP)
+        if DAEMON_SERVER_ENABLED:
+            try:
+                from utils.daemon_server import DaemonWebSocketServer
+                self.command_server = DaemonWebSocketServer(self, port=DAEMON_SERVER_PORT)
+                self.command_server.start()
+                self.logger.info(f"STARTUP: WebSocket API server started on ws://{API_BIND_HOST}:{DAEMON_SERVER_PORT}")
+            except ImportError as e:
+                self.logger.warning(f"STARTUP: WebSocket server disabled (websockets not installed): {e}")
+            except Exception as e:
+                self.logger.error(f"STARTUP: WebSocket server failed to start: {e}")
+        else:
+            self.logger.info("STARTUP: WebSocket API server disabled by config")
+
+        # Start Dashboard web server
+        if DASHBOARD_ENABLED:
+            try:
+                from dashboard.server import start_dashboard_server
+                dashboard_port = start_dashboard_server(daemon_instance=self, port=DASHBOARD_PORT)
+                self.logger.info(f"STARTUP: Dashboard running at http://{API_BIND_HOST}:{dashboard_port}")
+            except ImportError as e:
+                self.logger.warning(f"STARTUP: Dashboard disabled (missing dependencies): {e}")
+            except Exception as e:
+                self.logger.error(f"STARTUP: Dashboard failed to start: {e}")
+        else:
+            self.logger.info("STARTUP: Dashboard disabled by config")
+
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
         # - Runs setup_bluestacks.py
@@ -842,36 +880,6 @@ class IconDaemon:
         missed = self.scheduler.get_missed_flows()
         if missed:
             self.logger.info(f"STARTUP: Missed flows (will catch up): {missed}")
-
-        # Load runtime state from persistent storage
-        self._load_runtime_state()
-
-        # Start WebSocket API server (for external control via daemon_cli.py)
-        if DAEMON_SERVER_ENABLED:
-            try:
-                from utils.daemon_server import DaemonWebSocketServer
-                self.command_server = DaemonWebSocketServer(self, port=DAEMON_SERVER_PORT)
-                self.command_server.start()
-                self.logger.info(f"STARTUP: WebSocket API server started on ws://localhost:{DAEMON_SERVER_PORT}")
-            except ImportError as e:
-                self.logger.warning(f"STARTUP: WebSocket server disabled (websockets not installed): {e}")
-            except Exception as e:
-                self.logger.error(f"STARTUP: WebSocket server failed to start: {e}")
-        else:
-            self.logger.info("STARTUP: WebSocket API server disabled by config")
-
-        # Start Dashboard web server
-        if DASHBOARD_ENABLED:
-            try:
-                from dashboard.server import start_dashboard_server
-                dashboard_port = start_dashboard_server(daemon_instance=self, port=DASHBOARD_PORT)
-                self.logger.info(f"STARTUP: Dashboard running at http://localhost:{dashboard_port}")
-            except ImportError as e:
-                self.logger.warning(f"STARTUP: Dashboard disabled (missing dependencies): {e}")
-            except Exception as e:
-                self.logger.error(f"STARTUP: Dashboard failed to start: {e}")
-        else:
-            self.logger.info("STARTUP: Dashboard disabled by config")
 
         self.logger.info("STARTUP: Ready")
 

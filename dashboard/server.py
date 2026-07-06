@@ -1373,9 +1373,10 @@ def start_dashboard_server(daemon_instance: Any = None, port: int | None = None)
 
     def run_server():
         try:
+            from config import API_BIND_HOST
             config = uvicorn.Config(
                 app,
-                host="127.0.0.1",
+                host=API_BIND_HOST,
                 port=port,
                 log_level="warning",
                 access_log=False,

@@ -102,8 +102,12 @@ class DaemonWebSocketServer:
         if ws_serve is None:
             return
         try:
-            async with ws_serve(self._handle_client, "127.0.0.1", self.port):
-                logger.info(f"WebSocket server listening on ws://127.0.0.1:{self.port}")
+            try:
+                from config import API_BIND_HOST as _bind_host
+            except Exception:
+                _bind_host = "127.0.0.1"
+            async with ws_serve(self._handle_client, _bind_host, self.port):
+                logger.info(f"WebSocket server listening on ws://{_bind_host}:{self.port}")
                 # Run until stopped
                 while self.running:
                     await asyncio.sleep(0.5)
