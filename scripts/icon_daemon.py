@@ -867,10 +867,33 @@ class IconDaemon:
         # - Runs setup_bluestacks.py
         # - Gets to TOWN/WORLD via back button clicking
         # - Restarts and retries if stuck
+        #
+        # BOUNDED so it can never wedge the daemon: if the game is unreachable
+        # (server maintenance, occluded window) recovery would otherwise loop
+        # forever and __init__ would never return -> main loop never runs ->
+        # status/control API hangs. With a deadline it gives up after N seconds,
+        # __init__ completes, and the main loop keeps retrying recovery in the
+        # background (see run()'s UNKNOWN-state handling) while status/flows work.
+        # Max seconds the blocking startup recovery may run before the daemon
+        # comes up anyway and defers further recovery to the main loop.
+        self.STARTUP_RECOVERY_MAX_SECONDS = 90
+        # Max seconds any single main-loop recovery attempt may block, so the loop
+        # keeps cycling (re-checking whether the game is back, servicing the control
+        # API) instead of freezing for minutes when the game is down/occluded.
+        self.MAIN_LOOP_RECOVERY_MAX_SECONDS = 45
         if self._check_ui_timeout_burst_and_restart(iteration=0):
             self.logger.info("STARTUP: ui_timeout burst handled, proceeding with base recovery after restart")
         self.logger.info("STARTUP: Running recovery to ensure ready state...")
-        return_to_base_view(self.adb, self.windows_helper, debug=True, respect_idle=False)
+        startup_recovery_ok = return_to_base_view(
+            self.adb, self.windows_helper, debug=True, respect_idle=False,
+            deadline=time.time() + self.STARTUP_RECOVERY_MAX_SECONDS,
+        )
+        if not startup_recovery_ok:
+            self.logger.warning(
+                f"STARTUP: base recovery did not reach TOWN/WORLD within "
+                f"{self.STARTUP_RECOVERY_MAX_SECONDS}s (game may be down/occluded) - "
+                f"coming up anyway; main loop will keep retrying in the background"
+            )
 
         # Log scheduler status on startup
         self.logger.info("STARTUP: Scheduler status:")
@@ -2246,7 +2269,8 @@ class IconDaemon:
                     # Only recover if user is idle - don't interrupt active user
                     if idle_secs_early >= self.IDLE_THRESHOLD:
                         self.logger.warning(f"[{iteration}] xclash not in foreground, user idle - running full recovery...")
-                        return_to_base_view(self.adb, self.windows_helper, debug=True)
+                        return_to_base_view(self.adb, self.windows_helper, debug=True,
+                                            deadline=time.time() + self.MAIN_LOOP_RECOVERY_MAX_SECONDS)
                     else:
                         self.logger.debug(f"[{iteration}] xclash not in foreground, user active (idle={idle_secs_early:.1f}s) - skipping recovery")
                     continue  # Skip this iteration, start fresh
@@ -3336,7 +3360,8 @@ class IconDaemon:
                             self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY (attempt {self.unknown_recovery_count}): In UNKNOWN for {unknown_duration:.0f}s, idle for {idle_str}, running return_to_base_view...")
                             # DEBUG: Capture screenshot before recovery
                             get_daemon_debug().capture(frame, iteration, view_state_str, "recovery", f"attempt_{self.unknown_recovery_count}")
-                            success = return_to_base_view(self.adb, self.windows_helper, debug=True)
+                            success = return_to_base_view(self.adb, self.windows_helper, debug=True,
+                                                          deadline=time.time() + self.MAIN_LOOP_RECOVERY_MAX_SECONDS)
                             if success:
                                 self.logger.info(f"[{iteration}] UNKNOWN FULL RECOVERY: Successfully reached base view")
                             else:
