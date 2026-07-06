@@ -2921,9 +2921,12 @@ class IconDaemon:
                 beast_training_priority = False
                 harvest_bubbles_enabled = self._get_config('HARVEST_BUBBLES_ENABLED', True)
                 beast_training_enabled = self._get_config('ARMS_RACE_BEAST_TRAINING_ENABLED', ARMS_RACE_BEAST_TRAINING_ENABLED)
-                # Require stronger certainty before any harvest click candidate is queued.
-                # This prevents borderline template matches from hijacking UI interactions.
-                HARVEST_STRONG_MATCH_MAX = 0.02
+                # Harvest click certainty is governed per-bubble by each matcher's
+                # own calibrated threshold (config THRESHOLDS_MASKED/SQDIFF): is_present()
+                # returns True only when score <= that bubble's threshold. A previous
+                # flat 0.02 gate here OVERRODE those and silently suppressed corn/gem/
+                # cabbage (calibrated at 0.05), so a real bubble matching at 0.02-0.05
+                # was detected but never clicked. Trust is_present() instead.
                 if (beast_training_enabled and
                     arms_race_event == "Mystic Beast Training" and
                     arms_race_remaining_mins <= self.ARMS_RACE_BEAST_TRAINING_LAST_MINUTES and
@@ -2958,7 +2961,7 @@ class IconDaemon:
                     ("equipment_enhancement", equip_present, equip_score, equipment_enhancement_flow),
                 ]
                 for bubble_name, bubble_present, bubble_score, bubble_flow in harvest_bubbles:
-                    if (harvest_bubbles_enabled and bubble_present and bubble_score <= HARVEST_STRONG_MATCH_MAX and
+                    if (harvest_bubbles_enabled and bubble_present and
                         world_present and harvest_aligned and not beast_training_priority and self._is_user_idle()):
                         flow_candidates.append(FlowCandidate(
                             name=bubble_name,
