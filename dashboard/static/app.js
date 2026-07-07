@@ -19,6 +19,8 @@
                 sniperMode: { active: false, state: 'idle', seconds_left: null, last_result: null, snipes_attempted: 0, taps_last_snipe: 0, hours_remaining: null },
                 assistMode: { active: false, hours_remaining: null },
                 pythonRallyMode: { active: false, hours_remaining: null },
+                classSkills: { skills: [], read_at: null },
+                classSkillsReading: false,
                 // Action capture viewer
                 captureState: { enabled: false, degraded: false, session_id: null, format: null, disk_gb: null, max_gb: null, queue_depth: null, stats: null },
                 captureSessions: [],
@@ -136,6 +138,7 @@
                         this.loadSniperMode(),
                         this.loadAssistMode(),
                         this.loadPythonRallyMode(),
+                        this.loadClassSkills(),
                         this.loadConfig(),
                         this.refreshBlocks(),
                         this.refreshEvents(),
@@ -148,6 +151,7 @@
                         this.loadSniperMode();
                         this.loadAssistMode();
                         this.loadPythonRallyMode();
+                        this.loadClassSkills();
                         // Refresh under attack state every 10s
                         this.refreshUnderAttack();
                         // Refresh scheduled shield
@@ -1103,6 +1107,40 @@
                         const data = await res.json();
                         this.pythonRallyMode = { active: data.active || false, hours_remaining: data.hours_remaining };
                     } catch (e) { console.error('Python rally mode load failed:', e); }
+                },
+
+                async loadClassSkills() {
+                    try {
+                        const res = await fetch('/api/class-skills');
+                        const data = await res.json();
+                        this.classSkills = { skills: data.skills || [], read_at: data.read_at || null };
+                    } catch (e) { console.error('Class skills load failed:', e); }
+                },
+                fmtDuration(secs) {
+                    if (secs === null || secs === undefined) return '—';
+                    if (secs <= 0) return 'Ready';
+                    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+                    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                },
+                async readClassSkills() {
+                    if (this.classSkillsReading) return;
+                    this.classSkillsReading = true;
+                    try {
+                        const res = await fetch('/api/class-skills/read', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) { this.showToast('Read class skills', 'success'); }
+                        else { this.showToast(`Failed: ${data.detail}`, 'error'); }
+                        await this.loadClassSkills();
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                    finally { this.classSkillsReading = false; }
+                },
+                fmtClassSkillsAge(iso) {
+                    try {
+                        const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+                        if (mins < 1) return 'just now';
+                        if (mins < 60) return `${mins}m ago`;
+                        return `${Math.floor(mins / 60)}h ago`;
+                    } catch (e) { return ''; }
                 },
 
                 async startPythonRally() {

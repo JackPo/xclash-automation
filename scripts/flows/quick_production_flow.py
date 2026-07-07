@@ -95,6 +95,25 @@ def quick_production_flow(
     _save_debug_screenshot(win, "00_initial")
 
     try:
+        # PRE-CHECK cooldown BEFORE touching the user's title. Quick Production
+        # applies the Minister of Domestic Affairs title (+100% output) to double
+        # the reward - but that title swap must only happen when QP is actually
+        # going to fire. Otherwise every cooldown-skip run would hijack the user's
+        # title for nothing. This read-only check does NOT apply any title.
+        print("    [QUICK-PROD] Pre-check: reading Quick Production cooldown (no title change)...")
+        precheck = verify_quick_production_cooldown_flow(adb, win, debug=debug)
+        remaining = precheck.get("remaining_seconds")
+        if not precheck.get("ok"):
+            print(f"    [QUICK-PROD] Availability unknown ({precheck.get('reason')}) - NOT applying title, retry later")
+            return {"success": False, "skipped": True, "reason": precheck.get("reason"),
+                    "cooldown_seconds": 1800}
+        if remaining and remaining > 0:
+            hrs, mins = remaining // 3600, (remaining % 3600) // 60
+            print(f"    [QUICK-PROD] On cooldown ~{hrs}h{mins}m - skipping, title left untouched")
+            return {"success": False, "skipped": True, "on_cooldown": True,
+                    "cooldown_seconds": remaining + 300, "raw_text": precheck.get("raw_text")}
+        print("    [QUICK-PROD] Available -> proceeding (title swap is now warranted)")
+
         # Step 0: Apply Minister of Domestic Affairs title for +100% resource output
         # Note: return_to_base=False because go_to_town() below is more reliable
         # (return_to_base_view can exit early if user activity is detected)
@@ -376,142 +395,146 @@ def _parse_cooldown_text(text: str) -> int | None:
     return total if found_any else None
 
 
+# Class Skill panel layout (4K): three skill rows evenly spaced, Quick Production
+# is row 3. Anchor off the QP icon and step up by the pitch for rows 2 and 1.
+CLASS_SKILL_ROW_PITCH = 348
+CLASS_SKILL_QP_ROW_FALLBACK_CY = 1411
+
+
+def _open_class_skill_panel(adb: ADBHelper, win: WindowsScreenshotHelper, tag: str = "cskills"):
+    """Navigate TOWN->WORLD->castle->Class Skill button and wait for the panel.
+
+    Returns (ok, frame, reason). Leaves the panel OPEN on success (caller must
+    return_to_base_view afterwards).
+    """
+    go_to_town(adb, debug=False)
+    time.sleep(1.0)
+    go_to_world(adb, debug=False)
+    time.sleep(1.0)
+
+    center = None
+    for retry in range(3):
+        if retry > 0:
+            go_to_town(adb, debug=False); time.sleep(1.0)
+            go_to_world(adb, debug=False); time.sleep(1.0)
+        adb.tap(*QUICK_PROD_CASTLE_CLICK, source=f"flow:{tag}:castle")
+        time.sleep(1.5)
+        frame = win.get_screenshot_cv2()
+        found, _score, center = match_template(
+            frame, "class_skill_button_4k.png", threshold=CLASS_SKILL_BUTTON_THRESHOLD,
+        )
+        if found:
+            break
+        return_to_base_view(adb, win, debug=False)
+        time.sleep(0.5)
+    else:
+        return False, None, "castle popup did not open (protection mode? wrong centering?)"
+
+    adb.tap(*center, source=f"flow:{tag}:class_skill")
+    time.sleep(1.0)
+
+    panel_score = 1.0
+    for _attempt in range(6):
+        time.sleep(0.5)
+        frame = win.get_screenshot_cv2()
+        panel_found, panel_score, _ = match_template(
+            frame, "class_skill_header_4k.png", threshold=CLASS_SKILL_HEADER_THRESHOLD,
+        )
+        if panel_found:
+            return True, frame, None
+    return False, None, f"Class Skill panel did not open (score={panel_score:.4f})"
+
+
+def _parse_skill_block(block_text: str):
+    """Split a class-skill OCR block into (name, effect, cooldown_spec)."""
+    lines = [l.strip() for l in (block_text or "").split("\n") if l.strip()]
+    name = lines[0] if lines else ""
+    effect = next((l for l in lines if l.lower().startswith("upon use")), "")
+    cooldown = next((l for l in lines if "cooldown" in l.lower()), "")
+    return name, effect, cooldown
+
+
+def read_class_skills(adb: ADBHelper, win: WindowsScreenshotHelper | None = None,
+                      debug: bool = False) -> dict:
+    """Open the Class Skill panel and OCR ALL skills: effect (description) + the
+    current cooldown status (Ready or countdown). Records the readout to state
+    (utils.current_state.update_class_skills) for the dashboard portal.
+
+    Returns {"ok": bool, "skills": [{name, effect, cooldown, status,
+    remaining_seconds, ready}, ...], "reason": str|None}.
+    """
+    if win is None:
+        win = WindowsScreenshotHelper()
+    from utils.ocr_client import ocr_extract_text
+    from utils.current_state import update_class_skills
+
+    try:
+        ok, frame, reason = _open_class_skill_panel(adb, win, tag="cskills")
+        if not ok:
+            return_to_base_view(adb, win, debug=False)
+            return {"ok": False, "skills": [], "reason": reason}
+
+        # Anchor row 3 (Quick Production) via its icon; step up by pitch for 2 & 1.
+        qp_found, _qs, qp_center = match_template(
+            frame, "quick_production_icon_4k.png", threshold=0.15,
+        )
+        qp_cy = qp_center[1] if qp_found else CLASS_SKILL_QP_ROW_FALLBACK_CY
+        rows_cy = [qp_cy - 2 * CLASS_SKILL_ROW_PITCH, qp_cy - CLASS_SKILL_ROW_PITCH, qp_cy]
+
+        skills = []
+        for cy in rows_cy:
+            block = ocr_extract_text(
+                frame, region=(1590, cy - 135, 660, 260),
+                prompt=("Read all text in this class skill entry verbatim: the skill "
+                        "name, its description, and the Cooldown line. Return the text."),
+            )
+            status = ocr_extract_text(
+                frame, region=(1590, cy + 38, 440, 82),
+                prompt=("Read the status: either the word 'Ready' or a countdown like "
+                        "'05:14:32' or '23h 12m'. Return only that."),
+            )
+            name, effect, cooldown = _parse_skill_block(block)
+            remaining = _parse_cooldown_text(status)
+            skills.append({
+                "name": name, "effect": effect, "cooldown": cooldown,
+                "status": (status or "").strip(),
+                "remaining_seconds": remaining,
+                "ready": remaining == 0,
+            })
+            print(f"    [CSKILLS] {name!r} status={status!r} remaining={remaining}")
+
+        update_class_skills(skills)
+        return_to_base_view(adb, win, debug=False)
+        return {"ok": True, "skills": skills, "reason": None}
+
+    except Exception as e:
+        print(f"    [CSKILLS] ERROR: {e}")
+        try:
+            return_to_base_view(adb, win, debug=False)
+        except Exception as nav_err:
+            print(f"    [CSKILLS] return_to_base_view failed during cleanup: {nav_err}")
+        return {"ok": False, "skills": [], "reason": f"exception: {e}"}
+
+
 def verify_quick_production_cooldown_flow(
     adb: ADBHelper,
     win: WindowsScreenshotHelper | None = None,
     debug: bool = False,
 ) -> dict:
+    """Read-only Quick Production cooldown check. Now reads the WHOLE Class Skill
+    panel (all skills + effects + timers, recorded to state for the dashboard) via
+    read_class_skills, and returns the Quick Production entry in the original
+    format for backward compatibility (dashboard "Mark Done", the QP pre-check).
+
+    Returns {"ok", "remaining_seconds", "raw_text", "reason"}.
     """
-    Navigate to the Class Skill panel and OCR the Quick Production cooldown
-    timer. Does NOT apply any title and does NOT click Use. Read-only check
-    used by the dashboard "Mark Done" button to discover the real next-run time.
-
-    Returns dict:
-        {
-          "ok": bool,
-          "remaining_seconds": int | None,   # 0 = available now, None = couldn't determine
-          "raw_text": str | None,            # whatever OCR returned
-          "reason": str | None,              # error / fallback reason
-        }
-    """
-    if win is None:
-        win = WindowsScreenshotHelper()
-
-    print("    [QP-VERIFY] Starting cooldown verification...")
-    _save_debug_screenshot(win, "verify_00_initial")
-
-    try:
-        # TOWN -> WORLD (centers on castle)
-        print("    [QP-VERIFY] TOWN -> WORLD")
-        go_to_town(adb, debug=False)
-        time.sleep(1.0)
-        go_to_world(adb, debug=False)
-        time.sleep(1.0)
-        _save_debug_screenshot(win, "verify_01_world")
-
-        # Click castle, verify popup, click Class Skill button
-        # Reuse same retry pattern as main flow
-        MAX_RETRIES = 3
-        center = None
-        for retry in range(MAX_RETRIES):
-            if retry > 0:
-                print(f"    [QP-VERIFY] Retry {retry}: re-navigating...")
-                go_to_town(adb, debug=False); time.sleep(1.0)
-                go_to_world(adb, debug=False); time.sleep(1.0)
-
-            print(f"    [QP-VERIFY] Clicking castle at {QUICK_PROD_CASTLE_CLICK}")
-            adb.tap(*QUICK_PROD_CASTLE_CLICK, source="flow:qp_verify:castle")
-            time.sleep(1.5)
-            _save_debug_screenshot(win, f"verify_02_popup_try{retry}")
-
-            frame = win.get_screenshot_cv2()
-            found, score, center = match_template(
-                frame, "class_skill_button_4k.png",
-                threshold=CLASS_SKILL_BUTTON_THRESHOLD,
-            )
-            if found:
-                print(f"    [QP-VERIFY] Class Skill button at {center} (score={score:.4f})")
-                break
-            print(f"    [QP-VERIFY] Class Skill button not found (score={score:.4f}); dismissing popup")
-            return_to_base_view(adb, win, debug=False)
-            time.sleep(0.5)
-        else:
-            _save_debug_screenshot(win, "verify_FAIL_no_class_skill_button")
-            return_to_base_view(adb, win, debug=False)
-            return {"ok": False, "remaining_seconds": None, "raw_text": None,
-                    "reason": "castle popup did not open (protection mode? wrong centering?)"}
-
-        adb.tap(*center, source="flow:qp_verify:class_skill")
-        time.sleep(1.0)
-
-        # Wait for Class Skill panel
-        panel_found = False
-        panel_score = 1.0
-        frame = None
-        for attempt in range(6):
-            time.sleep(0.5)
-            frame = win.get_screenshot_cv2()
-            panel_found, panel_score, _ = match_template(
-                frame, "class_skill_header_4k.png",
-                threshold=CLASS_SKILL_HEADER_THRESHOLD,
-            )
-            if panel_found:
-                break
-        if not panel_found:
-            _save_debug_screenshot(win, "verify_FAIL_no_panel")
-            return_to_base_view(adb, win, debug=False)
-            return {"ok": False, "remaining_seconds": None, "raw_text": None,
-                    "reason": f"Class Skill panel did not open (score={panel_score:.4f})"}
-
-        _save_debug_screenshot(win, "verify_03_panel")
-
-        # Find Quick Production row
-        qp_found, qp_score, qp_center = match_template(
-            frame, "quick_production_icon_4k.png", threshold=0.15,
-        )
-        if not qp_found:
-            _save_debug_screenshot(win, "verify_FAIL_no_qp_icon")
-            return_to_base_view(adb, win, debug=False)
-            return {"ok": False, "remaining_seconds": None, "raw_text": None,
-                    "reason": f"Quick Production icon not found (score={qp_score:.4f})"}
-
-        qp_y = qp_center[1]
-        # If a Use button is visible -> skill is available now (no cooldown)
-        use_found, _, _ = match_template(
-            frame, "class_skill_use_button_4k.png",
-            search_region=(1920, qp_y - 60, 800, 120), threshold=0.15,
-        )
-        if use_found:
-            print("    [QP-VERIFY] Use button visible -> available NOW")
-            return_to_base_view(adb, win, debug=False)
-            return {"ok": True, "remaining_seconds": 0, "raw_text": "Use button visible",
-                    "reason": None}
-
-        # OCR the cooldown text in the same row
-        from utils.ocr_client import ocr_extract_text
-        ocr_region = (1920, qp_y - 60, 800, 120)  # x, y, w, h
-        text = ocr_extract_text(
-            frame, region=ocr_region,
-            prompt="Read the cooldown timer text. Examples: '23h 12m', '1d 4h', '00:14:32'. Return only the time string, nothing else.",
-        )
-        print(f"    [QP-VERIFY] OCR text: {text!r}")
-        _save_debug_screenshot(win, "verify_04_ocr_region")
-
-        remaining = _parse_cooldown_text(text)
-        return_to_base_view(adb, win, debug=False)
-
-        if remaining is None:
-            return {"ok": False, "remaining_seconds": None, "raw_text": text,
-                    "reason": "OCR returned unparseable text"}
-        return {"ok": True, "remaining_seconds": remaining, "raw_text": text,
-                "reason": None}
-
-    except Exception as e:
-        print(f"    [QP-VERIFY] ERROR: {e}")
-        _save_debug_screenshot(win, f"verify_ERROR_{type(e).__name__}")
-        try:
-            return_to_base_view(adb, win, debug=False)
-        except Exception as nav_err:
-            print(f"    [QP-VERIFY] return_to_base_view failed during cleanup: {nav_err}")
+    result = read_class_skills(adb, win, debug=debug)
+    if not result.get("ok"):
         return {"ok": False, "remaining_seconds": None, "raw_text": None,
-                "reason": f"exception: {e}"}
+                "reason": result.get("reason")}
+    qp = next((s for s in result["skills"] if "quick production" in s["name"].lower()), None)
+    if qp is None:
+        return {"ok": False, "remaining_seconds": None, "raw_text": None,
+                "reason": "Quick Production row not found in panel readout"}
+    return {"ok": True, "remaining_seconds": qp["remaining_seconds"],
+            "raw_text": qp["status"], "reason": None}

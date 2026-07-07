@@ -1173,6 +1173,30 @@ async def api_ac_stop() -> dict[str, Any]:
 
 
 # ============================================================================
+# Class Skills (Class Skill panel readout: effects + cooldown timers)
+# ============================================================================
+
+@app.get("/api/class-skills")
+async def api_class_skills() -> dict[str, Any]:
+    """Last-read Class Skill panel: all skills with effect + cooldown status."""
+    try:
+        from utils.current_state import get_class_skills
+        data = get_class_skills() or {}
+        return {"skills": data.get("skills", []), "read_at": data.get("read_at")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/class-skills/read")
+async def api_class_skills_read() -> dict[str, Any]:
+    """Trigger an on-demand read of the Class Skill panel (navigates the game)."""
+    response = await send_daemon_command('read_class_skills')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
 # Config Override Endpoints
 # ============================================================================
 

@@ -708,3 +708,22 @@ def update_quick_production(success: bool = True) -> None:
 def get_quick_production() -> dict[str, Any]:
     """Get quick production state from state file."""
     return load_state().get("quick_production", {})
+
+
+def update_class_skills(skills: list[dict[str, Any]]) -> None:
+    """Record the class-skill panel readout (all skills: effect + cooldown timer).
+
+    Args:
+        skills: list of {name, effect, cooldown, status, remaining_seconds, ready}
+    """
+    state = load_state()
+    state["class_skills"] = {
+        "skills": skills,
+        "read_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_state(state)
+
+
+def get_class_skills() -> dict[str, Any]:
+    """Get the last class-skill panel readout from state file."""
+    return load_state().get("class_skills", {})

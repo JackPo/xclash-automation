@@ -166,6 +166,7 @@ class DaemonWebSocketServer:
             "save_state": self._cmd_save_state,
             "read_stamina": self._cmd_read_stamina,
             "return_to_base": self._cmd_return_to_base,
+            "read_class_skills": self._cmd_read_class_skills,
             "get_view": self._cmd_get_view,
             # Rally target commands
             "set_rally_count": self._cmd_set_rally_count,
@@ -408,6 +409,17 @@ class DaemonWebSocketServer:
             debug=bool(args.get("debug", False))
         )
         return {"success": success}
+
+    def _cmd_read_class_skills(self, args: dict[str, Any]) -> dict[str, Any]:
+        """On-demand: open the Class Skill panel, OCR all skills' effects + cooldown
+        timers, and record them to state for the dashboard. Refuses if a flow is busy."""
+        from scripts.flows.quick_production_flow import read_class_skills
+
+        if self.daemon.adb is None or self.daemon.windows_helper is None:
+            raise RuntimeError("Daemon not initialized")
+        if getattr(self.daemon, "active_flows", None):
+            return {"ok": False, "reason": f"daemon busy ({list(self.daemon.active_flows)})"}
+        return read_class_skills(self.daemon.adb, self.daemon.windows_helper)
 
     def _cmd_get_view(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current view state."""
