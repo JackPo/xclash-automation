@@ -17,6 +17,7 @@
                 reinforceInterval: 10,  // Seconds between runs
                 // Steal sniper mode
                 sniperMode: { active: false, state: 'idle', seconds_left: null, last_result: null, snipes_attempted: 0, taps_last_snipe: 0, hours_remaining: null },
+                assistMode: { active: false, hours_remaining: null },
                 // Burst mode state (uses selectedZombieMode for flow type)
                 burstMode: {
                     running: false,
@@ -122,6 +123,7 @@
                         this.loadZombieMode(),
                         this.loadReinforceMode(),
                         this.loadSniperMode(),
+                        this.loadAssistMode(),
                         this.loadConfig(),
                         this.refreshBlocks(),
                         this.refreshEvents(),
@@ -132,6 +134,7 @@
                         this.refreshFlows();
                         this.refreshArmsRace();
                         this.loadSniperMode();
+                        this.loadAssistMode();
                         // Refresh under attack state every 10s
                         this.refreshUnderAttack();
                         // Refresh scheduled shield
@@ -1050,6 +1053,34 @@
                         } else {
                             this.showToast(`Failed: ${data.detail}`, 'error');
                         }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async loadAssistMode() {
+                    try {
+                        const res = await fetch('/api/assist-mode');
+                        const data = await res.json();
+                        this.assistMode = { active: data.active || false, hours_remaining: data.hours_remaining };
+                    } catch (e) { console.error('Assist mode load failed:', e); }
+                },
+
+                async startAssist() {
+                    try {
+                        const res = await fetch('/api/assist-mode/start', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+                        });
+                        const data = await res.json();
+                        if (data.success) { this.showToast('Assist mode on', 'success'); await this.loadAssistMode(); }
+                        else { this.showToast(`Failed: ${data.detail}`, 'error'); }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async stopAssist() {
+                    try {
+                        const res = await fetch('/api/assist-mode/stop', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) { this.showToast('Assist mode off', 'success'); await this.loadAssistMode(); }
+                        else { this.showToast(`Failed: ${data.detail}`, 'error'); }
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },
 

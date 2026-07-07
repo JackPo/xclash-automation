@@ -933,6 +933,45 @@ async def api_stop_sniper() -> dict[str, Any]:
 
 
 # ============================================================================
+# Assist Ally Mode Endpoints
+# ============================================================================
+
+@app.get("/api/assist-mode")
+async def api_get_assist_mode() -> dict[str, Any]:
+    """Get assist-ally mode status."""
+    response = await send_daemon_command('get_assist_status')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+class AssistStartRequest(BaseModel):
+    """Request to start assist mode."""
+    hours: float | None = None
+
+
+@app.post("/api/assist-mode/start")
+async def api_start_assist(request: AssistStartRequest) -> dict[str, Any]:
+    """Start assist-ally mode."""
+    args: dict[str, Any] = {}
+    if request.hours:
+        args['hours'] = request.hours
+    response = await send_daemon_command('start_assist', args)
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/assist-mode/stop")
+async def api_stop_assist() -> dict[str, Any]:
+    """Stop assist-ally mode."""
+    response = await send_daemon_command('stop_assist')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
 # Config Override Endpoints
 # ============================================================================
 

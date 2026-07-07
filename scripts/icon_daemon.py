@@ -80,7 +80,7 @@ from utils.union_war_panel_detector import UnionWarPanelDetector
 from utils.disconnection_dialog_matcher import is_disconnection_dialog_visible, get_confirm_button_position
 from utils.debug_screenshot import get_daemon_debug, cleanup_old_screenshots
 from utils.ui_helpers import click_back
-from utils.template_matcher import clear_gpu_cache
+from utils.template_matcher import clear_gpu_cache, match_template
 import cv2
 
 # Daemon frame debug directory (for every-cycle screenshot capture)
@@ -172,6 +172,7 @@ from scripts.flows.faction_trials_flow import faction_trials_flow
 from scripts.flows.zombie_attack_flow import zombie_attack_flow
 from scripts.flows.community_click_flow import community_click_flow
 from scripts.flows.community_click_flow2 import community_click_flow2
+from scripts.flows.assist_ally_flow import assist_ally_flow
 from scripts.flows.royal_city_attack_flow import royal_city_attack_flow
 from scripts.flows.union_coal_flow import union_coal_flow
 from scripts.flows.union_furnace_flow import union_furnace_flow
@@ -1103,6 +1104,22 @@ class IconDaemon:
 
             # Do not queue tavern_claim if immediate execution failed this iteration.
             candidates = [c for c in candidates if c.name != "tavern_claim"]
+            if not candidates and not self.deferred_flow_queue:
+                return None
+
+        # Assist ally is an explicit user-opted-in mode; run it immediately even
+        # while the user is active (bypasses the global idle gate below, like
+        # treasure_map / tavern_claim). The user turned this on wanting it to act.
+        assist_candidate = next((c for c in candidates if c.name == "assist_ally"), None)
+        if assist_candidate is not None:
+            self.logger.info(f"[{iteration}] ASSIST IMMEDIATE: executing assist_ally now")
+            if self._run_flow(
+                assist_candidate.name, assist_candidate.flow_func,
+                critical=assist_candidate.critical,
+                record_to_scheduler=assist_candidate.record_to_scheduler,
+            ):
+                return assist_candidate.name
+            candidates = [c for c in candidates if c.name != "assist_ally"]
             if not candidates and not self.deferred_flow_queue:
                 return None
 
@@ -2119,6 +2136,7 @@ class IconDaemon:
             "equipment": (equipment_enhancement_flow, False),
             "harvest_box": (harvest_box_flow, False),
             "gift_box": (gift_box_flow, True),
+            "assist_ally": (lambda adb: assist_ally_flow(adb, self.windows_helper), True),
             "stamina_claim": (stamina_claim_flow, False),
             "stamina_use": (lambda adb: stamina_use_flow(adb, self.windows_helper), False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
@@ -3217,7 +3235,6 @@ class IconDaemon:
                         # Require at least 3 seconds in UNKNOWN to avoid false triggers from intermittent bad frames
                         UNKNOWN_MIN_DURATION = 3  # Minimum seconds in UNKNOWN before recovery starts
                         if effective_idle_secs >= self.IDLE_THRESHOLD and unknown_duration >= UNKNOWN_MIN_DURATION and unknown_duration < self.UNKNOWN_STATE_TIMEOUT:
-                            from utils.template_matcher import match_template
                             from utils.safe_ground_matcher import find_safe_ground
                             from utils.shaded_button_helper import is_button_shaded, BUTTON_CLICK
 
@@ -4081,6 +4098,32 @@ class IconDaemon:
                         reason=f"idle={idle_str}",
                         record_to_scheduler=True
                     ))
+
+                # Assist Ally mode: when ON and in WORLD view, if a helmet marker is
+                # visible, run the assist flow (it assists every helmet, then stops).
+                assist_active, _ = self.scheduler.get_assist_mode()
+                if (assist_active and
+                        self.scheduler.is_flow_ready("assist_ally", idle_seconds=effective_idle_secs)):
+                    # If already in WORLD, only fire when a helmet is actually visible
+                    # (cheap pre-check). If in TOWN/elsewhere, fire anyway -- the flow
+                    # navigates to WORLD, scans, assists all helmets, and returns.
+                    run_assist = True
+                    if town_present:  # town_present == in WORLD view
+                        hf, hs, _ = match_template(frame, "assist_helmet_4k.png", threshold=0.05)
+                        run_assist = hf
+                        if hf:
+                            self.logger.info(f"[{iteration}] ASSIST: helmet detected in WORLD (score={hs:.4f})")
+                    else:
+                        self.logger.info(f"[{iteration}] ASSIST: mode on, checking WORLD for helmets")
+                    if run_assist:
+                        flow_candidates.append(FlowCandidate(
+                            name="assist_ally",
+                            flow_func=lambda adb: assist_ally_flow(adb, self.windows_helper),
+                            priority=FlowPriority.NORMAL,
+                            critical=True,
+                            reason="assist mode",
+                            record_to_scheduler=True
+                        ))
 
                 # Scheduled + continuous idle triggers (e.g., fing_hero at 2 AM Pacific)
                 # Track continuous idle start time (using BlueStacks-specific idle)

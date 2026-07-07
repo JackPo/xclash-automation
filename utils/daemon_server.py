@@ -187,6 +187,10 @@ class DaemonWebSocketServer:
             "start_sniper": self._cmd_start_sniper,
             "stop_sniper": self._cmd_stop_sniper,
             "get_sniper_status": self._cmd_get_sniper_status,
+            # Assist ally mode commands
+            "start_assist": self._cmd_start_assist,
+            "stop_assist": self._cmd_stop_assist,
+            "get_assist_status": self._cmd_get_assist_status,
             # Flow with arguments
             "run_zombie_attack": self._cmd_run_zombie_attack,
             "run_elite_zombie": self._cmd_run_elite_zombie,
@@ -853,6 +857,32 @@ class DaemonWebSocketServer:
         if not active:
             result["state"] = "idle"
 
+        if expires:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            result["expires"] = expires.isoformat()
+            result["hours_remaining"] = round((expires - now).total_seconds() / 3600, 2)
+        return result
+
+    def _cmd_start_assist(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Start assist-ally mode: auto-assist ally castles showing the helmet marker."""
+        hours = args.get("hours")
+        expires = self.daemon.scheduler.set_assist_mode(hours)
+        result: dict[str, Any] = {"active": True, "message": "Assist mode on - will assist ally helmets in WORLD view"}
+        if expires:
+            result["expires"] = expires.isoformat()
+            result["hours"] = hours
+        return result
+
+    def _cmd_stop_assist(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Stop assist-ally mode."""
+        self.daemon.scheduler.clear_assist_mode()
+        return {"active": False, "message": "Assist mode off"}
+
+    def _cmd_get_assist_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get assist-ally mode status."""
+        active, expires = self.daemon.scheduler.get_assist_mode()
+        result: dict[str, Any] = {"active": active}
         if expires:
             from datetime import timezone
             now = datetime.now(timezone.utc)

@@ -309,6 +309,11 @@ def main():
         if len(sys.argv) >= 3:
             args["hours"] = float(sys.argv[2])
 
+    elif cmd == "start_assist":
+        # Usage: daemon_cli.py start_assist [hours]
+        if len(sys.argv) >= 3:
+            args["hours"] = float(sys.argv[2])
+
     # Send command and print response
     result = asyncio.run(send_command(cmd, args))
 
