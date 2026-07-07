@@ -39,12 +39,37 @@ DEBUG_SCREENSHOTS_ENABLED = False  # Set to True to save debug screenshots (fill
 DAEMON_FRAME_CAPTURE_ENABLED = False      # Keep False in normal operation
 DAEMON_FRAME_CAPTURE_EVERY_N = 1          # Capture every N daemon iterations when enabled
 
+# =============================================================================
+# Action Capture — record every on-screen action (tap/swipe/key/zoom/arrow) with
+# a before-shot + an after-burst of screenshots, to a per-session JSONL + PNGs.
+# Powers the dashboard "Captures" debug timeline and scripts/replay_actions.py.
+# Interception lives inside ADBHelper, so it covers every click automatically.
+# NOTE: always-on full-4K-PNG bursts are disk-heavy (~50-150MB/click). CPU/RAM
+# are plentiful here; the real limit is free disk. Switch to "jpg"/downscale if
+# disk fills. See utils/action_capture.py.
+# =============================================================================
+ACTION_CAPTURE_ENABLED = True             # master switch (runtime toggle ANDs with this)
+ACTION_CAPTURE_BURST_COUNT = 6            # after-shots per action
+ACTION_CAPTURE_BURST_INTERVAL_MS = 330    # spacing between after-shots (~2s total for 6)
+ACTION_CAPTURE_FORMAT = "png"             # "png" (sharp, huge) | "jpg" (10-20x smaller)
+ACTION_CAPTURE_JPG_QUALITY = 90           # used when FORMAT == "jpg"
+ACTION_CAPTURE_DOWNSCALE = 1.0            # 1.0 = full 4K; 0.5 = 1080p (4x smaller)
+ACTION_CAPTURE_DIR = "screenshots/action_capture"
+ACTION_CAPTURE_MAX_GB = 40.0              # rolling cap for the capture dir (120GB free on disk)
+ACTION_CAPTURE_MAX_AGE_HOURS = 24         # prune whole sessions older than this
+ACTION_CAPTURE_MAX_INFLIGHT_BURSTS = 16   # backpressure: drop after-burst beyond this
+ACTION_CAPTURE_ENCODER_WORKERS = 4        # PNG encode threads (CPU is plentiful)
+
 # Per-flow debug flags (override global setting for specific flows)
-DEBUG_ELITE_ZOMBIE_FLOW = True     # Elite zombie rally flow
-DEBUG_ZOMBIE_ATTACK_FLOW = True    # Regular zombie attack flow
-DEBUG_RALLY_JOIN_FLOW = True       # Rally join flow
-DEBUG_TREASURE_FLOW = True         # Treasure map flow (critical - always debug!)
-DEBUG_RETURN_TO_BASE = True        # Return to base view recovery (debug clicking loops)
+# NOTE: these dump full 4K PNGs on every flow step with no working cleanup - they
+# filled a 953GB disk (return_to_base=240GB, rally_join=61GB, elite_zombie=12GB).
+# Default OFF now; turn a single one on only while actively debugging that flow.
+# Per-click before/after debugging is covered by the action-capture system instead.
+DEBUG_ELITE_ZOMBIE_FLOW = False    # Elite zombie rally flow
+DEBUG_ZOMBIE_ATTACK_FLOW = False   # Regular zombie attack flow
+DEBUG_RALLY_JOIN_FLOW = False      # Rally join flow
+DEBUG_TREASURE_FLOW = False        # Treasure map flow (off: action-capture covers per-click debugging now)
+DEBUG_RETURN_TO_BASE = False       # Return to base view recovery (was 240GB of PNGs)
 
 # WebSocket API server
 DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)

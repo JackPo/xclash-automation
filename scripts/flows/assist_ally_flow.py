@@ -72,6 +72,9 @@ DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "ass
 
 
 def _save(frame: Any, tag: str) -> None:
+    from config import DEBUG_SCREENSHOTS_ENABLED
+    if not DEBUG_SCREENSHOTS_ENABLED:  # action-capture is the sole screenshot system now
+        return
     DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%H%M%S_%f")[:-3]
     cv2.imwrite(str(DEBUG_DIR / f"{ts}_{tag}.png"), frame)

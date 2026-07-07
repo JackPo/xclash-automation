@@ -54,48 +54,16 @@ SCREENSHOT_DIRS = [
 
 
 def cleanup_old_screenshots(max_age_days: int = MAX_AGE_DAYS) -> int:
+    """DEPRECATED no-op. The action-capture module (utils/action_capture.py) is
+    now the single screenshot system and owns its own byte-bounded cleanup. The
+    old debug screenshot writers are disabled (DEBUG_SCREENSHOTS_ENABLED / the
+    per-flow DEBUG_*_FLOW flags), so there is nothing here to prune. This function
+    is kept only so existing imports/calls don't break.
+
+    (History: this used to age-prune SCREENSHOT_DIRS but never actually worked -
+    7-month-old files survived and the debug dirs grew to 458GB, filling the disk.)
     """
-    Remove screenshots older than max_age_days from all screenshot directories.
-
-    Call this on daemon startup to prevent disk from filling up.
-
-    Args:
-        max_age_days: Maximum age in days (default 3)
-
-    Returns:
-        Number of files removed
-    """
-    cutoff = time.time() - (max_age_days * 24 * 60 * 60)
-    removed = 0
-
-    for base_dir in SCREENSHOT_DIRS:
-        if not base_dir.exists():
-            continue
-
-        try:
-            for f in base_dir.rglob("*.png"):
-                try:
-                    if f.stat().st_mtime < cutoff:
-                        f.unlink()
-                        removed += 1
-                except Exception:
-                    pass
-
-            # Remove empty directories
-            for d in list(base_dir.rglob("*")):
-                if d.is_dir():
-                    try:
-                        if not any(d.iterdir()):
-                            d.rmdir()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    if removed > 0:
-        print(f"[CLEANUP] Removed {removed} screenshots older than {max_age_days} days")
-
-    return removed
+    return 0
 
 
 def save_debug_screenshot(frame: npt.NDArray[Any], flow_name: str, label: str) -> str:

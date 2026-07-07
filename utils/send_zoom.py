@@ -5,6 +5,25 @@ import win32con
 import win32api
 import time
 import sys
+from pathlib import Path
+
+try:
+    from utils.action_capture import get_action_capture
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    try:
+        from utils.action_capture import get_action_capture
+    except Exception:
+        def get_action_capture():  # type: ignore[misc]
+            class _Null:
+                def action(self, **_kw):
+                    class _C:
+                        def __enter__(self_):
+                            return self_
+                        def __exit__(self_, *a):
+                            return False
+                    return _C()
+            return _Null()
 
 
 def find_bluestacks_window() -> int | None:
@@ -62,20 +81,24 @@ def send_zoom(direction: str) -> None:
     # Send Shift+A or Shift+Z
     print(f"Sending Shift+{chr(vk)} (zoom {direction})...")
 
-    # Press Shift
-    win32api.keybd_event(win32con.VK_SHIFT, 0, 0, 0)
-    time.sleep(0.05)
+    # Route through action capture (before-shot -> key send -> after-burst).
+    with get_action_capture().action(
+        action_type="zoom", params={"direction": direction}, source="win32:zoom",
+    ):
+        # Press Shift
+        win32api.keybd_event(win32con.VK_SHIFT, 0, 0, 0)
+        time.sleep(0.05)
 
-    # Press A or Z
-    win32api.keybd_event(vk, 0, 0, 0)
-    time.sleep(0.05)
+        # Press A or Z
+        win32api.keybd_event(vk, 0, 0, 0)
+        time.sleep(0.05)
 
-    # Release A or Z
-    win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
-    time.sleep(0.05)
+        # Release A or Z
+        win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.05)
 
-    # Release Shift
-    win32api.keybd_event(win32con.VK_SHIFT, 0, win32con.KEYEVENTF_KEYUP, 0)
+        # Release Shift
+        win32api.keybd_event(win32con.VK_SHIFT, 0, win32con.KEYEVENTF_KEYUP, 0)
 
     print("Done!")
 

@@ -191,6 +191,13 @@ class DaemonWebSocketServer:
             "start_assist": self._cmd_start_assist,
             "stop_assist": self._cmd_stop_assist,
             "get_assist_status": self._cmd_get_assist_status,
+            "start_python_rally": self._cmd_start_python_rally,
+            "stop_python_rally": self._cmd_stop_python_rally,
+            "get_python_rally_status": self._cmd_get_python_rally_status,
+            # Action capture (before/after screenshot recording)
+            "start_action_capture": self._cmd_start_action_capture,
+            "stop_action_capture": self._cmd_stop_action_capture,
+            "get_action_capture_status": self._cmd_get_action_capture_status,
             # Flow with arguments
             "run_zombie_attack": self._cmd_run_zombie_attack,
             "run_elite_zombie": self._cmd_run_elite_zombie,
@@ -890,6 +897,53 @@ class DaemonWebSocketServer:
             result["expires"] = expires.isoformat()
             result["hours_remaining"] = round((expires - now).total_seconds() / 3600, 2)
         return result
+
+    def _cmd_start_python_rally(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Start Desert Python rally mode: auto-rally the python at its fixed WORLD spot."""
+        hours = args.get("hours")
+        expires = self.daemon.scheduler.set_python_rally_mode(hours)
+        result: dict[str, Any] = {"active": True, "message": "Python rally mode on - will rally the Desert Python in WORLD when idle ~20s"}
+        if expires:
+            result["expires"] = expires.isoformat()
+            result["hours"] = hours
+        return result
+
+    def _cmd_stop_python_rally(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Stop Desert Python rally mode."""
+        self.daemon.scheduler.clear_python_rally_mode()
+        return {"active": False, "message": "Python rally mode off"}
+
+    def _cmd_get_python_rally_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get Desert Python rally mode status."""
+        active, expires = self.daemon.scheduler.get_python_rally_mode()
+        result: dict[str, Any] = {"active": active}
+        if expires:
+            from datetime import timezone
+            now = datetime.now(timezone.utc)
+            result["expires"] = expires.isoformat()
+            result["hours_remaining"] = round((expires - now).total_seconds() / 3600, 2)
+        return result
+
+    def _cmd_start_action_capture(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Turn action capture ON (before/after screenshot recording of every click)."""
+        from utils.action_capture import get_action_capture
+        cap = get_action_capture()
+        cap.enabled = True
+        if cap.session_dir is None:
+            cap.new_session()
+        return {"message": "Action capture on", **cap.status()}
+
+    def _cmd_stop_action_capture(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Turn action capture OFF (runtime toggle; config default unchanged)."""
+        from utils.action_capture import get_action_capture
+        cap = get_action_capture()
+        cap.enabled = False
+        return {"message": "Action capture off", **cap.status()}
+
+    def _cmd_get_action_capture_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get action capture status (enabled, session, queue depth, disk usage)."""
+        from utils.action_capture import get_action_capture
+        return get_action_capture().status()
 
     # =========================================================================
     # Parameterized Flow Commands

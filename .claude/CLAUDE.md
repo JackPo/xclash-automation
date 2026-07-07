@@ -128,6 +128,29 @@ return_to_base_view(adb, target=ViewState.WORLD)  # Go to WORLD specifically
 
 ---
 
+## Screenshots on Disk (Action Capture)
+
+`utils/action_capture.py` is the **single screenshot-persistence system**. It records
+every tap/swipe/key/zoom with a before-shot + after-burst to
+`screenshots/action_capture/<session>/` (full 4K **lossless PNG** — keep it that way for
+template matching). Interception is inside `ADBHelper`, so it's automatic. Browse via the
+dashboard **Captures** tab; replay via `python -m scripts.replay_actions --session latest`.
+Full docs: `docs/ACTION_CAPTURE.md`.
+
+**All old debug-screenshot writers are OFF** (`DEBUG_SCREENSHOTS_ENABLED=False`,
+`DEBUG_*_FLOW=False`, `DEBUG_RETURN_TO_BASE=False`; `cleanup_old_screenshots()` is a
+no-op). They dumped unbounded 4K PNGs and once filled the disk. To debug a flow, flip
+its flag in `config_local.py` temporarily. The manual dashboard screenshot button is the
+only other writer.
+
+## Opt-in Modes (dashboard cards / `daemon_cli`)
+
+- **Assist Ally** (`start_assist`): auto-assists ally castles showing the helmet marker in WORLD.
+- **Desert Python Rally** (`start_python_rally`): rallies the Desert Python at its fixed
+  WORLD position; fires only after ~20s idle so it won't fight active play.
+
+---
+
 ## DEPRECATED APPROACHES
 
 ### ADB Screenshots for Matching

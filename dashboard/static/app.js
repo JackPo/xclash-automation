@@ -18,6 +18,17 @@
                 // Steal sniper mode
                 sniperMode: { active: false, state: 'idle', seconds_left: null, last_result: null, snipes_attempted: 0, taps_last_snipe: 0, hours_remaining: null },
                 assistMode: { active: false, hours_remaining: null },
+                pythonRallyMode: { active: false, hours_remaining: null },
+                // Action capture viewer
+                captureState: { enabled: false, degraded: false, session_id: null, format: null, disk_gb: null, max_gb: null, queue_depth: null, stats: null },
+                captureSessions: [],
+                captureFilter: { session: 'latest', source: '' },
+                captureList: [],
+                captureTotal: 0,
+                captureSelected: null,
+                captureFrames: [],
+                captureFrameIdx: 0,
+                captureInited: false,
                 // Burst mode state (uses selectedZombieMode for flow type)
                 burstMode: {
                     running: false,
@@ -124,6 +135,7 @@
                         this.loadReinforceMode(),
                         this.loadSniperMode(),
                         this.loadAssistMode(),
+                        this.loadPythonRallyMode(),
                         this.loadConfig(),
                         this.refreshBlocks(),
                         this.refreshEvents(),
@@ -135,6 +147,7 @@
                         this.refreshArmsRace();
                         this.loadSniperMode();
                         this.loadAssistMode();
+                        this.loadPythonRallyMode();
                         // Refresh under attack state every 10s
                         this.refreshUnderAttack();
                         // Refresh scheduled shield
@@ -1082,6 +1095,106 @@
                         if (data.success) { this.showToast('Assist mode off', 'success'); await this.loadAssistMode(); }
                         else { this.showToast(`Failed: ${data.detail}`, 'error'); }
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async loadPythonRallyMode() {
+                    try {
+                        const res = await fetch('/api/python-rally-mode');
+                        const data = await res.json();
+                        this.pythonRallyMode = { active: data.active || false, hours_remaining: data.hours_remaining };
+                    } catch (e) { console.error('Python rally mode load failed:', e); }
+                },
+
+                async startPythonRally() {
+                    try {
+                        const res = await fetch('/api/python-rally-mode/start', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+                        });
+                        const data = await res.json();
+                        if (data.success) { this.showToast('Python rally mode on', 'success'); await this.loadPythonRallyMode(); }
+                        else { this.showToast(`Failed: ${data.detail}`, 'error'); }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                async stopPythonRally() {
+                    try {
+                        const res = await fetch('/api/python-rally-mode/stop', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) { this.showToast('Python rally mode off', 'success'); await this.loadPythonRallyMode(); }
+                        else { this.showToast(`Failed: ${data.detail}`, 'error'); }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+
+                // ---- Action capture viewer ----
+                async initCaptures() {
+                    await this.loadCaptureState();
+                    await this.loadCaptureSessions();
+                    await this.loadCaptureList();
+                    if (!this.captureInited) {
+                        this.captureInited = true;
+                        setInterval(() => { if (this.activeTab === 'captures') this.loadCaptureState(); }, 5000);
+                    }
+                },
+                async loadCaptureState() {
+                    try {
+                        const res = await fetch('/api/action-capture/state');
+                        this.captureState = await res.json();
+                    } catch (e) { console.error('capture state', e); }
+                },
+                async toggleCapture() {
+                    try {
+                        const on = this.captureState.enabled;
+                        const res = await fetch(`/api/action-capture/${on ? 'stop' : 'start'}`, { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) { this.showToast(`Capture ${on ? 'off' : 'on'}`, 'success'); await this.loadCaptureState(); }
+                        else { this.showToast(`Failed: ${data.detail}`, 'error'); }
+                    } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
+                },
+                async loadCaptureSessions() {
+                    try {
+                        const res = await fetch('/api/action-capture/sessions');
+                        const data = await res.json();
+                        this.captureSessions = data.sessions || [];
+                    } catch (e) { console.error('capture sessions', e); }
+                },
+                async loadCaptureList() {
+                    try {
+                        const p = new URLSearchParams();
+                        p.set('session', this.captureFilter.session || 'latest');
+                        if (this.captureFilter.source) p.set('source', this.captureFilter.source);
+                        p.set('limit', '200');
+                        const res = await fetch('/api/action-capture/list?' + p.toString());
+                        const data = await res.json();
+                        this.captureList = data.actions || [];
+                        this.captureTotal = data.total || 0;
+                    } catch (e) { console.error('capture list', e); }
+                },
+                selectCapture(a) {
+                    this.captureSelected = a;
+                    const frames = [];
+                    if (a.before_shot) frames.push({ label: 'before', path: a.before_shot });
+                    (a.after_shots || []).forEach((s, i) => frames.push({ label: 'after ' + i, path: s }));
+                    this.captureFrames = frames;
+                    this.captureFrameIdx = 0;
+                },
+                get captureFrameSrc() {
+                    const f = this.captureFrames[this.captureFrameIdx];
+                    return f ? '/api/action-capture/image?path=' + encodeURIComponent(f.path) : '';
+                },
+                get captureFrameLabel() {
+                    const f = this.captureFrames[this.captureFrameIdx];
+                    return f ? f.label : '-';
+                },
+                fmtCaptureTime(ts) {
+                    if (!ts) return '';
+                    try { return new Date(ts * 1000).toLocaleTimeString(); } catch (e) { return ''; }
+                },
+                captureParamStr(a) {
+                    const p = a.params || {};
+                    if (a.action_type === 'tap') return `(${p.x}, ${p.y})`;
+                    if (a.action_type === 'swipe') return `(${p.x1},${p.y1})->(${p.x2},${p.y2})`;
+                    if (a.action_type === 'key_event') return `key ${p.keycode}`;
+                    return p.direction || '';
                 },
 
                 formatSniperCountdown(seconds) {

@@ -45,6 +45,9 @@ DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "com
 
 def _save_debug(frame, step_name: str) -> None:
     """Save debug screenshot with timestamp."""
+    from config import DEBUG_SCREENSHOTS_ENABLED
+    if not DEBUG_SCREENSHOTS_ENABLED:  # action-capture is the sole screenshot system now
+        return
     DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = DEBUG_DIR / f"{timestamp}_{step_name}.png"

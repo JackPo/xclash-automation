@@ -5,6 +5,25 @@ import win32con
 import win32api
 import time
 import sys
+from pathlib import Path
+
+try:
+    from utils.action_capture import get_action_capture
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    try:
+        from utils.action_capture import get_action_capture
+    except Exception:
+        def get_action_capture():  # type: ignore[misc]
+            class _Null:
+                def action(self, **_kw):
+                    class _C:
+                        def __enter__(self_):
+                            return self_
+                        def __exit__(self_, *a):
+                            return False
+                    return _C()
+            return _Null()
 
 
 def find_bluestacks_window() -> int | None:
@@ -54,9 +73,12 @@ def send_arrow(direction: str) -> None:
 
     # Send key using keybd_event (simulates physical keyboard press)
     print(f"Sending {direction} arrow...")
-    win32api.keybd_event(vk, 0, 0, 0)  # Key down
-    time.sleep(0.05)
-    win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)  # Key up
+    with get_action_capture().action(
+        action_type="arrow", params={"direction": direction}, source="win32:arrow",
+    ):
+        win32api.keybd_event(vk, 0, 0, 0)  # Key down
+        time.sleep(0.05)
+        win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)  # Key up
 
     print("Done!")
 

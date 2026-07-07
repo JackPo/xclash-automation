@@ -23,6 +23,30 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
+# Action Capture — force-disabled for the whole test suite
+# =============================================================================
+
+@pytest.fixture(autouse=True)
+def _disable_action_capture() -> Generator[None, None, None]:
+    """Disable action capture during tests.
+
+    ADBHelper routes tap/swipe/key_event through the capture layer. On a machine
+    with a live BlueStacks window the capture would grab real screenshots and
+    write to disk during unit tests. Force the runtime toggle off so `action()`
+    returns a no-op context for every test.
+    """
+    try:
+        from utils.action_capture import get_action_capture
+        cap = get_action_capture()
+        prev = cap.enabled
+        cap.enabled = False
+        yield
+        cap.enabled = prev
+    except Exception:
+        yield
+
+
+# =============================================================================
 # Frame Fixtures
 # =============================================================================
 

@@ -23,6 +23,25 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+try:
+    from utils.action_capture import get_action_capture
+except ImportError:
+    # Allow direct invocation (python utils/adb_helper.py) where 'utils' isn't a package.
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    try:
+        from utils.action_capture import get_action_capture
+    except Exception:  # last-resort no-op so ADB actions never break
+        def get_action_capture():  # type: ignore[misc]
+            class _Null:
+                def action(self, **_kw):
+                    class _C:
+                        def __enter__(self_):
+                            return self_
+                        def __exit__(self_, *a):
+                            return False
+                    return _C()
+            return _Null()
+
 # Module-level click logger for debugging all tap actions
 _click_logger: logging.Logger | None = None
 
@@ -214,7 +233,7 @@ class ADBHelper:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Screenshot capture failed: {e.stderr.decode() if e.stderr else str(e)}")
 
-    def tap(self, x: int, y: int, source: str = "unknown") -> None:
+    def tap(self, x: int, y: int, source: str = "unknown", before_frame: object | None = None) -> None:
         """
         Tap at screen coordinates.
 
@@ -222,6 +241,8 @@ class ADBHelper:
             x: X coordinate (0-3840 for 4K)
             y: Y coordinate (0-2160 for 4K)
             source: Identifier for what initiated this click (for debugging audit trail)
+            before_frame: Optional pre-captured frame to reuse as the capture
+                          before-shot (avoids an extra screenshot grab).
         """
         if not self.ensure_connected():
             raise RuntimeError("No ADB device connected")
@@ -230,13 +251,19 @@ class ADBHelper:
         logger = _get_click_logger()
         logger.debug(f"TAP ({x:4d}, {y:4d}) | {source}")
 
-        # Notify tracker before action (for idle detection)
-        if self._on_action:
-            self._on_action()
+        # Route through the action-capture layer (before-shot -> send -> after-burst).
+        with get_action_capture().action(
+            action_type="tap", params={"x": x, "y": y},
+            source=source, device=self.device, before_frame=before_frame,
+        ):
+            # Notify tracker before action (for idle detection)
+            if self._on_action:
+                self._on_action()
 
-        self._run_adb(["shell", "input", "tap", str(x), str(y)])
+            self._run_adb(["shell", "input", "tap", str(x), str(y)])
 
-    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> None:
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300,
+              source: str = "unknown") -> None:
         """
         Swipe gesture.
 
@@ -244,33 +271,50 @@ class ADBHelper:
             x1, y1: Start coordinates
             x2, y2: End coordinates
             duration: Swipe duration in milliseconds
+            source: Identifier for what initiated this swipe (audit trail)
         """
         if not self.ensure_connected():
             raise RuntimeError("No ADB device connected")
 
-        # Notify tracker before action (for idle detection)
-        if self._on_action:
-            self._on_action()
+        logger = _get_click_logger()
+        logger.debug(f"SWIPE ({x1:4d},{y1:4d})->({x2:4d},{y2:4d}) d={duration} | {source}")
 
-        self._run_adb([
-            "shell", "input", "swipe",
-            str(x1), str(y1), str(x2), str(y2), str(duration)
-        ])
+        with get_action_capture().action(
+            action_type="swipe",
+            params={"x1": x1, "y1": y1, "x2": x2, "y2": y2, "duration": duration},
+            source=source, device=self.device,
+        ):
+            # Notify tracker before action (for idle detection)
+            if self._on_action:
+                self._on_action()
 
-    def key_event(self, keycode: int) -> None:
+            self._run_adb([
+                "shell", "input", "swipe",
+                str(x1), str(y1), str(x2), str(y2), str(duration)
+            ])
+
+    def key_event(self, keycode: int, source: str = "unknown") -> None:
         """
         Send a key event.
 
         Args:
             keycode: Android keycode (e.g., 20 for DPAD_DOWN, 19 for DPAD_UP)
+            source: Identifier for what initiated this key event (audit trail)
         """
         if not self.ensure_connected():
             raise RuntimeError("No ADB device connected")
 
-        if self._on_action:
-            self._on_action()
+        logger = _get_click_logger()
+        logger.debug(f"KEY {keycode} | {source}")
 
-        self._run_adb(["shell", "input", "keyevent", str(keycode)])
+        with get_action_capture().action(
+            action_type="key_event", params={"keycode": keycode},
+            source=source, device=self.device,
+        ):
+            if self._on_action:
+                self._on_action()
+
+            self._run_adb(["shell", "input", "keyevent", str(keycode)])
 
     def get_screen_size(self) -> tuple[int, int] | None:
         """

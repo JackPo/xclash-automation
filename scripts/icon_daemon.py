@@ -173,6 +173,11 @@ from scripts.flows.zombie_attack_flow import zombie_attack_flow
 from scripts.flows.community_click_flow import community_click_flow
 from scripts.flows.community_click_flow2 import community_click_flow2
 from scripts.flows.assist_ally_flow import assist_ally_flow
+from scripts.flows.desert_python_rally_flow import desert_python_rally_flow
+
+# Desert Python rally fires on a short idle (not the full 5-min gate) so it acts
+# when the user pauses but never fights active clicking.
+DESERT_PYTHON_IDLE_REQUIRED = 20
 from scripts.flows.royal_city_attack_flow import royal_city_attack_flow
 from scripts.flows.union_coal_flow import union_coal_flow
 from scripts.flows.union_furnace_flow import union_furnace_flow
@@ -197,6 +202,7 @@ from config import (
     IDLE_CHECK_INTERVAL,
     STAMINA_OCR_INTERVAL,
     STAMINA_OCR_MAX_VALID,
+    DEBUG_SCREENSHOTS_ENABLED,
     DAEMON_FRAME_CAPTURE_ENABLED,
     DAEMON_FRAME_CAPTURE_EVERY_N,
     ELITE_ZOMBIE_STAMINA_THRESHOLD,
@@ -763,6 +769,17 @@ class IconDaemon:
         self.windows_helper = WindowsScreenshotHelper()
         print("  Windows screenshot helper initialized")
 
+        # Action capture: share the daemon's screenshot helper and start a session
+        # so every tap/swipe/key/zoom is recorded with before/after screenshots.
+        try:
+            from utils.action_capture import get_action_capture
+            _cap = get_action_capture()
+            _cap.attach_screenshot_helper(self.windows_helper)
+            _sid = _cap.new_session()
+            print(f"  Action capture session: {_sid} (enabled={_cap.enabled})")
+        except Exception as _e:
+            print(f"  Action capture unavailable: {_e}")
+
         # Stamina OCR (via OCR server)
         self.ocr_client = OCRClient()
         print("  OCR client initialized (uses OCR server)")
@@ -1123,6 +1140,27 @@ class IconDaemon:
             if not candidates and not self.deferred_flow_queue:
                 return None
 
+        # Desert Python rally is an opted-in mode that should fire on a SHORT idle
+        # (~20s) rather than the full 5-min gate -- so it acts when the user pauses
+        # but never fights active clicking. Run it here (before the global gate)
+        # only once the user has actually been idle for its short window.
+        python_candidate = next((c for c in candidates if c.name == "desert_python_rally"), None)
+        if python_candidate is not None:
+            py_idle = get_user_idle_seconds()
+            if py_idle >= DESERT_PYTHON_IDLE_REQUIRED:
+                self.logger.info(f"[{iteration}] PYTHON RALLY: idle {py_idle:.0f}s ok, executing now")
+                if self._run_flow(
+                    python_candidate.name, python_candidate.flow_func,
+                    critical=python_candidate.critical,
+                    record_to_scheduler=python_candidate.record_to_scheduler,
+                ):
+                    return python_candidate.name
+            else:
+                self.logger.debug(f"[{iteration}] PYTHON RALLY: user active (idle={py_idle:.0f}s), deferring")
+            candidates = [c for c in candidates if c.name != "desert_python_rally"]
+            if not candidates and not self.deferred_flow_queue:
+                return None
+
         # Global safety gate: never run auto flows while user is actively interacting.
         # Some candidates are time-based and may not have local idle checks.
         # This central gate prevents any automated clicks from interrupting manual play.
@@ -1282,8 +1320,16 @@ class IconDaemon:
                         self.scheduler.record_flow_run(flow_name, cooldown_override=900)
                         self.logger.warning(f"[SCHEDULER] {flow_name} FAILED - will retry in 15 min")
                     elif isinstance(flow_result, dict) and flow_result.get("skipped"):
-                        # SKIPPED - retry in 5 minutes
-                        self.scheduler.record_flow_run(flow_name, cooldown_override=300)
+                        # SKIPPED - default 5-min retry, unless the flow reported a
+                        # specific wait (e.g. quick_production read a real cooldown
+                        # off the screen via OCR) - then honor that so we don't
+                        # re-run every few minutes while it's genuinely on cooldown.
+                        cd = flow_result.get("cooldown_seconds")
+                        if isinstance(cd, (int, float)) and cd > 0:
+                            self.scheduler.record_flow_run(flow_name, cooldown_override=int(cd))
+                            self.logger.info(f"[SCHEDULER] {flow_name} SKIPPED - next run in {int(cd)//60} min (flow-reported cooldown)")
+                        else:
+                            self.scheduler.record_flow_run(flow_name, cooldown_override=300)
                     else:
                         # SUCCESS - full cooldown
                         self.scheduler.record_flow_run(flow_name)
@@ -2137,6 +2183,7 @@ class IconDaemon:
             "harvest_box": (harvest_box_flow, False),
             "gift_box": (gift_box_flow, True),
             "assist_ally": (lambda adb: assist_ally_flow(adb, self.windows_helper), True),
+            "desert_python_rally": (lambda adb: desert_python_rally_flow(adb, self.windows_helper), True),
             "stamina_claim": (stamina_claim_flow, False),
             "stamina_use": (lambda adb: stamina_use_flow(adb, self.windows_helper), False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
@@ -2745,11 +2792,12 @@ class IconDaemon:
                                     verify_frame = self.windows_helper.get_screenshot_cv2()
                                     panel_present, panel_score = panel_detector.is_union_war_panel(verify_frame)
 
-                                    # Save debug screenshot
-                                    ts = datetime.now().strftime("%H%M%S")
-                                    debug_path = Path("screenshots/debug") / f"rally_march_{ts}_attempt{attempt+1}_panel{'_OPEN' if panel_present else '_CLOSED'}.png"
-                                    debug_path.parent.mkdir(parents=True, exist_ok=True)
-                                    cv2.imwrite(str(debug_path), verify_frame)
+                                    # Save debug screenshot (action-capture is the sole screenshot system now)
+                                    if DEBUG_SCREENSHOTS_ENABLED:
+                                        ts = datetime.now().strftime("%H%M%S")
+                                        debug_path = Path("screenshots/debug") / f"rally_march_{ts}_attempt{attempt+1}_panel{'_OPEN' if panel_present else '_CLOSED'}.png"
+                                        debug_path.parent.mkdir(parents=True, exist_ok=True)
+                                        cv2.imwrite(str(debug_path), verify_frame)
 
                                     if panel_present:
                                         self.logger.info(f"[{iteration}] Union War panel detected (attempt {attempt + 1}, score={panel_score:.4f})")
@@ -4122,6 +4170,28 @@ class IconDaemon:
                             priority=FlowPriority.NORMAL,
                             critical=True,
                             reason="assist mode",
+                            record_to_scheduler=True
+                        ))
+
+                # Desert Python rally mode: when ON and in WORLD, if the python is
+                # at its fixed spot, rally it. Idle-gated (20s) in _execute_best_flow
+                # so it won't fight active play; suppressed for 15 min after a launch.
+                python_active, _ = self.scheduler.get_python_rally_mode()
+                if (python_active and town_present  # town_present == in WORLD view
+                        and not self.scheduler.is_exhausted("desert_python_rally")
+                        and self.scheduler.is_flow_ready("desert_python_rally", idle_seconds=effective_idle_secs)):
+                    pf, ps, _ = match_template(
+                        frame, "desert_python_4k.png",
+                        search_region=(0, 540, 520, 360), threshold=0.06,
+                    )
+                    if pf:
+                        self.logger.info(f"[{iteration}] PYTHON: detected at fixed pos (score={ps:.4f})")
+                        flow_candidates.append(FlowCandidate(
+                            name="desert_python_rally",
+                            flow_func=lambda adb: desert_python_rally_flow(adb, self.windows_helper),
+                            priority=FlowPriority.NORMAL,
+                            critical=True,
+                            reason="python rally mode",
                             record_to_scheduler=True
                         ))
 

@@ -50,7 +50,7 @@ RESOURCE_BAR_TEMPLATE = TEMPLATE_DIR / "resource_bar_4k.png"
 # Recovery limits
 MAX_BACK_CLICKS = 5
 MAX_RECOVERY_ATTEMPTS = 30  # Attempts before restarting game
-MAX_ZOOM_OUT_ATTEMPTS = 15  # Max zoom-outs when grass visible but town button not
+MAX_ZOOM_OUT_ATTEMPTS = 3   # Max zoom-outs when grass visible but town button not (was 15 - a blind 7.5s burst that spammed the user's map; zoom can't close a modal panel anyway)
 
 # Track consecutive restarts (module-level state, for logging only - never gives up)
 _consecutive_restarts = 0
@@ -276,6 +276,19 @@ def _try_zoom_out_recovery(win: WindowsScreenshotHelper, debug: bool = False) ->
     Returns True if recovery succeeded, False if max attempts reached.
     """
     for i in range(MAX_ZOOM_OUT_ATTEMPTS):
+        # Yield to the user BEFORE every zoom (not just once at entry). Without
+        # this, a recovery that started while idle would keep zooming the user's
+        # map the instant they start playing again.
+        try:
+            from config import RETURN_ACTIVE_ABORT_SECONDS
+            from utils.user_idle_tracker import get_user_idle_seconds
+            if get_user_idle_seconds() < RETURN_ACTIVE_ABORT_SECONDS:
+                if debug:
+                    print("    [RETURN] Zoom-out recovery aborted - user active")
+                return False
+        except Exception:
+            pass
+
         if debug:
             print(f"    [RETURN] Zoom out attempt {i+1}/{MAX_ZOOM_OUT_ATTEMPTS}")
 

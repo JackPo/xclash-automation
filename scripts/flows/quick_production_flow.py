@@ -54,6 +54,9 @@ DEBUG_DIR = Path(__file__).parent.parent.parent / "screenshots" / "debug" / "qui
 
 def _save_debug_screenshot(win: WindowsScreenshotHelper, step: str) -> None:
     """Save a debug screenshot with timestamp."""
+    from config import DEBUG_SCREENSHOTS_ENABLED
+    if not DEBUG_SCREENSHOTS_ENABLED:  # action-capture is the sole screenshot system now
+        return
     DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     frame = win.get_screenshot_cv2()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -66,7 +69,7 @@ def quick_production_flow(
     adb: ADBHelper,
     win: WindowsScreenshotHelper | None = None,
     debug: bool = False
-) -> bool:
+) -> bool | dict:
     """
     Use the Quick Production class skill.
 
@@ -215,24 +218,50 @@ def quick_production_flow(
         qp_y = qp_center[1]
         print(f"    [QUICK-PROD] Quick Production icon at {qp_center} (score={qp_score:.4f})")
 
-        # Step 7: Find Use button in the same row (constrain search to Quick Production row)
-        print("    [QUICK-PROD] Step 7: Looking for Use button in same row...")
-
-        # Search region: right half of screen, centered on Quick Production Y
-        # Use button is to the right of the icon, same row
+        # Step 7: Availability check via OCR. When on cooldown the row shows a
+        # COUNTDOWN TIMER, not a Use button. Blindly clicking (the old behavior)
+        # just taps the timer -> nothing happens -> the flow "fails" and the daemon
+        # retries every 15 min forever (this ran 40+ times in one day). So OCR the
+        # row first: a readable countdown = on cooldown -> skip until it expires.
+        # Only click Use when there is genuinely no timer.
+        print("    [QUICK-PROD] Step 7: Checking availability (OCR cooldown)...")
         use_search_region = (1920, qp_y - 60, 800, 120)  # x, y, w, h
 
+        from utils.ocr_client import ocr_extract_text
+        cooldown_text = ocr_extract_text(
+            frame, region=use_search_region,
+            prompt=("Read the cooldown timer if one is shown. Examples: '23h 12m', "
+                    "'1d 4h', '05:14:32'. If there is no timer (e.g. a 'Use' button "
+                    "is shown instead), return 'none'. Return only the time string or 'none'."),
+        )
+        remaining = _parse_cooldown_text(cooldown_text)
+        print(f"    [QUICK-PROD] OCR row text={cooldown_text!r} -> remaining={remaining}")
+
+        if remaining and remaining > 0:
+            # Genuinely on cooldown. Record the REAL wait so the daemon doesn't
+            # re-run until it's actually ready (re-check 5 min after expiry).
+            hrs, mins = remaining // 3600, (remaining % 3600) // 60
+            print(f"    [QUICK-PROD] On cooldown ~{hrs}h{mins}m - skipping until ready (no click)")
+            _save_debug_screenshot(win, "07_on_cooldown")
+            return_to_base_view(adb, win, debug=False)
+            return {"success": False, "skipped": True, "on_cooldown": True,
+                    "cooldown_seconds": remaining + 300, "raw_text": cooldown_text}
+
+        # Not on cooldown per OCR -> find and click the Use button.
         use_found, use_score, use_center = match_template(
             frame, "class_skill_use_button_4k.png",
             search_region=use_search_region,
-            threshold=0.15
+            threshold=0.10  # tighter than before (0.15 let a timer false-match as a button)
         )
 
         if not use_found:
-            print(f"    [QUICK-PROD] FAILED: Use button not found in row (score={use_score:.4f}) - ON COOLDOWN?")
-            _save_debug_screenshot(win, "FAIL_no_use_button_COOLDOWN")
+            # No timer read AND no Use button - ambiguous. Skip 30 min rather than
+            # hammer a 15-min fail loop.
+            print(f"    [QUICK-PROD] No Use button (score={use_score:.4f}) and no readable cooldown - skipping 30 min")
+            _save_debug_screenshot(win, "FAIL_no_use_no_cooldown")
             return_to_base_view(adb, win, debug=False)
-            return False
+            return {"success": False, "skipped": True, "reason": "no_use_no_cooldown",
+                    "cooldown_seconds": 1800}
 
         print(f"    [QUICK-PROD] Use button found at {use_center} (score={use_score:.4f}), clicking...")
         adb.tap(*use_center, source="flow:quick_prod:use")

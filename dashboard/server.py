@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
@@ -966,6 +966,207 @@ async def api_start_assist(request: AssistStartRequest) -> dict[str, Any]:
 async def api_stop_assist() -> dict[str, Any]:
     """Stop assist-ally mode."""
     response = await send_daemon_command('stop_assist')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
+# Desert Python Rally Mode Endpoints
+# ============================================================================
+
+@app.get("/api/python-rally-mode")
+async def api_get_python_rally_mode() -> dict[str, Any]:
+    """Get Desert Python rally mode status."""
+    response = await send_daemon_command('get_python_rally_status')
+    if response.get('success'):
+        return response.get('data', {})
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+class PythonRallyStartRequest(BaseModel):
+    """Request to start python rally mode."""
+    hours: float | None = None
+
+
+@app.post("/api/python-rally-mode/start")
+async def api_start_python_rally(request: PythonRallyStartRequest) -> dict[str, Any]:
+    """Start Desert Python rally mode."""
+    args: dict[str, Any] = {}
+    if request.hours:
+        args['hours'] = request.hours
+    response = await send_daemon_command('start_python_rally', args)
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/python-rally-mode/stop")
+async def api_stop_python_rally() -> dict[str, Any]:
+    """Stop Desert Python rally mode."""
+    response = await send_daemon_command('stop_python_rally')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+# ============================================================================
+# Action Capture Viewer Endpoints
+# ============================================================================
+
+def _action_capture_dir() -> Path:
+    """Base dir for action-capture sessions (from config)."""
+    try:
+        from config import ACTION_CAPTURE_DIR
+        return (PROJECT_ROOT / ACTION_CAPTURE_DIR)
+    except Exception:
+        return PROJECT_ROOT / "screenshots" / "action_capture"
+
+
+def _resolve_session(session: str | None) -> Path | None:
+    """Resolve a session id (or 'latest'/None) to its dir, safely inside the base dir."""
+    base = _action_capture_dir()
+    if not base.exists():
+        return None
+    if not session or session == "latest":
+        dirs = [d for d in base.iterdir() if d.is_dir()]
+        if not dirs:
+            return None
+        return max(dirs, key=lambda d: d.stat().st_mtime)
+    # Guard against path traversal: session must be a direct child.
+    cand = (base / session)
+    try:
+        if cand.resolve().parent != base.resolve() or not cand.is_dir():
+            return None
+    except Exception:
+        return None
+    return cand
+
+
+def _read_records(session_dir: Path) -> list[dict[str, Any]]:
+    """Read a session's action records (final jsonl, merged with pre-records for in-flight)."""
+    records: dict[int, dict[str, Any]] = {}
+    for fname in ("actions.pre.jsonl", "actions.jsonl"):  # final overrides pre
+        fp = session_dir / fname
+        if not fp.exists():
+            continue
+        try:
+            with open(fp, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        records[rec["seq"]] = rec
+                    except Exception:
+                        continue
+        except Exception:
+            continue
+    return [records[k] for k in sorted(records)]
+
+
+@app.get("/api/action-capture/sessions")
+async def api_ac_sessions() -> dict[str, Any]:
+    """List capture sessions with counts, size and time span."""
+    base = _action_capture_dir()
+    out: list[dict[str, Any]] = []
+    if base.exists():
+        for d in base.iterdir():
+            if not d.is_dir():
+                continue
+            recs = _read_records(d)
+            try:
+                size_mb = round(sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) / (1024 ** 2), 1)
+            except Exception:
+                size_mb = 0.0
+            span = None
+            if recs:
+                span = {"start": recs[0].get("ts"), "end": recs[-1].get("ts")}
+            out.append({"session_id": d.name, "actions": len(recs), "size_mb": size_mb, "span": span})
+    out.sort(key=lambda s: s["session_id"], reverse=True)
+    return {"sessions": out}
+
+
+@app.get("/api/action-capture/list")
+async def api_ac_list(session: str | None = None, source: str | None = None,
+                      since: float | None = None, until: float | None = None,
+                      limit: int = 100, offset: int = 0) -> dict[str, Any]:
+    """Paginated action records for a session, newest-first, with optional filters."""
+    sd = _resolve_session(session)
+    if sd is None:
+        return {"session_id": None, "total": 0, "actions": []}
+    recs = _read_records(sd)
+    if source:
+        recs = [r for r in recs if source.lower() in str(r.get("source", "")).lower()]
+    if since is not None:
+        recs = [r for r in recs if (r.get("ts") or 0) >= since]
+    if until is not None:
+        recs = [r for r in recs if (r.get("ts") or 0) <= until]
+    recs.sort(key=lambda r: r.get("seq", 0), reverse=True)  # newest first
+    total = len(recs)
+    page = recs[offset:offset + max(1, min(limit, 500))]
+    return {"session_id": sd.name, "total": total, "actions": page}
+
+
+@app.get("/api/action-capture/action/{seq}")
+async def api_ac_action(seq: int, session: str | None = None) -> dict[str, Any]:
+    """One action record including its full after-shot list."""
+    sd = _resolve_session(session)
+    if sd is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    for r in _read_records(sd):
+        if r.get("seq") == seq:
+            return r
+    raise HTTPException(status_code=404, detail="action not found")
+
+
+@app.get("/api/action-capture/image")
+async def api_ac_image(path: str) -> FileResponse:
+    """Serve a capture image, validated to resolve inside the capture dir (no traversal)."""
+    base = _action_capture_dir().resolve()
+    # Accept either a project-relative path or an absolute one; must land inside base.
+    p = Path(path)
+    if not p.is_absolute():
+        p = (PROJECT_ROOT / path)
+    try:
+        rp = p.resolve()
+        rp.relative_to(base)  # raises if outside
+    except Exception:
+        raise HTTPException(status_code=403, detail="path outside capture dir")
+    if not rp.is_file():
+        raise HTTPException(status_code=404, detail="image not found")
+    media = "image/jpeg" if rp.suffix.lower() in (".jpg", ".jpeg") else "image/png"
+    return FileResponse(str(rp), media_type=media)
+
+
+@app.get("/api/action-capture/state")
+async def api_ac_state() -> dict[str, Any]:
+    """Live action-capture status (enabled, session, queue depth, disk usage)."""
+    response = await send_daemon_command('get_action_capture_status')
+    if response.get('success'):
+        return response.get('data', {})
+    # Fallback: read the in-process singleton directly.
+    try:
+        from utils.action_capture import get_action_capture
+        return get_action_capture().status()
+    except Exception:
+        raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/action-capture/start")
+async def api_ac_start() -> dict[str, Any]:
+    """Turn action capture ON."""
+    response = await send_daemon_command('start_action_capture')
+    if response.get('success'):
+        return {"success": True, "result": response.get('data')}
+    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+
+
+@app.post("/api/action-capture/stop")
+async def api_ac_stop() -> dict[str, Any]:
+    """Turn action capture OFF."""
+    response = await send_daemon_command('stop_action_capture')
     if response.get('success'):
         return {"success": True, "result": response.get('data')}
     raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))

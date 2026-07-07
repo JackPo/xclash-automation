@@ -52,6 +52,7 @@ FLOW_CONFIGS = {
     "bag_flow": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "assist_ally": {"cooldown": 20, "idle_required": 0},  # assist mode: user opted in, no idle gate; rescan 20s after each run
+    "desert_python_rally": {"cooldown": 60, "idle_required": 20},  # python rally mode: opted in, short 20s idle so it won't fight active clicking
     "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 0},  # 4hr cooldown, NO idle (time-critical)
     "end_of_day_stamina_claim": {"cooldown": 86400, "idle_required": 0},  # 24hr cooldown, NO idle (time-critical)
@@ -1063,6 +1064,52 @@ class DaemonScheduler:
         self.schedule.pop("assist_mode", None)
         self.save()
         logger.info("Assist mode cleared")
+
+    def get_python_rally_mode(self) -> tuple[bool, datetime | None]:
+        """Get Desert Python rally mode status. Returns (active, expires)."""
+        state = self.schedule.get("python_rally_mode", {})
+        active = state.get("active", False)
+        expires_str = state.get("expires")
+        if not active:
+            return False, None
+        if expires_str:
+            try:
+                expires = datetime.fromisoformat(expires_str)
+                if datetime.now(timezone.utc) > expires:
+                    self.clear_python_rally_mode()
+                    logger.info("Python rally mode expired")
+                    return False, None
+                return True, expires
+            except (ValueError, TypeError):
+                return False, None
+        return active, None
+
+    @_locked
+    def set_python_rally_mode(self, hours: float | None = None) -> datetime | None:
+        """Enable Desert Python rally mode for N hours (None = until stopped)."""
+        expires = None
+        if hours:
+            expires = datetime.now(timezone.utc) + timedelta(hours=hours)
+            self.schedule["python_rally_mode"] = {
+                "active": True,
+                "expires": expires.isoformat(),
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
+        else:
+            self.schedule["python_rally_mode"] = {
+                "active": True,
+                "set_at": datetime.now(timezone.utc).isoformat(),
+            }
+        self.save()
+        logger.info(f"Python rally mode enabled (expires: {expires})")
+        return expires
+
+    @_locked
+    def clear_python_rally_mode(self) -> None:
+        """Clear Desert Python rally mode."""
+        self.schedule.pop("python_rally_mode", None)
+        self.save()
+        logger.info("Python rally mode cleared")
 
     @_locked
     def record_arms_race_progress(self, event: str, points: int, chest3_target: int | None, block_start: str) -> None:

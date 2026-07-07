@@ -314,6 +314,11 @@ def main():
         if len(sys.argv) >= 3:
             args["hours"] = float(sys.argv[2])
 
+    elif cmd == "start_python_rally":
+        # Usage: daemon_cli.py start_python_rally [hours]
+        if len(sys.argv) >= 3:
+            args["hours"] = float(sys.argv[2])
+
     elif cmd == "clear_flow_run":
         # Usage: daemon_cli.py clear_flow_run <flow_name>   (undo a "mark done")
         if len(sys.argv) < 3:
