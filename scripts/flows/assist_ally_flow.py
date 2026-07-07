@@ -51,10 +51,10 @@ HELMET_THRESHOLD = 0.05
 ASSIST_BUTTON_THRESHOLD = 0.05
 MARCH_THRESHOLD = 0.08
 
-# The helmet floats up-and-right of the castle body. Castle center is offset
-# from the helmet center by roughly this (4K px). Castle hitbox is large (~200px)
-# so this tolerates some error. CALIBRATE on first live run.
-CASTLE_CLICK_OFFSET = (-142, 174)
+# The helmet floats directly above the castle body. Castle center = helmet
+# center + this (4K px). Calibrated by marking it on a clean screenshot: the
+# castle sits straight below the helmet, ~250px down (a hair right).
+CASTLE_CLICK_OFFSET = (20, 250)
 
 # Where the popup / march screen live for detection. The castle popup appears
 # near the clicked castle, so the Assist button can be anywhere in the central
@@ -162,12 +162,13 @@ def assist_ally_flow(
             _save(frame, f"{i:02d}_popup")
         if not (af and ac is not None):
             # No Assist here (wrong castle / already assisted / not an ally).
-            # Close the popup with the Android BACK key -- NEVER tap a screen spot
-            # to "dismiss" (that hit a left-side UI button and opened Trade).
-            logger.warning(f"[ASSIST] Assist button not found (score={asc:.4f}) - back out, skip this helmet")
+            # Close the popup by tapping OPEN TERRAIN above the helmet (open sky
+            # above the castle). NOT the Android BACK key (that tries to exit the
+            # game) and NOT a fixed screen spot (that hit a UI button -> Trade).
+            logger.warning(f"[ASSIST] Assist button not found (score={asc:.4f}) - closing popup, skip this helmet")
             if debug:
                 _save(frame, f"{i:02d}_no_assist_button")
-            adb.key_event(4)  # KEYCODE_BACK
+            adb.tap(center[0], max(150, center[1] - 350), source="flow:assist:close_popup")
             time.sleep(1.0)
             failed_centers.append(center)
             continue
