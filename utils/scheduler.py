@@ -189,6 +189,21 @@ class DaemonScheduler:
         logger.info(f"[SCHEDULER] Recorded {flow_name} run #{run_count} at {now.strftime('%H:%M:%S')}")
 
     @_locked
+    def clear_flow_run(self, flow_name: str) -> bool:
+        """Undo a recorded flow run: reset last_run so the flow is ready again.
+
+        Used to undo a "mark done" (e.g. Quick Production). Returns True if there
+        was a recorded run to clear.
+        """
+        flows = self.schedule.get("flows", {})
+        if flow_name not in flows or flows[flow_name].get("last_run") is None:
+            return False
+        flows[flow_name]["last_run"] = None
+        self.save()
+        logger.info(f"[SCHEDULER] Cleared last_run for {flow_name} (now ready again)")
+        return True
+
+    @_locked
     def get_next_eligible(self, flow_name: str) -> datetime | None:
         """
         Get when a flow will next be eligible (last_run + cooldown).

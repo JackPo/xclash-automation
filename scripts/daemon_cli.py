@@ -314,6 +314,13 @@ def main():
         if len(sys.argv) >= 3:
             args["hours"] = float(sys.argv[2])
 
+    elif cmd == "clear_flow_run":
+        # Usage: daemon_cli.py clear_flow_run <flow_name>   (undo a "mark done")
+        if len(sys.argv) < 3:
+            print("Error: clear_flow_run requires a flow name (e.g. quick_production)")
+            sys.exit(1)
+        args["flow"] = sys.argv[2]
+
     # Send command and print response
     result = asyncio.run(send_command(cmd, args))
 

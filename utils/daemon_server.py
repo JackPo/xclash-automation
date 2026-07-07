@@ -203,6 +203,7 @@ class DaemonWebSocketServer:
             "use_shield": self._cmd_use_shield,
             # Quick Production
             "mark_quick_production_done": self._cmd_mark_quick_production_done,
+            "clear_flow_run": self._cmd_clear_flow_run,
             # Config override commands
             "get_config": self._cmd_get_config,
             "set_override": self._cmd_set_override,
@@ -1276,6 +1277,15 @@ class DaemonWebSocketServer:
     # =========================================================================
     # Quick Production
     # =========================================================================
+
+    def _cmd_clear_flow_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Undo a recorded flow run (e.g. 'mark done'): reset its cooldown so it's ready again."""
+        flow = args.get("flow")
+        if not flow:
+            raise ValueError("Missing 'flow' argument")
+        cleared = self.daemon.scheduler.clear_flow_run(flow)
+        return {"flow": flow, "cleared": cleared,
+                "message": f"{flow} cooldown reset - ready again" if cleared else f"{flow} had no recorded run"}
 
     def _cmd_mark_quick_production_done(self, args: dict[str, Any]) -> dict[str, Any]:
         """

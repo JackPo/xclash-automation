@@ -56,12 +56,12 @@ MARCH_THRESHOLD = 0.08
 # so this tolerates some error. CALIBRATE on first live run.
 CASTLE_CLICK_OFFSET = (-142, 174)
 
-# Where the popup / march screen live for detection.
-ASSIST_SEARCH_REGION = (900, 1100, 2000, 900)   # x, y, w, h  (lower-center)
+# Where the popup / march screen live for detection. The castle popup appears
+# near the clicked castle, so the Assist button can be anywhere in the central
+# area depending on the castle's screen position -- search broadly (the green
+# handshake icon is distinctive enough that a wide region is safe).
+ASSIST_SEARCH_REGION = (400, 650, 3000, 1350)   # x, y, w, h
 MARCH_SEARCH_REGION = (1400, 1400, 1000, 500)
-
-# Tap an empty corner to dismiss a popup if we opened the wrong thing.
-DISMISS_TAP = (300, 1080)
 
 MAX_ASSISTS = 25          # safety cap
 POLL_INTERVAL = 0.5       # re-check every 0.5s while waiting for the popup/screen
@@ -129,12 +129,20 @@ def assist_ally_flow(
         return_to_base_view(adb, win, target=ViewState.WORLD, debug=debug)
         time.sleep(1.0)
 
+    failed_centers: list[tuple[int, int]] = []  # helmets that opened a castle with no Assist
     for i in range(max_assists):
         frame = win.get_screenshot_cv2()
         found, score, center = match_template(frame, HELMET_TEMPLATE, threshold=HELMET_THRESHOLD)
         logger.info(f"[ASSIST] scan {i+1}: helmet found={found} score={score:.4f} center={center}")
         if not found or center is None:
             result["stop_reason"] = "no_more_helmets"
+            break
+        # If the only helmet we can find is one we already failed to assist (e.g.
+        # already-assisted castle whose marker lingers), stop -- don't keep
+        # re-opening it (which was what kept popping the trade/other menu).
+        if any(abs(center[0] - fx) < 70 and abs(center[1] - fy) < 70 for fx, fy in failed_centers):
+            logger.info("[ASSIST] only non-assistable helmet(s) remain - stopping")
+            result["stop_reason"] = "only_non_assistable"
             break
         if debug:
             _save(frame, f"{i:02d}_helmet_score{score:.3f}")
@@ -153,15 +161,15 @@ def assist_ally_flow(
         if debug:
             _save(frame, f"{i:02d}_popup")
         if not (af and ac is not None):
-            # Opened the wrong thing / no Assist available. Dismiss and move on.
-            logger.warning(f"[ASSIST] Assist button not found (score={asc:.4f}) - dismissing, retrying scan")
+            # No Assist here (wrong castle / already assisted / not an ally).
+            # Close the popup with the Android BACK key -- NEVER tap a screen spot
+            # to "dismiss" (that hit a left-side UI button and opened Trade).
+            logger.warning(f"[ASSIST] Assist button not found (score={asc:.4f}) - back out, skip this helmet")
             if debug:
                 _save(frame, f"{i:02d}_no_assist_button")
-            adb.tap(*DISMISS_TAP, source="flow:assist:dismiss")
-            time.sleep(0.8)
-            # Re-ensure WORLD so the same helmet doesn't loop forever.
-            return_to_base_view(adb, win, target=ViewState.WORLD, debug=False)
-            time.sleep(0.5)
+            adb.key_event(4)  # KEYCODE_BACK
+            time.sleep(1.0)
+            failed_centers.append(center)
             continue
 
         logger.info(f"[ASSIST] clicking Assist button at {ac} (score={asc:.4f})")
