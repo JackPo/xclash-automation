@@ -58,6 +58,11 @@ CASTLE_CLICK_OFFSET = (20, 250)
 
 # Assist each castle this many times (castle->Assist combo repeated).
 ASSIST_COMBO_COUNT = 3
+# Fast timings so the 3 combos fire in quick succession (assist usually sends
+# instantly - no need to wait seconds for a march screen that isn't coming).
+ASSIST_COMBO_POLL_INTERVAL = 0.12   # re-check the popup/march this often
+ASSIST_COMBO_POPUP_TIMEOUT = 2.5    # max wait for the Assist button per combo
+ASSIST_COMBO_MARCH_TIMEOUT = 0.5    # brief check for a reinforcement march screen
 
 # Where the popup / march screen live for detection. The castle popup appears
 # near the clicked castle, so the Assist button can be anywhere in the central
@@ -164,10 +169,12 @@ def assist_ally_flow(
             logger.info(f"[ASSIST] combo {combo+1}/{ASSIST_COMBO_COUNT}: opening castle at ({cx}, {cy}) under helmet {center}")
             adb.tap(cx, cy, source="flow:assist:open_castle")
 
-            # Poll every 0.5s for the Assist button (popup render time varies).
+            # Poll fast for the Assist button - returns the instant it renders, so
+            # the combos fire in quick succession (only slow if it never appears).
             af, asc, ac, frame = _poll_for_template(
                 win, ASSIST_BUTTON_TEMPLATE, ASSIST_BUTTON_THRESHOLD,
-                timeout=ASSIST_POPUP_TIMEOUT, search_region=ASSIST_SEARCH_REGION,
+                timeout=ASSIST_COMBO_POPUP_TIMEOUT, search_region=ASSIST_SEARCH_REGION,
+                interval=ASSIST_COMBO_POLL_INTERVAL,
             )
             if not (af and ac is not None):
                 if combo == 0:
@@ -186,16 +193,18 @@ def assist_ally_flow(
             adb.tap(*ac, source="flow:assist:click_assist")
             assists_here += 1
 
-            # Some assists open a reinforcement march screen; send it if so.
+            # Quick check for a reinforcement march screen (usually the assist just
+            # sends instantly, so keep this short to stay in quick succession).
             mf, ms, ml, frame = _poll_for_template(
                 win, MARCH_TEMPLATE, MARCH_THRESHOLD,
-                timeout=MARCH_SCREEN_TIMEOUT, search_region=MARCH_SEARCH_REGION,
+                timeout=ASSIST_COMBO_MARCH_TIMEOUT, search_region=MARCH_SEARCH_REGION,
+                interval=ASSIST_COMBO_POLL_INTERVAL,
             )
             if mf and ml is not None:
                 logger.info(f"[ASSIST] reinforcement march screen - clicking March at {ml}")
                 adb.tap(*ml, source="flow:assist:march")
-                time.sleep(1.2)
-            time.sleep(0.4)
+                time.sleep(0.8)
+            time.sleep(0.1)
 
         if assists_here == 0:
             continue  # not assistable -> on to the next helmet
