@@ -674,9 +674,16 @@ class DaemonWebSocketServer:
         if title_name not in titles:
             raise ValueError(f"Unknown title: {title_name}. Available: {list(titles.keys())}")
 
-        # Mark as critical flow to prevent daemon interference
+        # Take EXCLUSIVE control so the daemon's own flows don't fight the title
+        # navigation. critical_flow_active alone is NOT enough: the on-sight flows
+        # (gift box, sandstorm, assist) are critical=True, so _run_flow only gates
+        # them on active_flows - which is empty here. Registering "apply_title" in
+        # active_flows makes _run_flow block EVERY other flow, so the title applies
+        # immediately instead of retrying go_to_mark for minutes while they click.
         self.daemon.critical_flow_active = True
         self.daemon.critical_flow_name = "apply_title"
+        with self.daemon.flow_lock:
+            self.daemon.active_flows.add("apply_title")
 
         try:
             # title_management_flow handles navigation to marked Royal City internally.
@@ -697,9 +704,11 @@ class DaemonWebSocketServer:
                 "buffs": title_info.get("buffs", [])
             }
         finally:
-            # Always clear critical flow flag
+            # Always clear the flags / release exclusive control
             self.daemon.critical_flow_active = False
             self.daemon.critical_flow_name = None
+            with self.daemon.flow_lock:
+                self.daemon.active_flows.discard("apply_title")
 
     def _cmd_list_titles(self, args: dict[str, Any]) -> dict[str, Any]:
         """List available kingdom titles."""
