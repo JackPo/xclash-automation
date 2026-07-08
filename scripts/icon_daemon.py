@@ -4244,7 +4244,8 @@ class IconDaemon:
                     _ss_enabled = True
                 if (_ss_enabled and town_present  # town_present == in WORLD view
                         and self.scheduler.is_flow_ready("sandstorm_rally", idle_seconds=effective_idle_secs)):
-                    ssf, sss, _ = match_template(frame, "sandstorm_rally_4k.png", threshold=0.10)
+                    ssf, sss, _ = match_template(frame, "sandstorm_rally_4k.png",
+                                                search_region=(30, 1428, 520, 104), threshold=0.10)
                     if ssf:
                         self.logger.info(f"[{iteration}] SANDSTORM: detected in WORLD (score={sss:.4f})")
                         flow_candidates.append(FlowCandidate(
@@ -4264,11 +4265,11 @@ class IconDaemon:
                         and not self.scheduler.is_exhausted("desert_python_rally")
                         and self.scheduler.is_flow_ready("desert_python_rally", idle_seconds=effective_idle_secs)):
                     pf, ps, _ = match_template(
-                        frame, "desert_python_4k.png",
-                        search_region=(0, 540, 520, 360), threshold=0.06,
+                        frame, "cobra_icon_4k.png",
+                        search_region=(30, 1428, 520, 104), threshold=0.08,
                     )
                     if pf:
-                        self.logger.info(f"[{iteration}] PYTHON: detected at fixed pos (score={ps:.4f})")
+                        self.logger.info(f"[{iteration}] COBRA: icon detected in toolbar row (score={ps:.4f})")
                         flow_candidates.append(FlowCandidate(
                             name="desert_python_rally",
                             flow_func=lambda adb: desert_python_rally_flow(adb, self.windows_helper),

@@ -33,6 +33,10 @@ logger = logging.getLogger("sandstorm_rally_flow")
 
 SANDSTORM_TEMPLATE = "sandstorm_rally_4k.png"
 SANDSTORM_THRESHOLD = 0.10   # animated vortex; empty map scored ~0.21, so 0.10 is safe-ish
+# The sandstorm/Union Rally Point is an EVENT ICON in the left toolbar row (same
+# fixed-Y row as the cobra icon); its X shifts as icons come/go, so search only
+# that horizontal strip - not the whole screen (avoids false matches on the map).
+SANDSTORM_SEARCH_REGION = (30, 1428, 520, 104)
 
 
 def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -> dict[str, Any]:
@@ -51,7 +55,9 @@ def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -
         time.sleep(1.0)
         frame = win.get_screenshot_cv2()
 
-    found, score, center = match_template(frame, SANDSTORM_TEMPLATE, threshold=SANDSTORM_THRESHOLD)
+    found, score, center = match_template(frame, SANDSTORM_TEMPLATE,
+                                          search_region=SANDSTORM_SEARCH_REGION,
+                                          threshold=SANDSTORM_THRESHOLD)
     logger.info(f"[SANDSTORM] scan: found={found} score={score:.4f} center={center}")
     if not found or center is None:
         result["stop_reason"] = "not_found"

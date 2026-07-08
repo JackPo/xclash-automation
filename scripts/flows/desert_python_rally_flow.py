@@ -45,13 +45,14 @@ from utils.view_state_detector import detect_view, ViewState
 
 logger = logging.getLogger("desert_python_rally_flow")
 
-# --- Detection: the python at its fixed map position -------------------------
-PYTHON_TEMPLATE = "desert_python_4k.png"       # golden scorpion/cobra, level badge excluded
-# Fixed-position search box around the template center (195, 716).
-PYTHON_SEARCH_REGION = (0, 540, 520, 360)      # x, y, w, h
-PYTHON_THRESHOLD = 0.06
-# Tap the creature body (a hair below the template center, onto the head/eye).
-PYTHON_TAP_OFFSET = (0, 45)
+# --- Detection: the cobra EVENT ICON in the left toolbar row -----------------
+# The cobra icon (orange dragon head, next to the healing 6% bag) sits in the
+# left toolbar at a FIXED Y (~1478); its X can shift as other event icons come
+# and go, so search a horizontal strip along that row only.
+PYTHON_TEMPLATE = "cobra_icon_4k.png"
+PYTHON_SEARCH_REGION = (30, 1428, 520, 104)    # x, y, w, h - the fixed-Y toolbar row
+PYTHON_THRESHOLD = 0.08
+PYTHON_TAP_OFFSET = (0, 0)                      # click the icon center
 
 # --- The red flag "Rally" button on the python info panel --------------------
 RALLY_FLAG_TEMPLATE = "rally_button_4k.png"    # mask auto-detected (rally_button_mask_4k.png)
