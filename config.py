@@ -63,6 +63,10 @@ ACTION_CAPTURE_ENCODER_WORKERS = 4        # PNG encode threads (CPU is plentiful
 # Map gift boxes: auto-claim alliance-shared treasure "gift boxes" on the WORLD map
 GIFT_BOX_MAP_ENABLED = True
 
+# Sandstorm / Union Rally Point: tap it on sight (capture mode) to record the next
+# screen; set False once the rally sequence is built and you don't want auto-taps.
+SANDSTORM_CAPTURE_ENABLED = True
+
 # Per-flow debug flags (override global setting for specific flows)
 # NOTE: these dump full 4K PNGs on every flow step with no working cleanup - they
 # filled a 953GB disk (return_to_base=240GB, rally_join=61GB, elite_zombie=12GB).

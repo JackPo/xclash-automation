@@ -175,6 +175,7 @@ from scripts.flows.community_click_flow2 import community_click_flow2
 from scripts.flows.assist_ally_flow import assist_ally_flow
 from scripts.flows.desert_python_rally_flow import desert_python_rally_flow
 from scripts.flows.map_gift_box_flow import map_gift_box_flow
+from scripts.flows.sandstorm_rally_flow import sandstorm_rally_flow
 
 # Desert Python rally fires on a short idle (not the full 5-min gate) so it acts
 # when the user pauses but never fights active clicking.
@@ -1182,6 +1183,22 @@ class IconDaemon:
             else:
                 self.logger.debug(f"[{iteration}] GIFT BOX: user active (idle={g_idle:.0f}s), deferring")
             candidates = [c for c in candidates if c.name != "map_gift_box"]
+            if not candidates and not self.deferred_flow_queue:
+                return None
+
+        # Sandstorm / Union Rally Point: tap it ON SIGHT (capture mode) so the
+        # action-capture system records the next screen. It backs out without
+        # committing a rally.
+        sandstorm_candidate = next((c for c in candidates if c.name == "sandstorm_rally"), None)
+        if sandstorm_candidate is not None:
+            self.logger.info(f"[{iteration}] SANDSTORM: tapping to capture next screen now")
+            if self._run_flow(
+                sandstorm_candidate.name, sandstorm_candidate.flow_func,
+                critical=sandstorm_candidate.critical,
+                record_to_scheduler=sandstorm_candidate.record_to_scheduler,
+            ):
+                return sandstorm_candidate.name
+            candidates = [c for c in candidates if c.name != "sandstorm_rally"]
             if not candidates and not self.deferred_flow_queue:
                 return None
 
@@ -2209,6 +2226,7 @@ class IconDaemon:
             "assist_ally": (lambda adb: assist_ally_flow(adb, self.windows_helper), True),
             "desert_python_rally": (lambda adb: desert_python_rally_flow(adb, self.windows_helper), True),
             "map_gift_box": (lambda adb: map_gift_box_flow(adb, self.windows_helper), True),
+            "sandstorm_rally": (lambda adb: sandstorm_rally_flow(adb, self.windows_helper), True),
             "stamina_claim": (stamina_claim_flow, False),
             "stamina_use": (lambda adb: stamina_use_flow(adb, self.windows_helper), False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
@@ -4215,6 +4233,26 @@ class IconDaemon:
                             priority=FlowPriority.NORMAL,
                             critical=True,
                             reason="gift box on map",
+                            record_to_scheduler=True
+                        ))
+
+                # Sandstorm / Union Rally Point: in WORLD, if the vortex is on screen,
+                # tap it (capture mode - records the next screen, then backs out).
+                try:
+                    from config import SANDSTORM_CAPTURE_ENABLED as _ss_enabled
+                except Exception:
+                    _ss_enabled = True
+                if (_ss_enabled and town_present  # town_present == in WORLD view
+                        and self.scheduler.is_flow_ready("sandstorm_rally", idle_seconds=effective_idle_secs)):
+                    ssf, sss, _ = match_template(frame, "sandstorm_rally_4k.png", threshold=0.10)
+                    if ssf:
+                        self.logger.info(f"[{iteration}] SANDSTORM: detected in WORLD (score={sss:.4f})")
+                        flow_candidates.append(FlowCandidate(
+                            name="sandstorm_rally",
+                            flow_func=lambda adb: sandstorm_rally_flow(adb, self.windows_helper),
+                            priority=FlowPriority.NORMAL,
+                            critical=True,
+                            reason="sandstorm capture",
                             record_to_scheduler=True
                         ))
 
