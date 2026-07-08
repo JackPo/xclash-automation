@@ -174,10 +174,13 @@ from scripts.flows.community_click_flow import community_click_flow
 from scripts.flows.community_click_flow2 import community_click_flow2
 from scripts.flows.assist_ally_flow import assist_ally_flow
 from scripts.flows.desert_python_rally_flow import desert_python_rally_flow
+from scripts.flows.map_gift_box_flow import map_gift_box_flow
 
 # Desert Python rally fires on a short idle (not the full 5-min gate) so it acts
 # when the user pauses but never fights active clicking.
 DESERT_PYTHON_IDLE_REQUIRED = 20
+# Map gift boxes claim on a short idle too (quick 2-tap claim; boxes last minutes).
+GIFT_BOX_IDLE_REQUIRED = 15
 from scripts.flows.royal_city_attack_flow import royal_city_attack_flow
 from scripts.flows.union_coal_flow import union_coal_flow
 from scripts.flows.union_furnace_flow import union_furnace_flow
@@ -1158,6 +1161,26 @@ class IconDaemon:
             else:
                 self.logger.debug(f"[{iteration}] PYTHON RALLY: user active (idle={py_idle:.0f}s), deferring")
             candidates = [c for c in candidates if c.name != "desert_python_rally"]
+            if not candidates and not self.deferred_flow_queue:
+                return None
+
+        # Map gift boxes: claim shared treasure boxes on the WORLD map on a SHORT
+        # idle (~15s) - beneficial + time-limited, but a short pause keeps it from
+        # fighting active clicks.
+        gift_candidate = next((c for c in candidates if c.name == "map_gift_box"), None)
+        if gift_candidate is not None:
+            g_idle = get_user_idle_seconds()
+            if g_idle >= GIFT_BOX_IDLE_REQUIRED:
+                self.logger.info(f"[{iteration}] GIFT BOX: idle {g_idle:.0f}s ok, claiming now")
+                if self._run_flow(
+                    gift_candidate.name, gift_candidate.flow_func,
+                    critical=gift_candidate.critical,
+                    record_to_scheduler=gift_candidate.record_to_scheduler,
+                ):
+                    return gift_candidate.name
+            else:
+                self.logger.debug(f"[{iteration}] GIFT BOX: user active (idle={g_idle:.0f}s), deferring")
+            candidates = [c for c in candidates if c.name != "map_gift_box"]
             if not candidates and not self.deferred_flow_queue:
                 return None
 
@@ -2184,6 +2207,7 @@ class IconDaemon:
             "gift_box": (gift_box_flow, True),
             "assist_ally": (lambda adb: assist_ally_flow(adb, self.windows_helper), True),
             "desert_python_rally": (lambda adb: desert_python_rally_flow(adb, self.windows_helper), True),
+            "map_gift_box": (lambda adb: map_gift_box_flow(adb, self.windows_helper), True),
             "stamina_claim": (stamina_claim_flow, False),
             "stamina_use": (lambda adb: stamina_use_flow(adb, self.windows_helper), False),
             "faction_trials": (lambda adb: faction_trials_flow(adb, self.windows_helper), True),
@@ -4170,6 +4194,26 @@ class IconDaemon:
                             priority=FlowPriority.NORMAL,
                             critical=True,
                             reason="assist mode",
+                            record_to_scheduler=True
+                        ))
+
+                # Map gift boxes: in WORLD, if a shared gift box is on the map, claim
+                # it (and any others). Fires on a short idle via _execute_best_flow.
+                try:
+                    from config import GIFT_BOX_MAP_ENABLED as _gb_enabled
+                except Exception:
+                    _gb_enabled = True
+                if (_gb_enabled and town_present  # town_present == in WORLD view
+                        and self.scheduler.is_flow_ready("map_gift_box", idle_seconds=effective_idle_secs)):
+                    gbf, gbs, _ = match_template(frame, "map_gift_box_4k.png", threshold=0.05)
+                    if gbf:
+                        self.logger.info(f"[{iteration}] GIFT BOX: detected in WORLD (score={gbs:.4f})")
+                        flow_candidates.append(FlowCandidate(
+                            name="map_gift_box",
+                            flow_func=lambda adb: map_gift_box_flow(adb, self.windows_helper),
+                            priority=FlowPriority.NORMAL,
+                            critical=True,
+                            reason="gift box on map",
                             record_to_scheduler=True
                         ))
 

@@ -53,6 +53,7 @@ FLOW_CONFIGS = {
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "assist_ally": {"cooldown": 20, "idle_required": 0},  # assist mode: user opted in, no idle gate; rescan 20s after each run
     "desert_python_rally": {"cooldown": 60, "idle_required": 20},  # python rally mode: opted in, short 20s idle so it won't fight active clicking
+    "map_gift_box": {"cooldown": 15, "idle_required": 0},  # claim shared map gift boxes; short idle gate enforced in _execute_best_flow
     "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},
     "pre_beast_stamina_claim": {"cooldown": 14400, "idle_required": 0},  # 4hr cooldown, NO idle (time-critical)
     "end_of_day_stamina_claim": {"cooldown": 86400, "idle_required": 0},  # 24hr cooldown, NO idle (time-critical)

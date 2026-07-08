@@ -60,6 +60,9 @@ ACTION_CAPTURE_MAX_AGE_HOURS = 24         # prune whole sessions older than this
 ACTION_CAPTURE_MAX_INFLIGHT_BURSTS = 16   # backpressure: drop after-burst beyond this
 ACTION_CAPTURE_ENCODER_WORKERS = 4        # PNG encode threads (CPU is plentiful)
 
+# Map gift boxes: auto-claim alliance-shared treasure "gift boxes" on the WORLD map
+GIFT_BOX_MAP_ENABLED = True
+
 # Per-flow debug flags (override global setting for specific flows)
 # NOTE: these dump full 4K PNGs on every flow step with no working cleanup - they
 # filled a 953GB disk (return_to_base=240GB, rally_join=61GB, elite_zombie=12GB).
