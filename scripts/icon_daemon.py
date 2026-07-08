@@ -179,8 +179,9 @@ from scripts.flows.map_gift_box_flow import map_gift_box_flow
 # Desert Python rally fires on a short idle (not the full 5-min gate) so it acts
 # when the user pauses but never fights active clicking.
 DESERT_PYTHON_IDLE_REQUIRED = 20
-# Map gift boxes claim on a short idle too (quick 2-tap claim; boxes last minutes).
-GIFT_BOX_IDLE_REQUIRED = 15
+# Map gift boxes claim ON SIGHT (0 = immediate). The claim is a quick tap + reward
+# popup close, and it self-verifies (backs out if no popup), so fire it right away.
+GIFT_BOX_IDLE_REQUIRED = 0
 from scripts.flows.royal_city_attack_flow import royal_city_attack_flow
 from scripts.flows.union_coal_flow import union_coal_flow
 from scripts.flows.union_furnace_flow import union_furnace_flow
@@ -4205,7 +4206,7 @@ class IconDaemon:
                     _gb_enabled = True
                 if (_gb_enabled and town_present  # town_present == in WORLD view
                         and self.scheduler.is_flow_ready("map_gift_box", idle_seconds=effective_idle_secs)):
-                    gbf, gbs, _ = match_template(frame, "map_gift_box_4k.png", threshold=0.05)
+                    gbf, gbs, _ = match_template(frame, "map_gift_box_4k.png", threshold=0.07)
                     if gbf:
                         self.logger.info(f"[{iteration}] GIFT BOX: detected in WORLD (score={gbs:.4f})")
                         flow_candidates.append(FlowCandidate(

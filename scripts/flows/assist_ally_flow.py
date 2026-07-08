@@ -176,8 +176,11 @@ def assist_ally_flow(
             failed_centers.append(center)
             continue
 
-        logger.info(f"[ASSIST] clicking Assist button at {ac} (score={asc:.4f})")
-        adb.tap(*ac, source="flow:assist:click_assist")
+        # Click Assist 3x back-to-back (each tap sends another wave of help).
+        logger.info(f"[ASSIST] clicking Assist button 3x at {ac} (score={asc:.4f})")
+        for _n in range(3):
+            adb.tap(*ac, source="flow:assist:click_assist")
+            time.sleep(0.25)
 
         # Post-Assist: some assists open a reinforcement march screen. Poll every
         # 0.5s for a March button; if it never appears, the assist auto-sent.
