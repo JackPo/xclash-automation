@@ -127,12 +127,40 @@ BARRACKS_POSITIONS = [
 | `tavern_button_4k.png` | (62, 1192) | 48x48 | 0.02 | Click: (80, 1220) |
 | `tavern_my_quests_active_4k.png` | (1505, 723) | 299x65 | 0.02 | Active tab |
 | `tavern_ally_quests_active_4k.png` | (2054, 723) | 299x65 | 0.02 | Active tab |
-| `claim_button_4k.png` | Search | 333x88 | 0.02 | Column X: 2100-2500 |
+| `claim_button_4k.png` | Search | 246x82 | 0.05 | Yellow "Claim" btn; click center (2329, 945). **Re-extracted 2026-07-08** — old 333x88 went stale after a UI restyle (scored 0.188, never matched → claims silently stopped). NOTE: tavern `scan` mode only reads timers; only `claim` mode (fires on imminent scheduled completion) clicks this. |
 | `assist_button_4k.png` | Search | 249x102 | 0.02 | Ally quests |
 | `steal_button_4k.png` | Search | 146x169 | 0.10 | Floating hexagon on WORLD map (steal sniper mode); countdown OCR region at offset (-190, -435, 380, 120) from match center |
 | `tavern_mega_mode_toggle_4k.png` | Bottom row y1700-1950 | 125x180 | 0.05 | Golden-book "Mega" toggle, visible in Normal mode; click to enter Mega mode |
 | `tavern_mega_refresh_button_4k.png` | Bottom row, x>=1930 only | 265x95 | 0.02 | Text-focused crop; Mega Dispatch (x 1530-1910) differs only by label and cross-matches at ~0.047 - NEVER search left of x1930 or raise threshold |
 | `tavern_mega_dispatch_button_4k.png` | (not matched) | 380x130 | - | Reference only; do NOT click. Mass-dispatches all quests |
+
+---
+
+## Left-Toolbar Event Icons (FIXED-Y row)
+
+Time-limited event icons (rally monsters, etc.) appear as circular icons in the
+**left toolbar at a fixed Y (~1478)**, next to the healing/bag "6%" symbol and the
+magnifying glass. Their **X shifts** as icons come and go, so search ONLY that
+horizontal strip — never the whole screen (the map false-matches otherwise).
+
+**Search region for ALL of these: `(30, 1428, 520, 104)`** (x, y, w, h)
+
+| Template | Size | Threshold | Meaning | Action |
+|----------|------|-----------|---------|--------|
+| `cobra_icon_4k.png` | 82x82 | 0.08 | Desert Python / cobra rally event available | Tap → rally flag → deploy (`desert_python_rally_flow`) |
+| `sandstorm_rally_4k.png` | - | 0.10 | Sandstorm / Union Rally Point event | Tap (capture mode — deploy screen not yet wired) |
+
+Extracted 2026-07-08. Earlier attempts wrongly captured on-map terrain (a
+`desert_python_4k.png` that was ~60% sand → random clicking); these are the
+toolbar UI icons, NOT the on-map monster.
+
+---
+
+## Hospital Header
+
+| Template | Region | Threshold | Notes |
+|----------|--------|-----------|-------|
+| `hospital_header_4k.png` | `(1770, 305, 300, 90)` | 0.1 | Panel-open check. **Region fixed 2026-07-08** — was `(1790, 325, 260, 70)`, ~15px too low; Step 0 scored 0.136 > 0.1 and aborted EVERY heal. Header center is at (1916, 346). |
 
 ---
 
