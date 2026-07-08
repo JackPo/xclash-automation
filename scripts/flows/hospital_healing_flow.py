@@ -51,7 +51,7 @@ from utils.hospital_panel_helper import (
 )
 
 # Hospital header region for verification
-HOSPITAL_HEADER_REGION = (1790, 325, 260, 70)  # x, y, w, h - header at ~(1793, 330)
+HOSPITAL_HEADER_REGION = (1770, 305, 300, 90)  # x, y, w, h - header center ~(1916, 346); old region was ~15px too low -> Step 0 falsely failed (0.136), aborting every heal
 HOSPITAL_HEADER_THRESHOLD = 0.1
 
 
