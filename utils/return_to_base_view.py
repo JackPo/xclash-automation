@@ -584,6 +584,31 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         if debug:
             print(f"    [RETURN] Attempt {attempt + 1}/{MAX_RECOVERY_ATTEMPTS}")
 
+        # Phase 0: Modal escape via the bottom Town/World toggle button.
+        # A building/tile info panel (e.g. an ally's Union Center) leaves
+        # detect_view=UNKNOWN and is NOT closed by the back-button / grass / zoom
+        # steps below - recovery used to flail on it for up to 30 attempts, clicking
+        # the castle and the union center over and over. The toggle button reliably
+        # navigates home AND dismisses such panels, so try it FIRST every attempt.
+        frame = win.get_screenshot_cv2()
+        if frame is not None:
+            vs0, _vs0_score = detect_view(frame)
+            if vs0 not in (ViewState.TOWN, ViewState.WORLD):
+                from config import TOGGLE_BUTTON_CLICK
+                if _should_abort_for_user_activity("modal toggle escape"):
+                    return True
+                adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_escape")
+                time.sleep(0.8)
+                frame = win.get_screenshot_cv2()
+                if frame is not None:
+                    vs0b, _vs0b_score = detect_view(frame)
+                    if vs0b in (ViewState.TOWN, ViewState.WORLD):
+                        _consecutive_restarts = 0
+                        _save_rtb_debug(frame, f"SUCCESS_toggle_escape_{vs0b.value}")
+                        if debug:
+                            print(f"    [RETURN] Phase 0: toggle-button escape -> {vs0b.value}")
+                        return True
+
         # Phase 1: Click back button while visible
         back_clicks = 0
         while back_clicks < MAX_BACK_CLICKS:
