@@ -19,12 +19,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# Always-on outcome logging so daemon runs (debug=False) leave a trace in the
+# daemon log - previously every failure/success went to print() and vanished.
+logger = logging.getLogger("title_management_flow")
 
 import numpy.typing as npt
 
@@ -233,7 +238,7 @@ def title_management_flow(
             print(f"  Initial go_to_mark failed (attempt {nav_try + 1}/3), retrying...")
         time.sleep(0.8)
     if not nav_ok:
-        print("  ERROR: Failed to navigate to marked Royal City")
+        logger.warning(f"[TITLE] {title_name}: FAILED - could not navigate to marked Royal City")
         return False
     time.sleep(0.5)
 
@@ -364,9 +369,10 @@ def title_management_flow(
                 break
 
         if not panel_ready:
-            print(
-                "  ERROR: Royal City panel not detected "
-                f"(header_score={last_header_score:.4f}, manage_score={last_manage_score:.4f})"
+            logger.warning(
+                f"[TITLE] {title_name}: FAILED - Royal City panel not detected "
+                f"(header_score={last_header_score:.4f}, manage_score={last_manage_score:.4f}) "
+                "- star/header/manage template may be stale after a UI update"
             )
             return False
         if debug:
@@ -422,7 +428,7 @@ def title_management_flow(
                     print("    Not found, trying alternate position...")
 
         if not matched:
-            print("  ERROR: Royal City Management header not found")
+            logger.warning(f"[TITLE] {title_name}: FAILED - Royal City Management header not found (Manage tap missed or header template stale)")
             return False
 
         # Step 3: Click Title Assignment
@@ -438,7 +444,7 @@ def title_management_flow(
             KINGDOM_TITLE_HEADER_POS, KINGDOM_TITLE_HEADER_SIZE, debug=debug
         )
         if not matched:
-            print("  ERROR: Kingdom Title header not found")
+            logger.warning(f"[TITLE] {title_name}: FAILED - Kingdom Title header not found after clicking Title Assignment")
             return False
 
         # Step 4: Find and click desired title using template matching with scrolling
@@ -482,10 +488,10 @@ def title_management_flow(
             if found and detected_pos:
                 adb.tap(*detected_pos, source="flow:title_management:select_title")
             else:
-                print(f"  ERROR: Could not find {title_name} template after scrolling")
+                logger.warning(f"[TITLE] {title_name}: FAILED - could not find '{title_template_name}' in the title list after scrolling (template stale or title not in list)")
                 return False
         else:
-            print(f"  ERROR: No template defined for {title_name}")
+            logger.warning(f"[TITLE] {title_name}: FAILED - no list template defined for this title in kingdom_titles.json")
             return False
 
         # Wait for detail view to load
@@ -502,37 +508,27 @@ def title_management_flow(
         status, time_in_office, remaining = check_holding_status(frame, debug=debug)
 
         if status == "HOLDING_THIS":
-            if debug:
-                print(f"  Already holding this title!")
-                if time_in_office is not None:
-                    print(f"  Time in office: {time_in_office}s")
-                    if remaining is not None and remaining > 0:
-                        print(f"  Remaining: {remaining}s ({remaining//60}m {remaining%60}s)")
+            logger.info(f"[TITLE] {title_name}: OK - already holding this title (time_in_office={time_in_office}s, remaining={remaining}s)")
             return True  # Already in office, success
 
         if status == "HOLDING_OTHER":
-            print(f"  ERROR: Already holding a different title. Cannot apply.")
+            logger.warning(f"[TITLE] {title_name}: FAILED - your account already holds a DIFFERENT title (game blocks holding two). Release the current one first.")
             return False
 
         if status == "CAN_APPLY":
             # Step 5: Click Apply
-            if debug:
-                print(f"  Step 5: Clicking Apply at {APPLY_BUTTON_CLICK}")
+            logger.info(f"[TITLE] {title_name}: Apply available - clicking Apply at {APPLY_BUTTON_CLICK}")
             adb.tap(*APPLY_BUTTON_CLICK, source="flow:title_management:apply_button")
             time.sleep(1.0)
-
-            if debug:
-                print("  Title application submitted!")
+            logger.info(f"[TITLE] {title_name}: OK - Apply submitted (assumed the position)")
             return True
 
-        # Unknown state
-        print(f"  ERROR: Unknown status: {status}")
+        # Unknown state - the holding-status templates likely went stale after a UI update
+        logger.warning(f"[TITLE] {title_name}: FAILED - could not read holding status (CAN_APPLY/HOLDING templates may be stale). Apply NOT clicked.")
         return False
 
     except Exception as e:
-        print(f"  ERROR: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.warning(f"[TITLE] {title_name}: FAILED - exception: {e}", exc_info=True)
         return False
 
     finally:

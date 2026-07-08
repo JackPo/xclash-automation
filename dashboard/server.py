@@ -811,11 +811,24 @@ async def api_list_titles() -> dict[str, Any]:
 
 @app.post("/api/titles/{title_name}/apply")
 async def api_apply_title(title_name: str) -> dict[str, Any]:
-    """Apply a kingdom title."""
+    """Apply a kingdom title.
+
+    Report the REAL outcome: response['success'] only means the daemon RAN the
+    command; whether the title actually applied is in data['success']. We used to
+    return success=True whenever the command ran, so the web toast said "Applied"
+    even when the flow failed silently.
+    """
     response = await send_daemon_command('apply_title', {'title': title_name})
-    if response.get('success'):
-        return {"success": True, "title": title_name, "result": response.get('data')}
-    raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+    if not response.get('success'):
+        raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+    data = response.get('data') or {}
+    flow_ok = bool(data.get('success'))
+    return {
+        "success": flow_ok,
+        "title": title_name,
+        "result": data,
+        "detail": None if flow_ok else "Ran but did not apply - see daemon log for [TITLE] ... FAILED",
+    }
 
 
 @app.get("/api/zombie-mode")
