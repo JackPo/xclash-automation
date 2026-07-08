@@ -56,6 +56,9 @@ MARCH_THRESHOLD = 0.08
 # castle sits straight below the helmet, ~250px down (a hair right).
 CASTLE_CLICK_OFFSET = (20, 250)
 
+# Assist each castle this many times (castle->Assist combo repeated).
+ASSIST_COMBO_COUNT = 3
+
 # Where the popup / march screen live for detection. The castle popup appears
 # near the clicked castle, so the Assist button can be anywhere in the central
 # area depending on the castle's screen position -- search broadly (the green
@@ -150,53 +153,55 @@ def assist_ally_flow(
         if debug:
             _save(frame, f"{i:02d}_helmet_score{score:.3f}")
 
-        # Click the castle under the helmet.
+        # Assist this castle up to 3x. Each assist is a full COMBO: tap the castle
+        # to open its popup, then tap the Assist button. After an assist the popup
+        # closes, so we must RE-OPEN the castle for the next one -- tapping the
+        # Assist spot 3x in a row just hits empty terrain.
         cx = center[0] + CASTLE_CLICK_OFFSET[0]
         cy = center[1] + CASTLE_CLICK_OFFSET[1]
-        logger.info(f"[ASSIST] clicking castle at ({cx}, {cy}) under helmet {center}")
-        adb.tap(cx, cy, source="flow:assist:open_castle")
+        assists_here = 0
+        for combo in range(ASSIST_COMBO_COUNT):
+            logger.info(f"[ASSIST] combo {combo+1}/{ASSIST_COMBO_COUNT}: opening castle at ({cx}, {cy}) under helmet {center}")
+            adb.tap(cx, cy, source="flow:assist:open_castle")
 
-        # Poll every 0.5s for the Assist button to appear (popup render time varies).
-        af, asc, ac, frame = _poll_for_template(
-            win, ASSIST_BUTTON_TEMPLATE, ASSIST_BUTTON_THRESHOLD,
-            timeout=ASSIST_POPUP_TIMEOUT, search_region=ASSIST_SEARCH_REGION,
-        )
-        if debug:
-            _save(frame, f"{i:02d}_popup")
-        if not (af and ac is not None):
-            # No Assist here (wrong castle / already assisted / not an ally).
-            # Close the popup by tapping OPEN TERRAIN above the helmet (open sky
-            # above the castle). NOT the Android BACK key (that tries to exit the
-            # game) and NOT a fixed screen spot (that hit a UI button -> Trade).
-            logger.warning(f"[ASSIST] Assist button not found (score={asc:.4f}) - closing popup, skip this helmet")
-            if debug:
-                _save(frame, f"{i:02d}_no_assist_button")
-            adb.tap(center[0], max(150, center[1] - 350), source="flow:assist:close_popup")
-            time.sleep(1.0)
-            failed_centers.append(center)
-            continue
+            # Poll every 0.5s for the Assist button (popup render time varies).
+            af, asc, ac, frame = _poll_for_template(
+                win, ASSIST_BUTTON_TEMPLATE, ASSIST_BUTTON_THRESHOLD,
+                timeout=ASSIST_POPUP_TIMEOUT, search_region=ASSIST_SEARCH_REGION,
+            )
+            if not (af and ac is not None):
+                if combo == 0:
+                    # Not assistable (wrong castle / already assisted / not an ally).
+                    # Close by tapping OPEN TERRAIN above the helmet (NOT Android back
+                    # -> exits game; NOT a fixed spot -> hit Trade).
+                    logger.warning(f"[ASSIST] Assist button not found (score={asc:.4f}) - closing popup, skip this helmet")
+                    adb.tap(center[0], max(150, center[1] - 350), source="flow:assist:close_popup")
+                    time.sleep(1.0)
+                    failed_centers.append(center)
+                else:
+                    logger.info(f"[ASSIST] no Assist button on combo {combo+1} - stopping (assisted {assists_here}x)")
+                break
 
-        # Click Assist 3x back-to-back (each tap sends another wave of help).
-        logger.info(f"[ASSIST] clicking Assist button 3x at {ac} (score={asc:.4f})")
-        for _n in range(3):
+            logger.info(f"[ASSIST] combo {combo+1}/{ASSIST_COMBO_COUNT}: clicking Assist at {ac} (score={asc:.4f})")
             adb.tap(*ac, source="flow:assist:click_assist")
-            time.sleep(0.25)
+            assists_here += 1
 
-        # Post-Assist: some assists open a reinforcement march screen. Poll every
-        # 0.5s for a March button; if it never appears, the assist auto-sent.
-        mf, ms, ml, frame = _poll_for_template(
-            win, MARCH_TEMPLATE, MARCH_THRESHOLD,
-            timeout=MARCH_SCREEN_TIMEOUT, search_region=MARCH_SEARCH_REGION,
-        )
-        if debug:
-            _save(frame, f"{i:02d}_after_assist")
-        if mf and ml is not None:
-            logger.info(f"[ASSIST] reinforcement march screen - clicking March at {ml}")
-            adb.tap(*ml, source="flow:assist:march")
-            time.sleep(1.2)
+            # Some assists open a reinforcement march screen; send it if so.
+            mf, ms, ml, frame = _poll_for_template(
+                win, MARCH_TEMPLATE, MARCH_THRESHOLD,
+                timeout=MARCH_SCREEN_TIMEOUT, search_region=MARCH_SEARCH_REGION,
+            )
+            if mf and ml is not None:
+                logger.info(f"[ASSIST] reinforcement march screen - clicking March at {ml}")
+                adb.tap(*ml, source="flow:assist:march")
+                time.sleep(1.2)
+            time.sleep(0.4)
+
+        if assists_here == 0:
+            continue  # not assistable -> on to the next helmet
 
         result["assisted"] += 1
-        logger.info(f"[ASSIST] assisted #{result['assisted']}")
+        logger.info(f"[ASSIST] assisted #{result['assisted']} ({assists_here}x)")
 
         # Back to WORLD to scan for the next helmet.
         return_to_base_view(adb, win, target=ViewState.WORLD, debug=False)

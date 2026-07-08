@@ -4206,7 +4206,7 @@ class IconDaemon:
                     _gb_enabled = True
                 if (_gb_enabled and town_present  # town_present == in WORLD view
                         and self.scheduler.is_flow_ready("map_gift_box", idle_seconds=effective_idle_secs)):
-                    gbf, gbs, _ = match_template(frame, "map_gift_box_4k.png", threshold=0.07)
+                    gbf, gbs, _ = match_template(frame, "map_gift_box_4k.png", threshold=0.05)
                     if gbf:
                         self.logger.info(f"[{iteration}] GIFT BOX: detected in WORLD (score={gbs:.4f})")
                         flow_candidates.append(FlowCandidate(

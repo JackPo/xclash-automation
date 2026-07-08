@@ -33,7 +33,7 @@ logger = logging.getLogger("map_gift_box_flow")
 
 GIFT_BOX_TEMPLATE = "map_gift_box_4k.png"       # mask auto-detected (map_gift_box_mask_4k.png)
 CLAIM_HEADER_TEMPLATE = "gift_claim_header_4k.png"
-GIFT_BOX_THRESHOLD = 0.07   # loose: borderline/occluded boxes score ~0.05; a false hit self-corrects (no reward popup -> dismiss)
+GIFT_BOX_THRESHOLD = 0.05   # 0.07 was too loose -> false-matched random terrain; real boxes score <=0.05
 CLAIM_THRESHOLD = 0.06
 
 # Tapping anywhere on the "Congratulations" popup claims + closes it. The
