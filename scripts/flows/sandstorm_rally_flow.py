@@ -78,20 +78,37 @@ def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -
     adb.tap(*VORTEX_CENTER, source="flow:sandstorm:tap_vortex")
     time.sleep(1.8)
 
-    # The Sandflow Mine is ATTACKED (not rallied): the vortex panel has an ATTACK
-    # button. Poll for it (bottom-center of the panel). This tap + its after-burst
-    # capture the troop/team-select screen so the leftmost-team logic can be wired.
+    # The Sandflow Mine is ATTACKED (not rallied): its panel has an ATTACK button.
+    def _find_attack(frm: Any) -> tuple[int, int] | None:
+        for tpl, thr in [("royal_city_attack_button_4k.png", 0.08), ("attack_button_4k.png", 0.08)]:
+            af, as_, ac = match_template(frm, tpl, search_region=(1500, 1450, 900, 550), threshold=thr)
+            logger.info(f"[SANDSTORM] attack-button '{tpl}': found={af} score={as_:.4f} center={ac}")
+            if af and ac is not None:
+                return ac
+        return None
+
     frame = win.get_screenshot_cv2()
-    attack_center = None
-    for tpl, thr in [("royal_city_attack_button_4k.png", 0.08), ("attack_button_4k.png", 0.08)]:
-        af, as_, ac = match_template(frame, tpl, search_region=(1500, 1450, 900, 550), threshold=thr)
-        logger.info(f"[SANDSTORM] attack-button scan '{tpl}': found={af} score={as_:.4f} center={ac}")
-        if af and ac is not None:
-            attack_center = ac
-            break
+    attack_center = _find_attack(frame)
+
+    # If no Attack button, we're likely on the "You want to choose?" overlap
+    # chooser (the Phantom overlaps a nearby castle). Match the "Sandstorm Phantom"
+    # TEXT (search-matched so it survives the level-number width changing) and click
+    # it to split the two, which opens the Phantom's Attack panel.
+    if attack_center is None:
+        pf, ps, pc = match_template(
+            frame, "sandstorm_phantom_text_4k.png",
+            search_region=(1450, 1080, 950, 220), threshold=0.06,
+        )
+        logger.info(f"[SANDSTORM] Attack not found; Sandstorm-Phantom-text: found={pf} score={ps:.4f} center={pc}")
+        if pf and pc is not None:
+            logger.info(f"[SANDSTORM] disambiguation - clicking Sandstorm Phantom at {pc}")
+            adb.tap(*pc, source="flow:sandstorm:choose_phantom")
+            time.sleep(1.8)
+            frame = win.get_screenshot_cv2()
+            attack_center = _find_attack(frame)
 
     if attack_center is None:
-        logger.info("[SANDSTORM] no ATTACK button on vortex panel yet - backing out (screen now captured)")
+        logger.info("[SANDSTORM] no ATTACK button (and no chooser) - backing out (screen now captured)")
         return_to_base_view(adb, win, target=ViewState.WORLD)
         result["stop_reason"] = "captured_backed_out"
         return result
