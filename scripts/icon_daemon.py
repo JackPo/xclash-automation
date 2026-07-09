@@ -538,19 +538,6 @@ class IconDaemon:
         self.unknown_first_recovery_time: float | None = None  # When first recovery started
         self.UNKNOWN_LOOP_TIMEOUT = UNKNOWN_LOOP_TIMEOUT  # 8 min from config
 
-        # Blind/dark-capture auto-heal: PrintWindow intermittently returns a
-        # uniform dark frame (game render surface not captured) -> daemon goes
-        # blind (view UNKNOWN, all matchers 1.000) and does nothing. Detect it by
-        # frame brightness and heal with a resolution bounce (see
-        # _heal_blind_capture) - much lighter/faster than the 8-min UNKNOWN-loop
-        # -> full app restart path.
-        self.dark_frame_count = 0            # consecutive dark frames seen
-        self.last_dark_heal_time = 0.0
-        self.dark_heal_total = 0             # lifetime heals (surfaced in status)
-        self.DARK_FRAME_MEAN_THRESHOLD = 60.0  # normal frames mean ~100-175; blind ~41
-        self.DARK_FRAME_HEAL_AFTER = 8       # consecutive dark frames (~8s) before healing
-        self.DARK_HEAL_COOLDOWN = 45.0       # min seconds between heals
-
         # Disconnection dialog tracking (user playing on mobile)
         self.disconnection_dialog_detected_time: float | None = None  # When we first saw the dialog
 
@@ -1633,42 +1620,6 @@ class IconDaemon:
         except Exception as e:
             self.logger.error(f"Failed to run setup: {e}")
 
-    def _heal_blind_capture(self) -> None:
-        """Fix a dark/blind PrintWindow capture with a resolution bounce.
-
-        Intermittently BlueStacks' DirectX/advanced-graphics render surface stops
-        being captured by PrintWindow and every frame comes back a uniform dark
-        blob - the daemon then sees view=UNKNOWN with every matcher at 1.000 and
-        does nothing (the "you aren't doing shit" failure mode). Bouncing the
-        Android resolution (4K -> 1440p -> 4K) forces the render surface to be
-        recreated, which restores the capture. Far lighter than _force_app_restart
-        (no 30s app reload, no lost game state) - verified to clear it live.
-        """
-        import subprocess
-
-        assert self.adb is not None and self.adb.device is not None
-        self.logger.warning(
-            "BLIND CAPTURE detected (sustained dark frames) - bouncing resolution "
-            "to recreate the render surface"
-        )
-        for size in ("3088x1440", "3840x2160"):
-            try:
-                subprocess.run(
-                    [self.adb.ADB_PATH, '-s', self.adb.device, 'shell', 'wm', 'size', size],
-                    capture_output=True, timeout=10,
-                )
-                time.sleep(1.5)
-            except Exception as e:
-                self.logger.error(f"resolution bounce ({size}) failed: {e}")
-        # Re-find the window handle in case it went stale, then let it settle.
-        try:
-            if self.windows_helper is not None:
-                self.windows_helper._find_window()
-        except Exception as e:
-            self.logger.debug(f"window re-find after heal failed: {e}")
-        time.sleep(1.0)
-        self.logger.info("BLIND CAPTURE heal complete (resolution bounced)")
-
     def _check_resolution(self, iteration: int) -> bool:
         """
         Check resolution by comparing world button against 4K vs low-res templates.
@@ -2476,31 +2427,6 @@ class IconDaemon:
 
                 # Take single screenshot for all checks (only when NOT blocked)
                 frame = self.windows_helper.get_screenshot_cv2()
-
-                # --- Blind/dark-capture auto-heal (BEFORE view detection) ------
-                # A healthy frame's mean brightness is ~100-175; a blind PrintWindow
-                # capture is a uniform dark blob (~41). Require several consecutive
-                # dark frames so a transient in-game black/loading screen doesn't
-                # trigger it, then bounce the resolution to rebuild the surface.
-                try:
-                    _frame_mean = float(frame.mean())
-                except Exception:
-                    _frame_mean = 255.0
-                if _frame_mean < self.DARK_FRAME_MEAN_THRESHOLD:
-                    self.dark_frame_count += 1
-                    if (self.dark_frame_count >= self.DARK_FRAME_HEAL_AFTER
-                            and time.time() - self.last_dark_heal_time > self.DARK_HEAL_COOLDOWN):
-                        self.logger.warning(
-                            f"[{iteration}] BLIND CAPTURE: {self.dark_frame_count} consecutive "
-                            f"dark frames (mean={_frame_mean:.0f}) - auto-healing"
-                        )
-                        self.last_dark_heal_time = time.time()
-                        self.dark_frame_count = 0
-                        self.dark_heal_total += 1
-                        self._heal_blind_capture()
-                        frame = self.windows_helper.get_screenshot_cv2()  # refresh post-heal
-                else:
-                    self.dark_frame_count = 0
 
                 # Periodic screenshot cleanup (every 6 hours)
                 current_time_for_cleanup = time.time()
