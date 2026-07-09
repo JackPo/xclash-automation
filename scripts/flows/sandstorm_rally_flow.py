@@ -70,16 +70,42 @@ def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -
     result["tapped"] = True
     result["center"] = center
 
-    # Let the next screen render (and the after-burst finish capturing it).
-    time.sleep(2.5)
+    # Tapping the icon re-centers the WORLD map on the Sandflow Mine vortex.
+    # Tap the vortex (now at screen center) to open its rally / info panel.
+    time.sleep(2.0)
+    VORTEX_CENTER = (1912, 1010)
+    logger.info(f"[SANDSTORM] tapping vortex at {VORTEX_CENTER} to open rally options")
+    adb.tap(*VORTEX_CENTER, source="flow:sandstorm:tap_vortex")
+    time.sleep(1.8)
 
-    # === TODO (once the next screen is known): start the rally here instead of
-    # backing out - e.g. poll for the rally-flag / deploy button and click it. ===
+    # The Sandflow Mine is ATTACKED (not rallied): the vortex panel has an ATTACK
+    # button. Poll for it (bottom-center of the panel). This tap + its after-burst
+    # capture the troop/team-select screen so the leftmost-team logic can be wired.
+    frame = win.get_screenshot_cv2()
+    attack_center = None
+    for tpl, thr in [("royal_city_attack_button_4k.png", 0.08), ("attack_button_4k.png", 0.08)]:
+        af, as_, ac = match_template(frame, tpl, search_region=(1500, 1450, 900, 550), threshold=thr)
+        logger.info(f"[SANDSTORM] attack-button scan '{tpl}': found={af} score={as_:.4f} center={ac}")
+        if af and ac is not None:
+            attack_center = ac
+            break
 
-    # For now, back out WITHOUT committing a rally.
+    if attack_center is None:
+        logger.info("[SANDSTORM] no ATTACK button on vortex panel yet - backing out (screen now captured)")
+        return_to_base_view(adb, win, target=ViewState.WORLD)
+        result["stop_reason"] = "captured_backed_out"
+        return result
+
+    logger.info(f"[SANDSTORM] clicking ATTACK at {attack_center}")
+    adb.tap(*attack_center, source="flow:sandstorm:attack_button")
+    time.sleep(1.8)
+    # The troop/team-select screen is now captured. Leftmost-team selection + the
+    # final March button will be wired from that capture. Back out for now so
+    # nothing half-commits.
+    win.get_screenshot_cv2()  # ensure the after-burst captured the team screen
     return_to_base_view(adb, win, target=ViewState.WORLD)
-    result["stop_reason"] = "captured_backed_out"
-    logger.info(f"[SANDSTORM] done (capture mode): {result}")
+    result["stop_reason"] = "attack_panel_captured"
+    logger.info(f"[SANDSTORM] done (attack panel captured): {result}")
     return result
 
 
