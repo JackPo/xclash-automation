@@ -179,7 +179,7 @@ from scripts.flows.sandstorm_rally_flow import sandstorm_rally_flow
 
 # Desert Python rally fires on a short idle (not the full 5-min gate) so it acts
 # when the user pauses but never fights active clicking.
-DESERT_PYTHON_IDLE_REQUIRED = 20
+DESERT_PYTHON_IDLE_REQUIRED = 0  # fire ON SIGHT - rally the cobra the moment its icon appears, no idle wait
 # Map gift boxes claim ON SIGHT (0 = immediate). The claim is a quick tap + reward
 # popup close, and it self-verifies (backs out if no popup), so fire it right away.
 GIFT_BOX_IDLE_REQUIRED = 0
