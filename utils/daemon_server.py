@@ -123,7 +123,13 @@ class DaemonWebSocketServer:
         try:
             async for message in websocket:
                 try:
-                    response = self._process_message(str(message))
+                    # Run the (synchronous, possibly long: flows take 20-120s+)
+                    # command OFF the event loop in a worker thread. Otherwise a
+                    # single flow command freezes the whole socket - status polls
+                    # and every other command time out, so the web portal looks
+                    # "disconnected" until the flow finishes (needing a refresh).
+                    loop = asyncio.get_running_loop()
+                    response = await loop.run_in_executor(None, self._process_message, str(message))
                     await websocket.send(json.dumps(response))
                 except Exception as e:
                     error_response: dict[str, Any] = {"type": "response", "success": False, "error": str(e)}
