@@ -1280,9 +1280,24 @@ def _open_tavern(adb: ADBHelper, win: WindowsScreenshotHelper, target_tab: str =
             time.sleep(0.5)
             continue
 
-        # Click tavern button
-        logger.info(f"Clicking Tavern button at {TAVERN_BUTTON_CLICK} (attempt {attempt + 1}/{max_attempts})")
-        adb.tap(*TAVERN_BUTTON_CLICK, source="flow:tavern_quest:open_tavern")
+        # Find the tavern button by TEMPLATE - its Y drifts when the left sidebar
+        # gains/loses event icons (e.g. a Union War event), so the fixed spot lands
+        # on the wrong button and opens the wrong panel (the "opens tavern but never
+        # claims" bug: it kept opening Union War). Try the seasonal ice reskin +
+        # the normal button; fall back to the fixed spot only if neither matches.
+        tav_frame = win.get_screenshot_cv2()
+        tav_click = TAVERN_BUTTON_CLICK
+        for tav_tpl in ("tavern_button_ice_4k.png", "tavern_button_4k.png"):
+            tf, ts, tc = match_template(tav_frame, tav_tpl, search_region=(0, 300, 220, 1500), threshold=0.08)
+            if tf and tc is not None:
+                tav_click = tc
+                logger.info(f"[TAVERN] button '{tav_tpl}' matched at {tc} (score={ts:.4f})")
+                break
+        else:
+            logger.warning(f"[TAVERN] button template not found; using fixed {TAVERN_BUTTON_CLICK}")
+
+        logger.info(f"Clicking Tavern button at {tav_click} (attempt {attempt + 1}/{max_attempts})")
+        adb.tap(*tav_click, source="flow:tavern_quest:open_tavern")
 
         # Small delay to let animation start before polling
         time.sleep(0.3)
