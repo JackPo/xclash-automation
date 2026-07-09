@@ -191,11 +191,11 @@ def desert_python_rally_flow(
     _save(frame, f"02_panel_rallyflag{rf}_score{rsc:.3f}")
     if not (rf and rc is not None):
         # Panel didn't open, or the python is already being rallied (no clickable
-        # flag). Close it by tapping open terrain above the monster (NOT Android
-        # back -- that tries to exit the game), then bail.
-        logger.warning(f"[PYTHON] rally flag not found (best={rsc:.4f}) - closing, skip")
-        adb.tap(center[0], max(150, center[1] - 350), source="flow:python_rally:close_panel")
-        time.sleep(0.8)
+        # flag). Do NOT tap a computed "close" position: the cobra icon lives at
+        # ~x350 (left toolbar), so tapping above it lands on the WORLD-CHAT feed
+        # and opens Chat (leaving the daemon stuck in chat). return_to_base_view
+        # safely dismisses whatever is open (incl. chat) without a stray map tap.
+        logger.warning(f"[PYTHON] rally flag not found (best={rsc:.4f}) - skip (no stray close-tap)")
         return_to_base_view(adb, win, target=ViewState.WORLD)
         result["stop_reason"] = "no_rally_flag"
         result["success"] = True
