@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import subprocess
 import sys
 import time
@@ -9,6 +10,26 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+
+def _sanitize_ocr_text(text: str) -> str:
+    """Strip Qwen-VL grounding/markup that leaks into OCR output.
+
+    The vision model sometimes returns coordinate-grounding tags instead of plain
+    text, e.g. <points x1=".." y1=".." alt="the prompt">the prompt</points>,
+    <ref>..</ref>, <box>..</box>, or <|..|> specials. Those were being stored and
+    rendered raw in the dashboard (and broke cooldown parsing -> false "Ready").
+    Remove all such tags; if what's left is just the echoed prompt/empty, return "".
+    """
+    if not text:
+        return ""
+    t = re.sub(r"<\|[^|>]*\|>", " ", text)      # <|special|>
+    t = re.sub(r"<[^>]*>", " ", t)               # <points ...>, </points>, <ref>, <box>, ...
+    t = re.sub(r"\s+", " ", t).strip()
+    # A pure grounding echo often reduces to the prompt words with no data.
+    if t.lower() in ("", "the skill name, its description, and the cooldown line"):
+        return ""
+    return t
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -285,7 +306,7 @@ class OCRClient:
         fields: dict[str, Any] = {"prompt": prompt} if prompt else {}
         result = self._post_multipart("/ocr", image_bytes, fields)
         text = result.get("text", "")
-        return str(text) if text else ""
+        return _sanitize_ocr_text(str(text) if text else "")
 
     def extract_number(
         self,

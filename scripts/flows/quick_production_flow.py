@@ -485,13 +485,13 @@ def read_class_skills(adb: ADBHelper, win: WindowsScreenshotHelper | None = None
         for cy in rows_cy:
             block = ocr_extract_text(
                 frame, region=(1590, cy - 135, 660, 260),
-                prompt=("Read all text in this class skill entry verbatim: the skill "
-                        "name, its description, and the Cooldown line. Return the text."),
+                prompt=("Transcribe the visible text as plain characters only. Output "
+                        "just the text, no coordinates, no bounding boxes, no tags."),
             )
             status = ocr_extract_text(
                 frame, region=(1590, cy + 38, 440, 82),
-                prompt=("Read the status: either the word 'Ready' or a countdown like "
-                        "'05:14:32' or '23h 12m'. Return only that."),
+                prompt=("Transcribe the timer/status text as plain characters only "
+                        "(e.g. 'Ready' or '05:14:32' or '23h 12m'). No tags, no coordinates."),
             )
             name, effect, cooldown = _parse_skill_block(block)
             remaining = _parse_cooldown_text(status)
