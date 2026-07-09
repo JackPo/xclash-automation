@@ -21,6 +21,7 @@
                 pythonRallyMode: { active: false, hours_remaining: null },
                 classSkills: { skills: [], read_at: null },
                 classSkillsReading: false,
+                now: Date.now(),   // reactive clock, ticked each second for live countdowns
                 // Action capture viewer
                 captureState: { enabled: false, degraded: false, session_id: null, format: null, disk_gb: null, max_gb: null, queue_depth: null, stats: null },
                 captureSessions: [],
@@ -172,6 +173,7 @@
                         }
                     }, 3000);
                     this.countdownInterval = setInterval(() => {
+                        this.now = Date.now();   // tick reactive clock (class-skill live countdown)
                         if (this.armsRace.time_remaining_seconds > 0) this.armsRace.time_remaining_seconds--;
                         // Decrement scheduled shield countdown
                         if (this.scheduledShield && this.scheduledShield.seconds_remaining > 0) {
@@ -1115,6 +1117,21 @@
                         const data = await res.json();
                         this.classSkills = { skills: data.skills || [], read_at: data.read_at || null };
                     } catch (e) { console.error('Class skills load failed:', e); }
+                },
+                // Compute READY / live countdown from the persisted completion_time
+                // vs NOW, so a stale reading self-corrects (a 3h cooldown read 7h
+                // ago shows READY, not a frozen value). Ticks with this.now.
+                classSkillLive(s) {
+                    const AMBER = 'bg-amber-500/15 border border-amber-500/40 text-amber-400';
+                    const GREEN = 'bg-green-500/15 border border-green-500/40 text-green-400';
+                    const GRAY  = 'bg-gray-500/15 border border-gray-500/40 text-gray-400';
+                    if (!s.completion_time) {
+                        // OCR couldn't read a timer - show raw status, don't claim READY
+                        return { label: (s.status || 'unknown'), cls: GRAY };
+                    }
+                    const remaining = (new Date(s.completion_time).getTime() - (this.now || Date.now())) / 1000;
+                    if (remaining <= 0) return { label: 'READY', cls: GREEN };
+                    return { label: this.fmtDuration(remaining), cls: AMBER };
                 },
                 fmtDuration(secs) {
                     if (secs === null || secs === undefined) return '—';

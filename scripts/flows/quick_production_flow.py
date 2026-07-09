@@ -495,13 +495,28 @@ def read_class_skills(adb: ADBHelper, win: WindowsScreenshotHelper | None = None
             )
             name, effect, cooldown = _parse_skill_block(block)
             remaining = _parse_cooldown_text(status)
+            # Persist the ABSOLUTE expected-completion timestamp, not just a
+            # duration snapshot - so the portal computes ready/countdown LIVE
+            # (a skill read 7h ago with a 3h cooldown then correctly shows READY),
+            # instead of freezing a stale value + stale ready flag.
+            from datetime import datetime, timezone, timedelta
+            if remaining is None:
+                completion_time = None            # OCR couldn't read it -> unknown
+                ready_now = False
+            elif remaining <= 0:
+                completion_time = datetime.now(timezone.utc).isoformat()
+                ready_now = True
+            else:
+                completion_time = (datetime.now(timezone.utc) + timedelta(seconds=remaining)).isoformat()
+                ready_now = False
             skills.append({
                 "name": name, "effect": effect, "cooldown": cooldown,
                 "status": (status or "").strip(),
                 "remaining_seconds": remaining,
-                "ready": remaining == 0,
+                "completion_time": completion_time,  # absolute ISO; portal computes live
+                "ready": ready_now,                  # read-time value; portal recomputes vs now
             })
-            print(f"    [CSKILLS] {name!r} status={status!r} remaining={remaining}")
+            print(f"    [CSKILLS] {name!r} status={status!r} remaining={remaining} completion={completion_time}")
 
         update_class_skills(skills)
         return_to_base_view(adb, win, debug=False)
