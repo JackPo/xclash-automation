@@ -50,7 +50,7 @@ logger = logging.getLogger("desert_python_rally_flow")
 # left toolbar at a FIXED Y (~1478); its X can shift as other event icons come
 # and go, so search a horizontal strip along that row only.
 PYTHON_TEMPLATE = "cobra_icon_4k.png"
-PYTHON_SEARCH_REGION = (30, 1428, 520, 104)    # x, y, w, h - the fixed-Y toolbar row
+PYTHON_SEARCH_REGION = (20, 1380, 580, 210)    # x, y, w, h - toolbar row; widened (icon center drifts y~1422-1552, x~150-400)
 PYTHON_THRESHOLD = 0.08
 PYTHON_TAP_OFFSET = (0, 0)                      # click the icon center
 

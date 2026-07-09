@@ -52,7 +52,7 @@ FLOW_CONFIGS = {
     "bag_flow": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "gift_box": {"cooldown": 3600, "idle_required": IDLE_THRESHOLD},
     "assist_ally": {"cooldown": 20, "idle_required": 0},  # assist mode: user opted in, no idle gate; rescan 20s after each run
-    "desert_python_rally": {"cooldown": 60, "idle_required": 20},  # python rally mode: opted in, short 20s idle so it won't fight active clicking
+    "desert_python_rally": {"cooldown": 60, "idle_required": 5},  # python rally mode: opted in; 5s idle so it fires soon after a brief pause (was 20s - felt like "never")
     "map_gift_box": {"cooldown": 15, "idle_required": 0},  # claim shared map gift boxes; short idle gate enforced in _execute_best_flow
     "sandstorm_rally": {"cooldown": 90, "idle_required": 0},  # tap Union Rally Point on sight to capture next screen (capture mode)
     "tavern_quest": {"cooldown": 1800, "idle_required": IDLE_THRESHOLD},

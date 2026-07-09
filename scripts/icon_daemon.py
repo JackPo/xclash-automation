@@ -4274,7 +4274,10 @@ class IconDaemon:
                         and self.scheduler.is_flow_ready("desert_python_rally", idle_seconds=effective_idle_secs)):
                     pf, ps, _ = match_template(
                         frame, "cobra_icon_4k.png",
-                        search_region=(30, 1428, 520, 104), threshold=0.08,
+                        # Widened: the cobra icon's center drifts y~1422-1552 and
+                        # x~150-400 across frames; the old tight (30,1428,520,104)
+                        # band clipped it at the edges and missed the match.
+                        search_region=(20, 1380, 580, 210), threshold=0.08,
                     )
                     if pf:
                         self.logger.info(f"[{iteration}] COBRA: icon detected in toolbar row (score={ps:.4f})")
