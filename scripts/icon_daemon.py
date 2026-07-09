@@ -1860,12 +1860,20 @@ class IconDaemon:
 
         flow_map = self.get_available_flows()
         if flow_name not in flow_map:
+            self.logger.warning(f"MANUAL TRIGGER: unknown flow '{flow_name}' (available: {list(flow_map.keys())})")
             return {"success": False, "error": f"Unknown flow: {flow_name}", "available": list(flow_map.keys())}
 
         flow_func, critical = flow_map[flow_name]
 
+        # Log EVERY manual trigger request + outcome so a user click is always
+        # visible in the log (previously _run_flow_sync silently rejected clicks
+        # when any flow was active - the "I click and nothing happens" mystery).
+        self.logger.info(f"MANUAL TRIGGER REQUEST: {flow_name} (critical={critical})")
+
         # Run flow synchronously and capture result
         result = self._run_flow_sync(flow_name, flow_func, critical=critical)
+        if not result.get("success"):
+            self.logger.warning(f"MANUAL TRIGGER REJECTED: {flow_name} - {result.get('error')}")
 
         # Broadcast event to connected clients
         if self.command_server:
