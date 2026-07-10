@@ -55,8 +55,13 @@ class WindowsScreenshotHelper:
     # otherwise BRIGHT frame - and re-capture. The brightness gate ensures a
     # genuinely dark screen (loading/night) is NOT treated as corrupt.
     CORRUPT_BRIGHT_MIN = 60       # frame mean below this = legitimately dark, skip check
-    CORRUPT_DARK_MAX = 12         # pixel value <= this counts as near-black ("unwritten")
-    CORRUPT_BLOB_MIN_FRAC = 0.003  # largest CONTIGUOUS near-black blob >= 0.3% of frame = corrupt
+    CORRUPT_DARK_MAX = 8          # pixel value <= this = PURE-black "unwritten" memory (game
+                                  # sub-menus use dark grays ~15-50, not <=8, so they're excluded)
+    CORRUPT_BLOB_MIN_FRAC = 0.20  # largest CONTIGUOUS pure-black blob must cover >=20% of the
+                                  # frame to count as the PrintWindow black-band artifact. Was
+                                  # 0.3% - absurdly sensitive: any game sub-menu with a dark panel
+                                  # / black inset / icon got FALSELY flagged corrupt -> stale frame
+                                  # returned + log spam. A real black band is a huge strip, not 0.3%.
     MAX_CORRUPT_RETRIES = 2       # extra re-captures when a corrupt frame is seen
     CORRUPT_RETRY_DELAY = 0.12    # seconds between corrupt-frame re-captures
 
