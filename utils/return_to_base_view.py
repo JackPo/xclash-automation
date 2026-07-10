@@ -422,6 +422,13 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     # =========================================================================
     from utils.ui_helpers import click_back
 
+    # Per-call tracking of back buttons that don't dismiss when tapped, so we
+    # escalate instead of ping-ponging fast_back <-> toggle-escape forever
+    # (observed ~10s of flailing on the Marshal title panel, whose bottom-left
+    # arrow matches a back template but the panel wants "Tap to close").
+    _stuck_back_fails: dict[tuple[str, int, int], int] = {}
+    _ignored_backs: set[tuple[str, int, int]] = set()
+
     for fast_attempt in range(5):
         if _should_abort_for_user_activity("fast path"):
             return True
@@ -457,6 +464,13 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         # Check for back button
         back_present, back_score, back_pos, matched_template = back_matcher.find(frame)
         if back_present and back_pos:
+            _back_key = (str(matched_template), back_pos[0] // 50, back_pos[1] // 50)
+            if _back_key in _ignored_backs:
+                # This exact button already failed twice (tap + toggle + tap-to-
+                # close). Stop treating it as a back button this call - fall
+                # through to the other fast-path handlers / full recovery.
+                back_present = False
+        if back_present and back_pos:
             if debug:
                 print(f"    [RETURN] Fast path: Back button at {back_pos}, clicking (attempt {fast_attempt + 1})")
             if _should_abort_for_user_activity("fast path before back tap"):
@@ -489,17 +503,31 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     progressed = True
                     break
 
-            # The back button never dismissed -> tapping it isn't closing anything.
-            # This is the "stuck clicking the Lv.2 Union Center" loop: the seasonal
-            # union back-button template false-matches the panel's title area, so
-            # re-tapping it does nothing and it re-matches every frame forever.
-            # Escalate to the toggle-escape (reliably closes panels) instead.
+            # The back button never dismissed -> tapping it isn't closing anything
+            # (false match on a panel's title area, or a panel that dismisses via
+            # "Tap to close" like the Marshal title panel). Escalation ladder,
+            # tracked per button so we NEVER ping-pong on the same dead button:
+            #   fail 1: toggle-escape (closes most panels)
+            #   fail 2: "Tap to close" - tap the dim background above the panel
+            #   fail 3: ignore this button for the rest of this call
             if not progressed:
-                from config import TOGGLE_BUTTON_CLICK
-                if debug:
-                    print(f"    [RETURN] Back '{matched_template}' at {back_pos} won't dismiss - toggle-escape")
-                adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_escape_stuck_back")
-                time.sleep(0.6)
+                fails = _stuck_back_fails.get(_back_key, 0) + 1
+                _stuck_back_fails[_back_key] = fails
+                if fails == 1:
+                    from config import TOGGLE_BUTTON_CLICK
+                    if debug:
+                        print(f"    [RETURN] Back '{matched_template}' at {back_pos} won't dismiss - toggle-escape")
+                    adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_escape_stuck_back")
+                    time.sleep(0.6)
+                elif fails == 2:
+                    if debug:
+                        print(f"    [RETURN] Back '{matched_template}' still stuck - trying tap-to-close (dim top)")
+                    adb.tap(1920, 140, source="rtb:tap_to_close_stuck_back")
+                    time.sleep(0.8)
+                else:
+                    _ignored_backs.add(_back_key)
+                    if debug:
+                        print(f"    [RETURN] Back '{matched_template}' at {back_pos} is dead - ignoring it this call")
             continue
 
         # Check for CHAT state
