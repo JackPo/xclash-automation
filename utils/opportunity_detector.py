@@ -42,9 +42,71 @@ class Opportunity:
 @dataclass
 class DetectorSpec:
     name: str
-    views: set[ViewState]      # which views this target can appear in
+    views: set[ViewState] | None   # which views this target can appear in; None = ANY view (incl. CHAT/UNKNOWN)
     fn: MatcherFn
     hits: int = field(default=0, compare=False)
+
+
+@dataclass
+class SpecReading:
+    """The last result of running a spec, whether or not it matched - the
+    status line needs scores for ABSENT icons, which the board can't hold."""
+    found: bool
+    score: float
+    center: tuple[int, int] | None
+    ts: float
+
+
+class PerceptionState:
+    """Thread-safe snapshot of everything perception knows: last reading per
+    spec (found/score/center/ts) and the current view classification. Extended
+    in later stages with vote histories and stamina. Written only by the
+    perception thread; read by the actor for telemetry and decisions."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._readings: dict[str, SpecReading] = {}
+        self._view: ViewState = ViewState.UNKNOWN
+        self._view_ts: float = 0.0
+        self._view_since: float = 0.0   # when the CURRENT view classification began
+
+    def record(self, name: str, found: bool, score: float,
+               center: tuple[int, int] | None) -> None:
+        with self._lock:
+            self._readings[name] = SpecReading(found, score, center, time.time())
+
+    def get(self, name: str, max_age: float | None = None) -> SpecReading | None:
+        with self._lock:
+            r = self._readings.get(name)
+            if r is None:
+                return None
+            if max_age is not None and (time.time() - r.ts) > max_age:
+                return None
+            return r
+
+    def score_of(self, name: str, default: float = 1.0, max_age: float = 10.0) -> float:
+        """Last score for the status line; `default` when never/staleley scanned."""
+        r = self.get(name, max_age=max_age)
+        return r.score if r is not None else default
+
+    def set_view(self, view: ViewState) -> None:
+        with self._lock:
+            now = time.time()
+            if view != self._view:
+                self._view_since = now
+            self._view = view
+            self._view_ts = now
+
+    @property
+    def view(self) -> ViewState:
+        with self._lock:
+            return self._view
+
+    def view_info(self) -> tuple[ViewState, float, float]:
+        """(view, seconds since classified, seconds the view has persisted)."""
+        with self._lock:
+            now = time.time()
+            return self._view, now - self._view_ts, now - self._view_since
 
 
 class OpportunityBoard:
@@ -105,6 +167,8 @@ class DetectorThread(threading.Thread):
         win: Any = None,               # WindowsScreenshotHelper for heartbeat capture
         tick_interval: float = 0.5,
         heartbeat_after: float = 2.0,  # self-capture if the bus goes stale this long
+        state: PerceptionState | None = None,
+        paused_fn: Callable[[], bool] | None = None,  # daemon pause: no heartbeat captures
     ) -> None:
         super().__init__(daemon=True, name="OpportunityDetector")
         self.bus = bus
@@ -113,6 +177,8 @@ class DetectorThread(threading.Thread):
         self.win = win
         self.tick_interval = tick_interval
         self.heartbeat_after = heartbeat_after
+        self.state = state if state is not None else PerceptionState()
+        self.paused_fn = paused_fn
         self._stop = threading.Event()
         self._last_ts = 0.0
         self.ticks = 0
@@ -137,7 +203,9 @@ class DetectorThread(threading.Thread):
             # Nothing captured recently anywhere in the process (loop asleep,
             # no flow running). Heartbeat: grab a frame ourselves - the publish
             # hook feeds it back through the bus for us and any other consumer.
-            if self.win is not None and self.bus.age > self.heartbeat_after:
+            # NEVER while paused: paused means zero captures, zero game touch.
+            if (self.win is not None and self.bus.age > self.heartbeat_after
+                    and not (self.paused_fn is not None and self.paused_fn())):
                 try:
                     self.win.get_screenshot_cv2()
                 except Exception:
@@ -148,19 +216,25 @@ class DetectorThread(threading.Thread):
         self._last_ts = ts
         self.ticks += 1
 
+        # Classify the view ONCE per frame; always record it (recovery and
+        # chat-stuck logic need CHAT/UNKNOWN persistence, not just TOWN/WORLD).
         view, _score = detect_view(frame)
         self.last_view = getattr(view, "value", str(view))
-        if view not in (ViewState.TOWN, ViewState.WORLD):
-            return  # menus / chat / unknown: none of our targets live there
+        self.state.set_view(view)
 
         for spec in self.specs:
-            if view not in spec.views:
+            # views=None -> runs on ANY frame (e.g. handshake, state monitors);
+            # otherwise only when the frame's view matches.
+            if spec.views is not None and view not in spec.views:
                 continue
             try:
                 found, score, center = spec.fn(frame)
             except Exception as e:
                 logger.debug(f"DETECTOR: spec {spec.name} error: {e}")
                 continue
+            # Record EVERY reading (found or not) - the status line reports
+            # scores for absent icons; the board only gets actual sightings.
+            self.state.record(spec.name, found, score, center)
             if found:
                 spec.hits += 1
                 self.board.sighting(spec.name, center, score)

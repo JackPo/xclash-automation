@@ -945,11 +945,12 @@ class IconDaemon:
             from config import DETECTOR_THREAD_ENABLED as _det_enabled
         except Exception:
             _det_enabled = True
+        self.perception_state = None
         if _det_enabled:
             try:
                 from utils.frame_bus import get_frame_bus
                 from utils.opportunity_detector import (
-                    DetectorSpec, DetectorThread, OpportunityBoard,
+                    DetectorSpec, DetectorThread, OpportunityBoard, PerceptionState,
                 )
                 from scripts.flows.assist_ally_flow import _find_helmet
 
@@ -959,29 +960,54 @@ class IconDaemon:
                         return False, 1.0, None
                     return True, m[2], (m[0], m[1])
 
+                def _p2(matcher_is_present: Any) -> Any:
+                    """Adapt the uniform matcher API (frame)->(found,score) to a spec fn."""
+                    def fn(f: Any) -> tuple[bool, float, tuple[int, int] | None]:
+                        found, score = matcher_is_present(f)
+                        return found, score, None
+                    return fn
+
+                TOWN, WORLD = ViewState.TOWN, ViewState.WORLD
                 _specs = [
-                    DetectorSpec("rally_march", {ViewState.TOWN, ViewState.WORLD}, _march_fn),
-                    DetectorSpec("cobra_icon", {ViewState.WORLD},
+                    # --- on-sight opportunities (Phase 1) ---
+                    DetectorSpec("rally_march", {TOWN, WORLD}, _march_fn),
+                    DetectorSpec("cobra_icon", {WORLD},
                                  lambda f: match_template(f, "cobra_icon_4k.png",
                                                           search_region=(20, 1380, 580, 210), threshold=0.08)),
-                    DetectorSpec("sandstorm", {ViewState.WORLD},
+                    DetectorSpec("sandstorm", {WORLD},
                                  lambda f: match_template(f, "sandstorm_rally_4k.png",
                                                           search_region=(30, 1428, 520, 104), threshold=0.10)),
-                    DetectorSpec("assist_helmet", {ViewState.WORLD}, _find_helmet),
-                    DetectorSpec("map_gift_box", {ViewState.WORLD},
+                    DetectorSpec("assist_helmet", {WORLD}, _find_helmet),
+                    DetectorSpec("map_gift_box", {WORLD},
                                  lambda f: match_template(f, "map_gift_box_4k.png", threshold=0.05)),
+                    # --- stateless fixed-spot icons (C1 migration) ---
+                    DetectorSpec("handshake", None, _p2(self.handshake_matcher.is_present)),  # any view
+                    DetectorSpec("treasure_map", {TOWN, WORLD}, _p2(self.treasure_matcher.is_present)),
+                    DetectorSpec("harvest_box", {TOWN}, _p2(self.harvest_box_matcher.is_present)),
+                    DetectorSpec("afk_rewards", {TOWN}, _p2(self.afk_rewards_matcher.is_present)),
+                    DetectorSpec("dog_house_aligned", {TOWN}, _p2(self.dog_house_matcher.is_aligned)),
+                    # --- TOWN harvest bubbles ---
+                    DetectorSpec("corn", {TOWN}, _p2(self.corn_matcher.is_present)),
+                    DetectorSpec("gold_coin", {TOWN}, _p2(self.gold_matcher.is_present)),
+                    DetectorSpec("iron_bar", {TOWN}, _p2(self.iron_matcher.is_present)),
+                    DetectorSpec("gem", {TOWN}, _p2(self.gem_matcher.is_present)),
+                    DetectorSpec("cabbage", {TOWN}, _p2(self.cabbage_matcher.is_present)),
+                    DetectorSpec("equipment", {TOWN}, _p2(self.equipment_enhancement_matcher.is_present)),
                 ]
                 self.opportunity_board = OpportunityBoard()
+                self.perception_state = PerceptionState()
                 self.detector_thread = DetectorThread(
                     get_frame_bus(), self.opportunity_board, _specs, win=self.windows_helper,
+                    state=self.perception_state, paused_fn=lambda: self.paused,
                 )
                 self.detector_thread.start()
-                print(f"  Detector thread: {len(_specs)} on-sight specs, continuous")
+                print(f"  Detector thread: {len(_specs)} specs, continuous")
                 self.logger.info(f"DETECTOR: continuous detection started ({len(_specs)} specs)")
             except Exception as e:
                 self.logger.error(f"DETECTOR: failed to start ({e}) - falling back to inline scanning")
                 self.opportunity_board = None
                 self.detector_thread = None
+                self.perception_state = None
         else:
             print("  Detector thread: disabled (DETECTOR_THREAD_ENABLED=False)")
 
@@ -1077,6 +1103,25 @@ class IconDaemon:
             if opp is not None:
                 return True, opp.score, opp.center
             return False, 1.0, None
+        return inline_fn()
+
+    def _perceive(
+        self,
+        name: str,
+        inline_fn: Callable[[], tuple[bool, float]],
+        max_age: float = 4.0,
+    ) -> tuple[bool, float]:
+        """Last perception reading for a spec (found, score) - unlike _sight,
+        this returns the most recent reading whether or not it matched (the
+        status line needs scores for absent icons). Falls back to the inline
+        matcher when perception is off/dead or the reading is stale (e.g. the
+        spec's view hasn't been on screen recently)."""
+        if (self.perception_state is not None
+                and self.detector_thread is not None
+                and self.detector_thread.is_alive()):
+            r = self.perception_state.get(name, max_age=max_age)
+            if r is not None:
+                return r.found, r.score
         return inline_fn()
 
     def _can_run_flow(self) -> bool:
@@ -2801,15 +2846,15 @@ class IconDaemon:
 
                 # Check IMMEDIATE action icons (fixed spots, fast ~1ms each)
                 # Handshake: always check (fixed spot)
-                handshake_present, handshake_score = self.handshake_matcher.is_present(frame)
+                handshake_present, handshake_score = self._perceive("handshake", lambda: self.handshake_matcher.is_present(frame))
                 # Treasure: only in TOWN or WORLD (fixed spot)
                 if view_state_enum in (ViewState.TOWN, ViewState.WORLD):
-                    treasure_present, treasure_score = self.treasure_matcher.is_present(frame)
+                    treasure_present, treasure_score = self._perceive("treasure_map", lambda: self.treasure_matcher.is_present(frame))
                 else:
                     treasure_present, treasure_score = False, 1.0
                 # Harvest box: only in TOWN (fixed spot)
                 if view_state_enum == ViewState.TOWN:
-                    harvest_present, harvest_score = self.harvest_box_matcher.is_present(frame)
+                    harvest_present, harvest_score = self._perceive("harvest_box", lambda: self.harvest_box_matcher.is_present(frame))
                 else:
                     harvest_present, harvest_score = False, 1.0
 
@@ -3113,14 +3158,14 @@ class IconDaemon:
 
                 # Only check town-specific icons when in TOWN
                 if view_state_enum == ViewState.TOWN:
-                    corn_present, corn_score = self.corn_matcher.is_present(frame)
-                    gold_present, gold_score = self.gold_matcher.is_present(frame)
-                    iron_present, iron_score = self.iron_matcher.is_present(frame)
-                    gem_present, gem_score = self.gem_matcher.is_present(frame)
-                    cabbage_present, cabbage_score = self.cabbage_matcher.is_present(frame)
-                    equip_present, equip_score = self.equipment_enhancement_matcher.is_present(frame)
+                    corn_present, corn_score = self._perceive("corn", lambda: self.corn_matcher.is_present(frame))
+                    gold_present, gold_score = self._perceive("gold_coin", lambda: self.gold_matcher.is_present(frame))
+                    iron_present, iron_score = self._perceive("iron_bar", lambda: self.iron_matcher.is_present(frame))
+                    gem_present, gem_score = self._perceive("gem", lambda: self.gem_matcher.is_present(frame))
+                    cabbage_present, cabbage_score = self._perceive("cabbage", lambda: self.cabbage_matcher.is_present(frame))
+                    equip_present, equip_score = self._perceive("equipment", lambda: self.equipment_enhancement_matcher.is_present(frame))
                     hospital_state, hospital_score = self.hospital_matcher.get_state(frame)
-                    afk_present, afk_score = self.afk_rewards_matcher.is_present(frame)
+                    afk_present, afk_score = self._perceive("afk_rewards", lambda: self.afk_rewards_matcher.is_present(frame))
 
                 # Back button - ONLY checked during UNKNOWN recovery (expensive half-screen search)
                 # Don't waste ~750ms every frame; it's checked in UNKNOWN recovery section when needed
@@ -3258,7 +3303,7 @@ class IconDaemon:
                     self.logger.debug(f"[{iteration}] HARVEST: Blocked - idle time {idle_secs}s < threshold {self.IDLE_THRESHOLD}s")
                 harvest_aligned = False
                 if harvest_idle_ok and world_present:
-                    is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                    is_aligned, dog_score = self._perceive("dog_house_aligned", lambda: self.dog_house_matcher.is_aligned(frame))
                     harvest_aligned = is_aligned
                     if not is_aligned:
                         self.logger.debug(f"[{iteration}] HARVEST: Blocked - misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
@@ -3667,7 +3712,7 @@ class IconDaemon:
                             self._switch_to_town()
                         elif view_state_enum == ViewState.TOWN:
                             # In TOWN - check if dog house is aligned
-                            is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                            is_aligned, dog_score = self._perceive("dog_house_aligned", lambda: self.dog_house_matcher.is_aligned(frame))
                             if not is_aligned:
                                 self.logger.info(f"[{iteration}] IDLE RETURN: Town view misaligned (dog_score={dog_score:.4f}), resetting view...")
                                 # Go to WORLD then back to TOWN to reset alignment
@@ -4101,7 +4146,7 @@ class IconDaemon:
 
                     if (ready_count > 0 or pending_count > 0) and world_present:
                         # Check alignment
-                        is_aligned, dog_score = self.dog_house_matcher.is_aligned(frame)
+                        is_aligned, dog_score = self._perceive("dog_house_aligned", lambda: self.dog_house_matcher.is_aligned(frame))
                         if not is_aligned:
                             self.logger.info(f"[{iteration}] SOLDIER: Blocked - dog house misaligned (score={dog_score:.4f}, threshold={self.dog_house_matcher.threshold})")
                         else:

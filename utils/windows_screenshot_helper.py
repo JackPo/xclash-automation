@@ -244,15 +244,8 @@ class WindowsScreenshotHelper:
         last: npt.NDArray[Any] | None = None
         for attempt in range(self.MAX_CORRUPT_RETRIES + 1):
             last = self._capture_once()
-            # Publish every captured frame to the FrameBus so the background
-            # detector sees fresh frames with zero extra GDI load (flows capture
-            # constantly while running - exactly when the main loop is blind).
-            try:
-                from utils.frame_bus import get_frame_bus
-                get_frame_bus().publish(last)
-            except Exception:
-                pass  # detection is best-effort; never break capture
             if not self._frame_looks_corrupt(last):
+                self._publish_to_bus(last)
                 return last
             logger.warning(
                 "Corrupt capture frame detected (black band), re-capturing "
@@ -265,7 +258,19 @@ class WindowsScreenshotHelper:
             self.MAX_CORRUPT_RETRIES
         )
         assert last is not None  # loop runs at least once
+        # Deliberately NOT published: a corrupt frame would feed garbage into
+        # perception (vote histories, stamina OCR). Callers still get it.
         return last
+
+    def _publish_to_bus(self, frame: npt.NDArray[Any]) -> None:
+        """Publish a VERIFIED (non-corrupt) frame to the FrameBus so the
+        perception thread sees fresh frames with zero extra GDI load (flows
+        capture constantly while running - exactly when the actor is busy)."""
+        try:
+            from utils.frame_bus import get_frame_bus
+            get_frame_bus().publish(frame)
+        except Exception:
+            pass  # perception is best-effort; never break capture
 
     def save_screenshot(self, output_path: str) -> str:
         """Capture and save a 4K screenshot.
