@@ -714,8 +714,19 @@ async def send_daemon_command(cmd: str, args: dict[str, Any] | None = None, time
             if args:
                 msg['args'] = args
             await ws.send(json.dumps(msg))
-            response = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
-            return response
+            # The daemon BROADCASTS events (resumed/paused/flow_completed) to all
+            # clients including us - an event can arrive before our response.
+            # Read until we get the actual response envelope (was: read-first-
+            # message, which 503'd pause/resume whenever the event won the race).
+            deadline = asyncio.get_event_loop().time() + timeout
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
+                response = json.loads(await asyncio.wait_for(ws.recv(), timeout=remaining))
+                if response.get('type') == 'response':
+                    return response
+                # else: broadcast event - skip and keep waiting for our response
     except asyncio.TimeoutError:
         return {'success': False, 'error': f'Timeout after {timeout}s'}
     except Exception as e:
