@@ -385,24 +385,34 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     win = screenshot_helper if screenshot_helper else WindowsScreenshotHelper()
     back_matcher = BackButtonMatcher()
 
+    _fight_strikes = [0]  # calls that saw RECENT user activity (cumulative)
+
     def _should_abort_for_user_activity(context: str) -> bool:
         """
         Return True when manual user activity should preempt automation.
 
-        When respect_idle=True we re-check continuously, not just once at entry.
-        This prevents return_to_base loops from fighting the user mid-navigation.
-
-        "Active" means input within the last few seconds (RETURN_ACTIVE_ABORT_SECONDS),
-        NOT the 5-minute IDLE_THRESHOLD - flows finishing their cleanup would
-        otherwise leave panels open whenever the user recently touched the mouse.
+        Two detectors:
+        - Instant: input within RETURN_ACTIVE_ABORT_SECONDS (respect_idle only).
+        - Cumulative FIGHT detection: if the user showed activity (<8s idle)
+          during 3+ separate checks in this call, they OWN the screen - abort
+          even for respect_idle=False callers (yielding beats a tug-of-war;
+          observed 130s of toggle/center taps against an active user whose
+          click cadence kept instant-idle jittering above the threshold).
         """
-        if not respect_idle:
-            return False
         try:
             from utils.user_idle_tracker import get_user_idle_seconds
             from config import RETURN_ACTIVE_ABORT_SECONDS
             idle_secs = get_user_idle_seconds()
-            if idle_secs < RETURN_ACTIVE_ABORT_SECONDS:
+            if idle_secs < 8.0:
+                _fight_strikes[0] += 1
+                if _fight_strikes[0] >= 3:
+                    if debug:
+                        print(f"    [RETURN] FIGHT DETECTED during {context} ({_fight_strikes[0]} strikes) - yielding to user")
+                    logging.getLogger("return_to_base").info(
+                        "RECOVERY YIELDED during %s: user active across %d checks - they own the screen",
+                        context, _fight_strikes[0])
+                    return True
+            if respect_idle and idle_secs < RETURN_ACTIVE_ABORT_SECONDS:
                 if debug:
                     print(
                         f"    [RETURN] User is active during {context} "
@@ -616,26 +626,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             _save_rtb_debug(frame, "STEP1_after_dismiss_popups")
 
     # STEP 2: Try to get to TOWN/WORLD (full recovery attempts)
-    _user_fight_strikes = 0  # attempts during which the user was recently active
-
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
-        # Cumulative fight detection: the instant-abort below misses a user
-        # whose click cadence keeps idle jittering just above the threshold
-        # (observed: 130s of toggle/center taps fighting active play). If the
-        # user showed activity during several attempts, they own the screen.
-        try:
-            from utils.user_idle_tracker import get_user_idle_seconds as _giu
-            if _giu() < 8.0:
-                _user_fight_strikes += 1
-                if _user_fight_strikes >= 3:
-                    if debug:
-                        print(f"    [RETURN] User repeatedly active during recovery ({_user_fight_strikes} strikes) - yielding to user")
-                    logging.getLogger("return_to_base").info(
-                        "RECOVERY YIELDED: user active during %d attempts - stopping (they own the screen)",
-                        _user_fight_strikes)
-                    return False
-        except Exception:
-            pass
 
         if _should_abort_for_user_activity("full recovery attempt"):
             return True

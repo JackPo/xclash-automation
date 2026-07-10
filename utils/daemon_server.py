@@ -169,7 +169,11 @@ class DaemonWebSocketServer:
         # initialization answer truthfully instead of touching half-built state.
         if getattr(self.daemon, "initializing", False):
             elapsed = int(time.time() - getattr(self.daemon, "_init_started", time.time()))
-            if cmd in ("status", "get_state"):
+            if cmd in ("pause", "resume"):
+                # Control commands touch no game state - honor them during init
+                # (resume was 503ing while startup recovery was still running).
+                pass
+            elif cmd in ("status", "get_state"):
                 return {"type": "response", "cmd": cmd, "success": True,
                         "data": {"state": "starting", "elapsed_s": elapsed, "paused": False,
                                  "active_flows": [], "view": "STARTING"}}

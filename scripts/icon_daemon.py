@@ -1124,13 +1124,21 @@ class IconDaemon:
         # keeps cycling (re-checking whether the game is back, servicing the control
         # API) instead of freezing for minutes when the game is down/occluded.
         self.MAIN_LOOP_RECOVERY_MAX_SECONDS = 45
-        if self._check_ui_timeout_burst_and_restart(iteration=0):
-            self.logger.info("STARTUP: ui_timeout burst handled, proceeding with base recovery after restart")
-        self.logger.info("STARTUP: Running recovery to ensure ready state...")
-        startup_recovery_ok = return_to_base_view(
-            self.adb, self.windows_helper, debug=True, respect_idle=False,
-            deadline=time.time() + self.STARTUP_RECOVERY_MAX_SECONDS,
-        )
+        if self.paused:
+            # Pause persists across restarts. A paused daemon must NOT touch
+            # the game - including startup recovery (observed: it kept tapping
+            # back/toggle at the user while "paused"). The main loop retries
+            # recovery once resumed.
+            self.logger.info("STARTUP: paused - skipping startup recovery (no game touch while paused)")
+            startup_recovery_ok = True
+        else:
+            if self._check_ui_timeout_burst_and_restart(iteration=0):
+                self.logger.info("STARTUP: ui_timeout burst handled, proceeding with base recovery after restart")
+            self.logger.info("STARTUP: Running recovery to ensure ready state...")
+            startup_recovery_ok = return_to_base_view(
+                self.adb, self.windows_helper, debug=True, respect_idle=False,
+                deadline=time.time() + self.STARTUP_RECOVERY_MAX_SECONDS,
+            )
         if not startup_recovery_ok:
             self.logger.warning(
                 f"STARTUP: base recovery did not reach TOWN/WORLD within "
