@@ -244,6 +244,14 @@ class WindowsScreenshotHelper:
         last: npt.NDArray[Any] | None = None
         for attempt in range(self.MAX_CORRUPT_RETRIES + 1):
             last = self._capture_once()
+            # Publish every captured frame to the FrameBus so the background
+            # detector sees fresh frames with zero extra GDI load (flows capture
+            # constantly while running - exactly when the main loop is blind).
+            try:
+                from utils.frame_bus import get_frame_bus
+                get_frame_bus().publish(last)
+            except Exception:
+                pass  # detection is best-effort; never break capture
             if not self._frame_looks_corrupt(last):
                 return last
             logger.warning(

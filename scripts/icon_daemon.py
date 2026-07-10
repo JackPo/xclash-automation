@@ -934,6 +934,57 @@ class IconDaemon:
         self.rally_march_matcher = RallyMarchButtonMatcher()
         print(f"  Rally march button matcher: rally_march_button_small_4k.png (threshold={self.rally_march_matcher.threshold})")
 
+        # Continuous detector thread: scans the speed-critical on-sight targets
+        # on every fresh frame (published by ANY capture in the process via the
+        # FrameBus) so detection keeps running DURING flows instead of going
+        # blind. The main loop consumes sightings from the board at the same
+        # gated sites where it used to inline-match.
+        self.opportunity_board = None
+        self.detector_thread = None
+        try:
+            from config import DETECTOR_THREAD_ENABLED as _det_enabled
+        except Exception:
+            _det_enabled = True
+        if _det_enabled:
+            try:
+                from utils.frame_bus import get_frame_bus
+                from utils.opportunity_detector import (
+                    DetectorSpec, DetectorThread, OpportunityBoard,
+                )
+                from scripts.flows.assist_ally_flow import _find_helmet
+
+                def _march_fn(f: Any) -> tuple[bool, float, tuple[int, int] | None]:
+                    m = self.rally_march_matcher.find_march_button(f)
+                    if m is None:
+                        return False, 1.0, None
+                    return True, m[2], (m[0], m[1])
+
+                _specs = [
+                    DetectorSpec("rally_march", {ViewState.TOWN, ViewState.WORLD}, _march_fn),
+                    DetectorSpec("cobra_icon", {ViewState.WORLD},
+                                 lambda f: match_template(f, "cobra_icon_4k.png",
+                                                          search_region=(20, 1380, 580, 210), threshold=0.08)),
+                    DetectorSpec("sandstorm", {ViewState.WORLD},
+                                 lambda f: match_template(f, "sandstorm_rally_4k.png",
+                                                          search_region=(30, 1428, 520, 104), threshold=0.10)),
+                    DetectorSpec("assist_helmet", {ViewState.WORLD}, _find_helmet),
+                    DetectorSpec("map_gift_box", {ViewState.WORLD},
+                                 lambda f: match_template(f, "map_gift_box_4k.png", threshold=0.05)),
+                ]
+                self.opportunity_board = OpportunityBoard()
+                self.detector_thread = DetectorThread(
+                    get_frame_bus(), self.opportunity_board, _specs, win=self.windows_helper,
+                )
+                self.detector_thread.start()
+                print(f"  Detector thread: {len(_specs)} on-sight specs, continuous")
+                self.logger.info(f"DETECTOR: continuous detection started ({len(_specs)} specs)")
+            except Exception as e:
+                self.logger.error(f"DETECTOR: failed to start ({e}) - falling back to inline scanning")
+                self.opportunity_board = None
+                self.detector_thread = None
+        else:
+            print("  Detector thread: disabled (DETECTOR_THREAD_ENABLED=False)")
+
         # Rally joining tracking
         self.last_rally_march_click: float = 0  # Timestamp of last march button click
         self.union_boss_mode_until: float = 0   # Timestamp when Union Boss mode expires (faster rally joining)
@@ -1005,6 +1056,28 @@ class IconDaemon:
         manager = get_override_manager()
         value, is_overridden = manager.get_effective(key, default)
         return value
+
+    def _sight(
+        self,
+        name: str,
+        inline_fn: Callable[[], tuple[bool, float, tuple[int, int] | None]],
+        ttl: float = 3.0,
+    ) -> tuple[bool, float, tuple[int, int] | None]:
+        """Board-first sighting with inline fallback.
+
+        When the continuous detector is running, consult the OpportunityBoard
+        (the detector scans ~2x/s including DURING flows, so a fresh miss means
+        genuinely not on screen). If the detector is disabled or died, fall
+        back to the legacy inline match so detection never silently vanishes.
+        """
+        if (self.opportunity_board is not None
+                and self.detector_thread is not None
+                and self.detector_thread.is_alive()):
+            opp = self.opportunity_board.get_fresh(name, ttl=ttl)
+            if opp is not None:
+                return True, opp.score, opp.center
+            return False, 1.0, None
+        return inline_fn()
 
     def _can_run_flow(self) -> bool:
         """
@@ -2860,7 +2933,11 @@ class IconDaemon:
 
                 # Rally march button check (requires idle + cooldown, but not alignment)
                 if self._get_config('RALLY_JOIN_ENABLED', RALLY_JOIN_ENABLED):
-                    march_match = self.rally_march_matcher.find_march_button(frame)
+                    def _inline_march() -> tuple[bool, float, tuple[int, int] | None]:
+                        m = self.rally_march_matcher.find_march_button(frame)
+                        return (True, m[2], (m[0], m[1])) if m is not None else (False, 1.0, None)
+                    _mf, _ms, _mc = self._sight("rally_march", _inline_march)
+                    march_match = (_mc[0], _mc[1], _ms) if (_mf and _mc is not None) else None
                     march_present = march_match is not None
                     march_score = march_match[2] if march_match else 1.0
 
@@ -4271,7 +4348,13 @@ class IconDaemon:
                     # navigates to WORLD, scans, assists all helmets, and returns.
                     run_assist = True
                     if town_present:  # town_present == in WORLD view
-                        hf, hs, _ = match_template(frame, "assist_helmet_4k.png", threshold=0.05)
+                        # Board-first (detector uses the strict pixel-SQDIFF helmet
+                        # matcher - also kills the daemon-side lookalike-avatar
+                        # false positives the old correlation match had here).
+                        def _inline_helmet() -> tuple[bool, float, tuple[int, int] | None]:
+                            from scripts.flows.assist_ally_flow import _find_helmet
+                            return _find_helmet(frame)
+                        hf, hs, _hc = self._sight("assist_helmet", _inline_helmet)
                         run_assist = hf
                         if hf:
                             self.logger.info(f"[{iteration}] ASSIST: helmet detected in WORLD (score={hs:.4f})")
@@ -4295,7 +4378,10 @@ class IconDaemon:
                     _gb_enabled = True
                 if (_gb_enabled and town_present  # town_present == in WORLD view
                         and self.scheduler.is_flow_ready("map_gift_box", idle_seconds=effective_idle_secs)):
-                    gbf, gbs, _ = match_template(frame, "map_gift_box_4k.png", threshold=0.05)
+                    gbf, gbs, _ = self._sight(
+                        "map_gift_box",
+                        lambda: match_template(frame, "map_gift_box_4k.png", threshold=0.05),
+                    )
                     if gbf:
                         self.logger.info(f"[{iteration}] GIFT BOX: detected in WORLD (score={gbs:.4f})")
                         flow_candidates.append(FlowCandidate(
@@ -4315,8 +4401,11 @@ class IconDaemon:
                     _ss_enabled = True
                 if (_ss_enabled and town_present  # town_present == in WORLD view
                         and self.scheduler.is_flow_ready("sandstorm_rally", idle_seconds=effective_idle_secs)):
-                    ssf, sss, _ = match_template(frame, "sandstorm_rally_4k.png",
-                                                search_region=(30, 1428, 520, 104), threshold=0.10)
+                    ssf, sss, _ = self._sight(
+                        "sandstorm",
+                        lambda: match_template(frame, "sandstorm_rally_4k.png",
+                                               search_region=(30, 1428, 520, 104), threshold=0.10),
+                    )
                     if ssf:
                         self.logger.info(f"[{iteration}] SANDSTORM: detected in WORLD (score={sss:.4f})")
                         flow_candidates.append(FlowCandidate(
@@ -4335,12 +4424,12 @@ class IconDaemon:
                 if (python_active and town_present  # town_present == in WORLD view
                         and not self.scheduler.is_exhausted("desert_python_rally")
                         and self.scheduler.is_flow_ready("desert_python_rally", idle_seconds=effective_idle_secs)):
-                    pf, ps, _ = match_template(
-                        frame, "cobra_icon_4k.png",
-                        # Widened: the cobra icon's center drifts y~1422-1552 and
-                        # x~150-400 across frames; the old tight (30,1428,520,104)
-                        # band clipped it at the edges and missed the match.
-                        search_region=(20, 1380, 580, 210), threshold=0.08,
+                    pf, ps, _ = self._sight(
+                        "cobra_icon",
+                        # Widened region: the cobra icon's center drifts y~1422-1552
+                        # and x~150-400 across frames.
+                        lambda: match_template(frame, "cobra_icon_4k.png",
+                                               search_region=(20, 1380, 580, 210), threshold=0.08),
                     )
                     if pf:
                         self.logger.info(f"[{iteration}] COBRA: icon detected in toolbar row (score={ps:.4f})")

@@ -67,6 +67,12 @@ GIFT_BOX_MAP_ENABLED = True
 # screen; set False once the rally sequence is built and you don't want auto-taps.
 SANDSTORM_CAPTURE_ENABLED = True
 
+# Continuous detector thread: scans speed-critical on-sight targets (rally march,
+# cobra, sandstorm, assist helmet, gift box) on every fresh frame in a background
+# thread - detection keeps running DURING flows instead of going blind. Set False
+# to fall back to the legacy inline per-iteration scanning.
+DETECTOR_THREAD_ENABLED = True
+
 # Per-flow debug flags (override global setting for specific flows)
 # NOTE: these dump full 4K PNGs on every flow step with no working cleanup - they
 # filled a 953GB disk (return_to_base=240GB, rally_join=61GB, elite_zombie=12GB).

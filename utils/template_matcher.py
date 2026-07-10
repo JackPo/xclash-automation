@@ -63,6 +63,10 @@ _gpu_masked_data: dict[str, tuple[Any, Any, float]] = {}
 # Serialize all GPU cache and matching operations through a single lock.
 _gpu_lock = threading.RLock()
 
+# Template/mask disk-cache loads are dict get-or-load; without a lock, two
+# threads (main loop / flow thread / detector thread) can race the mutation.
+_cache_lock = threading.RLock()
+
 
 def clear_gpu_cache() -> int:
     """
@@ -144,17 +148,18 @@ def _get_mask_name(template_name: str) -> str:
 
 
 def _load_template(name: str, grayscale: bool = False) -> NDArray | None:
-    """Load template with caching. COLOR by default."""
+    """Load template with caching. COLOR by default. Thread-safe."""
     cache = _templates_gray if grayscale else _templates_color
-    if name not in cache:
-        path = TEMPLATE_DIR / name
-        if path.exists():
-            flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
-            img = cv2.imread(str(path), flag)
-            cache[name] = img if img is not None else None
-        else:
-            cache[name] = None
-    return cache[name]
+    with _cache_lock:
+        if name not in cache:
+            path = TEMPLATE_DIR / name
+            if path.exists():
+                flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+                img = cv2.imread(str(path), flag)
+                cache[name] = img if img is not None else None
+            else:
+                cache[name] = None
+        return cache[name]
 
 
 def _get_gpu_template(name: str, template: NDArray) -> Any:
@@ -441,18 +446,19 @@ def _match_template_cpu_masked(
 
 
 def _load_mask(template_name: str) -> NDArray | None:
-    """Load mask for template if it exists, with caching."""
-    if template_name not in _masks:
-        mask_name = _get_mask_name(template_name)
-        path = TEMPLATE_DIR / mask_name
-        if path.exists():
-            img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-            _masks[template_name] = img if img is not None else None
-            _mask_exists[template_name] = True
-        else:
-            _masks[template_name] = None
-            _mask_exists[template_name] = False
-    return _masks[template_name]
+    """Load mask for template if it exists, with caching. Thread-safe."""
+    with _cache_lock:
+        if template_name not in _masks:
+            mask_name = _get_mask_name(template_name)
+            path = TEMPLATE_DIR / mask_name
+            if path.exists():
+                img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+                _masks[template_name] = img if img is not None else None
+                _mask_exists[template_name] = True
+            else:
+                _masks[template_name] = None
+                _mask_exists[template_name] = False
+        return _masks[template_name]
 
 
 def has_mask(template_name: str) -> bool:
