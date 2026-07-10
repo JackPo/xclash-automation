@@ -54,14 +54,11 @@ class WindowsScreenshotHelper:
     # tabs, harvest bubbles). Detect that signature - a large dark band in an
     # otherwise BRIGHT frame - and re-capture. The brightness gate ensures a
     # genuinely dark screen (loading/night) is NOT treated as corrupt.
-    CORRUPT_BRIGHT_MIN = 60       # frame mean below this = legitimately dark, skip check
-    CORRUPT_DARK_MAX = 8          # pixel value <= this = PURE-black "unwritten" memory (game
-                                  # sub-menus use dark grays ~15-50, not <=8, so they're excluded)
-    CORRUPT_BLOB_MIN_FRAC = 0.20  # largest CONTIGUOUS pure-black blob must cover >=20% of the
-                                  # frame to count as the PrintWindow black-band artifact. Was
-                                  # 0.3% - absurdly sensitive: any game sub-menu with a dark panel
-                                  # / black inset / icon got FALSELY flagged corrupt -> stale frame
-                                  # returned + log spam. A real black band is a huge strip, not 0.3%.
+    CORRUPT_DARK_MAX = 8          # pixel value <= this = PURE-black "unwritten" memory (real game
+                                  # screens, even dark ones, use grays >8 so they don't count)
+    CORRUPT_ALLBLACK_FRAC = 0.90  # corrupt ONLY if >=90% of the frame is pure black (a totally
+                                  # unwritten capture). Real screens measured <=1.4% pure black,
+                                  # corrupt ~100% - so anything that isn't almost-all black is fine.
     MAX_CORRUPT_RETRIES = 2       # extra re-captures when a corrupt frame is seen
     CORRUPT_RETRY_DELAY = 0.12    # seconds between corrupt-frame re-captures
 
@@ -221,31 +218,16 @@ class WindowsScreenshotHelper:
         return img_bgr
 
     def _frame_looks_corrupt(self, img_bgr: npt.NDArray[Any]) -> bool:
-        """True if the frame shows the PrintWindow partial-capture artifact: a
-        large CONTIGUOUS near-black region (the "unwritten" band/rectangle) in
-        an otherwise bright frame.
-
-        Cheap (~3ms): operates on a downscaled grayscale. The brightness gate
-        returns False for genuinely dark screens (loading/night) so the capture
-        loop never spins on a legitimate dark frame. Requiring contiguity (a
-        connected blob, not a total dark-pixel count) avoids false positives
-        from the game's scattered black art outlines.
+        """True only for a totally UNWRITTEN PrintWindow capture: (nearly) the
+        WHOLE frame is pure black. Any real game screen has content, so even the
+        darkest ones stay tiny on pure-black (measured: Forest Trial 1.4%, most
+        panels 0.0%); a corrupt capture is ~100%. So the rule is simply: if it's
+        not almost-all black, it's a real frame - not corrupt.
         """
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         small = cv2.resize(gray, (256, 144), interpolation=cv2.INTER_AREA)
-
-        if float(small.mean()) < self.CORRUPT_BRIGHT_MIN:
-            return False  # legitimately dark screen, not a capture artifact
-
-        mask = (small <= self.CORRUPT_DARK_MAX).astype(np.uint8)
-        num, _labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=4)
-        if num <= 1:
-            return False  # no near-black pixels at all
-
-        # stats[0] is the background label; take the largest foreground blob.
-        largest = int(stats[1:, cv2.CC_STAT_AREA].max())
-        frac = largest / float(small.shape[0] * small.shape[1])
-        return frac >= self.CORRUPT_BLOB_MIN_FRAC
+        black_frac = float((small <= self.CORRUPT_DARK_MAX).mean())
+        return black_frac >= self.CORRUPT_ALLBLACK_FRAC
 
     def get_screenshot_cv2(self) -> npt.NDArray[Any]:
         """Get a 4K screenshot as cv2 numpy array (compatible with template matching).
