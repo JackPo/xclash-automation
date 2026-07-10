@@ -116,13 +116,33 @@ def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -
     logger.info(f"[SANDSTORM] clicking ATTACK at {attack_center}")
     adb.tap(*attack_center, source="flow:sandstorm:attack_button")
     time.sleep(1.8)
-    # The troop/team-select screen is now captured. Leftmost-team selection + the
-    # final March button will be wired from that capture. Back out for now so
-    # nothing half-commits.
-    win.get_screenshot_cv2()  # ensure the after-burst captured the team screen
+
+    # Deploy/March screen: click the March button to actually launch the attack
+    # (the army is pre-configured on this screen). This is the step that was
+    # missing - the flow used to just capture this screen and back out.
+    frame = win.get_screenshot_cv2()
+    mf, ms, mc = match_template(frame, "march_button_4k.png", search_region=(1500, 1550, 900, 350), threshold=0.10)
+    logger.info(f"[SANDSTORM] march-button: found={mf} score={ms:.4f} center={mc}")
+    if mf and mc is not None:
+        logger.info(f"[SANDSTORM] clicking MARCH at {mc} - LAUNCHING attack")
+        adb.tap(*mc, source="flow:sandstorm:march")
+        time.sleep(1.5)
+        # Don't re-attack the same phantom immediately (it goes on cooldown).
+        try:
+            from datetime import datetime, timedelta
+            from utils.scheduler import get_scheduler
+            get_scheduler().mark_exhausted("sandstorm_rally", datetime.now() + timedelta(minutes=20))
+        except Exception as e:
+            logger.debug(f"[SANDSTORM] mark_exhausted failed: {e}")
+        return_to_base_view(adb, win, target=ViewState.WORLD)
+        result["success"] = True
+        result["stop_reason"] = "attack_launched"
+        logger.info(f"[SANDSTORM] done (ATTACK LAUNCHED): {result}")
+        return result
+
+    logger.info("[SANDSTORM] March button not found on deploy screen - backing out (no launch)")
     return_to_base_view(adb, win, target=ViewState.WORLD)
-    result["stop_reason"] = "attack_panel_captured"
-    logger.info(f"[SANDSTORM] done (attack panel captured): {result}")
+    result["stop_reason"] = "deploy_no_march"
     return result
 
 
