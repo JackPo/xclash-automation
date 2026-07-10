@@ -12,6 +12,7 @@ This is the ONE source of truth for recovery. Use it everywhere.
 
 from __future__ import annotations
 
+import logging
 import time
 import subprocess
 from pathlib import Path
@@ -615,7 +616,27 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             _save_rtb_debug(frame, "STEP1_after_dismiss_popups")
 
     # STEP 2: Try to get to TOWN/WORLD (full recovery attempts)
+    _user_fight_strikes = 0  # attempts during which the user was recently active
+
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
+        # Cumulative fight detection: the instant-abort below misses a user
+        # whose click cadence keeps idle jittering just above the threshold
+        # (observed: 130s of toggle/center taps fighting active play). If the
+        # user showed activity during several attempts, they own the screen.
+        try:
+            from utils.user_idle_tracker import get_user_idle_seconds as _giu
+            if _giu() < 8.0:
+                _user_fight_strikes += 1
+                if _user_fight_strikes >= 3:
+                    if debug:
+                        print(f"    [RETURN] User repeatedly active during recovery ({_user_fight_strikes} strikes) - yielding to user")
+                    logging.getLogger("return_to_base").info(
+                        "RECOVERY YIELDED: user active during %d attempts - stopping (they own the screen)",
+                        _user_fight_strikes)
+                    return False
+        except Exception:
+            pass
+
         if _should_abort_for_user_activity("full recovery attempt"):
             return True
 

@@ -2644,10 +2644,12 @@ class IconDaemon:
                                 # Flow thread is still running - clearing the flags now would
                                 # let the daemon screenshot/tap concurrently with it (crash risk).
                                 # Keep blocking until the thread actually exits.
-                                self.logger.error(
-                                    f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} "
-                                    f"stuck for {elapsed:.0f}s but its thread is still alive - waiting for exit"
-                                )
+                                if time.time() - getattr(self, '_last_stuck_log', 0) >= 15.0:
+                                    self._last_stuck_log = time.time()
+                                    self.logger.error(
+                                        f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} "
+                                        f"stuck for {elapsed:.0f}s but its thread is still alive - waiting for exit"
+                                    )
                                 time.sleep(self.interval)
                                 continue
                             self.logger.error(f"[{iteration}] CRITICAL FLOW TIMEOUT: {self.critical_flow_name} stuck for {elapsed:.0f}s - force clearing!")
@@ -4475,7 +4477,16 @@ class IconDaemon:
                         if hf:
                             self.logger.info(f"[{iteration}] ASSIST: helmet detected in WORLD (score={hs:.4f})")
                     else:
-                        self.logger.info(f"[{iteration}] ASSIST: mode on, checking WORLD for helmets")
+                        # Not in WORLD: the flow would NAVIGATE there blind. If the
+                        # user is actively playing in a menu (view UNKNOWN/CHAT +
+                        # recent input), navigating means fighting them for the
+                        # screen (observed: 130s recovery tug-of-war). Require a
+                        # short pause before the blind-navigate variant.
+                        if get_user_idle_seconds() < 10.0:
+                            run_assist = False
+                            self.logger.debug(f"[{iteration}] ASSIST: user active in non-WORLD view - waiting for a pause")
+                        else:
+                            self.logger.info(f"[{iteration}] ASSIST: mode on, checking WORLD for helmets")
                     if run_assist:
                         flow_candidates.append(FlowCandidate(
                             name="assist_ally",
