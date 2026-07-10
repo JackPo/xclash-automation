@@ -74,7 +74,7 @@ from utils.stamina_reader import StaminaReader
 from utils.view_state_detector import detect_view, go_to_town, go_to_world, ViewState
 from utils.dog_house_matcher import DogHouseMatcher
 from utils.return_to_base_view import return_to_base_view, _get_current_resolution, _run_setup_bluestacks
-from utils.barracks_state_matcher import BarracksStateMatcher, format_barracks_states, format_barracks_states_detailed
+from utils.barracks_state_matcher import BarracksStateMatcher, BarrackState, format_barracks_states, format_barracks_states_detailed
 from utils.stamina_red_dot_detector import has_stamina_red_dot
 from utils.rally_march_button_matcher import RallyMarchButtonMatcher
 from utils.union_war_panel_detector import UnionWarPanelDetector
@@ -3257,7 +3257,6 @@ class IconDaemon:
                 # C3: when perception owns the barracks tracker, IT feeds the history.
                 if (view_state_enum == ViewState.TOWN and (is_soldier_event_active or is_vs_promo_day)
                         and not self._votes_owned_by_perception()):
-                    from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     for i, (state, _) in enumerate(states):
                         self.barracks_state_history[i].append(state)
@@ -3463,7 +3462,6 @@ class IconDaemon:
                 # Fresh idle check (user may have become active)
                 is_arms_race_soldier_active = arms_race_event == "Soldier Training" or arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
                 if world_present and harvest_aligned and self._is_user_idle() and not is_arms_race_soldier_active:
-                    from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     ready_count = sum(1 for state, _ in states if state == BarrackState.READY)
                     pending_count = sum(1 for state, _ in states if state == BarrackState.PENDING)
