@@ -119,6 +119,24 @@ def _poll_for_template(
         time.sleep(interval)
 
 
+# Persist non-assistable helmets ACROSS runs. A castle whose marker lingers but
+# has no Assist button (already assisted / maxed / not an ally) was re-opened
+# every single run because failed_centers reset each time - that's the "keeps
+# clicking OptiMIZeD's castle" loop. Remember it for a cooldown and skip it.
+# The map recenters on our base each run, so screen coords are stable enough.
+_RECENT_FAILED_CENTERS: list[tuple[int, int, float]] = []  # (x, y, expiry_ts)
+_FAILED_TTL_SEC = 900  # 15 min - don't re-open a non-assistable castle for this long
+
+
+def _prune_failed() -> None:
+    now = time.time()
+    _RECENT_FAILED_CENTERS[:] = [(x, y, exp) for (x, y, exp) in _RECENT_FAILED_CENTERS if exp > now]
+
+
+def _is_recently_failed(center: tuple[int, int]) -> bool:
+    return any(abs(center[0] - x) < 70 and abs(center[1] - y) < 70 for (x, y, _exp) in _RECENT_FAILED_CENTERS)
+
+
 def assist_ally_flow(
     adb: Any,
     win: WindowsScreenshotHelper | None = None,
@@ -140,6 +158,7 @@ def assist_ally_flow(
         return_to_base_view(adb, win, target=ViewState.WORLD, debug=debug)
         time.sleep(1.0)
 
+    _prune_failed()
     failed_centers: list[tuple[int, int]] = []  # helmets that opened a castle with no Assist
     for i in range(max_assists):
         frame = win.get_screenshot_cv2()
@@ -148,11 +167,11 @@ def assist_ally_flow(
         if not found or center is None:
             result["stop_reason"] = "no_more_helmets"
             break
-        # If the only helmet we can find is one we already failed to assist (e.g.
-        # already-assisted castle whose marker lingers), stop -- don't keep
-        # re-opening it (which was what kept popping the trade/other menu).
-        if any(abs(center[0] - fx) < 70 and abs(center[1] - fy) < 70 for fx, fy in failed_centers):
-            logger.info("[ASSIST] only non-assistable helmet(s) remain - stopping")
+        # Skip a helmet we already failed to assist -- both this run AND recently
+        # in a PRIOR run (persistent). A lingering marker on an already-assisted /
+        # maxed castle (e.g. OptiMIZeD's) was otherwise re-opened every cycle.
+        if _is_recently_failed(center) or any(abs(center[0] - fx) < 70 and abs(center[1] - fy) < 70 for fx, fy in failed_centers):
+            logger.info(f"[ASSIST] helmet at {center} is a known non-assistable castle (recent) - stopping")
             result["stop_reason"] = "only_non_assistable"
             break
         if debug:
@@ -185,6 +204,8 @@ def assist_ally_flow(
                     adb.tap(center[0], max(150, center[1] - 350), source="flow:assist:close_popup")
                     time.sleep(1.0)
                     failed_centers.append(center)
+                    # Remember across runs so we stop re-opening this castle every cycle.
+                    _RECENT_FAILED_CENTERS.append((center[0], center[1], time.time() + _FAILED_TTL_SEC))
                 else:
                     logger.info(f"[ASSIST] no Assist button on combo {combo+1} - stopping (assisted {assists_here}x)")
                 break
