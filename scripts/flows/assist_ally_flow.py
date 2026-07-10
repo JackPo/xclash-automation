@@ -128,6 +128,36 @@ _RECENT_FAILED_CENTERS: list[tuple[int, int, float]] = []  # (x, y, expiry_ts)
 _FAILED_TTL_SEC = 900  # 15 min - don't re-open a non-assistable castle for this long
 
 
+_HELMET_TMPL: Any = None
+_HELMET_MASK: Any = None
+# Pixel-by-pixel masked match threshold. The project's default masked matcher uses
+# raw TM_CCORR (correlation) which scored a lookalike teal avatar the SAME as the
+# real gold-ringed marker (~0.02). TM_SQDIFF_NORMED measures actual per-pixel
+# differences: real marker ~0.0, avatar ~0.044. 0.03 cleanly separates them.
+HELMET_SQDIFF_THRESHOLD = 0.03
+
+
+def _find_helmet(frame: Any) -> tuple[bool, float, tuple[int, int] | None]:
+    """Find the assist marker by PIXEL-BY-PIXEL masked matching (TM_SQDIFF_NORMED),
+    not correlation. Returns (found, score, center)."""
+    global _HELMET_TMPL, _HELMET_MASK
+    import numpy as np
+    from pathlib import Path
+    if _HELMET_TMPL is None:
+        base = Path(__file__).parent.parent.parent / "templates" / "ground_truth"
+        _HELMET_TMPL = cv2.imread(str(base / HELMET_TEMPLATE))
+        _HELMET_MASK = cv2.imread(str(base / "assist_helmet_mask_4k.png"))
+    if _HELMET_TMPL is None or _HELMET_MASK is None:
+        return False, 1.0, None
+    th, tw = _HELMET_TMPL.shape[:2]
+    res = cv2.matchTemplate(frame, _HELMET_TMPL, cv2.TM_SQDIFF_NORMED, mask=_HELMET_MASK)
+    res[~np.isfinite(res)] = 1.0
+    minv, _maxv, minloc, _maxloc = cv2.minMaxLoc(res)
+    if minv <= HELMET_SQDIFF_THRESHOLD:
+        return True, float(minv), (minloc[0] + tw // 2, minloc[1] + th // 2)
+    return False, float(minv), None
+
+
 def _prune_failed() -> None:
     now = time.time()
     _RECENT_FAILED_CENTERS[:] = [(x, y, exp) for (x, y, exp) in _RECENT_FAILED_CENTERS if exp > now]
@@ -162,7 +192,7 @@ def assist_ally_flow(
     failed_centers: list[tuple[int, int]] = []  # helmets that opened a castle with no Assist
     for i in range(max_assists):
         frame = win.get_screenshot_cv2()
-        found, score, center = match_template(frame, HELMET_TEMPLATE, threshold=HELMET_THRESHOLD)
+        found, score, center = _find_helmet(frame)  # pixel-by-pixel SQDIFF, not correlation
         logger.info(f"[ASSIST] scan {i+1}: helmet found={found} score={score:.4f} center={center}")
         if not found or center is None:
             result["stop_reason"] = "no_more_helmets"
