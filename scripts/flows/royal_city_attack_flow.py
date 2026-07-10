@@ -104,7 +104,7 @@ def royal_city_attack_flow(
 
         while time.time() - start_time < POLL_TIMEOUT:
             frame = win.get_screenshot_cv2()
-            found, score, pos = match_template(frame, UNOCCUPIED_TEMPLATE, threshold=TEMPLATE_THRESHOLD)
+            found, score, pos = match_template(frame, UNOCCUPIED_TEMPLATE, threshold=0.04)  # crown/Vacancy template: negatives score ~0.05+
 
             if found:
                 if debug:

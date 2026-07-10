@@ -86,8 +86,11 @@ def _is_city_unoccupied(frame: npt.NDArray[Any]) -> bool:
     """Check if Royal City is unoccupied (can't apply titles)."""
     found, score, _ = match_template(
         frame, UNOCCUPIED_TEMPLATE,
-        search_region=(1500, 200, 800, 300),
-        threshold=0.1  # SQDIFF (no mask) - lower is better
+        # Redesigned panel (2026-07): "Vacancy" row with crown icon sits at
+        # ~(1612,740); template re-extracted from live capture. 0.04 because
+        # unrelated panels score ~0.05-0.07 against it.
+        search_region=(1450, 650, 900, 200),
+        threshold=0.04
     )
     return found
 
