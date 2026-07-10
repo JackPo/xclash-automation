@@ -2,6 +2,25 @@
 
 X-Clash automation using BlueStacks emulator. 4K resolution (3840x2160).
 
+## Daemon Architecture (2026-07 refactor) — read docs/DAEMON_ARCHITECTURE.md
+
+Detection and action are SPLIT: a perception thread (`utils/opportunity_detector.py`,
+fed by `utils/frame_bus.py` from every capture in the process) runs all matchers
+continuously — never blocked by flows — and the main loop is a pure-ish actor that
+pops the best admissible Intent from `utils/intent_queue.py` (manual web commands =
+priority 100, truthful started/queued/busy responses). Key rules:
+
+- **Perception never taps; it is the ONLY writer of vote histories + stamina.**
+- **NEVER put `from x import y` inside `run()`** — it makes the name local to the
+  whole function and crashes any earlier code path (bit us twice).
+- Admission (idle gates, tavern guard, modes) is evaluated at POP, not submit;
+  the old deferred_flow_queue is gone.
+- Recovery yields to an active user (3-strike fight detection). Paused = zero
+  game touch, including startup.
+- Rollback: `DETECTOR_THREAD_ENABLED=False` in config_local.py.
+- Still inline (C5 pending): arms-race checkpoints, beast training, soldier
+  training sequence, recovery, modes. C7 (delete legacy fallbacks) after C5.
+
 ## Skills Reference
 
 | Skill | Use For |

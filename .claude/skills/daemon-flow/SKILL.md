@@ -8,6 +8,24 @@ allowed-tools: Bash, Read
 
 Control the icon daemon via WebSocket commands using `daemon_cli.py`.
 
+## Architecture (2026-07 refactor) — full details: docs/DAEMON_ARCHITECTURE.md
+
+Detection runs in a continuous perception thread (never blocked by flows);
+actions flow through a priority IntentQueue. What this means for control:
+
+- **Manual commands are priority-100 intents**: `run_flow` returns instantly
+  with a TRUTHFUL answer — `started` / `queued behind <flow>` / `busy (Ns in)`
+  / `already queued (waiting on: <reason>)`. The flow pops the moment the
+  current one ends. Handlers that need results (apply_title, faction_trial,
+  zombie, stamina) block on a completion event as before.
+- **`status` now includes `intent_queue`**: every queued intent with
+  name/priority/age/last_denial — "why isn't X running" is answered there.
+- Admission gates (idle, tavern guard, modes) are checked when an intent POPS;
+  a denied intent waits (TTL-bounded, expiry logged) instead of being dropped.
+- Pause = zero game touch (including startup recovery); persists across
+  restarts. pause/resume work even during daemon init.
+- Rollback: `DETECTOR_THREAD_ENABLED=False` in config_local.py.
+
 ## Quick Reference
 
 | Action | Command |

@@ -99,7 +99,7 @@ BARRACKS_POSITIONS = [
 
 | Template | Size | Position | Click | Notes |
 |----------|------|----------|-------|-------|
-| `royal_city_unoccupied_tab_4k.png` | 570x55 | (1630, 330) | - | Detects unoccupied |
+| `royal_city_unoccupied_tab_4k.png` | 235x90 | (1612, 740) | - | **Re-extracted 2026-07-10**: panel redesigned — crown + "Vacancy" row (old "Unoccupied" tab is gone). Region (1450,650,900,200), threshold **0.04** (negatives score ~0.05+). Post-detection reinforce steps may still need adapting to the new panel |
 | `royal_city_attack_button_4k.png` | 153x177 | (1634, 1609) | (1710, 1697) | Red X icon |
 | `rally_button_4k.png` + mask | 153x177 | (1839, 1658) | (1916, 1746) | Blue flag |
 | `royal_city_scout_button_4k.png` | 153x177 | (2045, 1609) | (2121, 1697) | Binoculars |
@@ -154,6 +154,17 @@ Extracted 2026-07-08. Earlier attempts wrongly captured on-map terrain (a
 `desert_python_4k.png` that was ~60% sand → random clicking); these are the
 toolbar UI icons, NOT the on-map monster.
 
+Related (2026-07-09/10):
+- `sandstorm_phantom_text_4k.png` (414x54, thr 0.06, search (1450,1080,950,220)):
+  the "Sandstorm Phantom" TEXT in the "You want to choose?" overlap chooser
+  (level number excluded — survives level changes). Clicked to split the
+  Phantom from an overlapping castle before the Attack step.
+- **Assist helmet matching is PIXEL-SQDIFF, not the default masked matcher**:
+  `assist_ally_flow._find_helmet` uses cv2 masked TM_SQDIFF_NORMED at 0.03
+  (real marker 0.0, lookalike teal avatar 0.044 — raw TM_CCORR scored both
+  ~0.02 and caused false assists on player avatars). The perception spec uses
+  the same function.
+
 ---
 
 ## Hospital Header
@@ -185,9 +196,15 @@ Exit webview: top-right X at fixed (3755,96), tap until view=TOWN/WORLD.
 
 **Tab Templates (region for active/inactive same)**:
 
+NOTE 2026-07-10: the tab bar was RESTYLED — order is now Special | Resource |
+**Speed Up (new)** | Hero | Gift. Special templates re-extracted (190x75,
+badge-free crop so any count badge matches); flow region (1487,2000,230,150),
+click (1605,2065). Hero/Resources templates still match — re-extract them the
+same way if their verification starts failing.
+
 | Tab | Region | Active | Inactive |
 |-----|--------|--------|----------|
-| Special | (1525, 2033, 163, 96) | `bag_special_tab_active_4k.png` | `bag_special_tab_4k.png` |
+| Special | (1487, 2000, 230, 150) | `bag_special_tab_active_4k.png` (190x75, 2026-07-10) | `bag_special_tab_4k.png` (190x75, 2026-07-10) |
 | Hero | (2158, 2015, 207, 127) | `bag_hero_tab_active_4k.png` | `bag_hero_tab_4k.png` |
 | Resources | (1732, 2018, 179, 111) | `bag_resources_tab_active_4k.png` | `bag_resources_tab_4k.png` |
 
