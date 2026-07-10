@@ -953,6 +953,9 @@ class IconDaemon:
                     DetectorSpec, DetectorThread, OpportunityBoard, PerceptionState,
                 )
                 from scripts.flows.assist_ally_flow import _find_helmet
+                from utils.under_attack_matcher import is_under_attack
+                from utils.bloodlust_matcher import is_bloodlust_active
+                from utils.shield_active_matcher import is_shield_active
 
                 def _march_fn(f: Any) -> tuple[bool, float, tuple[int, int] | None]:
                     m = self.rally_march_matcher.find_march_button(f)
@@ -993,6 +996,12 @@ class IconDaemon:
                     DetectorSpec("gem", {TOWN}, _p2(self.gem_matcher.is_present)),
                     DetectorSpec("cabbage", {TOWN}, _p2(self.cabbage_matcher.is_present)),
                     DetectorSpec("equipment", {TOWN}, _p2(self.equipment_enhancement_matcher.is_present)),
+                    # --- state monitors (C2): any view; the loop diffs the
+                    # snapshot and keeps ownership of broadcasts/current_state ---
+                    DetectorSpec("under_attack", None, _p2(is_under_attack)),
+                    DetectorSpec("bloodlust", None, _p2(is_bloodlust_active)),
+                    DetectorSpec("shield_active", None, _p2(is_shield_active)),
+                    DetectorSpec("union_war_panel", None, _p2(self.union_war_panel_detector.is_union_war_panel)),
                 ]
                 self.opportunity_board = OpportunityBoard()
                 self.perception_state = PerceptionState()
@@ -2675,7 +2684,7 @@ class IconDaemon:
                 # Avoid interfering with active flows that intentionally use this panel.
                 # Also avoid interfering with manual user actions.
                 if not self.active_flows and idle_secs_early >= self.IDLE_THRESHOLD:
-                    panel_present, panel_score = self.union_war_panel_detector.is_union_war_panel(frame)
+                    panel_present, panel_score = self._perceive("union_war_panel", lambda: self.union_war_panel_detector.is_union_war_panel(frame))
                     if panel_present:
                         now_ts = time.time()
                         if now_ts - self.last_union_war_panel_back_click >= self.UNION_WAR_PANEL_BACK_COOLDOWN:
@@ -2696,7 +2705,7 @@ class IconDaemon:
                 # UNDER ATTACK DETECTION - Check if player is being attacked
                 # =================================================================
                 from utils.under_attack_matcher import is_under_attack
-                attack_detected, attack_score = is_under_attack(frame)
+                attack_detected, attack_score = self._perceive("under_attack", lambda: is_under_attack(frame))
 
                 if attack_detected and not self.under_attack:
                     # Attack started - log it
@@ -2745,7 +2754,7 @@ class IconDaemon:
                 # BLOODLUST DETECTION - Check if bloodlust is active (15 min duration)
                 # =================================================================
                 from utils.bloodlust_matcher import is_bloodlust_active, BLOODLUST_DURATION_SECONDS
-                bloodlust_detected, bloodlust_score = is_bloodlust_active(frame)
+                bloodlust_detected, bloodlust_score = self._perceive("bloodlust", lambda: is_bloodlust_active(frame))
 
                 if bloodlust_detected and not self.bloodlust_active:
                     # Bloodlust just started
@@ -2796,7 +2805,7 @@ class IconDaemon:
                 # SHIELD ACTIVE DETECTION - Check if player has shield protection
                 # =================================================================
                 from utils.shield_active_matcher import is_shield_active
-                shield_detected, shield_score = is_shield_active(frame)
+                shield_detected, shield_score = self._perceive("shield_active", lambda: is_shield_active(frame))
 
                 if shield_detected and not self.shield_protection_active:
                     # Shield just became active
