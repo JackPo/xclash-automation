@@ -2285,8 +2285,11 @@ class IconDaemon:
         import sys
 
         # List of modules to reload (in dependency order)
+        # NOTE: utils.windows_screenshot_helper is deliberately NOT in this list.
+        # Reloading it resets the class-level _capture_lock and shared state while
+        # the main loop / detector thread / action-capture are mid-capture - a
+        # real race. It has no flow logic; a daemon restart picks up its changes.
         modules_to_reload = [
-            'utils.windows_screenshot_helper',
             'scripts.flows.bag_use_item_subflow',
             'scripts.flows.bag_special_flow',
             'scripts.flows.bag_hero_flow',
@@ -2301,11 +2304,33 @@ class IconDaemon:
             'scripts.flows',
         ]
 
+        # Reload ONLY modules whose source changed since we last saw them
+        # (mtime-gated). The normal manual-click path reloads nothing - no
+        # module-reset race against the main loop, no added latency.
+        if not hasattr(self, "_reload_mtimes"):
+            self._reload_mtimes: dict[str, float] = {}
+        reloaded = []
         for mod_name in modules_to_reload:
-            if mod_name in sys.modules:
-                importlib.reload(sys.modules[mod_name])
-            else:
-                self.logger.debug(f"HOT-RELOAD: Module {mod_name} not loaded, skipping")
+            mod = sys.modules.get(mod_name)
+            if mod is None:
+                continue
+            src = getattr(mod, "__file__", None)
+            if not src:
+                continue
+            try:
+                mtime = os.path.getmtime(src)
+            except OSError:
+                continue
+            prev = self._reload_mtimes.get(mod_name)
+            if prev is None:
+                self._reload_mtimes[mod_name] = mtime  # first sight: just record
+                continue
+            if mtime != prev:
+                importlib.reload(mod)
+                self._reload_mtimes[mod_name] = mtime
+                reloaded.append(mod_name)
+        if reloaded:
+            self.logger.info(f"HOT-RELOAD: reloaded changed modules: {reloaded}")
 
         # Re-import all flow functions after reload
         global handshake_flow, treasure_map_flow, corn_harvest_flow, gold_coin_flow
