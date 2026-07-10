@@ -277,12 +277,26 @@ class DaemonWebSocketServer:
     # =========================================================================
 
     def _cmd_run_flow(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Trigger a specific flow."""
+        """Trigger a specific flow - FIRE AND FORGET.
+
+        Previously this ran trigger_flow() synchronously and only responded after
+        the ENTIRE flow finished (navigate + act + return, 20-120s), so the web
+        button hung for the whole flow and felt like "nothing happens". Now we
+        kick the flow off on a background thread and return "started" instantly;
+        the flow's own active_flows guard still prevents concurrent/duplicate runs
+        (a repeat click just no-ops in the background).
+        """
         flow_name = args.get("flow")
         if not flow_name:
             raise ValueError("Missing 'flow' argument")
-        result: dict[str, Any] = self.daemon.trigger_flow(flow_name)
-        return result
+        # Validate the flow name up front so a typo still returns an error fast.
+        if flow_name not in self.daemon.get_available_flows():
+            return {"success": False, "error": f"Unknown flow: {flow_name}"}
+        threading.Thread(
+            target=self.daemon.trigger_flow, args=(flow_name,),
+            name=f"webflow-{flow_name}", daemon=True,
+        ).start()
+        return {"success": True, "started": True, "flow": flow_name}
 
     def _cmd_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get current daemon status."""
