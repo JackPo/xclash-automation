@@ -296,59 +296,35 @@ class DaemonWebSocketServer:
     # =========================================================================
 
     def _cmd_run_flow(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Trigger a specific flow - fire-and-forget with TRUTHFUL responses.
+        """Trigger a flow as a MANUAL intent (priority 100) - truthful responses.
 
-        Three cases, decided up-front so the portal never lies:
-        - same flow already running  -> {busy:true} (no thread, no fake "started")
-        - a DIFFERENT flow is active -> spawn a runner that WAITS for the slot
-          (autonomous flows are 1-2s) then runs -> {queued:true, behind:...}
-        - idle                       -> spawn runner -> {started:true}
-
-        The runner retries only on busy-type rejections; a duplicate-click
-        "already running" is terminal (never double-runs a flow).
+        The old poll-and-retry runner thread is gone: the intent queue IS the
+        wait mechanism. The actor pops manual intents ahead of everything the
+        moment the current flow ends. Cases:
+        - same flow already running -> {busy, running_for_s}
+        - same flow already queued  -> {queued, note}
+        - otherwise enqueue         -> {started} if the actor is free,
+                                       {queued, behind: <active flows>} if not.
         """
         flow_name = args.get("flow")
         if not flow_name:
             raise ValueError("Missing 'flow' argument")
-        # Validate the flow name up front so a typo still returns an error fast.
         if flow_name not in self.daemon.get_available_flows():
             return {"success": False, "error": f"Unknown flow: {flow_name}"}
 
+        existing = self.daemon.intent_queue.contains(flow_name)
+        if existing is not None and existing.source == "manual":
+            return {"success": True, "queued": True, "flow": flow_name,
+                    "note": f"already queued ({existing.age:.0f}s, waiting: {existing.last_denial or 'slot'})"}
+
+        # Enqueue without blocking the WS response; the busy/duplicate cases
+        # are handled truthfully inside trigger_flow.
+        resp = self.daemon.trigger_flow(flow_name, wait=False)
+        if not resp.get("success"):
+            return resp
+
         with self.daemon.flow_lock:
             active = set(self.daemon.active_flows)
-
-        if flow_name in active:
-            running_for = 0.0
-            if (self.daemon.critical_flow_name == flow_name
-                    and self.daemon.critical_flow_start_time):
-                running_for = time.time() - self.daemon.critical_flow_start_time
-            logger.info(f"MANUAL TRIGGER REJECTED (busy): {flow_name} already running ({running_for:.0f}s)")
-            return {
-                "success": False, "busy": True, "flow": flow_name,
-                "running_for_s": round(running_for),
-                "error": f"{flow_name} is already running ({running_for:.0f}s in)",
-            }
-
-        def _runner() -> None:
-            deadline = time.time() + 30.0
-            while time.time() < deadline:
-                with self.daemon.flow_lock:
-                    slot_busy = bool(self.daemon.active_flows)
-                if not slot_busy:
-                    result = self.daemon.trigger_flow(flow_name)
-                    err = str(result.get("error") or "")
-                    # Retry only when another flow raced us into the slot; any
-                    # other outcome (success, tavern guard, duplicate) is final
-                    # and already logged by trigger_flow.
-                    if result.get("success") or not any(
-                        k in err for k in ("Another flow is active", "Blocked by critical flow")
-                    ):
-                        return
-                time.sleep(0.3)
-            logger.warning(f"MANUAL TRIGGER TIMEOUT: {flow_name} never got a slot within 30s (daemon busy)")
-
-        threading.Thread(target=_runner, name=f"webflow-{flow_name}", daemon=True).start()
-
         if active:
             behind = ", ".join(sorted(active))
             logger.info(f"MANUAL TRIGGER QUEUED: {flow_name} behind {behind}")

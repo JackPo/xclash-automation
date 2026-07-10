@@ -1448,6 +1448,11 @@ class IconDaemon:
             if board_name and self.opportunity_board is not None:
                 self.opportunity_board.consume(board_name)
             return intent.name
+        # _run_flow refused (lost a race for the slot / guard) - requeue so the
+        # intent isn't silently lost (manual clicks especially). TTL bounds it.
+        if not intent.expired:
+            self.intent_queue.submit(intent)
+            self.logger.debug(f"[{iteration}] INTENT REQUEUED after slot race: {intent.name}")
         return None
 
     def _run_flow(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False,
@@ -2000,17 +2005,21 @@ class IconDaemon:
             paused=self.paused,
         )
 
-    def trigger_flow(self, flow_name: str) -> dict[str, Any]:
+    def trigger_flow(self, flow_name: str, wait: bool = True, timeout: float = 170.0) -> dict[str, Any]:
         """
-        API: Trigger a specific flow immediately and wait for result.
+        API: Trigger a flow as a MANUAL intent (priority 100 - outranks
+        everything). The actor pops it as soon as the current flow ends, so a
+        manual click never gets silently swallowed by a busy daemon.
 
-        Args:
-            flow_name: Name of flow to trigger (e.g., "tavern_quest", "bag_flow")
-
-        Returns:
-            dict with success status, flow name, and flow result
+        wait=True (sync handlers: faction_trial, zombie, stamina): block on a
+        completion event and return the flow result, like the old synchronous
+        path. wait=False (web run_flow button): return immediately with a
+        truthful queued/started answer.
         """
-        # Hot-reload flow modules to pick up code changes
+        from utils.intent_queue import Intent, PRIO_MANUAL
+
+        # Hot-reload flow modules to pick up code changes (mtime-gated: no-op
+        # unless a flow source file actually changed).
         try:
             self.reload_flows()
         except Exception as e:
@@ -2023,26 +2032,57 @@ class IconDaemon:
 
         flow_func, critical = flow_map[flow_name]
 
-        # Log EVERY manual trigger request + outcome so a user click is always
-        # visible in the log (previously _run_flow_sync silently rejected clicks
-        # when any flow was active - the "I click and nothing happens" mystery).
-        self.logger.info(f"MANUAL TRIGGER REQUEST: {flow_name} (critical={critical})")
+        # Truthful duplicate handling
+        with self.flow_lock:
+            if flow_name in self.active_flows:
+                running_for = 0.0
+                if self.critical_flow_name == flow_name and self.critical_flow_start_time:
+                    running_for = time.time() - self.critical_flow_start_time
+                self.logger.info(f"MANUAL TRIGGER REJECTED (busy): {flow_name} already running ({running_for:.0f}s)")
+                return {"success": False, "busy": True, "flow": flow_name,
+                        "running_for_s": round(running_for),
+                        "error": f"{flow_name} is already running ({running_for:.0f}s in)"}
 
-        # Run flow synchronously and capture result
-        result = self._run_flow_sync(flow_name, flow_func, critical=critical)
-        if not result.get("success"):
-            self.logger.warning(f"MANUAL TRIGGER REJECTED: {flow_name} - {result.get('error')}")
+        self.logger.info(f"MANUAL TRIGGER ENQUEUED: {flow_name} (critical={critical}, wait={wait})")
 
-        # Broadcast event to connected clients
-        if self.command_server:
-            self.command_server.broadcast("flow_completed", {
-                "flow": flow_name,
-                "success": result.get("success", False),
-                "critical": critical,
-                "result": result.get("result")
-            })
+        done = threading.Event()
+        result_box: dict[str, Any] = {}
 
-        return result
+        def _on_done(res: Any) -> None:
+            result_box["result"] = res
+            done.set()
+            if self.command_server:
+                self.command_server.broadcast("flow_completed", {
+                    "flow": flow_name, "success": True,
+                    "critical": critical, "result": res,
+                })
+
+        def _manual_admission() -> tuple[bool, str]:
+            # Manual outranks everything EXCEPT the tavern guard on critical
+            # flows (same rule the old sync path enforced inside _run_flow_sync
+            # - but as admission it WAITS instead of being eaten).
+            if critical and not self._is_tavern_guard_exempt_flow(flow_name):
+                active, reason = self._get_tavern_guard_status()
+                if active:
+                    return False, f"tavern guard: {reason}"
+            return True, ""
+
+        self.intent_queue.submit(Intent(
+            name=flow_name, source="manual", priority=PRIO_MANUAL,
+            flow_func=flow_func, critical=critical, reason="manual trigger",
+            record_to_scheduler=True, admission=_manual_admission,
+            on_complete=[_on_done], ttl=max(timeout, 300.0),
+        ))
+
+        if not wait:
+            return {"success": True, "queued": True, "flow": flow_name}
+
+        if done.wait(timeout):
+            return {"success": True, "flow": flow_name, "critical": critical,
+                    "result": result_box.get("result")}
+        self.logger.warning(f"MANUAL TRIGGER TIMEOUT: {flow_name} not completed within {timeout:.0f}s")
+        return {"success": False, "flow": flow_name, "queued": True,
+                "error": f"{flow_name} queued but not completed within {timeout:.0f}s (daemon busy/paused?)"}
 
     def _is_user_idle(self) -> bool:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
@@ -2455,6 +2495,7 @@ class IconDaemon:
             "tavern_claims_today": self.scheduler.get_tavern_claims_today(),
             "overlord_first_kill_done": self.scheduler.is_overlord_first_kill_done(),
             "server_port": DAEMON_SERVER_PORT,
+            "intent_queue": self.intent_queue.snapshot(),
         }
 
     def set_config(self, key: str, value: Any) -> dict[str, Any]:
