@@ -48,6 +48,30 @@ class DetectorSpec:
 
 
 @dataclass
+class TrackerSpec:
+    """A stateful sampler (vote histories, stamina OCR) - unlike DetectorSpec
+    these MUTATE state via sink(), so perception must be their ONLY caller.
+
+    Sampling gates (all must pass):
+    - not busy_fn(): never sample while the actor is executing a flow - mid-flow
+      frames (half-open panels that still classify TOWN) would poison votes
+    - view in views (None = any)
+    - min_interval elapsed since last sample - vote windows are time-windows in
+      disguise (10 readings @ 2s = 20s debounce); sampling at tick rate would
+      collapse them
+    - frame age < max_frame_age: don't feed a stale pre-flow frame after resume
+    """
+    name: str
+    views: set[ViewState] | None
+    min_interval: float
+    fn: Callable[[Any], Any]           # frame -> value (None = skip sink)
+    sink: Callable[[Any], None]        # receives the value; runs on perception thread
+    max_frame_age: float = 1.5
+    last_sample: float = field(default=0.0, compare=False)
+    samples: int = field(default=0, compare=False)
+
+
+@dataclass
 class SpecReading:
     """The last result of running a spec, whether or not it matched - the
     status line needs scores for ABSENT icons, which the board can't hold."""
@@ -169,6 +193,8 @@ class DetectorThread(threading.Thread):
         heartbeat_after: float = 2.0,  # self-capture if the bus goes stale this long
         state: PerceptionState | None = None,
         paused_fn: Callable[[], bool] | None = None,  # daemon pause: no heartbeat captures
+        trackers: list[TrackerSpec] | None = None,
+        busy_fn: Callable[[], bool] | None = None,     # actor executing a flow -> suppress trackers
     ) -> None:
         super().__init__(daemon=True, name="OpportunityDetector")
         self.bus = bus
@@ -179,6 +205,8 @@ class DetectorThread(threading.Thread):
         self.heartbeat_after = heartbeat_after
         self.state = state if state is not None else PerceptionState()
         self.paused_fn = paused_fn
+        self.trackers = trackers if trackers is not None else []
+        self.busy_fn = busy_fn
         self._stop = threading.Event()
         self._last_ts = 0.0
         self.ticks = 0
@@ -239,6 +267,27 @@ class DetectorThread(threading.Thread):
                 spec.hits += 1
                 self.board.sighting(spec.name, center, score)
                 logger.debug(f"DETECTOR: sighted {spec.name} score={score:.4f} at {center}")
+
+        # Stateful trackers (vote histories, stamina OCR): sample only on
+        # fresh, non-busy frames at each tracker's own cadence.
+        if self.trackers and not (self.busy_fn is not None and self.busy_fn()):
+            now = time.time()
+            frame_age = now - ts
+            for tr in self.trackers:
+                if tr.views is not None and view not in tr.views:
+                    continue
+                if frame_age > tr.max_frame_age:
+                    continue
+                if (now - tr.last_sample) < tr.min_interval:
+                    continue
+                tr.last_sample = now
+                try:
+                    value = tr.fn(frame)
+                    if value is not None:
+                        tr.sink(value)
+                        tr.samples += 1
+                except Exception as e:
+                    logger.debug(f"DETECTOR: tracker {tr.name} error: {e}")
 
         # Pace ourselves: never rescan faster than tick_interval even when
         # frames pour in (flows can capture 5+/s).

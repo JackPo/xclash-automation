@@ -1003,15 +1003,81 @@ class IconDaemon:
                     DetectorSpec("shield_active", None, _p2(is_shield_active)),
                     DetectorSpec("union_war_panel", None, _p2(self.union_war_panel_detector.is_union_war_panel)),
                 ]
+                # --- stateful trackers (C3): perception is the ONLY writer of
+                # the vote histories and stamina reader. The loop only READS.
+                from utils.opportunity_detector import TrackerSpec
+                self.last_hospital_state = HospitalState.UNKNOWN
+                self.last_hospital_score = 1.0
+                self.last_stamina_confirmation: tuple[bool, int | None] = (False, None)
+
+                def _hospital_sink(v: Any) -> None:
+                    st, sc = v
+                    self.last_hospital_state, self.last_hospital_score = st, sc
+                    self.hospital_state_history.append(st)
+                    if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                        self.hospital_state_history.pop(0)
+
+                def _barracks_sample(f: Any) -> Any:
+                    # Legacy gate: history only accumulates during Soldier
+                    # Training events or VS promotion days.
+                    ar = get_arms_race_status()
+                    if not (ar.get('current') == 'Soldier Training'
+                            or ar.get('day') in self.VS_SOLDIER_PROMOTION_DAYS):
+                        return None
+                    return self.barracks_matcher.get_all_states(f)
+
+                def _barracks_sink(states: Any) -> None:
+                    for i, (st, _sc) in enumerate(states):
+                        h = self.barracks_state_history[i]
+                        h.append(st)
+                        if len(h) > self.BARRACKS_CONSECUTIVE_REQUIRED:
+                            h.pop(0)
+
+                def _stamina_sample(f: Any) -> Any:
+                    # Real OCR every stamina_ocr_interval; echo the cached value
+                    # between reads (preserves the legacy 1-real-read + echoes
+                    # confirmation timing of the 3-reading MODE).
+                    now = time.time()
+                    if now - self.last_stamina_ocr_time >= self.stamina_ocr_interval:
+                        self.last_stamina_ocr_time = now
+                        try:
+                            v = self.ocr_client.extract_number(f, self.STAMINA_REGION)
+                            if v is not None and not (0 <= v <= STAMINA_OCR_MAX_VALID):
+                                self.logger.warning(f"Implausible stamina OCR {v}, discarding")
+                                v = None
+                            if v is None:
+                                self.ocr_consecutive_failures += 1
+                            else:
+                                self.ocr_consecutive_failures = 0
+                                self.cached_stamina = v
+                        except Exception as ocr_err:
+                            self.logger.warning(f"Stamina OCR error: {ocr_err}")
+                            self.ocr_consecutive_failures += 1
+                    return self.cached_stamina  # None -> sink skipped
+
+                def _stamina_sink(v: Any) -> None:
+                    self.last_stamina_confirmation = self.stamina_reader.add_reading(v)
+
+                _trackers = [
+                    TrackerSpec("hospital_votes", {TOWN}, 2.0,
+                                self.hospital_matcher.get_state, _hospital_sink),
+                    TrackerSpec("barracks_votes", {TOWN}, 2.0,
+                                _barracks_sample, _barracks_sink),
+                    TrackerSpec("stamina", {TOWN, WORLD}, 2.0,
+                                _stamina_sample, _stamina_sink),
+                ]
+
                 self.opportunity_board = OpportunityBoard()
                 self.perception_state = PerceptionState()
                 self.detector_thread = DetectorThread(
                     get_frame_bus(), self.opportunity_board, _specs, win=self.windows_helper,
                     state=self.perception_state, paused_fn=lambda: self.paused,
+                    trackers=_trackers,
+                    busy_fn=lambda: self.critical_flow_active or bool(self.active_flows),
                 )
                 self.detector_thread.start()
-                print(f"  Detector thread: {len(_specs)} specs, continuous")
-                self.logger.info(f"DETECTOR: continuous detection started ({len(_specs)} specs)")
+                print(f"  Detector thread: {len(_specs)} specs + {len(_trackers)} trackers, continuous")
+                self.logger.info(f"DETECTOR: continuous detection started ({len(_specs)} specs, {len(_trackers)} trackers)")
             except Exception as e:
                 self.logger.error(f"DETECTOR: failed to start ({e}) - falling back to inline scanning")
                 self.opportunity_board = None
@@ -1132,6 +1198,13 @@ class IconDaemon:
             if r is not None:
                 return r.found, r.score
         return inline_fn()
+
+    def _votes_owned_by_perception(self) -> bool:
+        """True when the perception thread owns the mutating detections
+        (vote histories + stamina OCR). The loop must then only READ them -
+        double-feeding the histories would corrupt the majority votes."""
+        dt = self.detector_thread
+        return dt is not None and dt.is_alive() and bool(getattr(dt, "trackers", None))
 
     def _can_run_flow(self) -> bool:
         """
@@ -2550,9 +2623,15 @@ class IconDaemon:
             iteration += 1
 
             try:
-                # Initialize stamina tracking for this iteration (set properly at line ~1802)
-                stamina_confirmed = False
-                confirmed_stamina: int | None = None
+                # Initialize stamina tracking for this iteration. When perception
+                # owns the stamina tracker, seed from its last confirmation so
+                # early-loop consumers (beast_training_priority) see a real value
+                # instead of always-False (latent init-ordering bug, now fixed).
+                if self._votes_owned_by_perception():
+                    stamina_confirmed, confirmed_stamina = self.last_stamina_confirmation
+                else:
+                    stamina_confirmed = False
+                    confirmed_stamina = None
 
                 # Check if paused via API
                 if self.paused:
@@ -3117,7 +3196,15 @@ class IconDaemon:
 
                 # Extract stamina using OCR server (throttled - expensive operation)
                 # Only run OCR every STAMINA_OCR_INTERVAL seconds, use cached value otherwise
-                if current_time - self.last_stamina_ocr_time >= self.stamina_ocr_interval:
+                # C3: when perception owns the stamina tracker, it does the OCR +
+                # history feeding; the loop just reads the cache.
+                if self._votes_owned_by_perception():
+                    stamina = self.cached_stamina
+                    if self.ocr_consecutive_failures >= 3:
+                        self.logger.warning(f"[{iteration}] {self.ocr_consecutive_failures} consecutive OCR failures (perception), checking server health...")
+                        self._check_ocr_server_health()
+                        self.ocr_consecutive_failures = 0
+                elif current_time - self.last_stamina_ocr_time >= self.stamina_ocr_interval:
                     try:
                         stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
                         # Reject implausible OCR garbage (e.g. 123456789 from a
@@ -3173,7 +3260,10 @@ class IconDaemon:
                     gem_present, gem_score = self._perceive("gem", lambda: self.gem_matcher.is_present(frame))
                     cabbage_present, cabbage_score = self._perceive("cabbage", lambda: self.cabbage_matcher.is_present(frame))
                     equip_present, equip_score = self._perceive("equipment", lambda: self.equipment_enhancement_matcher.is_present(frame))
-                    hospital_state, hospital_score = self.hospital_matcher.get_state(frame)
+                    if self._votes_owned_by_perception():
+                        hospital_state, hospital_score = self.last_hospital_state, self.last_hospital_score
+                    else:
+                        hospital_state, hospital_score = self.hospital_matcher.get_state(frame)
                     afk_present, afk_score = self._perceive("afk_rewards", lambda: self.afk_rewards_matcher.is_present(frame))
 
                 # Back button - ONLY checked during UNKNOWN recovery (expensive half-screen search)
@@ -3224,7 +3314,9 @@ class IconDaemon:
                 # This allows history to build up BEFORE idle threshold is met
                 is_soldier_event_active = arms_race_event == "Soldier Training"
                 is_vs_promo_day = arms_race['day'] in self.VS_SOLDIER_PROMOTION_DAYS
-                if view_state_enum == ViewState.TOWN and (is_soldier_event_active or is_vs_promo_day):
+                # C3: when perception owns the barracks tracker, IT feeds the history.
+                if (view_state_enum == ViewState.TOWN and (is_soldier_event_active or is_vs_promo_day)
+                        and not self._votes_owned_by_perception()):
                     from utils.barracks_state_matcher import BarrackState
                     states = self.barracks_matcher.get_all_states(frame)
                     for i, (state, _) in enumerate(states):
@@ -3341,10 +3433,12 @@ class IconDaemon:
 
                 # Hospital state detection with majority vote (same 60% rule as barracks)
                 # History accumulates when in TOWN, idle check is only for ACTION
+                # C3: when perception owns the tracker, IT feeds the history.
                 if world_present:
-                    self.hospital_state_history.append(hospital_state)
-                    if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
-                        self.hospital_state_history.pop(0)
+                    if not self._votes_owned_by_perception():
+                        self.hospital_state_history.append(hospital_state)
+                        if len(self.hospital_state_history) > self.HOSPITAL_CONSECUTIVE_REQUIRED:
+                            self.hospital_state_history.pop(0)
 
                     # Check if we have enough readings and idle threshold met (fresh check)
                     if len(self.hospital_state_history) >= self.HOSPITAL_CONSECUTIVE_REQUIRED and self._is_user_idle():
@@ -3740,7 +3834,12 @@ class IconDaemon:
                 # Requires 3 consistent readings (max-min <= 10), returns MODE value
                 # CRITICAL: Only accept stamina readings from TOWN or WORLD views
                 # OCR produces garbage when view is UNKNOWN (UI popups, transitions)
-                if view_state_enum in (ViewState.TOWN, ViewState.WORLD):
+                # C3: when perception owns the stamina tracker (which is already
+                # TOWN/WORLD view-gated), IT feeds the reader; the loop reads the
+                # last confirmation instead of double-feeding the history.
+                if self._votes_owned_by_perception():
+                    stamina_confirmed, confirmed_stamina = self.last_stamina_confirmation
+                elif view_state_enum in (ViewState.TOWN, ViewState.WORLD):
                     stamina_confirmed, confirmed_stamina = self.stamina_reader.add_reading(stamina)
                 else:
                     # Don't trust stamina readings from UNKNOWN/CHAT/WEBVIEW states
