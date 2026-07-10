@@ -11,8 +11,12 @@ import numpy.typing as npt
 from pathlib import Path
 from typing import Any
 
-# Search region - center area of screen where ground tiles are visible
-SEARCH_REGION = (500, 400, 2800, 1800)  # (x, y, width, height)
+# Search region - UPPER map band only. The center-bottom is the player's base
+# cluster (incl. the Lv.2 Union Center); a "safe ground" tap there lands on a
+# building's hitbox and OPENS it instead of dismissing the popup (the "keeps
+# clicking the Union Center" loop). Floating popups sit center (~y900-1500), so
+# the upper band is both outside the popup AND clear of the base buildings.
+SEARCH_REGION = (400, 300, 3040, 480)  # (x, y, width, height) -> y 300-780
 
 # Match threshold (TM_SQDIFF_NORMED - lower is better)
 MATCH_THRESHOLD = 0.02
