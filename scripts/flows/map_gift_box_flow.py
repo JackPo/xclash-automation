@@ -76,6 +76,14 @@ def map_gift_box_flow(adb: Any, win: WindowsScreenshotHelper | None = None,
         logger.info(f"[GIFT] scan {i+1}: found={found} score={score:.4f} center={center}")
         if not found or center is None:
             result["stop_reason"] = "no_more_gift_boxes"
+            if result["claimed"] == 0 and i == 0:
+                # Sighted by perception but not confirmable here: a borderline
+                # template score flapping around the threshold across frames
+                # (observed pop->scan-nothing every ~17s). Back off 5 min via
+                # the daemon's skipped-result cooldown override instead of
+                # re-popping on the next sighting.
+                result["skipped"] = True
+                result["cooldown_seconds"] = 300
             break
 
         # Tap the gift box.
