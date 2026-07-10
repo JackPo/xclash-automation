@@ -70,7 +70,10 @@ FLOW_CONFIGS = {
     "beast_training_last_hour": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},    # 5 min idle
     "beast_training_mid_check": {"cooldown": 0, "idle_required": IDLE_THRESHOLD},    # 5 min idle (30 min mark)
     # Class Skills - 24 hour cooldown (matches in-game cooldown)
-    "quick_production": {"cooldown": 86400, "idle_required": IDLE_THRESHOLD},  # 24hr cooldown
+    "quick_production": {"cooldown": 68400, "idle_required": IDLE_THRESHOLD},  # re-check after 19h: the blind 24h
+    # assumption drifted from the GAME cooldown (QP sat ready for hours while the daemon waited until hour 24).
+    # The flow OCRs the REAL cooldown before acting and records the true remaining time when it skips - so an
+    # early re-check costs one read-only panel visit and the OCR is the authority, not the stopwatch.
 }
 
 
