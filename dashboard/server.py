@@ -738,12 +738,21 @@ async def api_ws_command(request: Request) -> dict[str, Any]:
 
 @app.post("/api/flows/{flow_name}/run")
 async def api_run_flow(flow_name: str) -> dict[str, Any]:
-    """Trigger a flow to run via daemon WebSocket."""
+    """Trigger a flow to run via daemon WebSocket.
+
+    The WS envelope's outer success only means the command was handled; the
+    truthful outcome (started / queued / busy) is the inner data dict - pass it
+    through verbatim so the portal can show what actually happened.
+    """
     response = await send_daemon_command('run_flow', {'flow': flow_name})
-    if response.get('success'):
-        return {"success": True, "flow": flow_name, "result": response.get('data')}
-    else:
+    if not response.get('success'):
         raise HTTPException(status_code=503, detail=response.get('error', 'Daemon error'))
+    data = response.get('data') or {}
+    out: dict[str, Any] = {"success": bool(data.get("success")), "flow": flow_name}
+    for k in ("started", "queued", "busy", "behind", "running_for_s", "error"):
+        if k in data:
+            out[k] = data[k]
+    return out
 
 
 @app.post("/api/pause")

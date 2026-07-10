@@ -763,7 +763,16 @@
                     try {
                         const res = await fetch(`/api/flows/${name}/run`, { method: 'POST' });
                         const data = await res.json();
-                        this.showToast(data.success ? `Started ${this.formatFlowName(name)}` : `Failed: ${data.detail}`, data.success ? 'success' : 'error');
+                        const label = this.formatFlowName(name);
+                        if (data.busy) {
+                            this.showToast(`${label} is already running (${data.running_for_s || 0}s in) — wait for it`, 'error');
+                        } else if (data.queued) {
+                            this.showToast(`Queued ${label} behind ${data.behind} — starts in a few seconds`, 'info');
+                        } else if (data.success) {
+                            this.showToast(`Started ${label}`, 'success');
+                        } else {
+                            this.showToast(`Failed: ${data.error || data.detail || 'unknown'}`, 'error');
+                        }
                         await this.refreshFlows();
                     } catch (e) { this.showToast(`Error: ${e.message}`, 'error'); }
                 },

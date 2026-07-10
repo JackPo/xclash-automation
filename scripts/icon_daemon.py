@@ -36,6 +36,7 @@ Usage:
 from __future__ import annotations
 
 import gc
+import os
 import sys
 import time
 import argparse
@@ -681,6 +682,14 @@ class IconDaemon:
         self.command_server = None
         self.paused = False  # Can be toggled via API
 
+        # Startup gating: True until the main loop begins. The control servers
+        # bind at the TOP of initialize() so the portal is reachable during the
+        # (potentially slow: OCR model load, ADB reconnect) heavy init; while
+        # True, commands get a truthful "daemon starting (Xs)" instead of
+        # silently vanishing into a dead port.
+        self.initializing = True
+        self._init_started = time.time()
+
         # Reinforce loop mode
         self.reinforce_interval: int | None = None  # Seconds between reinforce runs
         self.last_reinforce_time: float = 0  # Last time reinforce was run
@@ -747,10 +756,93 @@ class IconDaemon:
 
         print(f"  OK - All {len(required_templates)} templates verified")
 
+    def _kill_other_daemon_instances(self) -> None:
+        """Kill any OTHER icon_daemon python processes before binding ports.
+
+        Two daemons at once is chaos: the stale one holds ports 9876/8080 and
+        eats every web command while the new one plays the game headless (the
+        WS server's bind failure used to be swallowed). Enforce single-instance.
+        """
+        import subprocess
+        me = os.getpid()
+        ps = (
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+            f"Where-Object {{ $_.CommandLine -like '*icon_daemon*' -and $_.ProcessId -ne {me} }} | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $_.ProcessId }"
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, text=True, timeout=15,
+            ).stdout.strip()
+            if out:
+                self.logger.warning(f"STARTUP: killed stale icon_daemon instance(s): {out.split()}")
+                time.sleep(1.5)  # let the OS release their ports
+        except Exception as e:
+            self.logger.warning(f"STARTUP: single-instance scan failed (continuing): {e}")
+
+    def _start_control_servers(self) -> None:
+        """Bind the WS command server + dashboard, refusing to run headless.
+
+        Called at the TOP of initialize() so the portal is reachable during the
+        slow init steps (OCR model load, ADB reconnect). If the command port
+        can't be bound even after killing stale instances, EXIT LOUDLY - a
+        daemon that plays the game while commands go to a dead port is the
+        "clicks do nothing" failure mode.
+        """
+        if not DAEMON_SERVER_ENABLED:
+            self.logger.info("STARTUP: WebSocket API server disabled by config")
+        else:
+            from utils.daemon_server import DaemonWebSocketServer
+            for attempt in range(2):
+                try:
+                    self.command_server = DaemonWebSocketServer(self, port=DAEMON_SERVER_PORT)
+                    self.command_server.start()
+                except ImportError as e:
+                    self.logger.warning(f"STARTUP: WebSocket server disabled (websockets not installed): {e}")
+                    break
+                # Wait for the bind to resolve (bound or failed), up to 4s.
+                deadline = time.time() + 4.0
+                while time.time() < deadline and not (
+                    self.command_server.bound or self.command_server.bind_failed
+                ):
+                    time.sleep(0.1)
+                if self.command_server.bound:
+                    self.logger.info(f"STARTUP: WebSocket API server started on ws://{API_BIND_HOST}:{DAEMON_SERVER_PORT}")
+                    break
+                if attempt == 0:
+                    self.logger.warning("STARTUP: command port bind failed - killing stale instances and retrying")
+                    self._kill_other_daemon_instances()
+                else:
+                    self.logger.critical(
+                        f"STARTUP: cannot bind command port {DAEMON_SERVER_PORT} - refusing to run headless. Exiting."
+                    )
+                    print(f"FATAL: cannot bind command port {DAEMON_SERVER_PORT} (another process holds it). Exiting.")
+                    raise SystemExit(1)
+
+        if DASHBOARD_ENABLED:
+            try:
+                from dashboard.server import start_dashboard_server
+                dashboard_port = start_dashboard_server(daemon_instance=self, port=DASHBOARD_PORT)
+                self.logger.info(f"STARTUP: Dashboard running at http://{API_BIND_HOST}:{dashboard_port}")
+            except ImportError as e:
+                self.logger.warning(f"STARTUP: Dashboard disabled (missing dependencies): {e}")
+            except Exception as e:
+                self.logger.error(f"STARTUP: Dashboard failed to start: {e}")
+        else:
+            self.logger.info("STARTUP: Dashboard disabled by config")
+
     def initialize(self) -> None:
         """Initialize all components."""
         self.logger.info("Initializing icon daemon...")
         self.logger.info(f"Log file: {self.log_file}")
+
+        # Control APIs FIRST: single-instance, then bind ports before the slow
+        # init below, so web clicks during startup get "daemon starting (Xs)"
+        # instead of vanishing (the old order bound ports LAST - every restart
+        # had a 10-60s window where the portal was silently dead).
+        self._kill_other_daemon_instances()
+        self._start_control_servers()
 
         # Verify templates exist before loading matchers
         self._verify_templates()
@@ -852,38 +944,8 @@ class IconDaemon:
         # Load runtime state from persistent storage
         self._load_runtime_state()
 
-        # Start the control APIs FIRST, before the (potentially blocking) startup
-        # recovery. return_to_base_view can loop for a long time when the game is
-        # unreachable (server maintenance, occluded window), and we don't want that
-        # to prevent status/control access. The WebSocket + dashboard only expose
-        # the daemon object, which is fully constructed by now.
-
-        # Start WebSocket API server (for external control via daemon_cli.py / MCP)
-        if DAEMON_SERVER_ENABLED:
-            try:
-                from utils.daemon_server import DaemonWebSocketServer
-                self.command_server = DaemonWebSocketServer(self, port=DAEMON_SERVER_PORT)
-                self.command_server.start()
-                self.logger.info(f"STARTUP: WebSocket API server started on ws://{API_BIND_HOST}:{DAEMON_SERVER_PORT}")
-            except ImportError as e:
-                self.logger.warning(f"STARTUP: WebSocket server disabled (websockets not installed): {e}")
-            except Exception as e:
-                self.logger.error(f"STARTUP: WebSocket server failed to start: {e}")
-        else:
-            self.logger.info("STARTUP: WebSocket API server disabled by config")
-
-        # Start Dashboard web server
-        if DASHBOARD_ENABLED:
-            try:
-                from dashboard.server import start_dashboard_server
-                dashboard_port = start_dashboard_server(daemon_instance=self, port=DASHBOARD_PORT)
-                self.logger.info(f"STARTUP: Dashboard running at http://{API_BIND_HOST}:{dashboard_port}")
-            except ImportError as e:
-                self.logger.warning(f"STARTUP: Dashboard disabled (missing dependencies): {e}")
-            except Exception as e:
-                self.logger.error(f"STARTUP: Dashboard failed to start: {e}")
-        else:
-            self.logger.info("STARTUP: Dashboard disabled by config")
+        # Control APIs (WS + dashboard) were started at the TOP of initialize()
+        # (_start_control_servers) so the portal is live during heavy init.
 
         # Startup recovery - return_to_base_view handles EVERYTHING:
         # - Checks if app is running, starts it if not
@@ -2298,6 +2360,7 @@ class IconDaemon:
 
     def run(self) -> None:
         """Main detection loop."""
+        self.initializing = False  # startup done - commands now execute for real
         self.logger.info(f"Starting detection loop (interval: {self.interval}s)")
         self.logger.info("Detecting: Handshake, Treasure map, Corn, Gold, Harvest box, Iron, Gem, Cabbage, Equipment, World")
         print("Press Ctrl+C to stop")

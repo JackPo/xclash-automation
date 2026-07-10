@@ -69,6 +69,8 @@ class DaemonWebSocketServer:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.thread: threading.Thread | None = None
         self.running = False
+        self.bind_failed = False   # set when the port bind fails - daemon must NOT run headless
+        self.bound = False         # set once the socket is actually listening
 
     def start(self) -> None:
         """Start WebSocket server in background thread."""
@@ -107,12 +109,18 @@ class DaemonWebSocketServer:
             except Exception:
                 _bind_host = "127.0.0.1"
             async with ws_serve(self._handle_client, _bind_host, self.port):
+                self.bound = True
                 logger.info(f"WebSocket server listening on ws://{_bind_host}:{self.port}")
                 # Run until stopped
                 while self.running:
                     await asyncio.sleep(0.5)
         except OSError as e:
-            logger.error(f"Failed to start WebSocket server: {e}")
+            # Port taken (stale daemon?) or bind refused. A daemon with no
+            # command server is a zombie that plays the game while every web
+            # command goes to whoever holds the port - flag it so startup can
+            # abort LOUDLY instead of running headless.
+            self.bind_failed = True
+            logger.critical(f"Failed to start WebSocket server (port {self.port}): {e} - daemon must not run headless")
 
     async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
         """Handle a single WebSocket connection."""
@@ -156,6 +164,17 @@ class DaemonWebSocketServer:
         data: dict[str, Any] = json.loads(message)
         cmd: str | None = data.get("cmd")
         args: dict[str, Any] = data.get("args", {})
+
+        # Startup gate: the control ports now bind BEFORE heavy init, so during
+        # initialization answer truthfully instead of touching half-built state.
+        if getattr(self.daemon, "initializing", False):
+            elapsed = int(time.time() - getattr(self.daemon, "_init_started", time.time()))
+            if cmd in ("status", "get_state"):
+                return {"type": "response", "cmd": cmd, "success": True,
+                        "data": {"state": "starting", "elapsed_s": elapsed, "paused": False,
+                                 "active_flows": [], "view": "STARTING"}}
+            return {"type": "response", "cmd": cmd, "success": False,
+                    "error": f"daemon starting ({elapsed}s) - try again shortly"}
 
         # Command dispatch table
         handlers = {
@@ -277,14 +296,16 @@ class DaemonWebSocketServer:
     # =========================================================================
 
     def _cmd_run_flow(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Trigger a specific flow - FIRE AND FORGET.
+        """Trigger a specific flow - fire-and-forget with TRUTHFUL responses.
 
-        Previously this ran trigger_flow() synchronously and only responded after
-        the ENTIRE flow finished (navigate + act + return, 20-120s), so the web
-        button hung for the whole flow and felt like "nothing happens". Now we
-        kick the flow off on a background thread and return "started" instantly;
-        the flow's own active_flows guard still prevents concurrent/duplicate runs
-        (a repeat click just no-ops in the background).
+        Three cases, decided up-front so the portal never lies:
+        - same flow already running  -> {busy:true} (no thread, no fake "started")
+        - a DIFFERENT flow is active -> spawn a runner that WAITS for the slot
+          (autonomous flows are 1-2s) then runs -> {queued:true, behind:...}
+        - idle                       -> spawn runner -> {started:true}
+
+        The runner retries only on busy-type rejections; a duplicate-click
+        "already running" is terminal (never double-runs a flow).
         """
         flow_name = args.get("flow")
         if not flow_name:
@@ -292,10 +313,46 @@ class DaemonWebSocketServer:
         # Validate the flow name up front so a typo still returns an error fast.
         if flow_name not in self.daemon.get_available_flows():
             return {"success": False, "error": f"Unknown flow: {flow_name}"}
-        threading.Thread(
-            target=self.daemon.trigger_flow, args=(flow_name,),
-            name=f"webflow-{flow_name}", daemon=True,
-        ).start()
+
+        with self.daemon.flow_lock:
+            active = set(self.daemon.active_flows)
+
+        if flow_name in active:
+            running_for = 0.0
+            if (self.daemon.critical_flow_name == flow_name
+                    and self.daemon.critical_flow_start_time):
+                running_for = time.time() - self.daemon.critical_flow_start_time
+            logger.info(f"MANUAL TRIGGER REJECTED (busy): {flow_name} already running ({running_for:.0f}s)")
+            return {
+                "success": False, "busy": True, "flow": flow_name,
+                "running_for_s": round(running_for),
+                "error": f"{flow_name} is already running ({running_for:.0f}s in)",
+            }
+
+        def _runner() -> None:
+            deadline = time.time() + 30.0
+            while time.time() < deadline:
+                with self.daemon.flow_lock:
+                    slot_busy = bool(self.daemon.active_flows)
+                if not slot_busy:
+                    result = self.daemon.trigger_flow(flow_name)
+                    err = str(result.get("error") or "")
+                    # Retry only when another flow raced us into the slot; any
+                    # other outcome (success, tavern guard, duplicate) is final
+                    # and already logged by trigger_flow.
+                    if result.get("success") or not any(
+                        k in err for k in ("Another flow is active", "Blocked by critical flow")
+                    ):
+                        return
+                time.sleep(0.3)
+            logger.warning(f"MANUAL TRIGGER TIMEOUT: {flow_name} never got a slot within 30s (daemon busy)")
+
+        threading.Thread(target=_runner, name=f"webflow-{flow_name}", daemon=True).start()
+
+        if active:
+            behind = ", ".join(sorted(active))
+            logger.info(f"MANUAL TRIGGER QUEUED: {flow_name} behind {behind}")
+            return {"success": True, "queued": True, "flow": flow_name, "behind": behind}
         return {"success": True, "started": True, "flow": flow_name}
 
     def _cmd_status(self, args: dict[str, Any]) -> dict[str, Any]:
