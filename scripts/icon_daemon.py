@@ -426,6 +426,12 @@ class IconDaemon:
         self.active_flows: set[str] = set()
         self.flow_lock = threading.Lock()
 
+        # THE single action funnel: every source (candidates, schedules, manual
+        # commands, recovery) submits Intents; the actor pops the best
+        # admissible one. Replaces the old deferred_flow_queue mechanism.
+        from utils.intent_queue import IntentQueue
+        self.intent_queue = IntentQueue()
+
         # Critical flow protection - blocks all other daemon actions
         self.critical_flow_active = False
         self.critical_flow_name = None
@@ -1199,6 +1205,19 @@ class IconDaemon:
                 return r.found, r.score
         return inline_fn()
 
+    def _reverify_present(self, matcher_is_present: Any) -> bool:
+        """Pre-execute re-verify for BLIND-TAP flows (treasure/harvest-box/afk
+        tap fixed spots without checking): confirm the icon is still there on a
+        FRESH frame - the intent may have waited in the queue for minutes."""
+        try:
+            if self.windows_helper is None:
+                return True
+            frame = self.windows_helper.get_screenshot_cv2()
+            found, _score = matcher_is_present(frame)
+            return bool(found)
+        except Exception:
+            return True  # can't verify -> don't block (legacy behavior)
+
     def _votes_owned_by_perception(self) -> bool:
         """True when the perception thread owns the mutating detections
         (vote histories + stamina OCR). The loop must then only READ them -
@@ -1278,282 +1297,157 @@ class IconDaemon:
                 f"POST-TREASURE: tavern_claim failed to start/run ({result.get('error', 'unknown error')})"
             )
 
-    def _execute_best_flow(self, candidates: list[FlowCandidate], iteration: int) -> str | None:
-        """
-        From a list of flow candidates, select and execute the highest priority one.
+    # Intent-name -> board-spec name, so the actor can consume the sighting
+    # after acting on an opportunity (prevents refiring on the same sighting).
+    INTENT_BOARD_NAMES = {
+        "assist_ally": "assist_helmet",
+        "desert_python_rally": "cobra_icon",
+        "sandstorm_rally": "sandstorm",
+        "map_gift_box": "map_gift_box",
+    }
 
-        This is the SINGLE point of execution for flows detected in an iteration.
-        Only ONE flow runs per iteration, preventing flows from stepping on each other.
+    def _intent_from_candidate(self, c: FlowCandidate) -> "Intent":
+        """Translate a FlowCandidate into an Intent, preserving the legacy
+        immediate-execution semantics as priorities + admission rules:
+        - treasure/tavern_claim/assist/sandstorm ran on sight (no idle gate)
+        - python rally / gift box ran on their SHORT idle gates
+        - everything else waited for the global idle gate (the old deferred
+          queue) - which is now simply an admission predicate.
+        Tavern guard stays an admission predicate on critical, non-exempt
+        intents (exactly the flows it used to filter)."""
+        from utils.intent_queue import (
+            Intent, PRIO_TIME_CRITICAL, PRIO_ON_SIGHT, PRIO_STAMINA,
+            PRIO_ROUTINE, PRIO_HARVEST,
+        )
 
-        Args:
-            candidates: List of FlowCandidate objects detected this iteration
-            iteration: Current iteration number (for logging)
+        def _guard_ok() -> tuple[bool, str]:
+            if not c.critical or self._is_tavern_guard_exempt_flow(c.name):
+                return True, ""
+            active, reason = self._get_tavern_guard_status()
+            return (not active), (f"tavern guard: {reason}" if active else "")
 
-        Returns:
-            Name of the flow that was started, or None if no flow could run
-        """
-        now_ts = time.time()
+        def _adm_always() -> tuple[bool, str]:
+            return _guard_ok()
 
-        # Drop stale deferred queue items
-        if self.deferred_flow_queue:
-            kept: list[QueuedFlow] = []
-            dropped = 0
-            for queued in self.deferred_flow_queue:
-                if now_ts - queued.queued_at <= self.DEFERRED_FLOW_TTL:
-                    kept.append(queued)
-                else:
-                    dropped += 1
-            self.deferred_flow_queue = kept
-            if dropped > 0:
-                self.logger.info(
-                    f"[{iteration}] Deferred queue cleanup: dropped {dropped} stale item(s)"
-                )
+        def _adm_short_idle(required: float) -> Any:
+            def check() -> tuple[bool, str]:
+                ok, why = _guard_ok()
+                if not ok:
+                    return False, why
+                idle = get_user_idle_seconds()
+                return (idle >= required), f"idle {idle:.0f}s < {required:.0f}s"
+            return check
 
-        if not candidates and not self.deferred_flow_queue:
-            return None
+        def _adm_global_idle() -> tuple[bool, str]:
+            ok, why = _guard_ok()
+            if not ok:
+                return False, why
+            idle = get_user_idle_seconds()
+            return (idle >= self.IDLE_THRESHOLD), f"idle {idle:.0f}s < {self.IDLE_THRESHOLD}s"
 
-        # Tavern guard: near completion windows should not be preempted by blocking flows.
-        guard_active, guard_reason = self._get_tavern_guard_status()
-        if guard_active and candidates:
-            blocked = [
-                c for c in candidates
-                if c.critical and not self._is_tavern_guard_exempt_flow(c.name)
-            ]
-            if blocked:
-                blocked_names = ", ".join(sorted({c.name for c in blocked}))
-                self.logger.info(
-                    f"[{iteration}] TAVERN GUARD: blocked critical candidate(s) ({guard_reason}): {blocked_names}"
-                )
-                candidates = [
-                    c for c in candidates
-                    if not (c.critical and not self._is_tavern_guard_exempt_flow(c.name))
-                ]
-
-        # Treasure map is time-sensitive and should run immediately on detection.
-        # It bypasses idle/deferred queue gating to avoid stale delayed executions.
-        treasure_candidate = next((c for c in candidates if c.name == "treasure_map"), None)
-        if treasure_candidate is not None:
-            queued_before = len(self.deferred_flow_queue)
-            self.deferred_flow_queue = [
-                q for q in self.deferred_flow_queue if q.candidate.name != "treasure_map"
-            ]
-            removed = queued_before - len(self.deferred_flow_queue)
-            if removed > 0:
-                self.logger.info(
-                    f"[{iteration}] Removed {removed} stale deferred treasure_map item(s)"
-                )
-
-            self.logger.info(
-                f"[{iteration}] TREASURE IMMEDIATE: executing treasure_map now "
-                f"(score/ctx: {treasure_candidate.reason})"
-            )
-            if self._run_flow(
-                treasure_candidate.name,
-                treasure_candidate.flow_func,
-                critical=treasure_candidate.critical,
-                record_to_scheduler=treasure_candidate.record_to_scheduler,
-            ):
-                return treasure_candidate.name
-
-            # Do not queue treasure_map if immediate execution failed this iteration.
-            candidates = [c for c in candidates if c.name != "treasure_map"]
-            if not candidates and not self.deferred_flow_queue:
-                return None
-
-        # Tavern claim is also time-sensitive; run immediately when detected.
-        # It bypasses idle/deferred queue gating to avoid missing short claim windows.
-        tavern_claim_candidate = next((c for c in candidates if c.name == "tavern_claim"), None)
-        if tavern_claim_candidate is not None:
-            queued_before = len(self.deferred_flow_queue)
-            self.deferred_flow_queue = [
-                q for q in self.deferred_flow_queue if q.candidate.name != "tavern_claim"
-            ]
-            removed = queued_before - len(self.deferred_flow_queue)
-            if removed > 0:
-                self.logger.info(
-                    f"[{iteration}] Removed {removed} stale deferred tavern_claim item(s)"
-                )
-
-            self.logger.info(
-                f"[{iteration}] TAVERN IMMEDIATE: executing tavern_claim now "
-                f"(score/ctx: {tavern_claim_candidate.reason})"
-            )
-            if self._run_flow(
-                tavern_claim_candidate.name,
-                tavern_claim_candidate.flow_func,
-                critical=tavern_claim_candidate.critical,
-                record_to_scheduler=tavern_claim_candidate.record_to_scheduler,
-            ):
-                return tavern_claim_candidate.name
-
-            # Do not queue tavern_claim if immediate execution failed this iteration.
-            candidates = [c for c in candidates if c.name != "tavern_claim"]
-            if not candidates and not self.deferred_flow_queue:
-                return None
-
-        # Assist ally is an explicit user-opted-in mode; run it immediately even
-        # while the user is active (bypasses the global idle gate below, like
-        # treasure_map / tavern_claim). The user turned this on wanting it to act.
-        assist_candidate = next((c for c in candidates if c.name == "assist_ally"), None)
-        if assist_candidate is not None:
-            self.logger.info(f"[{iteration}] ASSIST IMMEDIATE: executing assist_ally now")
-            if self._run_flow(
-                assist_candidate.name, assist_candidate.flow_func,
-                critical=assist_candidate.critical,
-                record_to_scheduler=assist_candidate.record_to_scheduler,
-            ):
-                return assist_candidate.name
-            candidates = [c for c in candidates if c.name != "assist_ally"]
-            if not candidates and not self.deferred_flow_queue:
-                return None
-
-        # Desert Python rally is an opted-in mode that should fire on a SHORT idle
-        # (~20s) rather than the full 5-min gate -- so it acts when the user pauses
-        # but never fights active clicking. Run it here (before the global gate)
-        # only once the user has actually been idle for its short window.
-        python_candidate = next((c for c in candidates if c.name == "desert_python_rally"), None)
-        if python_candidate is not None:
-            py_idle = get_user_idle_seconds()
-            if py_idle >= DESERT_PYTHON_IDLE_REQUIRED:
-                self.logger.info(f"[{iteration}] PYTHON RALLY: idle {py_idle:.0f}s ok, executing now")
-                if self._run_flow(
-                    python_candidate.name, python_candidate.flow_func,
-                    critical=python_candidate.critical,
-                    record_to_scheduler=python_candidate.record_to_scheduler,
-                ):
-                    return python_candidate.name
-            else:
-                self.logger.debug(f"[{iteration}] PYTHON RALLY: user active (idle={py_idle:.0f}s), deferring")
-            candidates = [c for c in candidates if c.name != "desert_python_rally"]
-            if not candidates and not self.deferred_flow_queue:
-                return None
-
-        # Map gift boxes: claim shared treasure boxes on the WORLD map on a SHORT
-        # idle (~15s) - beneficial + time-limited, but a short pause keeps it from
-        # fighting active clicks.
-        gift_candidate = next((c for c in candidates if c.name == "map_gift_box"), None)
-        if gift_candidate is not None:
-            g_idle = get_user_idle_seconds()
-            if g_idle >= GIFT_BOX_IDLE_REQUIRED:
-                self.logger.info(f"[{iteration}] GIFT BOX: idle {g_idle:.0f}s ok, claiming now")
-                if self._run_flow(
-                    gift_candidate.name, gift_candidate.flow_func,
-                    critical=gift_candidate.critical,
-                    record_to_scheduler=gift_candidate.record_to_scheduler,
-                ):
-                    return gift_candidate.name
-            else:
-                self.logger.debug(f"[{iteration}] GIFT BOX: user active (idle={g_idle:.0f}s), deferring")
-            candidates = [c for c in candidates if c.name != "map_gift_box"]
-            if not candidates and not self.deferred_flow_queue:
-                return None
-
-        # Sandstorm / Union Rally Point: tap it ON SIGHT (capture mode) so the
-        # action-capture system records the next screen. It backs out without
-        # committing a rally.
-        sandstorm_candidate = next((c for c in candidates if c.name == "sandstorm_rally"), None)
-        if sandstorm_candidate is not None:
-            self.logger.info(f"[{iteration}] SANDSTORM: tapping to capture next screen now")
-            if self._run_flow(
-                sandstorm_candidate.name, sandstorm_candidate.flow_func,
-                critical=sandstorm_candidate.critical,
-                record_to_scheduler=sandstorm_candidate.record_to_scheduler,
-            ):
-                return sandstorm_candidate.name
-            candidates = [c for c in candidates if c.name != "sandstorm_rally"]
-            if not candidates and not self.deferred_flow_queue:
-                return None
-
-        # Global safety gate: never run auto flows while user is actively interacting.
-        # Some candidates are time-based and may not have local idle checks.
-        # This central gate prevents any automated clicks from interrupting manual play.
-        current_idle = get_user_idle_seconds()
-        if current_idle < self.IDLE_THRESHOLD:
-            if candidates:
-                # Queue highest-priority candidate for idle execution (dedup by flow name).
-                candidates.sort(key=lambda c: c.priority, reverse=True)
-                best_pending = candidates[0]
-                if not any(q.candidate.name == best_pending.name for q in self.deferred_flow_queue):
-                    self.deferred_flow_queue.append(QueuedFlow(candidate=best_pending, queued_at=now_ts))
-                    self.logger.info(
-                        f"[{iteration}] FLOW DEFERRED: queued {best_pending.name} "
-                        f"(priority={best_pending.priority.name}) until idle "
-                        f"(queue_size={len(self.deferred_flow_queue)})"
-                    )
-            self.logger.debug(
-                f"[{iteration}] FLOW BLOCKED: user active (idle={current_idle:.1f}s < {self.IDLE_THRESHOLD}s), "
-                f"skipping {len(candidates)} candidate(s)"
-            )
-            return None
-
-        # User is idle: drain deferred queue first (FIFO).
-        if self.deferred_flow_queue:
-            queue_index = 0
-            if guard_active:
-                next_allowed_index = next(
-                    (
-                        idx for idx, queued_item in enumerate(self.deferred_flow_queue)
-                        if (not queued_item.candidate.critical)
-                        or self._is_tavern_guard_exempt_flow(queued_item.candidate.name)
-                    ),
-                    None,
-                )
-                if next_allowed_index is None:
-                    self.logger.info(
-                        f"[{iteration}] TAVERN GUARD: deferred queue held ({guard_reason}); "
-                        "all queued critical flows are blocked"
-                    )
-                    return None
-                queue_index = next_allowed_index
-
-            queued = self.deferred_flow_queue[queue_index]
-            q = queued.candidate
-            self.logger.info(
-                f"[{iteration}] FLOW QUEUE RUN: {q.name} "
-                f"(priority={q.priority.name}, queued_for={int(now_ts - queued.queued_at)}s)"
-            )
-            if self._run_flow(q.name, q.flow_func, critical=q.critical,
-                              record_to_scheduler=q.record_to_scheduler):
-                self.deferred_flow_queue.pop(queue_index)
-                return q.name
-            return None
-
-        # Guard filtering can remove every candidate in this iteration.
-        # In that case there is nothing to run right now.
-        if not candidates:
-            self.logger.debug(
-                f"[{iteration}] FLOW NONE: no runnable candidates "
-                f"(guard_active={guard_active}, reason={guard_reason})"
-            )
-            return None
-
-        # Check if we can run any flow
-        with self.flow_lock:
-            if self.active_flows:
-                self.logger.debug(f"[{iteration}] FLOW BLOCKED: {len(candidates)} candidates, but {self.active_flows} already running")
-                return None
-            if self.critical_flow_active:
-                self.logger.debug(f"[{iteration}] FLOW BLOCKED: {len(candidates)} candidates, but critical flow {self.critical_flow_name} active")
-                return None
-
-        # Sort by priority (highest first)
-        candidates.sort(key=lambda c: c.priority, reverse=True)
-        best = candidates[0]
-
-        # Log what we're doing
-        if len(candidates) > 1:
-            skipped = ", ".join([f"{c.name}({c.priority.name})" for c in candidates[1:]])
-            self.logger.info(f"[{iteration}] FLOW SELECT: {best.name} (priority={best.priority.name}) - {best.reason}")
-            self.logger.debug(f"[{iteration}] FLOW SKIPPED: {skipped}")
+        # Per-name immediate semantics (the old pre-global-gate special cases)
+        if c.name == "treasure_map":
+            prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_always, 90.0, "opportunity"
+        elif c.name == "tavern_claim":
+            prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_always, 90.0, "schedule"
+        elif c.name == "assist_ally":
+            prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_always, 45.0, "opportunity"
+        elif c.name == "sandstorm_rally":
+            prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_always, 60.0, "opportunity"
+        elif c.name == "desert_python_rally":
+            prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_short_idle(DESERT_PYTHON_IDLE_REQUIRED), 60.0, "opportunity"
+        elif c.name == "map_gift_box":
+            prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_short_idle(GIFT_BOX_IDLE_REQUIRED), 120.0, "opportunity"
         else:
-            self.logger.info(f"[{iteration}] FLOW: {best.name} - {best.reason}")
+            prio_map = {
+                FlowPriority.CRITICAL: PRIO_STAMINA + 5,   # 55: arms-race/QP tier
+                FlowPriority.URGENT: PRIO_STAMINA,          # 50: zombie/treasure tier
+                FlowPriority.HIGH: PRIO_ROUTINE + 10,       # 40: hospital/barracks
+                FlowPriority.NORMAL: PRIO_ROUTINE,          # 30: routine flows
+                FlowPriority.LOW: PRIO_HARVEST,             # 20: harvest bubbles
+            }
+            prio, adm, ttl, src_ = (
+                prio_map.get(c.priority, PRIO_ROUTINE), _adm_global_idle,
+                float(self.DEFERRED_FLOW_TTL), "schedule",
+            )
 
-        # Execute the best flow
-        # Note: scheduler recording now happens inside _run_flow thread (only if flow doesn't skip)
-        started = self._run_flow(best.name, best.flow_func, critical=best.critical,
-                                 record_to_scheduler=best.record_to_scheduler)
+        # Blind-tap flows get a fresh-frame re-verify at pop time.
+        _reverify_map = {
+            "treasure_map": self.treasure_matcher.is_present if self.treasure_matcher else None,
+            "harvest_box": self.harvest_box_matcher.is_present if self.harvest_box_matcher else None,
+            "afk_rewards": self.afk_rewards_matcher.is_present if self.afk_rewards_matcher else None,
+        }
+        _m = _reverify_map.get(c.name)
+        pre_exec = (lambda _mm=_m: self._reverify_present(_mm)) if _m is not None else None
+
+        return Intent(
+            name=c.name, source=src_, priority=prio, flow_func=c.flow_func,
+            critical=c.critical, reason=c.reason,
+            record_to_scheduler=c.record_to_scheduler,
+            admission=adm, ttl=ttl, pre_execute=pre_exec,
+        )
+
+    def _dispatch_intents(self, candidates: list[FlowCandidate], iteration: int) -> str | None:
+        """THE single point of execution: funnel this iteration's candidates
+        into the IntentQueue (coalescing repeats), then pop and execute the
+        highest-priority admissible intent. Replaces _execute_best_flow +
+        deferred_flow_queue - the queue with admission-at-pop IS the deferral
+        mechanism (an inadmissible intent just waits, TTL-bounded)."""
+        for c in candidates:
+            self.intent_queue.submit(self._intent_from_candidate(c))
+
+        # Actor busy -> nothing pops (intents wait in the queue, and perception
+        # keeps refreshing sightings meanwhile).
+        with self.flow_lock:
+            if self.active_flows or self.critical_flow_active:
+                return None
+
+        intent = self.intent_queue.pop_best()
+        if intent is None:
+            return None
+
+        # Re-verify hook: e.g. confirm the icon is still on a FRESH frame.
+        if intent.pre_execute is not None:
+            try:
+                if not intent.pre_execute():
+                    self.logger.info(f"[{iteration}] INTENT DROPPED (re-verify failed): {intent.name}")
+                    board_name = self.INTENT_BOARD_NAMES.get(intent.name)
+                    if board_name and self.opportunity_board is not None:
+                        self.opportunity_board.consume(board_name)
+                    return None
+            except Exception as e:
+                self.logger.warning(f"[{iteration}] INTENT re-verify error for {intent.name}: {e} - dropping")
+                return None
+
+        self.logger.info(
+            f"[{iteration}] INTENT POP: {intent.name} (prio={intent.priority}, "
+            f"source={intent.source}, age={intent.age:.0f}s, reason={intent.reason})"
+        )
+
+        flow_func = intent.flow_func
+        if intent.on_complete:
+            orig_fn = flow_func
+            callbacks = list(intent.on_complete)
+
+            def _fn_with_callbacks(adb: Any, _orig: Any = orig_fn, _cbs: Any = callbacks) -> Any:
+                res = _orig(adb)
+                for cb in _cbs:
+                    try:
+                        cb(res)
+                    except Exception as cb_err:
+                        self.logger.warning(f"INTENT on_complete error for {intent.name}: {cb_err}")
+                return res
+            flow_func = _fn_with_callbacks
+
+        started = self._run_flow(
+            intent.name, flow_func, critical=intent.critical,
+            record_to_scheduler=intent.record_to_scheduler,
+        )
         if started:
-            return best.name
+            board_name = self.INTENT_BOARD_NAMES.get(intent.name)
+            if board_name and self.opportunity_board is not None:
+                self.opportunity_board.consume(board_name)
+            return intent.name
         return None
 
     def _run_flow(self, flow_name: str, flow_func: Callable[..., Any], critical: bool = False,
@@ -1891,9 +1785,11 @@ class IconDaemon:
 
         Returns True if resolution is OK, False if fix failed.
         """
-        # Only check every N iterations (iteration=0 always checks for startup)
-        if iteration > 0 and iteration % self.RESOLUTION_CHECK_INTERVAL != 0:
+        # Time-based check gate (tick-rate independent; iteration=0 = startup).
+        # NOTE: this check takes its OWN screenshot - keep it infrequent.
+        if iteration > 0 and time.time() - getattr(self, '_last_resolution_check', 0) < 60.0:
             return True  # Not time to check yet
+        self._last_resolution_check = time.time()
 
         assert self.windows_helper is not None
         assert self.adb is not None
@@ -2635,7 +2531,8 @@ class IconDaemon:
 
                 # Check if paused via API
                 if self.paused:
-                    if iteration % 30 == 0:  # Log every ~1 min when paused
+                    if time.time() - getattr(self, '_last_paused_log', 0) >= 30.0:  # time-based, tick-rate independent
+                        self._last_paused_log = time.time()
                         self.logger.info(f"[{iteration}] PAUSED (use daemon_cli.py resume to unpause)")
                     time.sleep(self.interval)
                     continue
@@ -2648,12 +2545,14 @@ class IconDaemon:
                 # Get idle time early (needed for foreground check and other decisions)
                 idle_secs_early = get_user_idle_seconds()
 
-                # Periodic state save (every N iterations for resumability)
-                if iteration % self.state_save_interval == 0:
+                # Periodic state save (time-based for resumability, tick-rate independent)
+                if time.time() - getattr(self, '_last_state_save', 0) >= 120.0:
+                    self._last_state_save = time.time()
                     self._save_runtime_state()
 
                 # Periodic garbage collection (every 100 iterations to prevent memory leak)
-                if iteration % 100 == 0:
+                if time.time() - getattr(self, '_last_gc_maintenance', 0) >= 180.0:
+                    self._last_gc_maintenance = time.time()
                     gc.collect()
                     # Clear GPU template cache to prevent VRAM leak
                     released = clear_gpu_cache()
@@ -4650,14 +4549,18 @@ class IconDaemon:
                                         ))
                                         break  # Only one scheduled trigger per iteration
                                     else:
-                                        self.logger.debug(f"[{iteration}] SCHEDULED TRIGGER: {trigger['name']} - conditions not met (view={view_state}, aligned={harvest_aligned})")
+                                        # (view_state_str is the iteration's view; the old
+                                        # view_state reference was only bound in the rally
+                                        # branch - a latent NameError swallowed by the outer
+                                        # except.)
+                                        self.logger.debug(f"[{iteration}] SCHEDULED TRIGGER: {trigger['name']} - conditions not met (view={view_state_str}, aligned={harvest_aligned})")
 
                 # =================================================================
                 # FLOW EXECUTION - Execute ONE flow from all candidates
                 # This is the SINGLE point of execution, preventing flows from
                 # stepping on each other. Priority determines which flow runs.
                 # =================================================================
-                executed_flow = self._execute_best_flow(flow_candidates, iteration)
+                executed_flow = self._dispatch_intents(flow_candidates, iteration)
                 if executed_flow:
                     self.logger.debug(f"[{iteration}] Executed flow: {executed_flow}")
 
