@@ -464,6 +464,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             adb.tap(*back_pos, source="rtb:fast_back")
 
             # Poll until back button gone or view changed (max 1.5s)
+            progressed = False
             for poll in range(5):
                 time.sleep(0.3)
                 poll_frame = win.get_screenshot_cv2()
@@ -478,13 +479,27 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                         print(f"    [RETURN] Fast path: Reached {poll_state.value} after {(poll+1)*0.3:.1f}s")
                     if _ensure_target_view(adb, win, poll_state, target, debug):
                         return True
+                    progressed = True
                     break  # At base view but wrong target, continue outer loop
 
                 # Check if that specific back button is gone
                 if matched_template and not back_matcher.is_template_present(poll_frame, matched_template, near_pos=back_pos, tolerance=30):
                     if debug:
                         print(f"    [RETURN] Fast path: Back button dismissed after {(poll+1)*0.3:.1f}s")
+                    progressed = True
                     break
+
+            # The back button never dismissed -> tapping it isn't closing anything.
+            # This is the "stuck clicking the Lv.2 Union Center" loop: the seasonal
+            # union back-button template false-matches the panel's title area, so
+            # re-tapping it does nothing and it re-matches every frame forever.
+            # Escalate to the toggle-escape (reliably closes panels) instead.
+            if not progressed:
+                from config import TOGGLE_BUTTON_CLICK
+                if debug:
+                    print(f"    [RETURN] Back '{matched_template}' at {back_pos} won't dismiss - toggle-escape")
+                adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_escape_stuck_back")
+                time.sleep(0.6)
             continue
 
         # Check for CHAT state
