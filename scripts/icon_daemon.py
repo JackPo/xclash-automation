@@ -3405,7 +3405,6 @@ class IconDaemon:
                         # HELP_READY: Just click to request ally help (simple action, not a flow)
                         if help_ready_count >= min_required:
                             # Check if hospital soldier claiming is enabled
-                            from utils.config_overrides import get_override_manager
                             claim_enabled, _ = get_override_manager().get_effective("HOSPITAL_SOLDIER_CLAIM_ENABLED", True)
                             if claim_enabled:
                                 # Create a simple click flow
@@ -3424,7 +3423,6 @@ class IconDaemon:
                         # HEALING: Click to open panel, run healing flow
                         elif healing_count >= min_required:
                             # Check if hospital healing is enabled
-                            from utils.config_overrides import get_override_manager
                             heal_enabled, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                             if heal_enabled:
                                 # Create wrapper that clicks, waits, then runs healing_flow
@@ -3445,7 +3443,6 @@ class IconDaemon:
                         # SOLDIERS_WOUNDED: Click to open panel, run healing flow
                         elif wounded_count >= min_required:
                             # Check if hospital healing is enabled
-                            from utils.config_overrides import get_override_manager
                             heal_enabled, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                             if heal_enabled:
                                 # Create wrapper that clicks, waits, then runs healing_flow
@@ -3481,7 +3478,6 @@ class IconDaemon:
                     # soldier_training: the flow can't clear them, so it would
                     # re-trigger every iteration - an infinite HIGH-priority loop
                     # that starves rally/AFK/tavern via the flow lock.
-                    from utils.config_overrides import get_override_manager
                     claim_enabled, _ = get_override_manager().get_effective("BARRACKS_CLAIM_ENABLED", True)
                     if not claim_enabled:
                         ready_count = 0
@@ -4215,7 +4211,6 @@ class IconDaemon:
                             from scripts.flows.soldier_upgrade_flow import soldier_upgrade_flow, get_barrack_click_position
                             if ready_count > 0:
                                 # Check if barracks claiming is enabled
-                                from utils.config_overrides import get_override_manager
                                 claim_enabled, _ = get_override_manager().get_effective("BARRACKS_CLAIM_ENABLED", True)
                                 if claim_enabled:
                                     self.logger.info(f"[{iteration}] BARRACKS: Collecting from {ready_count} READY barrack(s) at indices {ready_indices}")
