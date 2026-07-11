@@ -3990,7 +3990,12 @@ class IconDaemon:
                 standalone_zombie_mode, _ = self.scheduler.get_zombie_mode()
                 standalone_mode_config = ZOMBIE_MODE_CONFIG.get(standalone_zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
                 elite_threshold = self._get_config('ELITE_ZOMBIE_STAMINA_THRESHOLD', ELITE_ZOMBIE_STAMINA_THRESHOLD)
-                if stamina_confirmed and confirmed_stamina is not None and confirmed_stamina >= elite_threshold and effective_idle_secs >= self.IDLE_THRESHOLD:
+                # KILL SWITCH (2026-07-11): the burn rule used to be UNCONDITIONAL
+                # (mode expiry just reverts to the default 'elite' - there was no
+                # OFF state) and it torched 500+ stockpiled stamina during an
+                # event. Auto zombie attacks now require the override to be on.
+                zombie_auto_on, _ = get_override_manager().get_effective("ZOMBIE_AUTO_ENABLED", True)
+                if zombie_auto_on and stamina_confirmed and confirmed_stamina is not None and confirmed_stamina >= elite_threshold and effective_idle_secs >= self.IDLE_THRESHOLD:
                     if zombie_rally_blocked:
                         self.logger.info(f"[{iteration}] ZOMBIE ({standalone_zombie_mode.upper()}): BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
                     else:
