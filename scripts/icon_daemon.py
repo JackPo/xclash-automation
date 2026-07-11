@@ -3401,12 +3401,18 @@ class IconDaemon:
 
                         # Use 60% majority rule (same as barracks)
                         min_required = int(self.HOSPITAL_CONSECUTIVE_REQUIRED * 0.6)  # 6 out of 10
+                        # HELP_READY only: the handshake bubble is ANIMATED - scores
+                        # flap 0.002<->0.079 with phase, so wrong-phase readings vote
+                        # IDLE and 60% is unreachable for long stretches (measured
+                        # 2026-07-10: bubble present, votes never fired). A 0.002
+                        # match cannot be a false positive; 3 hits in 10 is proof.
+                        help_min_required = 3
 
                         # Get click position for hospital actions
                         hospital_click_x, hospital_click_y = self.hospital_matcher.get_click_position()
 
                         # HELP_READY: Just click to request ally help (simple action, not a flow)
-                        if help_ready_count >= min_required:
+                        if help_ready_count >= help_min_required:
                             # Check if hospital soldier claiming is enabled
                             claim_enabled, _ = get_override_manager().get_effective("HOSPITAL_SOLDIER_CLAIM_ENABLED", True)
                             if claim_enabled:
