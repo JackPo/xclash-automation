@@ -66,20 +66,14 @@ class TestHighVarianceReset:
         """Create a fresh StaminaReader instance for each test."""
         return StaminaReader()
 
-    def test_high_variance_resets_history(self, reader: StaminaReader) -> None:
-        """Test that variance > 10 resets history to only current reading."""
-        # Add two consistent readings
+    def test_glitch_does_not_win_mode(self, reader: StaminaReader) -> None:
+        """A single glitch among honest readings loses the MODE vote."""
         reader.add_reading(5)
         reader.add_reading(5)
-        assert len(reader.get_history()) == 2
-
-        # Add a reading with high variance (23 - 5 = 18 > 10)
-        confirmed, value = reader.add_reading(23)
-
-        assert confirmed is False
-        assert value is None
-        # History should be reset to only the current reading
-        assert reader.get_history() == [23]
+        confirmed, value = reader.add_reading(23)  # transient glitch
+        # MODE of [5, 5, 23] is 5 - the glitch never becomes the confirmed value
+        assert confirmed is True
+        assert value == 5
 
     def test_variance_exactly_at_threshold(self, reader: StaminaReader) -> None:
         """Test that variance == 10 is acceptable (not reset)."""
@@ -91,15 +85,13 @@ class TestHighVarianceReset:
         assert confirmed is True
         assert value in [90, 95, 100]
 
-    def test_variance_just_over_threshold(self, reader: StaminaReader) -> None:
-        """Test that variance == 11 triggers reset."""
+    def test_mode_recovers_after_mixed_reads(self, reader: StaminaReader) -> None:
+        """Mixed honest/glitch reads: the true value keeps winning MODE."""
         reader.add_reading(90)
-        reader.add_reading(95)
-        confirmed, value = reader.add_reading(101)  # max-min = 101-90 = 11 > 10
-
-        assert confirmed is False
-        assert value is None
-        assert reader.get_history() == [101]
+        reader.add_reading(101)
+        confirmed, value = reader.add_reading(90)
+        assert confirmed is True
+        assert value == 90
 
     def test_recovery_after_variance_reset(self, reader: StaminaReader) -> None:
         """Test that reader can recover after variance reset."""
@@ -359,4 +351,68 @@ class TestEdgeCases:
     def test_constants_are_correct(self, reader: StaminaReader) -> None:
         """Verify class constants match documented values."""
         assert StaminaReader.REQUIRED_READINGS == 3
-        assert StaminaReader.MAX_VARIANCE == 10
+        assert StaminaReader.JUMP_FACTOR == 3
+        assert StaminaReader.JUMP_MIN == 150
+        assert StaminaReader.JUMP_AGREE == 5
+
+
+class TestImplausibleJumpQuarantine:
+    """Spec from the 2026-07-11 incident: a glued-digit OCR misread (11 read
+    as 511) must NEVER confirm; a real recovery-item jump (repeats on the next
+    read) must; decreases are always accepted."""
+
+    @pytest.fixture
+    def reader(self) -> StaminaReader:
+        return StaminaReader()
+
+    def _confirm(self, reader: StaminaReader, value: int) -> None:
+        for _ in range(3):
+            reader.add_reading(value)
+        assert reader.last_confirmed == value
+
+    def test_glued_digit_misread_never_confirms(self, reader: StaminaReader) -> None:
+        """THE incident: real 11, misread 511."""
+        self._confirm(reader, 11)
+        confirmed, value = reader.add_reading(511)
+        assert (confirmed, value) == (False, None)
+        assert "quarantined" in (reader.last_event or "")
+        # honest reads resume - confirmation returns to 11, never 511
+        reader.add_reading(11)
+        reader.add_reading(11)
+        confirmed, value = reader.add_reading(11)
+        assert confirmed and value == 11
+
+    def test_real_item_jump_confirms_on_repeat(self, reader: StaminaReader) -> None:
+        """+500 recovery items: the new level REPEATS -> accepted."""
+        self._confirm(reader, 110)
+        assert reader.add_reading(610) == (False, None)   # quarantined
+        assert reader.add_reading(612) == (False, None)   # agrees within +/-5
+        assert "confirmed by repeat read" in (reader.last_event or "")
+        reader.add_reading(612)
+        confirmed, value = reader.add_reading(611)
+        assert confirmed and value in (611, 612)
+
+    def test_decrease_always_accepted(self, reader: StaminaReader) -> None:
+        """Spending is instant: 500 -> 20 must confirm with no quarantine."""
+        self._confirm(reader, 500)
+        reader.add_reading(20)
+        reader.add_reading(20)
+        confirmed, value = reader.add_reading(20)
+        assert confirmed and value == 20
+
+    def test_small_increase_not_quarantined(self, reader: StaminaReader) -> None:
+        """Normal regen / +50 item stays below the 3x AND +150 bar."""
+        self._confirm(reader, 100)
+        reader.add_reading(150)
+        reader.add_reading(150)
+        confirmed, value = reader.add_reading(150)
+        assert confirmed and value == 150
+
+    def test_quarantine_drops_when_jump_doesnt_repeat(self, reader: StaminaReader) -> None:
+        self._confirm(reader, 15)
+        reader.add_reading(915)                # garbage, quarantined
+        reader.add_reading(15)                 # real value returns
+        assert "dropped" in (reader.last_event or "")
+        reader.add_reading(15)
+        confirmed, value = reader.add_reading(15)
+        assert confirmed and value == 15

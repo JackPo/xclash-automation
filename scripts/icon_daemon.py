@@ -449,6 +449,7 @@ class IconDaemon:
 
         # Elite zombie rally - stamina threshold (from config)
         self.ELITE_ZOMBIE_STAMINA_THRESHOLD = ELITE_ZOMBIE_STAMINA_THRESHOLD
+        self._last_standalone_zombie_rally: float = 0.0  # 90s cooldown anchor
 
         # AFK rewards cooldown - once per hour (from config)
         self.last_afk_rewards_time = 0
@@ -1053,29 +1054,37 @@ class IconDaemon:
                             h.pop(0)
 
                 def _stamina_sample(f: Any) -> Any:
-                    # Real OCR every stamina_ocr_interval; echo the cached value
-                    # between reads (preserves the legacy 1-real-read + echoes
-                    # confirmation timing of the 3-reading MODE).
+                    # Real OCR every stamina_ocr_interval. Feed the confirmer
+                    # ONLY on a fresh read: echoing the cached value every 2s
+                    # tick meant ONE glued-digit misread (11 read as 511)
+                    # became 3 identical history entries and self-confirmed the
+                    # MODE-of-3 - which held the zombie stamina gate open and
+                    # burned a 500-stamina stockpile (2026-07-11). cached_stamina
+                    # is still updated for the status line.
                     now = time.time()
-                    if now - self.last_stamina_ocr_time >= self.stamina_ocr_interval:
-                        self.last_stamina_ocr_time = now
-                        try:
-                            v = self.ocr_client.extract_number(f, self.STAMINA_REGION)
-                            if v is not None and not (0 <= v <= STAMINA_OCR_MAX_VALID):
-                                self.logger.warning(f"Implausible stamina OCR {v}, discarding")
-                                v = None
-                            if v is None:
-                                self.ocr_consecutive_failures += 1
-                            else:
-                                self.ocr_consecutive_failures = 0
-                                self.cached_stamina = v
-                        except Exception as ocr_err:
-                            self.logger.warning(f"Stamina OCR error: {ocr_err}")
+                    if now - self.last_stamina_ocr_time < self.stamina_ocr_interval:
+                        return None  # between reads: nothing for the confirmer
+                    self.last_stamina_ocr_time = now
+                    try:
+                        v = self.ocr_client.extract_number(f, self.STAMINA_REGION)
+                        if v is not None and not (0 <= v <= STAMINA_OCR_MAX_VALID):
+                            self.logger.warning(f"Implausible stamina OCR {v}, discarding")
+                            v = None
+                        if v is None:
                             self.ocr_consecutive_failures += 1
-                    return self.cached_stamina  # None -> sink skipped
+                        else:
+                            self.ocr_consecutive_failures = 0
+                            self.cached_stamina = v
+                        return v  # fresh read (None -> sink skipped)
+                    except Exception as ocr_err:
+                        self.logger.warning(f"Stamina OCR error: {ocr_err}")
+                        self.ocr_consecutive_failures += 1
+                        return None
 
                 def _stamina_sink(v: Any) -> None:
                     self.last_stamina_confirmation = self.stamina_reader.add_reading(v)
+                    if self.stamina_reader.last_event:
+                        self.logger.info(f"[STAMINA] {self.stamina_reader.last_event}")
 
                 _trackers = [
                     TrackerSpec("hospital_votes", {TOWN}, 2.0,
@@ -1859,13 +1868,16 @@ class IconDaemon:
 
             # If 4K matches better (lower score), resolution is correct
             if score_4k <= score_lowres:
+                # Heartbeat for log-based verification (verify_daemon_log.py
+                # asserts this fires every <=5 min while unpaused).
+                self.logger.info(f"[{iteration}] [RES-CHECK] ok 4K={score_4k:.4f} lowres={score_lowres:.4f}")
                 return True
 
             # GUARD: If NEITHER template matches well (both > 0.08), something is covering
             # the corner (popup, menu, etc.) - this is NOT a resolution issue
             MATCH_THRESHOLD = 0.08
             if score_4k > MATCH_THRESHOLD and score_lowres > MATCH_THRESHOLD:
-                self.logger.debug(f"[{iteration}] Resolution check: both templates fail to match (4K={score_4k:.4f}, lowres={score_lowres:.4f}), corner likely covered - skipping")
+                self.logger.info(f"[{iteration}] [RES-CHECK] corner covered (4K={score_4k:.4f}, lowres={score_lowres:.4f}) - skipping")
                 return True  # Assume resolution is fine, corner just covered
 
             # Low-res matches better AND actually matches - resolution drifted!
@@ -1881,16 +1893,35 @@ class IconDaemon:
             score_4k = result_4k[0][0]
             score_lowres = result_lowres[0][0]
 
-            if score_4k <= score_lowres:
+            # Verification requires a REAL 4K match, not merely "better than
+            # lowres" - both can be garbage on a transitional frame (observed:
+            # "Resolution fixed! 4K=1.0000"). Retry once after 5s in case a
+            # popup/transition covered the corner.
+            if not (score_4k <= 0.08 and score_4k <= score_lowres):
+                time.sleep(5.0)
+                frame = self.windows_helper.get_screenshot_cv2()
+                current_roi = frame[y:y+h, x:x+w]
+                result_4k = cv2.matchTemplate(current_roi, template_4k, cv2.TM_SQDIFF_NORMED)
+                result_lowres = cv2.matchTemplate(current_roi, template_lowres, cv2.TM_SQDIFF_NORMED)
+                score_4k = result_4k[0][0]
+                score_lowres = result_lowres[0][0]
+            if score_4k <= 0.08 and score_4k <= score_lowres:
                 self.logger.info(f"[{iteration}] Resolution fixed! 4K={score_4k:.4f}")
                 return True
             else:
-                self.logger.error(f"[{iteration}] Resolution still wrong after fix: 4K={score_4k:.4f} > lowres={score_lowres:.4f}")
+                self.logger.error(f"[{iteration}] Resolution still wrong after fix: 4K={score_4k:.4f} lowres={score_lowres:.4f}")
                 return False
 
         except Exception as e:
-            self.logger.error(f"[{iteration}] Resolution check failed: {e}")
-            return True  # Don't block on errors
+            # A wrong-sized frame (ROI crop/match blowing up) is itself the
+            # broken-resolution symptom - fall back to the adb wm-size check
+            # instead of silently returning True.
+            self.logger.error(f"[{iteration}] Resolution check failed: {e} - falling back to wm size")
+            try:
+                return self._check_resolution_fallback(iteration)
+            except Exception as fb_err:
+                self.logger.error(f"[{iteration}] Resolution fallback also failed: {fb_err}")
+                return True  # don't block the loop
 
     def _check_resolution_fallback(self, iteration: int) -> bool:
         """Fallback resolution check using wm size."""
@@ -2121,6 +2152,31 @@ class IconDaemon:
     def _is_user_idle(self) -> bool:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
         return get_user_idle_seconds() >= self.IDLE_THRESHOLD
+
+    ZOMBIE_RALLY_COOLDOWN = 90.0  # seconds between standalone zombie rallies
+
+    def _standalone_zombie_admissible(self, stamina_confirmed: bool,
+                                      confirmed_stamina: int | None,
+                                      threshold: int, idle_secs: float,
+                                      now: float | None = None) -> bool:
+        """The user's standing rule: rally zombies while stamina >= threshold
+        (i.e. burn back down to ~120), at most one rally per 90s cooldown.
+
+        Extracted for unit-testability (tests/unit/test_zombie_gate.py). The
+        cooldown used to be documented but NEVER enforced - failed rallies
+        re-popped every ~15s during the 2026-07-11 stamina burn.
+        """
+        if now is None:
+            now = time.time()
+        if not (stamina_confirmed and confirmed_stamina is not None):
+            return False
+        if confirmed_stamina < threshold:
+            return False
+        if idle_secs < self.IDLE_THRESHOLD:
+            return False
+        if now - getattr(self, '_last_standalone_zombie_rally', 0.0) < self.ZOMBIE_RALLY_COOLDOWN:
+            return False
+        return True
 
     def _open_hospital_bubble(self, adb: Any) -> bool:
         """
@@ -2656,6 +2712,14 @@ class IconDaemon:
                         self.logger.info(f"[{iteration}] PAUSED (use daemon_cli.py resume to unpause)")
                     time.sleep(self.interval)
                     continue
+
+                # Resolution regression check FIRST - before every immediate-
+                # execution `continue` below. It used to sit at the tail of the
+                # iteration and got starved for long stretches whenever the loop
+                # was busy (user: "the auto resolution fix doesn't work anymore
+                # ... now it finally ran"). 60s self-gate inside; skipped while
+                # paused (pause = zero touch).
+                self._check_resolution(iteration)
 
                 # Hard stuck detection from app telemetry:
                 # ALWAYS restart immediately on ui_timeout burst, even during manual sessions.
@@ -3255,6 +3319,7 @@ class IconDaemon:
                 # Only run OCR every STAMINA_OCR_INTERVAL seconds, use cached value otherwise
                 # C3: when perception owns the stamina tracker, it does the OCR +
                 # history feeding; the loop just reads the cache.
+                stamina_is_fresh = False  # only a real OCR may feed the confirmer
                 if self._votes_owned_by_perception():
                     stamina = self.cached_stamina
                     if self.ocr_consecutive_failures >= 3:
@@ -3262,6 +3327,7 @@ class IconDaemon:
                         self._check_ocr_server_health()
                         self.ocr_consecutive_failures = 0
                 elif current_time - self.last_stamina_ocr_time >= self.stamina_ocr_interval:
+                    stamina_is_fresh = True  # this iteration performed a REAL OCR
                     try:
                         stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
                         # Reject implausible OCR garbage (e.g. 123456789 from a
@@ -3351,9 +3417,6 @@ class IconDaemon:
 
                 # Use Windows idle directly for all automation checks
                 effective_idle_secs = idle_secs
-
-                # Check resolution periodically (every N iterations, no idle requirement)
-                self._check_resolution(iteration)
 
                 # Get Pacific time for logging
                 pacific_time = datetime.now(self.pacific_tz).strftime('%H:%M:%S')
@@ -3902,7 +3965,15 @@ class IconDaemon:
                 if self._votes_owned_by_perception():
                     stamina_confirmed, confirmed_stamina = self.last_stamina_confirmation
                 elif view_state_enum in (ViewState.TOWN, ViewState.WORLD):
-                    stamina_confirmed, confirmed_stamina = self.stamina_reader.add_reading(stamina)
+                    # Feed the confirmer only on FRESH OCR reads - echoing the
+                    # cache let a single glued-digit misread self-confirm the
+                    # MODE-of-3 (2026-07-11 stamina burn). Between reads, hold
+                    # the last confirmation.
+                    if stamina_is_fresh:
+                        self.last_stamina_confirmation = self.stamina_reader.add_reading(stamina)
+                        if self.stamina_reader.last_event:
+                            self.logger.info(f"[STAMINA] {self.stamina_reader.last_event}")
+                    stamina_confirmed, confirmed_stamina = self.last_stamina_confirmation
                 else:
                     # Don't trust stamina readings from UNKNOWN/CHAT/WEBVIEW states
                     stamina_confirmed = False
@@ -3990,12 +4061,14 @@ class IconDaemon:
                 standalone_zombie_mode, _ = self.scheduler.get_zombie_mode()
                 standalone_mode_config = ZOMBIE_MODE_CONFIG.get(standalone_zombie_mode, ZOMBIE_MODE_CONFIG["elite"])
                 elite_threshold = self._get_config('ELITE_ZOMBIE_STAMINA_THRESHOLD', ELITE_ZOMBIE_STAMINA_THRESHOLD)
-                # KILL SWITCH (2026-07-11): the burn rule used to be UNCONDITIONAL
-                # (mode expiry just reverts to the default 'elite' - there was no
-                # OFF state) and it torched 500+ stockpiled stamina during an
-                # event. Auto zombie attacks now require the override to be on.
-                zombie_auto_on, _ = get_override_manager().get_effective("ZOMBIE_AUTO_ENABLED", True)
-                if zombie_auto_on and stamina_confirmed and confirmed_stamina is not None and confirmed_stamina >= elite_threshold and effective_idle_secs >= self.IDLE_THRESHOLD:
+                # The RULE (unchanged, by user's design): attack while stamina >=
+                # threshold (burn back down to ~120), then stop. The 2026-07-11
+                # burn-to-12 incident was NOT this rule misbehaving - it was a
+                # glued-digit OCR misread (11 read as 511) self-confirming via
+                # cache echoes (fixed in _stamina_sample/StaminaReader) plus the
+                # 90s rally cooldown below being recorded but never enforced.
+                if self._standalone_zombie_admissible(stamina_confirmed, confirmed_stamina,
+                                                      elite_threshold, effective_idle_secs):
                     if zombie_rally_blocked:
                         self.logger.info(f"[{iteration}] ZOMBIE ({standalone_zombie_mode.upper()}): BLOCKED - Beast Training starts in {minutes_until_beast:.1f}min, preserving stamina")
                     else:
@@ -4752,6 +4825,12 @@ class IconDaemon:
                     # Reset hospital state history after hospital flows execute
                     if executed_flow in ("hospital_help", "healing"):
                         self.hospital_state_history = []
+
+                    # Standalone zombie rally: start the 90s cooldown (enforced
+                    # by _standalone_zombie_admissible; was never enforced before)
+                    if executed_flow == "elite_zombie" or (executed_flow or "").startswith("zombie_attack"):
+                        self._last_standalone_zombie_rally = time.time()
+                        self.logger.info(f"[{iteration}] [ZOMBIE] rally executed - 90s cooldown started")
 
                     # Beast training post-execution tracking
                     if executed_flow == "beast_training":
