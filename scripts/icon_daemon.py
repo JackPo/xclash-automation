@@ -2374,6 +2374,9 @@ class IconDaemon:
             'scripts.flows.community_click_flow',
             'scripts.flows.community_click_flow2',
             'scripts.flows.marshall_speedup_all_flow',
+            'scripts.flows.desert_python_rally_flow',
+            'scripts.flows.sandstorm_rally_flow',
+            'scripts.flows.hospital_healing_flow',
             'scripts.flows',
         ]
 
