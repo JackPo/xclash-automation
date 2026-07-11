@@ -662,11 +662,19 @@ class IconDaemon:
         # Left-toolbar assist cluster (helmet/briefcase/help-hand) - immediate
         # tap when healing is on. Template + center measured live 2026-07-11.
         self._last_assist_left_click: float = 0.0
-        self.ASSIST_LEFT_ENABLED: bool = False  # off: tap opened chat, wrong target
+        self.ASSIST_LEFT_ENABLED: bool = True
         self.ASSIST_LEFT_COOLDOWN: float = 3.0
-        self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 300, 250)
-        self.ASSIST_LEFT_CLICK: tuple[int, int] = (224, 1518)
+        self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 220, 200)
+        self.ASSIST_LEFT_CLICK: tuple[int, int] = (213, 1496)  # PRECISE button center
         self.ASSIST_LEFT_THRESHOLD: float = 0.06
+        # Masked templates (background-independent). briefcase/handshake are
+        # unambiguous; helmet is pixel-identical to a chat avatar, so it relies
+        # on the exact center click not opening chat (off-center 224,1518 did).
+        self.ASSIST_LEFT_TEMPLATES: list[str] = [
+            "assist_help_briefcase_4k.png",
+            "assist_help_handshake_4k.png",
+            "assist_help_helmet_4k.png",
+        ]
 
         # Royal City Reinforce scheduling (Fridays 6:15-9:00 AM PT)
         self._royal_city_last_attempt: float = 0.0
@@ -2970,25 +2978,29 @@ class IconDaemon:
                 # at the same spot next to the hourglass. Tap the instant one
                 # shows, but ONLY when healing is enabled (user's condition).
                 # Single tap + cooldown; logged every fire.
-                # DISABLED 2026-07-11: tapping (224,1518) opened UNION CHAT, not
-                # an assist - the helmet sits over the world-chat feed overlay.
-                # Wrong target/position; needs the real assist icon+action before
-                # re-enabling (see ASSIST_LEFT_ENABLED).
+                # Masked, background-independent detection of the three states
+                # (briefcase/handshake/helmet). Click the precise button center.
                 if self.ASSIST_LEFT_ENABLED and self._can_run_flow():
                     heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
-                    if heal_on:
+                    if heal_on and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN:
                         af = self.windows_helper.get_screenshot_cv2()
-                        assist_hit, assist_score, _ = match_template(
-                            af, "assist_helmet_left_4k.png",
-                            search_region=self.ASSIST_LEFT_REGION,
-                            threshold=self.ASSIST_LEFT_THRESHOLD,
-                        ) if af is not None else (False, 1.0, None)
-                        if assist_hit and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN:
-                            self.logger.info(f"[{iteration}] ASSIST-LEFT helmet detected (score={assist_score:.4f}) - tapping {self.ASSIST_LEFT_CLICK}")
-                            mark_daemon_action()
-                            self.adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:assist_left_helmet")
-                            self._last_assist_left_click = time.time()
-                            continue
+                        if af is not None:
+                            for _tname in self.ASSIST_LEFT_TEMPLATES:
+                                hit, sc, _ = match_template(
+                                    af, _tname,
+                                    search_region=self.ASSIST_LEFT_REGION,
+                                    threshold=self.ASSIST_LEFT_THRESHOLD,
+                                )
+                                if hit:
+                                    self.logger.info(f"[{iteration}] ASSIST-LEFT {_tname.split('_')[2]} (score={sc:.4f}) - tapping {self.ASSIST_LEFT_CLICK}")
+                                    mark_daemon_action()
+                                    self.adb.tap(*self.ASSIST_LEFT_CLICK, source=f"daemon:assist_left_{_tname.split('_')[2]}")
+                                    self._last_assist_left_click = time.time()
+                                    break
+                            else:
+                                pass
+                            if (time.time() - self._last_assist_left_click) < 0.5:
+                                continue
 
                 # =================================================================
                 # REINFORCE MODE - Loop reinforce camp as critical flow
