@@ -63,8 +63,14 @@ def _get_mouse_position() -> tuple[int, int]:
     return (pt.x, pt.y)
 
 
+_bs_hwnd_cache: int | None = None
+
+
 def _find_bluestacks_window() -> int | None:
-    """Find BlueStacks window handle."""
+    """Find BlueStacks window handle (cached; re-enumerates if stale)."""
+    global _bs_hwnd_cache
+    if _bs_hwnd_cache is not None and win32gui.IsWindow(_bs_hwnd_cache):
+        return _bs_hwnd_cache
     result = []
 
     def callback(hwnd: int, _: None) -> bool:
@@ -75,19 +81,43 @@ def _find_bluestacks_window() -> int | None:
         return True
 
     win32gui.EnumWindows(callback, None)
-    return result[0] if result else None
+    _bs_hwnd_cache = result[0] if result else None
+    return _bs_hwnd_cache
+
+
+GA_ROOT = 2
 
 
 def _is_mouse_over_bluestacks() -> bool:
-    """Check if mouse cursor is over BlueStacks window."""
+    """
+    Is the cursor ACTUALLY over the BlueStacks window (z-order aware)?
+
+    The old rectangle-only check counted a browser/terminal OVERLAPPING the
+    BlueStacks rect as "over the game" - the user reading a dashboard on top
+    of BlueStacks pinned user-idle at 0 and starved every gated action.
+    """
     hwnd = _find_bluestacks_window()
     if not hwnd:
         return False
 
     try:
-        rect = win32gui.GetWindowRect(hwnd)
-        x, y = _get_mouse_position()
-        return rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        under = ctypes.windll.user32.WindowFromPoint(pt)
+        root = ctypes.windll.user32.GetAncestor(under, GA_ROOT)
+        return root == hwnd
+    except Exception:
+        return False
+
+
+def _is_bluestacks_foreground() -> bool:
+    """Is BlueStacks the focused (foreground) window?"""
+    hwnd = _find_bluestacks_window()
+    if not hwnd:
+        return False
+    try:
+        fg = ctypes.windll.user32.GetForegroundWindow()
+        return ctypes.windll.user32.GetAncestor(fg, GA_ROOT) == hwnd
     except Exception:
         return False
 
@@ -133,8 +163,16 @@ class UserIdleTracker:
 
         user_is_active = False
 
-        # Method 1: System-wide input (works for keyboard, mouse outside BlueStacks)
-        if system_idle < self.ACTIVE_INPUT_THRESHOLD and not daemon_acted_recently:
+        # Method 1: system input counts as GAME activity only when BlueStacks
+        # is the focused window. "User active" means input directed AT THE
+        # GAME - typing in a terminal/browser on the same machine must NOT
+        # freeze the daemon (it pinned idle at 0 for minutes and starved
+        # every idle-gated action while the user wasn't touching the game).
+        if (
+            system_idle < self.ACTIVE_INPUT_THRESHOLD
+            and not daemon_acted_recently
+            and _is_bluestacks_foreground()
+        ):
             user_is_active = True
 
         # Method 2: Mouse activity over BlueStacks (works even when daemon clicks recently)

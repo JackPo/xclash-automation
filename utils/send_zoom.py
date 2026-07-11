@@ -49,6 +49,11 @@ def send_zoom(direction: str) -> None:
     Args:
         direction: 'in' for Shift+A (zoom in), 'out' for Shift+Z (zoom out)
     """
+    # Win32 SendInput is REAL Windows input: without marking it, the daemon's
+    # own zooms reset system idle and read back as "user active" (recovery
+    # then aborts itself and gated actions starve).
+    from utils.user_idle_tracker import mark_daemon_action
+    mark_daemon_action()
     hwnd = find_bluestacks_window()
     if not hwnd:
         print("BlueStacks window not found!")

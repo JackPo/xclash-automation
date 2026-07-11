@@ -3687,11 +3687,12 @@ class IconDaemon:
                                     # FOURTH: No safe ground/grass found - try clicking screen edges
                                     # Building popups (Union Center, etc.) can be dismissed by clicking outside them
                                     # The edges of the screen often have visible game area even with popups
+                                    # NEVER left edge / bottom center - both open the
+                                    # CHAT panel (recovery was literally clicking into
+                                    # chat and stranding the game there).
                                     EDGE_CLICK_POSITIONS = [
-                                        (100, 1080),   # Left edge, middle
                                         (3700, 1080),  # Right edge, middle
                                         (1920, 100),   # Top edge, center
-                                        (1920, 2050),  # Bottom edge, center
                                     ]
                                     # Rotate through edge positions based on iteration to try different ones
                                     edge_idx = iteration % len(EDGE_CLICK_POSITIONS)

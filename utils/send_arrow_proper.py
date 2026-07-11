@@ -46,6 +46,8 @@ def find_bluestacks_window() -> int | None:
 
 def send_arrow(direction: str) -> None:
     """Send arrow key to BlueStacks by focusing window and using keybd_event"""
+    from utils.user_idle_tracker import mark_daemon_action
+    mark_daemon_action()  # Win32 SendInput = real Windows input; don't self-report as user
     hwnd = find_bluestacks_window()
     if not hwnd:
         print("BlueStacks window not found!")
