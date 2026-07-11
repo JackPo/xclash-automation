@@ -1355,11 +1355,13 @@ class IconDaemon:
 
         # Per-name immediate semantics (the old pre-global-gate special cases)
         if c.name == "treasure_map":
-            prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_always, 90.0, "opportunity"
+            # short pause gate: time-sensitive but never worth fighting the user
+            prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_short_idle(10.0), 90.0, "opportunity"
         elif c.name == "tavern_claim":
             prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_always, 90.0, "schedule"
         elif c.name == "assist_ally":
-            prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_always, 45.0, "opportunity"
+            # brief-pause gate: acts within seconds of you pausing, never mid-click
+            prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_short_idle(5.0), 45.0, "opportunity"
         elif c.name == "sandstorm_rally":
             prio, adm, ttl, src_ = PRIO_ON_SIGHT, _adm_always, 60.0, "opportunity"
         elif c.name == "desert_python_rally":
@@ -2896,8 +2898,9 @@ class IconDaemon:
                 else:
                     harvest_present, harvest_score = False, 1.0
 
-                # IMMEDIATE execution for handshake - but with cooldown to prevent rapid-fire
-                if handshake_present and self._can_run_flow():
+                # IMMEDIATE execution for handshake - cooldown + SHORT user-pause
+                # gate (it fired 6x into active play; claiming can wait 10s).
+                if handshake_present and self._can_run_flow() and get_user_idle_seconds() >= 10.0:
                     now = time.time()
                     if now - self._last_handshake_click >= self.HANDSHAKE_COOLDOWN:
                         self.logger.info(f"[{iteration}] HANDSHAKE detected (score={handshake_score:.4f}) - executing immediately")
