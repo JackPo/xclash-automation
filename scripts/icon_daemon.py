@@ -1395,10 +1395,21 @@ class IconDaemon:
             )
 
         # Blind-tap flows get a fresh-frame re-verify at pop time.
+        # The 6 harvest bubbles are included because a queued intent often pops
+        # right AFTER the bubble was claimed (stale sighting) - without the
+        # re-verify the flow ran anyway, found nothing, and spammed
+        # "FAILED - retry in 15 min" ~300x/day per bubble (observed 2026-07-11:
+        # 585 real claims vs 313 no-op failure runs).
         _reverify_map = {
             "treasure_map": self.treasure_matcher.is_present if self.treasure_matcher else None,
             "harvest_box": self.harvest_box_matcher.is_present if self.harvest_box_matcher else None,
             "afk_rewards": self.afk_rewards_matcher.is_present if self.afk_rewards_matcher else None,
+            "corn_harvest": self.corn_matcher.is_present if self.corn_matcher else None,
+            "gold_coin": self.gold_matcher.is_present if self.gold_matcher else None,
+            "iron_bar": self.iron_matcher.is_present if self.iron_matcher else None,
+            "gem": self.gem_matcher.is_present if self.gem_matcher else None,
+            "cabbage": self.cabbage_matcher.is_present if self.cabbage_matcher else None,
+            "equipment_enhancement": self.equipment_enhancement_matcher.is_present if self.equipment_enhancement_matcher else None,
         }
         _m = _reverify_map.get(c.name)
         pre_exec = (lambda _mm=_m: self._reverify_present(_mm)) if _m is not None else None
