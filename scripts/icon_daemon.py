@@ -663,18 +663,14 @@ class IconDaemon:
         # tap when healing is on. Template + center measured live 2026-07-11.
         self._last_assist_left_click: float = 0.0
         self.ASSIST_LEFT_ENABLED: bool = True
-        self.ASSIST_LEFT_COOLDOWN: float = 3.0
+        self.ASSIST_LEFT_COOLDOWN: float = 30.0   # a heal takes a while; don't re-spam
         self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 220, 200)
-        self.ASSIST_LEFT_CLICK: tuple[int, int] = (213, 1496)  # PRECISE button center
+        self.ASSIST_LEFT_CLICK: tuple[int, int] = (213, 1496)
         self.ASSIST_LEFT_THRESHOLD: float = 0.06
-        # Masked templates (background-independent). briefcase/handshake are
-        # unambiguous; helmet is pixel-identical to a chat avatar, so it relies
-        # on the exact center click not opening chat (off-center 224,1518 did).
-        self.ASSIST_LEFT_TEMPLATES: list[str] = [
-            "assist_help_briefcase_4k.png",
-            "assist_help_handshake_4k.png",
-            "assist_help_helmet_4k.png",
-        ]
+        # ONLY the healing BRIEFCASE triggers healing (verified live: briefcase
+        # click -> Hospital panel; handshake -> chat; helmet -> ranking). After
+        # the click the Hospital healing panel is open, so run healing_flow.
+        self.ASSIST_LEFT_TEMPLATE: str = "assist_help_briefcase_4k.png"
 
         # Royal City Reinforce scheduling (Fridays 6:15-9:00 AM PT)
         self._royal_city_last_attempt: float = 0.0
@@ -2978,29 +2974,32 @@ class IconDaemon:
                 # at the same spot next to the hourglass. Tap the instant one
                 # shows, but ONLY when healing is enabled (user's condition).
                 # Single tap + cooldown; logged every fire.
-                # Masked, background-independent detection of the three states
-                # (briefcase/handshake/helmet). Click the precise button center.
+                # Union HEALING request: the briefcase icon (left toolbar, right
+                # of the magnifying glass) means an ally needs healing. Masked
+                # match = background-independent. Click it -> the Hospital panel
+                # opens -> run the healing flow we already have. Only when
+                # healing is enabled; 30s cooldown so a heal can finish.
                 if self.ASSIST_LEFT_ENABLED and self._can_run_flow():
                     heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                     if heal_on and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN:
                         af = self.windows_helper.get_screenshot_cv2()
-                        if af is not None:
-                            for _tname in self.ASSIST_LEFT_TEMPLATES:
-                                hit, sc, _ = match_template(
-                                    af, _tname,
-                                    search_region=self.ASSIST_LEFT_REGION,
-                                    threshold=self.ASSIST_LEFT_THRESHOLD,
-                                )
-                                if hit:
-                                    self.logger.info(f"[{iteration}] ASSIST-LEFT {_tname.split('_')[2]} (score={sc:.4f}) - tapping {self.ASSIST_LEFT_CLICK}")
-                                    mark_daemon_action()
-                                    self.adb.tap(*self.ASSIST_LEFT_CLICK, source=f"daemon:assist_left_{_tname.split('_')[2]}")
-                                    self._last_assist_left_click = time.time()
-                                    break
-                            else:
-                                pass
-                            if (time.time() - self._last_assist_left_click) < 0.5:
-                                continue
+                        hit, sc, _ = match_template(
+                            af, self.ASSIST_LEFT_TEMPLATE,
+                            search_region=self.ASSIST_LEFT_REGION,
+                            threshold=self.ASSIST_LEFT_THRESHOLD,
+                        ) if af is not None else (False, 1.0, None)
+                        if hit:
+                            self.logger.info(f"[{iteration}] UNION-HEAL briefcase (score={sc:.4f}) - click {self.ASSIST_LEFT_CLICK} + heal")
+                            self._last_assist_left_click = time.time()
+
+                            def _union_heal(adb: Any) -> None:
+                                mark_daemon_action()
+                                adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:union_heal_briefcase")
+                                time.sleep(2.5)  # Hospital panel opens
+                                healing_flow(adb)
+
+                            self._run_flow("healing", _union_heal)
+                            continue
 
                 # =================================================================
                 # REINFORCE MODE - Loop reinforce camp as critical flow
