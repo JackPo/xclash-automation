@@ -2098,6 +2098,39 @@ class IconDaemon:
         """Check if user is currently idle (fresh check against IDLE_THRESHOLD)."""
         return get_user_idle_seconds() >= self.IDLE_THRESHOLD
 
+    def _open_hospital_bubble(self, adb: Any) -> bool:
+        """
+        Navigate to TOWN and tap the LIVE hospital bubble to open its panel.
+
+        Hospital actions (help/heal/wounded) were tapping the fixed hospital
+        position BLINDLY. Perception only votes hospital state in TOWN, but the
+        action fires later and often from WORLD (user playing, or a manual
+        trigger) - the blind tap then hit the world map and every claim/heal
+        silently failed. This re-establishes TOWN and taps the bubble's actual
+        matched center each time.
+
+        Returns True if a hospital bubble was found and tapped in TOWN.
+        """
+        return_to_base_view(adb, self.windows_helper, target=ViewState.TOWN,
+                            respect_idle=False)
+        frame = self.windows_helper.get_screenshot_cv2()
+        if frame is None:
+            return False
+        state, score = self.hospital_matcher.get_state(frame)
+        # Tap the matcher's calibrated click position (bubble sits at a fixed
+        # TOWN spot); state just confirms a bubble is actually present.
+        cx, cy = self.hospital_matcher.get_click_position()
+        if state == HospitalState.IDLE:
+            self.logger.warning(
+                f"[HOSPITAL] in TOWN but no bubble present (state=IDLE, score={score:.4f}) - skipping tap"
+            )
+            return False
+        self.logger.info(f"[HOSPITAL] opening panel: {state.name} bubble at ({cx},{cy}), score={score:.4f}")
+        mark_daemon_action()
+        adb.tap(cx, cy, source="daemon:hospital_open")
+        time.sleep(2.5)
+        return True
+
     def _run_tavern_scan_twice(self, adb: Any) -> dict[str, Any]:
         """
         Run Tavern SCAN mode once.
@@ -2455,7 +2488,10 @@ class IconDaemon:
             "hero_upgrade": (hero_upgrade_arms_race_flow, True),
             "soldier_training": (lambda adb: soldier_training_flow(adb, debug=False), True),
             "soldier_upgrade": (lambda adb: soldier_upgrade_flow(adb, debug=False), True),
-            "healing": (healing_flow, False),
+            # Navigate to TOWN + tap the live hospital bubble before healing;
+            # bare healing_flow assumes the panel is already open and fails from
+            # any other view (manual trigger while user is in WORLD).
+            "healing": (lambda adb: healing_flow(adb) if self._open_hospital_bubble(adb) else None, False),
             "elite_zombie": (lambda adb: elite_zombie_flow(adb, target_level=ELITE_ZOMBIE_TARGET_LEVEL), False),
             "handshake": (handshake_flow, False),
             "treasure_map": (treasure_map_flow, True),
@@ -3419,10 +3455,11 @@ class IconDaemon:
                             # Check if hospital soldier claiming is enabled
                             claim_enabled, _ = get_override_manager().get_effective("HOSPITAL_SOLDIER_CLAIM_ENABLED", True)
                             if claim_enabled:
-                                # Create a simple click flow
-                                def _help_ready_flow(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
-                                    mark_daemon_action()
-                                    adb.tap(x, y, source="daemon:hospital_help")
+                                # Navigate to TOWN + tap the live bubble (opens
+                                # the ally-help request). Blind fixed-pos tap
+                                # missed whenever the view wasn't TOWN.
+                                def _help_ready_flow(adb: Any) -> None:
+                                    self._open_hospital_bubble(adb)
                                 flow_candidates.append(FlowCandidate(
                                     name="hospital_help",
                                     flow_func=_help_ready_flow,
@@ -3437,12 +3474,10 @@ class IconDaemon:
                             # Check if hospital healing is enabled
                             heal_enabled, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                             if heal_enabled:
-                                # Create wrapper that clicks, waits, then runs healing_flow
-                                def _healing_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
-                                    mark_daemon_action()
-                                    adb.tap(x, y, source="daemon:hospital_healing")
-                                    time.sleep(2.5)  # Wait for panel to fully open
-                                    healing_flow(adb)
+                                # Navigate to TOWN + tap the live bubble, THEN heal
+                                def _healing_wrapper(adb: Any) -> None:
+                                    if self._open_hospital_bubble(adb):
+                                        healing_flow(adb)
                                 flow_candidates.append(FlowCandidate(
                                     name="healing",
                                     flow_func=_healing_wrapper,
@@ -3457,12 +3492,10 @@ class IconDaemon:
                             # Check if hospital healing is enabled
                             heal_enabled, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                             if heal_enabled:
-                                # Create wrapper that clicks, waits, then runs healing_flow
-                                def _wounded_wrapper(adb: Any, x: int = hospital_click_x, y: int = hospital_click_y) -> None:
-                                    mark_daemon_action()
-                                    adb.tap(x, y, source="daemon:hospital_wounded")
-                                    time.sleep(2.5)  # Wait for panel to fully open
-                                    healing_flow(adb)
+                                # Navigate to TOWN + tap the live bubble, THEN heal
+                                def _wounded_wrapper(adb: Any) -> None:
+                                    if self._open_hospital_bubble(adb):
+                                        healing_flow(adb)
                                 flow_candidates.append(FlowCandidate(
                                     name="healing",
                                     flow_func=_wounded_wrapper,
