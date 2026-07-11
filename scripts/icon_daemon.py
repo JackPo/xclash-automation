@@ -659,6 +659,14 @@ class IconDaemon:
         self._last_handshake_click: float = 0.0
         self.HANDSHAKE_COOLDOWN: float = 2.0  # seconds between handshake clicks
 
+        # Left-toolbar assist cluster (helmet/briefcase/help-hand) - immediate
+        # tap when healing is on. Template + center measured live 2026-07-11.
+        self._last_assist_left_click: float = 0.0
+        self.ASSIST_LEFT_COOLDOWN: float = 3.0
+        self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 300, 250)
+        self.ASSIST_LEFT_CLICK: tuple[int, int] = (224, 1518)
+        self.ASSIST_LEFT_THRESHOLD: float = 0.06
+
         # Royal City Reinforce scheduling (Fridays 6:15-9:00 AM PT)
         self._royal_city_last_attempt: float = 0.0
         self._royal_city_success_date: date | None = None  # Date when we successfully marched (stop retrying)
@@ -2955,6 +2963,27 @@ class IconDaemon:
                         self._run_flow("handshake", handshake_flow)
                         self._last_handshake_click = now
                         continue  # Skip rest of iteration, start fresh
+
+                # IMMEDIATE execution for the LEFT-toolbar assist cluster - the
+                # helmet / healing-briefcase / asking-for-help icons all appear
+                # at the same spot next to the hourglass. Tap the instant one
+                # shows, but ONLY when healing is enabled (user's condition).
+                # Single tap + cooldown; logged every fire.
+                if self._can_run_flow():
+                    heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
+                    if heal_on:
+                        af = self.windows_helper.get_screenshot_cv2()
+                        assist_hit, assist_score, _ = match_template(
+                            af, "assist_helmet_left_4k.png",
+                            search_region=self.ASSIST_LEFT_REGION,
+                            threshold=self.ASSIST_LEFT_THRESHOLD,
+                        ) if af is not None else (False, 1.0, None)
+                        if assist_hit and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN:
+                            self.logger.info(f"[{iteration}] ASSIST-LEFT helmet detected (score={assist_score:.4f}) - tapping {self.ASSIST_LEFT_CLICK}")
+                            mark_daemon_action()
+                            self.adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:assist_left_helmet")
+                            self._last_assist_left_click = time.time()
+                            continue
 
                 # =================================================================
                 # REINFORCE MODE - Loop reinforce camp as critical flow
