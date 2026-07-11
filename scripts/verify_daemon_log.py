@@ -42,6 +42,7 @@ PAUSED_RE = re.compile(r"\] PAUSED \(")
 STAMINA_TOLERANCE = 30       # pop stamina vs nearest status stamina
 ZOMBIE_THRESHOLD = 118
 ZOMBIE_COOLDOWN_S = 90
+STAMINA_HARD_CAP = 200      # user-confirmed: stamina > 200 is impossible
 RES_MAX_GAP_S = 300          # 60s cadence + slack
 PAUSE_SLACK_S = 60           # around PAUSED markers
 
@@ -95,14 +96,20 @@ def main() -> int:
                 best, bestdt = val, d
         return best
 
-    # ZOMBIE-STAMINA-CONSISTENT + ZOMBIE-THRESHOLD
-    v1, v2 = [], []
+    # ZOMBIE-STAMINA-CONSISTENT + ZOMBIE-THRESHOLD + STAMINA-IMPOSSIBLE
+    v1, v2, v0 = [], [], []
     for ts, name, pop_stam, ln in pops:
         near = nearest_status(ts)
+        if pop_stam > STAMINA_HARD_CAP:
+            v0.append(f"{ts} {name} pop stamina={pop_stam} > hard cap {STAMINA_HARD_CAP} (impossible)")
         if near is not None and abs(near - pop_stam) > STAMINA_TOLERANCE:
             v1.append(f"{ts} {name} pop stamina={pop_stam} but status={near}")
         if near is not None and near < ZOMBIE_THRESHOLD:
             v2.append(f"{ts} {name} popped while real stamina={near} < {ZOMBIE_THRESHOLD}")
+    for ts, val in status:
+        if val > STAMINA_HARD_CAP:
+            v0.append(f"{ts} status stamina={val} > hard cap {STAMINA_HARD_CAP} (impossible)")
+    if v0: failures["STAMINA-IMPOSSIBLE"] = v0
     if v1: failures["ZOMBIE-STAMINA-CONSISTENT"] = v1
     if v2: failures["ZOMBIE-THRESHOLD"] = v2
 
@@ -137,7 +144,7 @@ def main() -> int:
     if v6: failures["RES-NO-FAKE-FIX"] = v6
 
     # Report
-    checks = ["ZOMBIE-STAMINA-CONSISTENT", "ZOMBIE-THRESHOLD", "ZOMBIE-CADENCE",
+    checks = ["STAMINA-IMPOSSIBLE", "ZOMBIE-STAMINA-CONSISTENT", "ZOMBIE-THRESHOLD", "ZOMBIE-CADENCE",
               "STAMINA-QUARANTINE", "RES-CADENCE", "RES-NO-FAKE-FIX"]
     print(f"log={log.name} window={t_from.time()}..{t_to.time()} "
           f"pops={len(pops)} rally_starts={len(starts)} status_samples={len(status)} "

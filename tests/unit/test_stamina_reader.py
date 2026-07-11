@@ -258,14 +258,20 @@ class TestInvalidReadings:
         assert confirmed is True
         assert value == 0
 
-    def test_high_stamina_with_items_is_valid(self, reader: StaminaReader) -> None:
-        """Test that a high but real stamina (e.g. 2000 with items) is valid."""
+    def test_stamina_cap_is_200(self, reader: StaminaReader) -> None:
+        """USER RULE: stamina > 200 is impossible - 2000 is ALWAYS a misread.
+        (An older test asserted 2000 was 'real stamina with items'; that claim
+        itself came from trusting glued-digit OCR misreads.)"""
         reader.add_reading(2000)
         reader.add_reading(2000)
         confirmed, value = reader.add_reading(2000)
-
-        assert confirmed is True
-        assert value == 2000
+        assert confirmed is False
+        assert value is None
+        # the true max IS valid
+        reader.add_reading(200)
+        reader.add_reading(200)
+        confirmed, value = reader.add_reading(200)
+        assert confirmed is True and value == 200
 
 
 class TestGetHistory:
@@ -370,31 +376,45 @@ class TestImplausibleJumpQuarantine:
             reader.add_reading(value)
         assert reader.last_confirmed == value
 
-    def test_glued_digit_misread_never_confirms(self, reader: StaminaReader) -> None:
-        """THE incident: real 11, misread 511."""
+    def test_impossible_over_200_rejected_at_bound(self, reader: StaminaReader) -> None:
+        """USER RULE: stamina > 200 is IMPOSSIBLE. THE incident values (511,
+        910) must be rejected outright at the bound - never even quarantined."""
         self._confirm(reader, 11)
-        confirmed, value = reader.add_reading(511)
-        assert (confirmed, value) == (False, None)
-        assert "quarantined" in (reader.last_event or "")
-        # honest reads resume - confirmation returns to 11, never 511
+        for garbage in (511, 910, 411, 560, 201):
+            confirmed, value = reader.add_reading(garbage)
+            assert (confirmed, value) == (False, None)
+            assert "out-of-bounds" in (reader.last_event or "")
+        # honest reads resume - confirmation returns to 11
         reader.add_reading(11)
         reader.add_reading(11)
         confirmed, value = reader.add_reading(11)
         assert confirmed and value == 11
 
+    def test_sub_cap_glued_misread_quarantined(self, reader: StaminaReader) -> None:
+        """A glued misread that stays under the cap (15 read as 170) is caught
+        by the jump quarantine instead of the bound."""
+        self._confirm(reader, 15)
+        confirmed, value = reader.add_reading(170)   # >=3x and >= +150
+        assert (confirmed, value) == (False, None)
+        assert "quarantined" in (reader.last_event or "")
+        reader.add_reading(15)
+        reader.add_reading(15)
+        confirmed, value = reader.add_reading(15)
+        assert confirmed and value == 15
+
     def test_real_item_jump_confirms_on_repeat(self, reader: StaminaReader) -> None:
-        """+500 recovery items: the new level REPEATS -> accepted."""
-        self._confirm(reader, 110)
-        assert reader.add_reading(610) == (False, None)   # quarantined
-        assert reader.add_reading(612) == (False, None)   # agrees within +/-5
+        """Recovery items 15 -> ~168: the new level REPEATS -> accepted."""
+        self._confirm(reader, 15)
+        assert reader.add_reading(168) == (False, None)   # quarantined
+        assert reader.add_reading(170) == (False, None)   # agrees within +/-5
         assert "confirmed by repeat read" in (reader.last_event or "")
-        reader.add_reading(612)
-        confirmed, value = reader.add_reading(611)
-        assert confirmed and value in (611, 612)
+        reader.add_reading(170)
+        confirmed, value = reader.add_reading(169)
+        assert confirmed and value in (169, 170)
 
     def test_decrease_always_accepted(self, reader: StaminaReader) -> None:
-        """Spending is instant: 500 -> 20 must confirm with no quarantine."""
-        self._confirm(reader, 500)
+        """Spending is instant: 190 -> 20 must confirm with no quarantine."""
+        self._confirm(reader, 190)
         reader.add_reading(20)
         reader.add_reading(20)
         confirmed, value = reader.add_reading(20)
@@ -410,7 +430,7 @@ class TestImplausibleJumpQuarantine:
 
     def test_quarantine_drops_when_jump_doesnt_repeat(self, reader: StaminaReader) -> None:
         self._confirm(reader, 15)
-        reader.add_reading(915)                # garbage, quarantined
+        reader.add_reading(180)                # sub-cap garbage, quarantined
         reader.add_reading(15)                 # real value returns
         assert "dropped" in (reader.last_event or "")
         reader.add_reading(15)

@@ -3330,10 +3330,10 @@ class IconDaemon:
                     stamina_is_fresh = True  # this iteration performed a REAL OCR
                     try:
                         stamina = self.ocr_client.extract_number(frame, self.STAMINA_REGION)
-                        # Reject implausible OCR garbage (e.g. 123456789 from a
-                        # misread/empty crop). Stamina maxes ~500 with recovery
-                        # items; anything outside 0-500 is a bad read, treated as
-                        # a failure so it neither caches nor poisons gating.
+                        # Reject implausible OCR garbage. Stamina > 200 is
+                        # IMPOSSIBLE (user-confirmed hard cap); anything above
+                        # is a misread, treated as a failure so it neither
+                        # caches nor poisons gating.
                         if stamina is not None and not (0 <= stamina <= STAMINA_OCR_MAX_VALID):
                             self.logger.warning(f"[{iteration}] Implausible stamina OCR {stamina}, discarding")
                             stamina = None

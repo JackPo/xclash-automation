@@ -67,9 +67,10 @@ def test_cooldown_enforced_90s():
 
 
 def test_burn_down_sequence_stops_at_threshold():
-    """Simulated burn: 511 -> ... -> 111. Rallies while >=118, stops after."""
+    """Simulated burn from the REAL max (stamina > 200 is impossible):
+    200 -> 100. Rallies while >=118, stops after."""
     g = make_gate()
-    stamina = 511
+    stamina = 200
     now = 0.0
     rallies = 0
     for _ in range(40):
@@ -78,5 +79,5 @@ def test_burn_down_sequence_stops_at_threshold():
             rallies += 1
             g._last_standalone_zombie_rally = now
             stamina -= 20
-    assert stamina == 111          # stopped just below threshold
-    assert rallies == 20           # (511-111)/20 - burned down, then STOPPED
+    assert stamina == 100          # stopped just below threshold (burn to ~120 rule)
+    assert rallies == 5            # 200,180,160,140,120 - then STOPPED

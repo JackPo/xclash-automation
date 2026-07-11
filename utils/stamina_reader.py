@@ -23,7 +23,7 @@ from collections import Counter
 try:
     from config import STAMINA_OCR_MAX_VALID as MAX_VALID
 except ImportError:
-    MAX_VALID = 2500
+    MAX_VALID = 200
 
 
 class StaminaReader:
@@ -66,8 +66,8 @@ class StaminaReader:
         """
         self.last_event = None
 
-        # Invalid reading resets history. Real stamina can reach ~2000 with
-        # recovery items; reject only clear OCR garbage above MAX_VALID.
+        # Invalid reading resets history. Stamina > 200 is IMPOSSIBLE
+        # (user-confirmed hard cap) - anything above is OCR garbage.
         if stamina is None or not (0 <= stamina <= MAX_VALID):
             self.history = []
             if stamina is not None:

@@ -25,7 +25,7 @@ ANTHROPIC_API_KEY: str | None = None
 # Daemon timing
 DAEMON_INTERVAL = 2.0              # Main loop interval (seconds) - can go as low as 0.5s with cv2 scaling
 STAMINA_OCR_INTERVAL = 5.0         # Stamina OCR interval (seconds) - expensive, doesn't need to run every loop
-STAMINA_OCR_MAX_VALID = 2500       # Reject stamina OCR reads above this as garbage (real stamina can reach ~2000 with items; 2500 leaves headroom while still catching misreads like 123456789)
+STAMINA_OCR_MAX_VALID = 200        # USER-CONFIRMED HARD CAP: stamina > 200 is IMPOSSIBLE in this game. The earlier 2500 bound ("real stamina ~2000 with items") was itself based on trusting glued-digit OCR misreads (511/910 while true value was 11/9) and enabled the 2026-07-11 stamina burn.
 IDLE_THRESHOLD = 300               # Default: 5 minutes idle required for automation (override in config_local.py)
 IDLE_CHECK_INTERVAL = 300          # 5 minutes between idle recovery checks
 
