@@ -8,6 +8,9 @@ All matching uses template_matcher with COLOR images (no grayscale).
 """
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("bag")
+
 import sys
 import time
 from pathlib import Path
@@ -92,7 +95,7 @@ def bag_resources_flow(
     # Step 1: Open bag if requested
     if open_bag:
         if debug:
-            print("Step 1: Opening bag...")
+            logger.info("Step 1: Opening bag...")
 
         frame = win.get_screenshot_cv2()
 
@@ -100,11 +103,11 @@ def bag_resources_flow(
         is_present, score, _ = match_template(frame, "bag_button_4k.png", search_region=BAG_BUTTON_REGION, threshold=0.1)
         if not is_present:
             if debug:
-                print(f"  Bag button not found (score={score:.4f})")
+                logger.info(f"  Bag button not found (score={score:.4f})")
             return 0
 
         if debug:
-            print(f"  Bag button verified (score={score:.4f}), clicking...")
+            logger.info(f"  Bag button verified (score={score:.4f}), clicking...")
 
         adb.tap(*BAG_BUTTON_CLICK, source="flow:bag_resources:open_bag_button")
         time.sleep(1.0)
@@ -114,15 +117,15 @@ def bag_resources_flow(
         is_present, score, _ = match_template(frame, "bag_tab_4k.png", search_region=BAG_TAB_REGION, threshold=VERIFICATION_THRESHOLD)
         if not is_present:
             if debug:
-                print(f"  Bag tab not found - bag didn't open (score={score:.4f})")
+                logger.info(f"  Bag tab not found - bag didn't open (score={score:.4f})")
             return 0
 
         if debug:
-            print(f"  Bag tab verified - bag is open (score={score:.4f})")
+            logger.info(f"  Bag tab verified - bag is open (score={score:.4f})")
 
     # Step 2: Check Resources tab state and activate if needed
     if debug:
-        print("Step 2: Checking Resources tab...")
+        logger.info("Step 2: Checking Resources tab...")
 
     frame = win.get_screenshot_cv2()
 
@@ -131,23 +134,23 @@ def bag_resources_flow(
     _, inactive_score, tab_center = match_template(frame, "bag_resources_tab_4k.png", search_region=RESOURCES_TAB_REGION, threshold=1.0)
 
     if debug:
-        print(f"  Resources tab scores: active={active_score:.4f}, inactive={inactive_score:.4f}")
+        logger.info(f"  Resources tab scores: active={active_score:.4f}, inactive={inactive_score:.4f}")
 
     # Lower score = better match (SQDIFF)
     is_active = active_score < inactive_score
 
     if is_active:
         if debug:
-            print(f"  Resources tab already ACTIVE (active_score < inactive_score)")
+            logger.info(f"  Resources tab already ACTIVE (active_score < inactive_score)")
     else:
         if tab_center is None:
             if debug:
-                print(f"  Resources tab not found")
+                logger.info(f"  Resources tab not found")
             return 0
 
         # Click inactive tab to activate it (use detected center)
         if debug:
-            print(f"  Clicking Resources tab at {tab_center} to activate...")
+            logger.info(f"  Clicking Resources tab at {tab_center} to activate...")
         adb.tap(*tab_center, source="flow:bag_resources:activate_resources_tab")
         time.sleep(0.5)
 
@@ -157,11 +160,11 @@ def bag_resources_flow(
         _, inactive_score, _ = match_template(frame, "bag_resources_tab_4k.png", search_region=RESOURCES_TAB_REGION, threshold=1.0)
         if active_score >= inactive_score:
             if debug:
-                print(f"  Resources tab still not active after click (active={active_score:.4f}, inactive={inactive_score:.4f})")
+                logger.info(f"  Resources tab still not active after click (active={active_score:.4f}, inactive={inactive_score:.4f})")
             return 0
 
         if debug:
-            print(f"  Resources tab is now ACTIVE")
+            logger.info(f"  Resources tab is now ACTIVE")
 
     # Step 3: Loop - find and process diamonds one at a time, rescan after each
     diamond_count = 0
@@ -170,44 +173,43 @@ def bag_resources_flow(
     while diamond_count < max_diamonds:
         # RESCAN for diamonds (they shift after each use)
         if debug:
-            print(f"\nScan #{diamond_count + 1}: Looking for diamonds...")
+            logger.info(f"\nScan #{diamond_count + 1}: Looking for diamonds...")
 
         frame = win.get_screenshot_cv2()
         diamond_pos, score = _find_first_diamond(frame, debug=debug)
 
         if diamond_pos is None:
             if debug:
-                print(f"  No diamond found (best score={score:.4f}), done!")
+                logger.info(f"  No diamond found (best score={score:.4f}), done!")
             break
 
         dx, dy = diamond_pos
         if debug:
-            print(f"  Found diamond at ({dx}, {dy}), score={score:.4f}")
+            logger.info(f"  Found diamond at ({dx}, {dy}), score={score:.4f}")
 
         # Click diamond
         if debug:
-            print("  Clicking diamond...")
+            logger.info("  Clicking diamond...")
         adb.tap(dx, dy, source="flow:bag_resources:click_diamond")
         time.sleep(0.5)
 
         # Use the shared subflow for drag/use/back
         success = use_item_subflow(adb, win, debug=debug)
         if not success:
-            if debug:
-                print("  ERROR: use_item_subflow failed")
+            logger.warning("  ERROR: use_item_subflow failed")
             break
 
         diamond_count += 1
         if debug:
-            print(f"  Diamond #{diamond_count} processed!")
+            logger.info(f"  Diamond #{diamond_count} processed!")
 
     if debug:
-        print(f"\nCompleted! Processed {diamond_count} diamond(s)")
+        logger.info(f"\nCompleted! Processed {diamond_count} diamond(s)")
 
     # Only close bag if we opened it
     if open_bag:
         if debug:
-            print("Closing bag...")
+            logger.info("Closing bag...")
         click_back(adb)
         time.sleep(0.3)
 
@@ -227,4 +229,4 @@ if __name__ == "__main__":
     win = WindowsScreenshotHelper()
 
     count = bag_resources_flow(adb, win, debug=args.debug, open_bag=not args.no_open_bag)
-    print(f"\nClaimed {count} diamond(s)")
+    logger.info(f"\nClaimed {count} diamond(s)")

@@ -73,15 +73,15 @@ TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates" / "g
 ACTIVE_TAB_TEMPLATES = {
     "special": ("bag_special_tab_active_4k.png", (1487, 2000, 230, 150)),   # template 211x134, center X=1497
     "resources": ("bag_resources_tab_active_4k.png", (1750, 2000, 200, 140)),  # template 179x111, center X=1760
-    "hero": ("bag_hero_tab_active_4k.png", (2148, 2000, 220, 150)),  # template 200x127, center X=2158
+    "hero": ("bag_hero_tab_active_4k.png", (2160, 2000, 220, 150)),  # restyled bar 2026-07-10: Hero spans x2170-2360
 }
 
 # Tab click positions (4K) - ALL VERIFIED via sweep test
 # Tab order: Special | Resource | Speed Up | Hero | Gift
 TAB_CLICK_POSITIONS = {
     "special": (1605, 2065),   # VERIFIED - use template center
-    "resources": (1800, 2070),  # VERIFIED - confirmed activates resources
-    "hero": (2200, 2070),  # VERIFIED - confirmed activates hero (score=0.0034)
+    "resources": (1828, 2075),  # re-measured 2026-07-10: tab center (1800 still worked, was off-center)
+    "hero": (2265, 2075),  # re-measured 2026-07-10: Speed Up tab inserted, old 2200 lands in the gap
 }
 
 

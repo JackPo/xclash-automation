@@ -8,6 +8,9 @@ All matching uses template_matcher with COLOR images (no grayscale).
 """
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("bag")
+
 import sys
 import time
 from pathlib import Path
@@ -97,7 +100,7 @@ def _find_first_chest(
         )
 
         if debug:
-            print(f"    {name}: score={score:.4f}")
+            logger.info(f"    {name}: score={score:.4f}")
 
         if score < best_score:
             best_score = score
@@ -144,15 +147,15 @@ def bag_special_flow(
     if include_level_chests:
         template_names.extend(LEVEL_CHEST_TEMPLATES)
         if debug:
-            print(f"VS Day {arms_race['day']}, {minutes_remaining:.1f} min left - including level chest templates")
+            logger.info(f"VS Day {arms_race['day']}, {minutes_remaining:.1f} min left - including level chest templates")
 
     if debug:
-        print(f"Using {len(template_names)} chest templates")
+        logger.info(f"Using {len(template_names)} chest templates")
 
     # Step 1: Open bag if requested
     if open_bag:
         if debug:
-            print("Step 1: Opening bag...")
+            logger.info("Step 1: Opening bag...")
 
         frame = win.get_screenshot_cv2()
 
@@ -160,11 +163,11 @@ def bag_special_flow(
         is_present, score, _ = match_template(frame, "bag_button_4k.png", search_region=BAG_BUTTON_REGION, threshold=0.1)
         if not is_present:
             if debug:
-                print(f"  Bag button not found (score={score:.4f})")
+                logger.info(f"  Bag button not found (score={score:.4f})")
             return 0
 
         if debug:
-            print(f"  Bag button verified (score={score:.4f}), clicking...")
+            logger.info(f"  Bag button verified (score={score:.4f}), clicking...")
 
         adb.tap(*BAG_BUTTON_CLICK, source="flow:bag_special:open_bag_button")
         time.sleep(1.5)  # Wait for bag to fully load
@@ -174,15 +177,15 @@ def bag_special_flow(
         is_present, score, _ = match_template(frame, "bag_tab_4k.png", search_region=BAG_TAB_REGION, threshold=VERIFICATION_THRESHOLD)
         if not is_present:
             if debug:
-                print(f"  Bag tab not found - bag didn't open (score={score:.4f})")
+                logger.info(f"  Bag tab not found - bag didn't open (score={score:.4f})")
             return 0
 
         if debug:
-            print(f"  Bag tab verified - bag is open (score={score:.4f})")
+            logger.info(f"  Bag tab verified - bag is open (score={score:.4f})")
 
     # Step 2: Check Special tab state and activate if needed
     if debug:
-        print("Step 2: Checking Special tab...")
+        logger.info("Step 2: Checking Special tab...")
 
     frame = win.get_screenshot_cv2()
 
@@ -191,23 +194,23 @@ def bag_special_flow(
     _, inactive_score, tab_center = match_template(frame, "bag_special_tab_4k.png", search_region=SPECIAL_TAB_REGION, threshold=1.0)
 
     if debug:
-        print(f"  Special tab scores: active={active_score:.4f}, inactive={inactive_score:.4f}")
+        logger.info(f"  Special tab scores: active={active_score:.4f}, inactive={inactive_score:.4f}")
 
     # Lower score = better match (SQDIFF)
     is_active = active_score < inactive_score
 
     if is_active:
         if debug:
-            print(f"  Special tab already ACTIVE (active_score < inactive_score)")
+            logger.info(f"  Special tab already ACTIVE (active_score < inactive_score)")
     else:
         if tab_center is None:
             if debug:
-                print(f"  Special tab not found")
+                logger.info(f"  Special tab not found")
             return 0
 
         # Click inactive tab to activate it (use detected center)
         if debug:
-            print(f"  Clicking Special tab at {tab_center} to activate...")
+            logger.info(f"  Clicking Special tab at {tab_center} to activate...")
         adb.tap(*tab_center, source="flow:bag_special:activate_special_tab")
         time.sleep(0.5)
 
@@ -217,11 +220,11 @@ def bag_special_flow(
         _, inactive_score, _ = match_template(frame, "bag_special_tab_4k.png", search_region=SPECIAL_TAB_REGION, threshold=1.0)
         if active_score >= inactive_score:
             if debug:
-                print(f"  Special tab still not active after click (active={active_score:.4f}, inactive={inactive_score:.4f})")
+                logger.info(f"  Special tab still not active after click (active={active_score:.4f}, inactive={inactive_score:.4f})")
             return 0
 
         if debug:
-            print(f"  Special tab is now ACTIVE")
+            logger.info(f"  Special tab is now ACTIVE")
 
     # Step 3: Loop - find and process chests one at a time, rescan after each
     chest_count = 0
@@ -229,44 +232,43 @@ def bag_special_flow(
 
     while chest_count < max_chests:
         if debug:
-            print(f"\nScan #{chest_count + 1}: Looking for chests...")
+            logger.info(f"\nScan #{chest_count + 1}: Looking for chests...")
 
         frame = win.get_screenshot_cv2()
         chest_pos, score, matched_template = _find_first_chest(frame, template_names, debug=debug)
 
         if chest_pos is None:
             if debug:
-                print(f"  No chest found (best score={score:.4f}), done!")
+                logger.info(f"  No chest found (best score={score:.4f}), done!")
             break
 
         cx, cy = chest_pos
         if debug:
-            print(f"  Found chest at ({cx}, {cy}), score={score:.4f}, template={matched_template}")
+            logger.info(f"  Found chest at ({cx}, {cy}), score={score:.4f}, template={matched_template}")
 
         # Click chest
         if debug:
-            print("  Clicking chest...")
+            logger.info("  Clicking chest...")
         adb.tap(cx, cy, source="flow:bag_special:click_chest")
         time.sleep(0.5)
 
         # Use the shared subflow for drag/use/back
         success = use_item_subflow(adb, win, debug=debug)
         if not success:
-            if debug:
-                print("  ERROR: use_item_subflow failed")
+            logger.warning("  ERROR: use_item_subflow failed")
             break
 
         chest_count += 1
         if debug:
-            print(f"  Chest #{chest_count} processed!")
+            logger.info(f"  Chest #{chest_count} processed!")
 
     if debug:
-        print(f"\nCompleted! Processed {chest_count} chest(s)")
+        logger.info(f"\nCompleted! Processed {chest_count} chest(s)")
 
     # Only close bag if we opened it
     if open_bag:
         if debug:
-            print("Closing bag...")
+            logger.info("Closing bag...")
         click_back(adb)
         time.sleep(0.3)
 
@@ -286,4 +288,4 @@ if __name__ == "__main__":
     win = WindowsScreenshotHelper()
 
     count = bag_special_flow(adb, win, debug=args.debug, open_bag=not args.no_open_bag)
-    print(f"\nClaimed {count} chest(s)")
+    logger.info(f"\nClaimed {count} chest(s)")

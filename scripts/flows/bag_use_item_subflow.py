@@ -13,6 +13,9 @@ All matching uses template_matcher with COLOR images (no grayscale).
 """
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("bag")
+
 import sys
 import time
 from pathlib import Path
@@ -69,10 +72,9 @@ def use_item_subflow(
         threshold=DIALOG_THRESHOLD
     )
     if debug:
-        print(f"  Use button: found={use_found}, score={use_score:.4f}")
+        logger.info(f"  Use button: found={use_found}, score={use_score:.4f}")
     if not use_found or use_pos is None:
-        if debug:
-            print("  ERROR: Use dialog not detected")
+        logger.warning("  ERROR: Use dialog not detected")
         return False
 
     use_click_x, use_click_y = use_pos
@@ -83,13 +85,12 @@ def use_item_subflow(
         threshold=DIALOG_THRESHOLD
     )
     if not plus_found or plus_pos is None:
-        if debug:
-            print(f"  ERROR: Plus button not found (score={plus_score:.4f})")
+        logger.warning(f"  ERROR: Plus button not found (score={plus_score:.4f})")
         return False
 
     plus_x, plus_y = plus_pos
     if debug:
-        print(f"  Plus button at ({plus_x}, {plus_y}), score={plus_score:.4f}")
+        logger.info(f"  Plus button at ({plus_x}, {plus_y}), score={plus_score:.4f}")
 
     # Find slider position - search in a Y band around plus button
     slider_search_region = (0, plus_y - 50, frame.shape[1], 100)  # Full width, narrow Y band
@@ -99,26 +100,25 @@ def use_item_subflow(
         threshold=DIALOG_THRESHOLD
     )
     if not slider_found or slider_pos is None:
-        if debug:
-            print(f"  ERROR: Slider not found (score={slider_score:.4f})")
+        logger.warning(f"  ERROR: Slider not found (score={slider_score:.4f})")
         return False
 
     slider_x, slider_y = slider_pos
     # Use plus_y directly since slider is at same Y as plus/minus buttons
     slider_y = plus_y
     if debug:
-        print(f"  Slider at ({slider_x}, {slider_y}), score={slider_score:.4f}")
+        logger.info(f"  Slider at ({slider_x}, {slider_y}), score={slider_score:.4f}")
 
     # Click at max position on slider (just before plus button)
     max_x = plus_x - 40  # Max position just before the plus button
     if debug:
-        print(f"  Clicking slider at max position ({max_x}, {slider_y})...")
+        logger.info(f"  Clicking slider at max position ({max_x}, {slider_y})...")
     adb.tap(max_x, slider_y, source="flow:bag_use_item:slider_max")
     time.sleep(0.3)
 
     # Click Use button at found position
     if debug:
-        print(f"  Clicking Use button at ({use_click_x}, {use_click_y})...")
+        logger.info(f"  Clicking Use button at ({use_click_x}, {use_click_y})...")
     adb.tap(use_click_x, use_click_y, source="flow:bag_use_item:use_button")
     time.sleep(1.0)  # Initial wait for use animation
 
@@ -126,7 +126,7 @@ def use_item_subflow(
     max_attempts = 10
     for attempt in range(max_attempts):
         if debug:
-            print(f"  Clicking back (attempt {attempt + 1})...")
+            logger.info(f"  Clicking back (attempt {attempt + 1})...")
         click_back(adb)
         time.sleep(0.5)
 
@@ -139,13 +139,12 @@ def use_item_subflow(
         )
 
         if debug:
-            print(f"    Bag header check: visible={is_bag}, score={score:.4f}")
+            logger.info(f"    Bag header check: visible={is_bag}, score={score:.4f}")
 
         if is_bag:
             if debug:
-                print("  Back at bag screen!")
+                logger.info("  Back at bag screen!")
             return True
 
-    if debug:
-        print(f"  ERROR: Could not return to bag screen after {max_attempts} attempts")
+    logger.warning(f"  ERROR: Could not return to bag screen after {max_attempts} attempts")
     return False
