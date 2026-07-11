@@ -2943,9 +2943,12 @@ class IconDaemon:
                 else:
                     harvest_present, harvest_score = False, 1.0
 
-                # IMMEDIATE execution for handshake - cooldown + SHORT user-pause
-                # gate (it fired 6x into active play; claiming can wait 10s).
-                if handshake_present and self._can_run_flow() and get_user_idle_seconds() >= 10.0:
+                # IMMEDIATE execution for handshake - fire the instant the icon
+                # appears (alliance help is time-sensitive; user wants it fast).
+                # No idle gate: it's a single tap and the 2s cooldown stops spam.
+                # (The earlier "fighting" was the broken idle tracker + recovery
+                # loops, both fixed; a lone handshake tap doesn't disrupt play.)
+                if handshake_present and self._can_run_flow():
                     now = time.time()
                     if now - self._last_handshake_click >= self.HANDSHAKE_COOLDOWN:
                         self.logger.info(f"[{iteration}] HANDSHAKE detected (score={handshake_score:.4f}) - executing immediately")

@@ -59,15 +59,20 @@ RALLY_FLAG_TEMPLATE = "rally_button_4k.png"    # mask auto-detected (rally_butto
 RALLY_FLAG_REGION = (1600, 1500, 750, 450)     # x, y, w, h (bottom-center of the panel)
 RALLY_FLAG_THRESHOLD = 0.06
 
-# --- Giant world-boss monster (e.g. Hydra) -----------------------------------
+# --- Giant world-boss monster (e.g. Hydra/dragon) ----------------------------
 # For a small trapped python, tapping the toolbar icon opens its info panel
-# directly. For a GIANT boss the icon only RE-CENTERS the camera on the monster
-# (verified 2026-07-10: hydra capture showed the map centered on the sprite with
-# NO panel). We must then tap the monster body itself to open its rally panel.
-# The map centers the boss at a consistent screen spot; body center measured
-# from the hydra capture. If a future boss sits elsewhere, the step screenshot
-# (02b_giant_monster_tap) will show it.
-GIANT_MONSTER_TAP = (1660, 850)
+# directly. For a GIANT boss the icon only RE-CENTERS the camera on the monster;
+# we must tap the monster BODY to select it, which pops floating action buttons
+# AROUND the sprite (not a bottom panel). The rally button is then a GREEN
+# "Rally Point" flag to the LEFT of the monster - a different template AND a
+# different location than the python's red bottom-panel flag.
+# Coords measured from the live dragon capture 2026-07-11 (Gemini-verified):
+#   body center (1770,833); green rally flag (1324,619). If a future boss sits
+#   elsewhere, step screenshots 02b_giant_monster_tap / 02c show it.
+GIANT_MONSTER_TAP = (1770, 833)
+GIANT_RALLY_FLAG_TEMPLATE = "monster_rally_flag_4k.png"
+GIANT_RALLY_FLAG_REGION = (1050, 380, 700, 600)  # left-of-monster floating buttons
+GIANT_RALLY_FLAG_THRESHOLD = 0.06
 
 # --- The launch button on the rally/deploy screen (calibrated blind) ---------
 # Try each in order; click the first that appears. Whichever is right for this
@@ -201,18 +206,19 @@ def desert_python_rally_flow(
     _save(frame, f"02_panel_rallyflag{rf}_score{rsc:.3f}")
 
     # Giant-boss case: the icon only re-centered the camera on the monster (no
-    # panel). Tap the monster body to open its rally panel, then poll again.
+    # bottom panel). Tap the monster BODY to select it -> floating action
+    # buttons appear -> click the GREEN "Rally Point" flag to its left.
     if not (rf and rc is not None):
         logger.info(
-            f"[PYTHON] no rally flag after icon tap (best={rsc:.4f}) - "
-            f"giant monster? tapping body at {GIANT_MONSTER_TAP}"
+            f"[PYTHON] no bottom rally flag (best={rsc:.4f}) - giant monster: "
+            f"tapping body at {GIANT_MONSTER_TAP}"
         )
         adb.tap(*GIANT_MONSTER_TAP, source="flow:python_rally:tap_giant_monster")
         rf, rsc, rc, frame = _poll_for_template(
-            win, RALLY_FLAG_TEMPLATE, RALLY_FLAG_THRESHOLD,
-            timeout=RALLY_FLAG_TIMEOUT, search_region=RALLY_FLAG_REGION,
+            win, GIANT_RALLY_FLAG_TEMPLATE, GIANT_RALLY_FLAG_THRESHOLD,
+            timeout=RALLY_FLAG_TIMEOUT, search_region=GIANT_RALLY_FLAG_REGION,
         )
-        _save(frame, f"02b_giant_monster_tap_rallyflag{rf}_score{rsc:.3f}")
+        _save(frame, f"02b_giant_monster_greenflag{rf}_score{rsc:.3f}")
 
     if not (rf and rc is not None):
         # Still nothing: panel never opened, or the monster is already being
