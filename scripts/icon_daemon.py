@@ -2113,19 +2113,25 @@ class IconDaemon:
         """
         return_to_base_view(adb, self.windows_helper, target=ViewState.TOWN,
                             respect_idle=False)
-        frame = self.windows_helper.get_screenshot_cv2()
-        if frame is None:
+        # Confirm we actually reached TOWN (retry the settle once) - only then is
+        # the fixed hospital tap safe. We DON'T gate on a fresh bubble match:
+        # the bubble is animated (flaps IDLE) and the just-after-nav frame is
+        # often transitional (score 1.0); perception's vote history already
+        # established a bubble is present, and tapping the hospital in TOWN
+        # simply opens it regardless of the current animation phase.
+        in_town = False
+        for _ in range(3):
+            frame = self.windows_helper.get_screenshot_cv2()
+            if frame is not None and detect_view(frame)[0] == ViewState.TOWN:
+                in_town = True
+                break
+            time.sleep(0.6)
+        if not in_town:
+            self.logger.warning("[HOSPITAL] could not reach TOWN - skipping hospital tap")
             return False
         state, score = self.hospital_matcher.get_state(frame)
-        # Tap the matcher's calibrated click position (bubble sits at a fixed
-        # TOWN spot); state just confirms a bubble is actually present.
         cx, cy = self.hospital_matcher.get_click_position()
-        if state == HospitalState.IDLE:
-            self.logger.warning(
-                f"[HOSPITAL] in TOWN but no bubble present (state=IDLE, score={score:.4f}) - skipping tap"
-            )
-            return False
-        self.logger.info(f"[HOSPITAL] opening panel: {state.name} bubble at ({cx},{cy}), score={score:.4f}")
+        self.logger.info(f"[HOSPITAL] in TOWN, opening hospital at ({cx},{cy}) (bubble={state.name} {score:.3f})")
         mark_daemon_action()
         adb.tap(cx, cy, source="daemon:hospital_open")
         time.sleep(2.5)
