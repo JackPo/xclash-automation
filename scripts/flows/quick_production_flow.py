@@ -446,11 +446,21 @@ def _open_class_skill_panel(adb: ADBHelper, win: WindowsScreenshotHelper, tag: s
 
 
 def _parse_skill_block(block_text: str):
-    """Split a class-skill OCR block into (name, effect, cooldown_spec)."""
-    lines = [l.strip() for l in (block_text or "").split("\n") if l.strip()]
-    name = lines[0] if lines else ""
-    effect = next((l for l in lines if l.lower().startswith("upon use")), "")
-    cooldown = next((l for l in lines if "cooldown" in l.lower()), "")
+    """Split a class-skill OCR block into (name, effect, cooldown_spec).
+
+    OCR returns the whole block on ONE line now, so we split on the fixed
+    section markers "Upon use" and "Cooldown" instead of on newlines (which
+    made `name` swallow the entire effect+cooldown blob on the portal).
+    """
+    text = " ".join((block_text or "").split())  # collapse whitespace/newlines
+    m = re.split(r"(?i)\bupon\s+use\b", text, maxsplit=1)
+    name = m[0].strip(" .:-")
+    rest = ("Upon use" + m[1]) if len(m) > 1 else ""
+    cm = re.split(r"(?i)\bcool\s*down\b", rest, maxsplit=1)
+    effect = cm[0].strip()
+    # cooldown spec = "Cooldown: NN hour(s)"; drop any trailing "On cooldown HH:" tail
+    cooldown = ("Cooldown" + cm[1]).strip() if len(cm) > 1 else ""
+    cooldown = re.split(r"(?i)\bon\s+cool\s*down\b", cooldown)[0].strip(" .:-")
     return name, effect, cooldown
 
 
@@ -488,8 +498,13 @@ def read_class_skills(adb: ADBHelper, win: WindowsScreenshotHelper | None = None
                 prompt=("Transcribe the visible text as plain characters only. Output "
                         "just the text, no coordinates, no bounding boxes, no tags."),
             )
+            # The cooldown TIMER sits on the RIGHT of the row (~x2160-2490),
+            # vertically centred on the icon. The old region (1590,cy+38,..)
+            # read the LEFT effect/"On cooldown" text instead - so the portal
+            # parsed random numbers out of the description. Verified 2026-07-11:
+            # this region OCRs '10:44:35' / '23:14:31' cleanly.
             status = ocr_extract_text(
-                frame, region=(1590, cy + 38, 440, 82),
+                frame, region=(2140, cy - 55, 350, 115),
                 prompt=("Transcribe the timer/status text as plain characters only "
                         "(e.g. 'Ready' or '05:14:32' or '23h 12m'). No tags, no coordinates."),
             )

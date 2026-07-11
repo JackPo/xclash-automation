@@ -181,9 +181,16 @@ class DaemonScheduler:
 
         flow_data = self.schedule["flows"][flow_name]
 
-        # If cooldown_override, backdate last_run so next ready = now + override
+        # If cooldown_override, backdate last_run so next ready = now + override.
+        # MUST use the SAME cooldown source is_flow_ready reads (config["cooldown"]),
+        # not the per-entry flow_data["cooldown_seconds"] - the latter is frozen at
+        # entry-creation time and goes stale when a flow's config cooldown changes
+        # (e.g. quick_production 24h->19h). A stale 86400 vs config 68400 turned a
+        # 305-min override into a 5-min retry (QP re-ran every 5 min all day).
         if cooldown_override is not None:
-            normal_cooldown = flow_data.get("cooldown_seconds", 3600)
+            config = self._get_flow_config(flow_name)
+            normal_cooldown = config["cooldown"] if config else flow_data.get("cooldown_seconds", 3600)
+            flow_data["cooldown_seconds"] = normal_cooldown  # heal the stale value
             adjusted = now - timedelta(seconds=(normal_cooldown - cooldown_override))
             flow_data["last_run"] = adjusted.isoformat()
         else:
