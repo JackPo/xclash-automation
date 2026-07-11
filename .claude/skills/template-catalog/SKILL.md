@@ -93,6 +93,31 @@ BARRACKS_POSITIONS = [
 - `HOSPITAL_CLICK_POSITION = (3342, 377)`
 - `HEALING_BUTTON_CLICK = (2148, 1477)`
 
+**Vote thresholds**: HELP_READY needs only 3/10 votes (the handshake bubble is
+ANIMATED; scores flap 0.002<->0.079 with phase, 60% is unreachable). HEALING /
+WOUNDED keep 6/10. All hospital actions navigate to TOWN first
+(`_open_hospital_bubble`) - never tap the fixed position blind.
+
+---
+
+## Alliance-Help Button (left toolbar) - MASKED templates
+
+Round button RIGHT of the magnifying glass. Click center **(213, 1496)**,
+search region **(120, 1400, 220, 200)**, threshold 0.06. Three DIFFERENT
+request types rotate at this one spot (2026-07-11, see
+docs/HOSPITAL_AND_ALLIANCE_HELP.md):
+
+| Template | Icon | Click opens | Auto-click? |
+|----------|------|-------------|-------------|
+| `assist_help_briefcase_4k.png` + mask | blue medkit, "NN%" badge | Hospital healing panel | **YES** -> healing_flow (if HOSPITAL_HEAL_ENABLED) |
+| `assist_help_handshake_4k.png` + mask | handshake | CHAT | never |
+| `assist_help_helmet_4k.png` + mask | golden helmet | Point Ranking | never (also pixel-identical to a chat-feed avatar) |
+
+Masks built by diffing each icon on two backgrounds (constant pixels = icon).
+**Mask filename must be `<name>_mask_4k.png`** (loader replaces the FIRST
+`_4k.png`; `x_4k_mask_4k.png` is silently ignored). Masked scores ~0.0003
+across backgrounds; cross-state >=0.19.
+
 ---
 
 ## Royal City Templates
@@ -147,7 +172,8 @@ horizontal strip — never the whole screen (the map false-matches otherwise).
 
 | Template | Size | Threshold | Meaning | Action |
 |----------|------|-----------|---------|--------|
-| `cobra_icon_4k.png` | 82x82 | 0.08 | Desert Python / cobra rally event available | Tap → rally flag → deploy (`desert_python_rally_flow`) |
+| `cobra_icon_4k.png` | 82x82 | 0.08 | Desert Python / cobra rally event available - ALSO fires for giant bosses (Hydra) | Tap → rally flag → deploy (`desert_python_rally_flow`) |
+| `monster_rally_flag_4k.png` | 180x240 | 0.06 | GREEN "Rally Point" flag on a selected GIANT boss (floating buttons LEFT of the sprite, region (1050,380,700,600)) - giant bosses do NOT show the red bottom-panel rally_button | Click to open deploy |
 | `sandstorm_rally_4k.png` | - | 0.10 | Sandstorm / Union Rally Point event | Tap (capture mode — deploy screen not yet wired) |
 
 Extracted 2026-07-08. Earlier attempts wrongly captured on-map terrain (a
@@ -205,7 +231,7 @@ same way if their verification starts failing.
 | Tab | Region | Active | Inactive |
 |-----|--------|--------|----------|
 | Special | (1487, 2000, 230, 150) | `bag_special_tab_active_4k.png` (190x75, 2026-07-10) | `bag_special_tab_4k.png` (190x75, 2026-07-10) |
-| Hero | (2158, 2015, 207, 127) | `bag_hero_tab_active_4k.png` | `bag_hero_tab_4k.png` |
+| Hero | (2160, 2000, 220, 145) | `bag_hero_tab_active_4k.png` | `bag_hero_tab_4k.png` |
 | Resources | (1732, 2018, 179, 111) | `bag_resources_tab_active_4k.png` | `bag_resources_tab_4k.png` |
 
 **Special Tab Items** (7):

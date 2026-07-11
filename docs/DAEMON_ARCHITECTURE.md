@@ -1,4 +1,4 @@
-# Daemon Architecture (post-refactor, 2026-07-10)
+# Daemon Architecture (post-refactor, 2026-07-10; hazards updated 2026-07-11)
 
 One screen + one input channel → **detection parallelizes, action serializes.**
 
@@ -77,3 +77,52 @@ fallbacks) comes after C5.
 - Template thresholds flap across frames: when perception sights something the
   acting flow can't confirm, back off via the skipped/cooldown_seconds result
   channel instead of re-popping every cooldown (see map_gift_box).
+
+## Hazards, wave 2 (2026-07-11 — the "everything stopped working" night)
+
+- **"User activity" means input AT THE GAME, not at the machine.**
+  `utils/user_idle_tracker.py` originally counted ANY system input (typing in a
+  terminal, clicking the dashboard, a browser overlapping the BlueStacks
+  rectangle) as game activity → idle pinned at 0 → every gated action starved
+  AND recovery kept "yielding to the user" who wasn't there. Now: system input
+  counts only when BlueStacks is the FOREGROUND window; mouse-over checks are
+  z-order aware (WindowFromPoint, not rectangle overlap); fresh processes
+  start IDLE (init used to set last-activity=now, so every new process aborted
+  its own first navigation); Win32 SendInput senders (`send_zoom`,
+  `send_arrow`) self-mark as daemon actions at the source.
+- **Yield must return failure.** All 19 `_should_abort_for_user_activity`
+  sites in return_to_base_view returned TRUE on yield — callers believed
+  navigation succeeded and tapped TOWN coordinates into whatever was actually
+  open (with the idle bug above, EVERY call yielded instantly and "succeeded"
+  while the game sat in CHAT — this alone explained most "flows stopped
+  working"). Yield returns False now.
+- **Left edge / bottom center = CHAT territory.** UNKNOWN-recovery edge clicks
+  at (100,1080) and (1920,2050) opened the chat panel and stranded the game
+  there. Removed; only right-middle and top-center remain.
+- **Don't wipe perception-owned vote histories on view blips.** The loop reset
+  hospital_state_history on every non-TOWN frame; the view flaps TOWN↔WORLD
+  every ~10s, so the 10-vote threshold was unreachable and auto-heal was
+  silently dead. Perception's tracker is already TOWN-gated — the loop-side
+  reset now applies only when the loop owns the votes.
+- **State actions must (re)establish their view.** Hospital taps fired blindly
+  at the fixed TOWN position from whatever view was current. All hospital
+  actions route through `_open_hospital_bubble()` (navigate → verify TOWN →
+  tap) — and do NOT gate that tap on a single fresh bubble frame (animated
+  bubble + transitional post-nav frames read IDLE; the vote history is the
+  evidence).
+- **Animated bubbles break per-reading thresholds.** The HELP_READY handshake
+  scores 0.002↔0.079 with animation phase; a 60% vote majority is unreachable.
+  Per-state vote minimums (HELP_READY 3/10) instead of one blanket rule.
+- **Scheduler cooldown must come from ONE source.** `record_flow_run` backdated
+  with the stale per-entry cooldown while `is_flow_ready` used the config value;
+  after a config change the mismatch turned long overrides into 5-min retries
+  (quick_production ran all day). Both read config now.
+- **NEVER send Android BACK (keyevent 4)** — it exits the game app entirely.
+  Deselect map objects by tapping empty terrain; close panels via their own
+  buttons.
+- **Mask filename convention**: `<name>_mask_4k.png` — the loader replaces the
+  first `_4k.png`. A wrong name (e.g. `x_4k_mask_4k.png`) is silently ignored
+  and matching quietly degrades to unmasked.
+
+See also: docs/HOSPITAL_AND_ALLIANCE_HELP.md and
+docs/GAME_UI_CHANGES_2026-07.md (screenshots included).

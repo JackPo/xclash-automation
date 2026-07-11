@@ -20,6 +20,12 @@ priority 100, truthful started/queued/busy responses). Key rules:
 - Rollback: `DETECTOR_THREAD_ENABLED=False` in config_local.py.
 - Still inline (C5 pending): arms-race checkpoints, beast training, soldier
   training sequence, recovery, modes. C7 (delete legacy fallbacks) after C5.
+- **User activity = input AT THE GAME** (BlueStacks foreground / cursor
+  z-order), not machine-wide - see utils/user_idle_tracker.py.
+- **NEVER send Android BACK (keyevent 4)** - it exits the game entirely.
+- Hospital/alliance-help healing: docs/HOSPITAL_AND_ALLIANCE_HELP.md.
+- 2026-07 game restyle fixes (bag tabs, royal city, class skills, Hydra):
+  docs/GAME_UI_CHANGES_2026-07.md.
 
 ## Skills Reference
 

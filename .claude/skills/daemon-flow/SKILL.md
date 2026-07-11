@@ -26,6 +26,27 @@ actions flow through a priority IntentQueue. What this means for control:
   restarts. pause/resume work even during daemon init.
 - Rollback: `DETECTOR_THREAD_ENABLED=False` in config_local.py.
 
+## Auto-behaviors added 2026-07-11
+
+- **Auto-heal (hospital)**: WOUNDED/HEALING 6-of-10 votes (TOWN-only sampling)
+  + user idle -> navigate to TOWN, tap the hospital, run healing_flow.
+  HELP_READY needs only 3/10 (animated bubble). Vote history survives brief
+  WORLD blips (perception owns it). Manual: `run_flow healing` (navigates
+  first, works from any view).
+- **Union-heal (alliance help)**: the healing BRIEFCASE on the left toolbar
+  (right of the magnifying glass) -> click (213,1496) -> healing_flow.
+  Masked template, only fires when HOSPITAL_HEAL_ENABLED, 30s cooldown. The
+  handshake/helmet icons at the same spot open chat/ranking and are NEVER
+  auto-clicked (docs/HOSPITAL_AND_ALLIANCE_HELP.md).
+- **Handshake**: fires the INSTANT the icon appears (no idle gate; 2s
+  cooldown). The idle tracker now only counts input directed at the game, so
+  typing/dashboard use doesn't starve it.
+- **Giant-boss rally (Hydra)**: cobra icon tap only re-centers the camera for
+  giant bosses; the flow then taps the monster body and clicks its GREEN
+  "Rally Point" flag (docs/GAME_UI_CHANGES_2026-07.md).
+- **Never Android BACK** (keyevent 4) - it exits the game. Deselect by tapping
+  empty terrain; close panels via their own buttons.
+
 ## Quick Reference
 
 | Action | Command |
