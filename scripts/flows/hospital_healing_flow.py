@@ -16,6 +16,9 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("hospital_healing_flow")
+
 import sys
 import time
 import argparse
@@ -87,41 +90,47 @@ def hospital_healing_flow(
 
     ocr = OCRClient()
 
-    print("Hospital Healing Flow")
-    print("=" * 50)
+    logger.info("Hospital Healing Flow")
+    logger.info("=" * 50)
 
     # Step 0: Verify hospital panel is open by checking header (COLOR matching)
-    print("\nStep 0: Verifying hospital panel is open...")
-    frame = win.get_screenshot_cv2()
-    is_open, score, _ = match_template(
-        frame, "hospital_header_4k.png",
-        search_region=HOSPITAL_HEADER_REGION,
-        threshold=HOSPITAL_HEADER_THRESHOLD
-    )
+    logger.info("\nStep 0: Verifying hospital panel is open...")
+    is_open, score = False, 1.0
+    _deadline = time.time() + 5.0
+    while time.time() < _deadline:
+        frame = win.get_screenshot_cv2()
+        is_open, score, _ = match_template(
+            frame, "hospital_header_4k.png",
+            search_region=HOSPITAL_HEADER_REGION,
+            threshold=HOSPITAL_HEADER_THRESHOLD
+        )
+        if is_open:
+            break
+        time.sleep(0.4)
     if not is_open:
-        print(f"  ERROR: Hospital panel NOT open (header score={score:.4f})")
+        logger.warning(f"[HEAL] Hospital panel NOT open after 5s poll (header score={score:.4f}) - tap missed or header template stale")
         return False
-    print(f"  OK - Hospital panel verified (header score={score:.4f})")
+    logger.info(f"  OK - Hospital panel verified (header score={score:.4f})")
 
     # Step 1: Find soldier rows (detects plus buttons)
-    print("\nStep 1: Finding soldier rows...")
+    logger.info("\nStep 1: Finding soldier rows...")
     frame = win.get_screenshot_cv2()
     buttons = find_plus_buttons(frame, debug=debug)
 
     if not buttons:
-        print("  ERROR: No soldier rows found - is hospital panel open?")
+        logger.info("  ERROR: No soldier rows found - is hospital panel open?")
         return False
 
-    print(f"  Found {len(buttons)} soldier rows")
+    logger.info(f"  Found {len(buttons)} soldier rows")
 
     # Step 2: Reset ALL sliders to zero
     # Only scroll if 3+ rows visible (indicates more rows may be below)
-    print("\nStep 2: Resetting all sliders to zero...")
+    logger.info("\nStep 2: Resetting all sliders to zero...")
 
     rows_reset = 0
     if len(buttons) >= 3:
         # Multiple rows visible - need to scroll through panel to find all
-        print(f"  {len(buttons)} rows visible - scrolling to find all rows")
+        logger.info(f"  {len(buttons)} rows visible - scrolling to find all rows")
         for scroll_num in range(5):  # Max 5 scrolls to cover all rows
             frame = win.get_screenshot_cv2()
             visible_buttons = find_plus_buttons(frame, debug=False)
@@ -140,14 +149,14 @@ def hospital_healing_flow(
             time.sleep(0.5)
     else:
         # Few rows (1-2) - all content visible, just reset directly
-        print(f"  {len(buttons)} rows visible - all content on screen, no scrolling needed")
+        logger.info(f"  {len(buttons)} rows visible - all content on screen, no scrolling needed")
         for plus_x, plus_y, _ in buttons:
             drag_slider_to_min(adb, frame, plus_x, plus_y, debug=False)
             rows_reset += 1
             time.sleep(0.3)
             frame = win.get_screenshot_cv2()  # Refresh after each drag
 
-    print(f"  Reset {rows_reset} slider positions")
+    logger.info(f"  Reset {rows_reset} slider positions")
 
     # Refresh to get current visible buttons
     time.sleep(0.3)
@@ -155,34 +164,34 @@ def hospital_healing_flow(
     # Step 3: Check initial healing time (should be 0 or very small)
     frame = win.get_screenshot_cv2()
     initial_time = get_healing_time_seconds(frame, ocr, debug=debug)
-    print(f"  Initial healing time: {initial_time}s")
+    logger.info(f"  Initial healing time: {initial_time}s")
 
     # Step 4: Fill ONLY the bottom row (highest level soldiers)
     # Other rows stay at minimum - we only heal one soldier type at a time
-    print(f"\nStep 3: Filling ONLY bottom row (highest level soldiers)...")
-    print(f"  Other rows stay at minimum")
+    logger.info(f"\nStep 3: Filling ONLY bottom row (highest level soldiers)...")
+    logger.info(f"  Other rows stay at minimum")
 
     # Get current visible buttons (we're at bottom after reset loop)
     frame = win.get_screenshot_cv2()
     buttons = find_plus_buttons(frame, debug=debug)
 
     if not buttons:
-        print("  ERROR: No rows found after scrolling")
+        logger.info("  ERROR: No rows found after scrolling")
         return False
 
     # Bottom row is the last one (highest Y position = highest level)
     bottom_row = buttons[-1]
     plus_x, plus_y, score = bottom_row
     slider_y = get_slider_y(plus_y)
-    print(f"  Processing ONLY bottom row (Y={slider_y}, highest level soldiers)")
-    print(f"  Other rows stay at minimum")
+    logger.info(f"  Processing ONLY bottom row (Y={slider_y}, highest level soldiers)")
+    logger.info(f"  Other rows stay at minimum")
 
     current_time = initial_time
 
     # Drag bottom row's slider to max
     frame = win.get_screenshot_cv2()
     if not drag_slider_to_max(adb, frame, plus_x, plus_y, debug=debug):
-        print(f"    Could not find slider, aborting")
+        logger.info(f"    Could not find slider, aborting")
         return False
 
     time.sleep(0.5)
@@ -190,17 +199,17 @@ def hospital_healing_flow(
     # Check new healing time
     frame = win.get_screenshot_cv2()
     new_time = get_healing_time_seconds(frame, ocr, debug=debug)
-    print(f"    After max: {new_time}s ({new_time//3600}h {(new_time%3600)//60}m)")
+    logger.info(f"    After max: {new_time}s ({new_time//3600}h {(new_time%3600)//60}m)")
 
     upper_target = int(max_heal_seconds * (1 + HOSPITAL_HEAL_TARGET_TOLERANCE_RATIO))
 
     if new_time <= upper_target:
         # Under limit, keep at max
-        print(f"    Under limit, keeping at max")
+        logger.info(f"    Under limit, keeping at max")
         current_time = new_time
     else:
         # Over limit - binary search for right position
-        print(f"    Over limit ({new_time}s > {upper_target}s), adjusting...")
+        logger.info(f"    Over limit ({new_time}s > {upper_target}s), adjusting...")
 
         low_ratio = 0.0
         high_ratio = 1.0
@@ -219,7 +228,7 @@ def hospital_healing_flow(
             test_time = get_healing_time_seconds(frame, ocr, debug=False)
 
             if debug:
-                print(f"      ratio={mid_ratio:.2f} -> {test_time}s")
+                logger.info(f"      ratio={mid_ratio:.2f} -> {test_time}s")
 
             if test_time <= upper_target:
                 best_ratio = mid_ratio
@@ -235,47 +244,47 @@ def hospital_healing_flow(
         time.sleep(0.3)
 
         current_time = best_time
-        print(f"    Set to ratio={best_ratio:.2f}, time={current_time}s")
+        logger.info(f"    Set to ratio={best_ratio:.2f}, time={current_time}s")
 
     # Step 5: Final check and click Healing
-    print("\nStep 4: Final verification and clicking Healing button...")
+    logger.info("\nStep 4: Final verification and clicking Healing button...")
     frame = win.get_screenshot_cv2()
     final_time = get_healing_time_seconds(frame, ocr, debug=debug)
-    print(f"  Final healing time: {final_time}s ({final_time//3600}h {(final_time%3600)//60}m {final_time%60}s)")
+    logger.info(f"  Final healing time: {final_time}s ({final_time//3600}h {(final_time%3600)//60}m {final_time%60}s)")
 
     # Final safety check
     if final_time > MAX_SAFE_HEAL_SECONDS:
-        print(f"  ERROR: Final time {final_time}s exceeds safety limit! NOT clicking Heal.")
+        logger.info(f"  ERROR: Final time {final_time}s exceeds safety limit! NOT clicking Heal.")
         return_to_base_view(adb, win, debug=debug)
         return False
 
     if final_time == 0:
-        print("  No soldiers to heal (time is 0)")
+        logger.info("  No soldiers to heal (time is 0)")
         return False
 
     click_healing_button(adb, debug=debug)
     time.sleep(0.5)
 
     # Step 5b: Check for insufficient resources prompt
-    print("\nStep 4b: Checking for insufficient resources...")
+    logger.info("\nStep 4b: Checking for insufficient resources...")
     from utils.replenish_all_helper import ReplenishAllHelper
     replenish_helper = ReplenishAllHelper()
 
     if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
         # Resources were replenished - need to click Healing button again
-        print("  Resources replenished - clicking Healing button again...")
+        logger.info("  Resources replenished - clicking Healing button again...")
         time.sleep(0.5)
         click_healing_button(adb, debug=debug)
         time.sleep(0.5)
     else:
-        print("  No resource issue - healing started normally")
+        logger.info("  No resource issue - healing started normally")
 
     # Step 6: Return to base view
-    print("\nStep 5: Returning to base view...")
+    logger.info("\nStep 5: Returning to base view...")
     return_to_base_view(adb, win, debug=debug)
 
-    print("\n" + "=" * 50)
-    print("Hospital Healing Flow complete!")
+    logger.info("\n" + "=" * 50)
+    logger.info("Hospital Healing Flow complete!")
     return True
 
 
