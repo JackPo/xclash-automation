@@ -425,7 +425,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
     # Check idle FIRST - if user is active, don't interfere with clicking
     if _should_abort_for_user_activity("initial check"):
-        return True
+        return False  # yielded to user - navigation NOT completed; never report success
 
     # =========================================================================
     # FAST PATH: Try simple navigation FIRST (no subprocess calls)
@@ -442,7 +442,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
 
     for fast_attempt in range(5):
         if _should_abort_for_user_activity("fast path"):
-            return True
+            return False  # yielded to user - navigation NOT completed; never report success
 
         frame = win.get_screenshot_cv2()
         if frame is None:
@@ -467,7 +467,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     f"(score={donate_score:.3f}), clicking center to close"
                 )
             if _should_abort_for_user_activity("fast path donate popup close"):
-                return True
+                return False  # yielded to user - navigation NOT completed; never report success
             adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen_donate_popup")
             time.sleep(0.4)
             continue
@@ -485,7 +485,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             if debug:
                 print(f"    [RETURN] Fast path: Back button at {back_pos}, clicking (attempt {fast_attempt + 1})")
             if _should_abort_for_user_activity("fast path before back tap"):
-                return True
+                return False  # yielded to user - navigation NOT completed; never report success
             adb.tap(*back_pos, source="rtb:fast_back")
 
             # Poll until back button gone or view changed (max 1.5s)
@@ -546,7 +546,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             if debug:
                 print(f"    [RETURN] Fast path: In CHAT, clicking back (attempt {fast_attempt + 1})")
             if _should_abort_for_user_activity("fast path before chat back"):
-                return True
+                return False  # yielded to user - navigation NOT completed; never report success
             click_back(adb)
 
             # Poll until view changes (max 1.5s)
@@ -629,7 +629,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
     for attempt in range(MAX_RECOVERY_ATTEMPTS):
 
         if _should_abort_for_user_activity("full recovery attempt"):
-            return True
+            return False  # yielded to user - navigation NOT completed; never report success
 
         if deadline is not None and time.time() > deadline:
             print(f"    [RETURN] Deadline exceeded during recovery (attempt {attempt + 1}) - "
@@ -651,7 +651,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
             if vs0 not in (ViewState.TOWN, ViewState.WORLD):
                 from config import TOGGLE_BUTTON_CLICK
                 if _should_abort_for_user_activity("modal toggle escape"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*TOGGLE_BUTTON_CLICK, source="rtb:toggle_escape")
                 time.sleep(0.8)
                 frame = win.get_screenshot_cv2()
@@ -668,7 +668,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
         back_clicks = 0
         while back_clicks < MAX_BACK_CLICKS:
             if _should_abort_for_user_activity("full recovery back loop"):
-                return True
+                return False  # yielded to user - navigation NOT completed; never report success
 
             frame = win.get_screenshot_cv2()
             if frame is None:
@@ -694,7 +694,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print(f"    [RETURN] Back button found at {back_pos} (score={back_score:.3f}, template={matched_template}), clicking...")
                 if _should_abort_for_user_activity("full recovery before back tap"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*back_pos, source="rtb:back_button")
                 back_clicks += 1
 
@@ -756,7 +756,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print(f"    [RETURN] GROUND detected at {ground_pos} - clicking to dismiss panels")
                 if _should_abort_for_user_activity("ground dismiss"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*ground_pos, source="rtb:ground_click")
                 time.sleep(0.5)
 
@@ -786,7 +786,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print(f"    [RETURN] GRASS detected at {grass_pos} - clicking to dismiss panels")
                 if _should_abort_for_user_activity("grass dismiss"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*grass_pos, source="rtb:grass_click")
                 time.sleep(0.5)
 
@@ -837,7 +837,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print("    [RETURN] UNION DONATE POPUP detected - clicking center to dismiss...")
                 if _should_abort_for_user_activity("union donate popup dismiss"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen_donate_popup")
                 time.sleep(0.5)
                 continue  # Retry detection
@@ -848,7 +848,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print("    [RETURN] TROOP SELECTED state detected - clicking map to deselect...")
                 if _should_abort_for_user_activity("troop deselect"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*MAP_DESELECT_CLICK, source="rtb:map_deselect")
                 time.sleep(0.5)
 
@@ -871,7 +871,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print("    [RETURN] RESOURCE BAR visible but World button hidden - trying center click...")
                 if _should_abort_for_user_activity("resource bar center click"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen")
                 time.sleep(0.5)
 
@@ -893,7 +893,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print(f"    [RETURN] BACK BUTTON at {back_pos} - clicking to exit dialog...")
                 if _should_abort_for_user_activity("step3 back button"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*back_pos, source="rtb:back_button")
                 # Poll for back button to disappear (same as Phase 1)
                 for poll in range(5):
@@ -925,7 +925,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     if debug:
                         print(f"    [RETURN] Grass detected (WORLD view) - clicking at {grass_pos}")
                     if _should_abort_for_user_activity("unknown grass click"):
-                        return True
+                        return False  # yielded to user - navigation NOT completed; never report success
                     adb.tap(*grass_pos, source="rtb:grass_click")
                     time.sleep(0.5)
                     # Check if we're now in TOWN/WORLD
@@ -955,7 +955,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     if debug:
                         print(f"    [RETURN] Ground detected (TOWN view) - clicking at {ground_pos}")
                     if _should_abort_for_user_activity("unknown ground click"):
-                        return True
+                        return False  # yielded to user - navigation NOT completed; never report success
                     adb.tap(*ground_pos, source="rtb:ground_click")
                     time.sleep(0.5)
                     # Check if we're now in TOWN/WORLD
@@ -986,7 +986,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                     if debug:
                         print(f"    [RETURN] Found back button at {back_pos2} (score={back_score2:.3f})")
                     if _should_abort_for_user_activity("fallback back click"):
-                        return True
+                        return False  # yielded to user - navigation NOT completed; never report success
                     adb.tap(*back_pos2, source="rtb:back_button")
                     time.sleep(0.5)
                 else:
@@ -1011,7 +1011,7 @@ def return_to_base_view(adb: ADBHelper, screenshot_helper: WindowsScreenshotHelp
                 if debug:
                     print("    [RETURN] Trying center screen click...")
                 if _should_abort_for_user_activity("fallback center click"):
-                    return True
+                    return False  # yielded to user - navigation NOT completed; never report success
                 adb.tap(*CENTER_SCREEN_CLICK, source="rtb:center_screen")
                 time.sleep(0.5)
 

@@ -139,7 +139,10 @@ class UserIdleTracker:
     MOUSE_MOVE_THRESHOLD = 2
 
     def __init__(self) -> None:
-        self._last_user_activity = time.time()
+        # Start IDLE, not active: initializing to now() made every fresh
+        # process report idle=0 and abort its own recovery/gates for the
+        # first minutes. The first update() marks activity if there is any.
+        self._last_user_activity = time.time() - 3600.0
         self._last_daemon_action = 0.0
         self._prev_system_idle = 0.0
         self._prev_mouse_pos: tuple[int, int] | None = None
