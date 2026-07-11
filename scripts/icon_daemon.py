@@ -662,6 +662,7 @@ class IconDaemon:
         # Left-toolbar assist cluster (helmet/briefcase/help-hand) - immediate
         # tap when healing is on. Template + center measured live 2026-07-11.
         self._last_assist_left_click: float = 0.0
+        self.ASSIST_LEFT_ENABLED: bool = False  # off: tap opened chat, wrong target
         self.ASSIST_LEFT_COOLDOWN: float = 3.0
         self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 300, 250)
         self.ASSIST_LEFT_CLICK: tuple[int, int] = (224, 1518)
@@ -2969,7 +2970,11 @@ class IconDaemon:
                 # at the same spot next to the hourglass. Tap the instant one
                 # shows, but ONLY when healing is enabled (user's condition).
                 # Single tap + cooldown; logged every fire.
-                if self._can_run_flow():
+                # DISABLED 2026-07-11: tapping (224,1518) opened UNION CHAT, not
+                # an assist - the helmet sits over the world-chat feed overlay.
+                # Wrong target/position; needs the real assist icon+action before
+                # re-enabling (see ASSIST_LEFT_ENABLED).
+                if self.ASSIST_LEFT_ENABLED and self._can_run_flow():
                     heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                     if heal_on:
                         af = self.windows_helper.get_screenshot_cv2()
