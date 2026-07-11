@@ -36,7 +36,7 @@ from utils.ui_helpers import click_back
 
 # Fixed positions (4K resolution)
 # Use button can be at different Y positions depending on dialog type
-USE_BUTTON_REGION = (1750, 1400, 350, 300)  # x, y, w, h - search region for Use button
+USE_BUTTON_REGION = (1650, 1250, 550, 500)  # widened 2026-07-10: dialog floats vertically with item-text length; old (1750,1400,..) started 17px BELOW the button for short-description chests
 
 # Bag header region for verification (same as bag_special_flow)
 BAG_TAB_REGION = (1352, 32, 1127, 90)
