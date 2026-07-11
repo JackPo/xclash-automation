@@ -3559,8 +3559,15 @@ class IconDaemon:
                             else:
                                 self.logger.debug(f"[{iteration}] HOSPITAL: Healing disabled by config, skipping")
                 else:
-                    # Not in TOWN - reset hospital state history
-                    if self.hospital_state_history:
+                    # Not in TOWN - reset hospital state history, but ONLY when the
+                    # LOOP owns the votes. When PERCEPTION owns them, its tracker is
+                    # already TOWN-gated (it never samples in WORLD), so a brief
+                    # WORLD blip must NOT wipe the accumulated votes - otherwise the
+                    # view flapping TOWN<->WORLD every ~10s keeps resetting the
+                    # history to 0 and the heal NEVER reaches the 10-vote threshold
+                    # (root cause of "not auto healing" with wounded soldiers sitting
+                    # in TOWN, idle for minutes).
+                    if not self._votes_owned_by_perception() and self.hospital_state_history:
                         self.hospital_state_history = []
 
                 # Barracks: READY/PENDING barracks (non-Arms Race ONLY)
