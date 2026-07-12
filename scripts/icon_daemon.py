@@ -667,7 +667,7 @@ class IconDaemon:
         self.ASSIST_LEFT_COOLDOWN: float = 0.5    # near-zero: the per-click verify already paces taps to the game's icon-swap speed
         self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 220, 200)
         self.ASSIST_LEFT_CLICK: tuple[int, int] = (213, 1496)
-        self.ASSIST_LEFT_THRESHOLD: float = 0.06
+        self.ASSIST_LEFT_THRESHOLD: float = 0.03  # real button matches at 0.000-0.01 (masked); the chat-feed avatar look-alike cross-matches at 0.052-0.06 - 0.03 separates cleanly, no post-tap verify needed
         # ONLY the healing BRIEFCASE triggers healing (verified live: briefcase
         # click -> Hospital panel; handshake -> chat; helmet -> ranking). After
         # the click the Hospital healing panel is open, so run healing_flow.
@@ -1008,13 +1008,13 @@ class IconDaemon:
                     # TOWN and WORLD and must be clicked on sight (user spec).
                     DetectorSpec("union_briefcase", None,
                                  lambda f: match_template(f, "assist_help_briefcase_4k.png",
-                                                          search_region=(120, 1400, 220, 200), threshold=0.06)),
+                                                          search_region=(120, 1400, 220, 200), threshold=0.03)),
                     DetectorSpec("union_helmet", None,
                                  lambda f: match_template(f, "assist_help_helmet_4k.png",
-                                                          search_region=(120, 1400, 220, 200), threshold=0.06)),
+                                                          search_region=(120, 1400, 220, 200), threshold=0.03)),
                     DetectorSpec("union_handshake", None,
                                  lambda f: match_template(f, "assist_help_handshake_4k.png",
-                                                          search_region=(120, 1400, 220, 200), threshold=0.06)),
+                                                          search_region=(120, 1400, 220, 200), threshold=0.03)),
                     # --- stateless fixed-spot icons (C1 migration) ---
                     DetectorSpec("handshake", None, _p2(self.handshake_matcher.is_present)),  # any view
                     DetectorSpec("treasure_map", {TOWN, WORLD}, _p2(self.treasure_matcher.is_present)),
