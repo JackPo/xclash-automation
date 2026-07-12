@@ -83,7 +83,7 @@ except ImportError:
     print("Install with: pip install websockets")
     sys.exit(1)
 
-DEFAULT_URI = "ws://localhost:9876"
+DEFAULT_URI = "ws://127.0.0.1:9876"
 
 
 async def send_command(cmd: str, args: dict = None, uri: str = DEFAULT_URI, timeout: int = None) -> dict:
@@ -93,7 +93,7 @@ async def send_command(cmd: str, args: dict = None, uri: str = DEFAULT_URI, time
     Args:
         cmd: Command name (e.g., "run_flow", "status")
         args: Command arguments dict
-        uri: WebSocket URI (default ws://localhost:9876)
+        uri: WebSocket URI (default ws://127.0.0.1:9876)
         timeout: Response timeout in seconds (default: 30 for status, 180 for run_flow)
 
     Returns:

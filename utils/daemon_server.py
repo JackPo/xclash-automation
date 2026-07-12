@@ -1,7 +1,7 @@
 """
 WebSocket server for daemon control.
 
-Runs async in a background thread, accepts connections on ws://localhost:9876.
+Runs async in a background thread, accepts connections on ws://127.0.0.1:9876.
 Enables external processes to trigger flows, check status, and receive push events.
 
 Protocol: JSON messages

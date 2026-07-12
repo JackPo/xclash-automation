@@ -105,7 +105,7 @@ async def get_daemon_status_via_ws() -> dict[str, Any]:
     import json
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=2) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=2) as ws:
             await ws.send(json.dumps({'cmd': 'status'}))
             response = json.loads(await ws.recv())
             if response.get('success'):
@@ -211,6 +211,19 @@ app = FastAPI(
     description="Control panel for xclash automation",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def _api_access_log(request, call_next):
+    """Log every /api request with outcome+duration - 'commands not arriving'
+    disputes are settled by grep [WEB] (uvicorn access_log is off)."""
+    import time as _t
+    t0 = _t.time()
+    response = await call_next(request)
+    if request.url.path.startswith("/api") and request.url.path != "/api/status":
+        logging.getLogger("dashboard").info(
+            f"[WEB] {request.method} {request.url.path} -> {response.status_code} in {(_t.time()-t0)*1000:.0f}ms")
+    return response
 
 # Mount static files
 STATIC_DIR = Path(__file__).parent / "static"
@@ -368,7 +381,7 @@ async def api_check_arms_race_score() -> dict[str, Any]:
 
     try:
         # Longer timeout for flow execution (180s like daemon_cli)
-        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=180) as ws:
             await ws.send(json.dumps({'cmd': 'run_flow', 'args': {'flow': 'arms_race_check'}}))
             response = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
 
@@ -403,7 +416,7 @@ async def api_refresh_shields() -> dict[str, Any]:
     import websockets
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=180) as ws:
             await ws.send(json.dumps({'cmd': 'get_shield_inventory', 'args': {}}))
             response = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
 
@@ -448,7 +461,7 @@ async def _delayed_shield_activation(shield_type: str, delay_seconds: int):
     await asyncio.sleep(delay_seconds)
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=180) as ws:
             await ws.send(json.dumps({
                 'cmd': 'use_shield',
                 'args': {'shield_type': shield_type}
@@ -537,7 +550,7 @@ async def api_use_shield(request: UseShieldRequest) -> dict[str, Any]:
         return {"success": False, "error": f"Invalid shield type: {request.shield_type}"}
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=180) as ws:
             await ws.send(json.dumps({
                 'cmd': 'use_shield',
                 'args': {'shield_type': request.shield_type}
@@ -576,7 +589,7 @@ async def api_mark_quick_production_done(request: QuickProductionMarkDoneRequest
     import websockets
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=180) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=180) as ws:
             await ws.send(json.dumps({
                 'cmd': 'mark_quick_production_done',
                 'args': {'verify_ocr': request.verify_ocr},
@@ -709,7 +722,7 @@ async def send_daemon_command(cmd: str, args: dict[str, Any] | None = None, time
     import json
 
     try:
-        async with websockets.connect('ws://localhost:9876', close_timeout=timeout) as ws:
+        async with websockets.connect('ws://127.0.0.1:9876', close_timeout=timeout) as ws:
             msg = {'cmd': cmd}
             if args:
                 msg['args'] = args

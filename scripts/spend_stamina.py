@@ -25,7 +25,7 @@ except ImportError:
     print("Install with: pip install websockets")
     sys.exit(1)
 
-DEFAULT_URI = "ws://localhost:9876"
+DEFAULT_URI = "ws://127.0.0.1:9876"
 
 
 async def send_command(cmd: str, args: dict = None, uri: str = DEFAULT_URI, timeout: int = 180) -> dict:

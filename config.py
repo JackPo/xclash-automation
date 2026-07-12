@@ -85,7 +85,7 @@ DEBUG_TREASURE_FLOW = False        # Treasure map flow (off: action-capture cove
 DEBUG_RETURN_TO_BASE = False       # Return to base view recovery (was 240GB of PNGs)
 
 # WebSocket API server
-DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://localhost:9876)
+DAEMON_SERVER_PORT = 9876          # Port for WebSocket API (ws://127.0.0.1:9876)
 DAEMON_SERVER_ENABLED = True       # Set to False to disable WebSocket server
 
 # Dashboard web server
