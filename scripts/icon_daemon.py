@@ -1879,11 +1879,13 @@ class IconDaemon:
 
             self.logger.debug(f"[{iteration}] Resolution check: 4K={score_4k:.4f}, lowres={score_lowres:.4f}")
 
-            # If 4K matches better (lower score), resolution is correct
-            if score_4k <= score_lowres:
-                # Heartbeat for log-based verification (verify_daemon_log.py
-                # asserts this fires every <=5 min while unpaused).
+            # 4K correct only if it BOTH beats lowres AND actually matches
+            # (both ~1.0 = corner covered/transition, not a resolution signal).
+            if score_4k <= score_lowres and score_4k <= 0.08:
                 self.logger.info(f"[{iteration}] [RES-CHECK] ok 4K={score_4k:.4f} lowres={score_lowres:.4f}")
+                return True
+            if score_4k > 0.08 and score_lowres > 0.08:
+                self.logger.info(f"[{iteration}] [RES-CHECK] corner covered (4K={score_4k:.4f}, lowres={score_lowres:.4f}) - skipping")
                 return True
 
             # GUARD: If NEITHER template matches well (both > 0.08), something is covering
@@ -4740,16 +4742,25 @@ class IconDaemon:
                         if hf:
                             self.logger.info(f"[{iteration}] ASSIST: helmet detected in WORLD (score={hs:.4f})")
                     else:
-                        # Not in WORLD: the flow would NAVIGATE there blind. If the
-                        # user is actively playing in a menu (view UNKNOWN/CHAT +
-                        # recent input), navigating means fighting them for the
-                        # screen (observed: 130s recovery tug-of-war). Require a
-                        # short pause before the blind-navigate variant.
+                        # Not in WORLD: the flow would NAVIGATE there blind (~3s),
+                        # scan, usually find nothing, and return - and while it
+                        # holds the single actor the main loop is BLOCKED, so
+                        # handshake and every other on-sight action wait behind
+                        # it. Firing this every 30s (scheduler cooldown) hogged
+                        # the actor and made handshake feel "forever" (2026-07-12).
+                        # Rate-limit the blind navigate-and-scan HARD (5 min):
+                        # helmets in the base WORLD view are still caught whenever
+                        # the daemon is naturally in WORLD (in-WORLD on-sight path
+                        # above, which fires instantly); this is only the
+                        # from-TOWN fallback sweep.
+                        blind_gap = time.time() - getattr(self, '_last_assist_blind_nav', 0.0)
                         if get_user_idle_seconds() < 10.0:
                             run_assist = False
-                            self.logger.debug(f"[{iteration}] ASSIST: user active in non-WORLD view - waiting for a pause")
+                        elif blind_gap < 300.0:
+                            run_assist = False
                         else:
-                            self.logger.info(f"[{iteration}] ASSIST: mode on, checking WORLD for helmets")
+                            self._last_assist_blind_nav = time.time()
+                            self.logger.info(f"[{iteration}] ASSIST: 5-min sweep - navigating to WORLD to scan")
                     if run_assist:
                         flow_candidates.append(FlowCandidate(
                             name="assist_ally",
