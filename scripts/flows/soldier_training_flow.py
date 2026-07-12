@@ -342,6 +342,20 @@ def train_soldier_at_barrack(
     # Find and click the target soldier level
     success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
 
+    if not success:
+        # Tile matching is selection-state-brittle (a selected tile renders
+        # differently and stops matching its template). The game PRE-SELECTS
+        # the highest trainable level when the panel opens - so if the Train
+        # button is visible, proceed with the pre-selected level instead of
+        # aborting (2026-07-11: this left barracks empty for days).
+        frame = win.get_screenshot_cv2()
+        tv, ts = is_train_button_visible(frame)
+        if tv:
+            logger.info(f"  Lv{target_level} tile not matchable - proceeding with the game's pre-selected level (Train visible, score={ts:.4f})")
+            success = True
+        else:
+            logger.info(f"  Lv{target_level} not found and no Train button (score={ts:.4f})")
+
     if success:
         time.sleep(0.5)  # Wait for selection
 
@@ -366,8 +380,8 @@ def train_soldier_at_barrack(
 
                 success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
                 if not success:
-                    logger.info(f"  Failed to find Lv{target_level} after replenishment")
-                    return False
+                    logger.info(f"  Lv{target_level} tile not matchable after replenish - using pre-selected level")
+                    success = True
                 time.sleep(0.5)
 
                 # Click Train button again
