@@ -3064,35 +3064,71 @@ class IconDaemon:
                             # 4s still feels immediate but never fights a click.
                             and get_user_idle_seconds() >= 4.0):
                         af = self.windows_helper.get_screenshot_cv2()
-                        hit, sc, _ = match_template(
-                            af, self.ASSIST_LEFT_TEMPLATE,
-                            search_region=self.ASSIST_LEFT_REGION,
-                            threshold=self.ASSIST_LEFT_THRESHOLD,
-                        ) if af is not None else (False, 1.0, None)
-                        if hit:
-                            self.logger.info(f"[{iteration}] UNION-HEAL briefcase (score={sc:.4f}) - click {self.ASSIST_LEFT_CLICK} + heal")
+                        # USER SPEC: the toolbar slot cycles THREE actions -
+                        # briefcase = HEAL (opens hospital panel), helmet =
+                        # CLAIM healed soldiers, handshake = SPEED UP healing.
+                        # All are single clicks except briefcase (runs the
+                        # healing flow after the panel opens).
+                        _al_hit = None
+                        if af is not None:
+                            for _tname, _action in (
+                                ("assist_help_briefcase_4k.png", "heal"),
+                                ("assist_help_helmet_4k.png", "claim"),
+                                ("assist_help_handshake_4k.png", "speedup"),
+                            ):
+                                _h, _sc, _ = match_template(
+                                    af, _tname,
+                                    search_region=self.ASSIST_LEFT_REGION,
+                                    threshold=self.ASSIST_LEFT_THRESHOLD,
+                                )
+                                if _h:
+                                    _al_hit = (_action, _sc)
+                                    break
+                        if _al_hit is not None and time.time() >= getattr(self, '_assist_left_suppress_until', 0.0):
+                            _action, _sc = _al_hit
+                            self.logger.info(f"[{iteration}] UNION-HEAL {_action} (score={_sc:.4f}) - click {self.ASSIST_LEFT_CLICK}")
                             self._last_assist_left_click = time.time()
 
-                            def _union_heal(adb: Any) -> None:
-                                # Up to 2 attempts: the first tap can get
-                                # swallowed by a transition; re-verify the
-                                # briefcase is still there before retrying.
-                                for attempt in (1, 2):
-                                    mark_daemon_action()
-                                    adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:union_heal_briefcase")
-                                    time.sleep(2.5)  # Hospital panel opens
-                                    if healing_flow(adb):
+                            def _union_heal(adb: Any, action: str = _action) -> None:
+                                if action == "heal":
+                                    # Up to 2 attempts: the first tap can get
+                                    # swallowed by a transition; re-verify the
+                                    # briefcase before retrying.
+                                    for attempt in (1, 2):
+                                        mark_daemon_action()
+                                        adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:union_heal_briefcase")
+                                        time.sleep(2.5)  # Hospital panel opens
+                                        if healing_flow(adb):
+                                            return
+                                        self.logger.warning(f"[UNION-HEAL] heal attempt {attempt} - panel didn't open")
+                                        rf = self.windows_helper.get_screenshot_cv2()
+                                        still, _s2, _c2 = match_template(
+                                            rf, "assist_help_briefcase_4k.png",
+                                            search_region=self.ASSIST_LEFT_REGION,
+                                            threshold=self.ASSIST_LEFT_THRESHOLD,
+                                        ) if rf is not None else (False, 1.0, None)
+                                        if not still:
+                                            self.logger.info("[UNION-HEAL] briefcase gone - stopping")
+                                            return
+                                    return
+                                # claim / speedup: single tap, then verify the
+                                # outcome. HAZARD: the helmet is pixel-identical
+                                # to a chat-feed avatar - if the tap landed on
+                                # the avatar, CHAT opens: close it and suppress
+                                # this slot for 120s (self-correcting).
+                                mark_daemon_action()
+                                adb.tap(*self.ASSIST_LEFT_CLICK, source=f"daemon:union_heal_{action}")
+                                time.sleep(1.8)
+                                vf = self.windows_helper.get_screenshot_cv2()
+                                if vf is not None:
+                                    v, _vs = detect_view(vf)
+                                    if v == ViewState.CHAT:
+                                        self.logger.warning(f"[UNION-HEAL] {action} tap opened CHAT (avatar look-alike) - closing + suppressing 120s")
+                                        adb.tap(1407, 2051, source="daemon:union_heal_close_chat")
+                                        time.sleep(1.5)
+                                        self._assist_left_suppress_until = time.time() + 120.0
                                         return
-                                    self.logger.warning(f"[UNION-HEAL] attempt {attempt} did not heal (panel didn't open)")
-                                    rf = self.windows_helper.get_screenshot_cv2()
-                                    still, _s, _c = match_template(
-                                        rf, self.ASSIST_LEFT_TEMPLATE,
-                                        search_region=self.ASSIST_LEFT_REGION,
-                                        threshold=self.ASSIST_LEFT_THRESHOLD,
-                                    ) if rf is not None else (False, 1.0, None)
-                                    if not still:
-                                        self.logger.info("[UNION-HEAL] briefcase gone - stopping")
-                                        return
+                                self.logger.info(f"[UNION-HEAL] {action} clicked")
 
                             self._run_flow("healing", _union_heal)
                             continue
