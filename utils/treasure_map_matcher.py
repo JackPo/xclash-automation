@@ -57,7 +57,7 @@ class TreasureMapMatcher:
 
     # Single template with mask (auto-detected by match_template)
     TEMPLATE = "treasure_map/treasure_map_4k.png"
-    DEFAULT_THRESHOLD = 0.01  # Tight threshold - Group A frames match with score < 0.001
+    DEFAULT_THRESHOLD = 0.06  # was 0.01: the icon ANIMATES - present scores range 0.004-0.037 across phases (live-measured 2026-07-12, an on-screen treasure went undetected at 0.022); absent scores >=0.10
 
     def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         """
