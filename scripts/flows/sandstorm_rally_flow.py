@@ -79,8 +79,13 @@ def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -
     time.sleep(1.8)
 
     # The Sandflow Mine is ATTACKED (not rallied): its panel has an ATTACK button.
+    # Threshold 0.03 (was 0.08): REAL attack buttons score 0.0014-0.0021; the
+    # 0.069-0.076 "hits" were FALSE positives on an overlapping castle's UI
+    # (Class Skill / shield / Appearance row) - clicking them attacked the
+    # castle and march always failed (bimodal score data, 2026-07-12). 0.03
+    # sits in the wide gap.
     def _find_attack(frm: Any) -> tuple[int, int] | None:
-        for tpl, thr in [("royal_city_attack_button_4k.png", 0.08), ("attack_button_4k.png", 0.08)]:
+        for tpl, thr in [("royal_city_attack_button_4k.png", 0.03), ("attack_button_4k.png", 0.03)]:
             af, as_, ac = match_template(frm, tpl, search_region=(1500, 1450, 900, 550), threshold=thr)
             logger.info(f"[SANDSTORM] attack-button '{tpl}': found={af} score={as_:.4f} center={ac}")
             if af and ac is not None:
