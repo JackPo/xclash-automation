@@ -180,13 +180,22 @@ def assist_ally_flow(
     win = win or WindowsScreenshotHelper()
     result: dict[str, Any] = {"assisted": 0, "success": False, "stop_reason": ""}
 
-    # Must be on the WORLD map to see the markers.
+    # Must be on the WORLD map to see the markers. But navigating to the BASE
+    # WORLD view recenters on our own castle and scrolls AWAY from a helmet the
+    # screen is already showing (a nearby ally the user/daemon scrolled to) -
+    # the flow would drive past the very marker it should assist. So if a
+    # helmet is ALREADY on the current frame, assist it in place; only navigate
+    # to base when nothing's visible here (2026-07-12: "not assisting big shady
+    # on the screen" - it was on screen, the flow navigated off it).
     frame = win.get_screenshot_cv2()
     state, _ = detect_view(frame)
-    if state != ViewState.WORLD:
-        logger.info(f"[ASSIST] Not in WORLD ({state}) - navigating there")
+    here_found, _hs, _hc = _find_helmet(frame)
+    if not here_found and state != ViewState.WORLD:
+        logger.info(f"[ASSIST] no helmet on current frame and not WORLD ({state}) - navigating to base")
         return_to_base_view(adb, win, target=ViewState.WORLD, debug=debug)
         time.sleep(1.0)
+    elif here_found:
+        logger.info(f"[ASSIST] helmet already on screen (score={_hs:.4f}) - assisting in place, no navigation")
 
     _prune_failed()
     failed_centers: list[tuple[int, int]] = []  # helmets that opened a castle with no Assist
