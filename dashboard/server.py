@@ -1699,8 +1699,24 @@ def start_dashboard_server(daemon_instance: Any = None, port: int | None = None)
             import traceback
             traceback.print_exc()
 
+    def run_server_v6():
+        # Second listener on IPv6 LOOPBACK ONLY (::1): browsers resolving
+        # "localhost" try ::1 first; with only an IPv4 listener that attempt
+        # stalled ~2s before falling back - every new browser connection paid
+        # the tax ("commands don't make it / absurd lag", 2026-07-12). ::1 is
+        # loopback - no LAN exposure change.
+        try:
+            config6 = uvicorn.Config(
+                app, host="::1", port=port,
+                log_level="warning", access_log=False, log_config=None,
+            )
+            uvicorn.Server(config6).run()
+        except Exception as e:
+            print(f"[DASHBOARD] IPv6 loopback listener failed (non-fatal): {e}")
+
     thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
+    threading.Thread(target=run_server_v6, daemon=True).start()
 
     # Wait for server to start and verify
     time.sleep(1.5)
