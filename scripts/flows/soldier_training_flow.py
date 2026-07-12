@@ -15,6 +15,9 @@ All matching uses template_matcher with COLOR images (no grayscale).
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("soldier_training")
+
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -93,7 +96,7 @@ def wait_for_panel_open(
         frame = win.get_screenshot_cv2()
         is_open, score = is_soldier_training_panel_open(frame)
         if debug:
-            print(f"  Panel check: open={is_open}, score={score:.4f}")
+            logger.info(f"  Panel check: open={is_open}, score={score:.4f}")
         if is_open:
             return True
         time.sleep(0.3)
@@ -129,7 +132,7 @@ def collect_ready_soldiers(
         if state == BarrackState.READY:
             click_x, click_y = get_barrack_click_position(i)
             if debug:
-                print(f"  Collecting soldiers from barrack {i+1} at ({click_x}, {click_y})")
+                logger.info(f"  Collecting soldiers from barrack {i+1} at ({click_x}, {click_y})")
             adb.tap(click_x, click_y, source="flow:soldier_training:collect_ready")
             time.sleep(0.5)
             collected += 1
@@ -154,7 +157,7 @@ def scroll_soldier_panel_left(
     end_y = start_y
 
     if debug:
-        print(f"  Scrolling LEFT: drag from ({start_x}, {start_y}) to ({end_x}, {end_y})")
+        logger.info(f"  Scrolling LEFT: drag from ({start_x}, {start_y}) to ({end_x}, {end_y})")
 
     # Use swipe with longer duration for smooth scroll
     adb.swipe(start_x, start_y, end_x, end_y, duration=500)
@@ -178,7 +181,7 @@ def scroll_soldier_panel_right(
     end_y = start_y
 
     if debug:
-        print(f"  Scrolling RIGHT: drag from ({start_x}, {start_y}) to ({end_x}, {end_y})")
+        logger.info(f"  Scrolling RIGHT: drag from ({start_x}, {start_y}) to ({end_x}, {end_y})")
 
     # Use swipe with longer duration for smooth scroll
     adb.swipe(start_x, start_y, end_x, end_y, duration=500)
@@ -216,28 +219,28 @@ def find_and_click_soldier_level(
         visible_levels = sorted(visible.keys()) if visible else []
 
         if debug:
-            print(f"  Scroll {scroll_attempt}: visible levels = {visible_levels}")
+            logger.info(f"  Scroll {scroll_attempt}: visible levels = {visible_levels}")
 
         # Check if target level is visible
         target_info = find_soldier_level(frame, target_level)
         if target_info:
             click_x, click_y = target_info['center']
             if debug:
-                print(f"  Found Lv{target_level} at ({click_x}, {click_y}), clicking...")
+                logger.info(f"  Found Lv{target_level} at ({click_x}, {click_y}), clicking...")
             adb.tap(click_x, click_y, source="flow:soldier_training:select_level")
             return True
 
         # Target not visible, determine scroll direction
         if not visible_levels:
             if debug:
-                print("  No soldier tiles visible, cannot scroll")
+                logger.info("  No soldier tiles visible, cannot scroll")
             return False
 
         min_visible = min(visible_levels)
         max_visible = max(visible_levels)
 
         if debug:
-            print(f"  Target Lv{target_level} not visible. Visible range: Lv{min_visible}-Lv{max_visible}")
+            logger.info(f"  Target Lv{target_level} not visible. Visible range: Lv{min_visible}-Lv{max_visible}")
 
         # Determine which direction to scroll
         if target_level < min_visible:
@@ -246,11 +249,11 @@ def find_and_click_soldier_level(
             rightmost = get_rightmost_visible(frame)
             if rightmost is None:
                 if debug:
-                    print("  No rightmost tile found")
+                    logger.info("  No rightmost tile found")
                 return False
             rightmost_level, rightmost_info = rightmost
             if debug:
-                print(f"  Need to scroll LEFT (target {target_level} < min visible {min_visible})")
+                logger.info(f"  Need to scroll LEFT (target {target_level} < min visible {min_visible})")
             scroll_soldier_panel_left(adb, rightmost_info['center'], debug=debug)
 
         elif target_level > max_visible:
@@ -259,17 +262,17 @@ def find_and_click_soldier_level(
             leftmost = get_leftmost_visible(frame)
             if leftmost is None:
                 if debug:
-                    print("  No leftmost tile found")
+                    logger.info("  No leftmost tile found")
                 return False
             leftmost_level, leftmost_info = leftmost
             if debug:
-                print(f"  Need to scroll RIGHT (target {target_level} > max visible {max_visible})")
+                logger.info(f"  Need to scroll RIGHT (target {target_level} > max visible {max_visible})")
             scroll_soldier_panel_right(adb, leftmost_info['center'], debug=debug)
         else:
             # Target should be in visible range but wasn't detected
             # This shouldn't happen if templates are good, but try scrolling left as fallback
             if debug:
-                print(f"  Target Lv{target_level} in range {min_visible}-{max_visible} but not detected, trying scroll LEFT")
+                logger.info(f"  Target Lv{target_level} in range {min_visible}-{max_visible} but not detected, trying scroll LEFT")
             rightmost = get_rightmost_visible(frame)
             if rightmost:
                 scroll_soldier_panel_left(adb, rightmost[1]['center'], debug=debug)
@@ -277,7 +280,7 @@ def find_and_click_soldier_level(
                 return False
 
     if debug:
-        print(f"  Reached max scrolls ({max_scrolls}), target Lv{target_level} not found")
+        logger.info(f"  Reached max scrolls ({max_scrolls}), target Lv{target_level} not found")
     return False
 
 
@@ -317,32 +320,32 @@ def train_soldier_at_barrack(
         max_hours = (time_until.total_seconds() - 300) / 3600
         max_hours = max(0.5, max_hours)  # Minimum 30 min training
         if debug:
-            print(f"  Arms Race limit: {max_hours:.2f}h until next Soldier Training event")
+            logger.info(f"  Arms Race limit: {max_hours:.2f}h until next Soldier Training event")
     else:
         # During Soldier Training event or can't determine - use max (will be handled by upgrade flow)
         max_hours = None
         if debug:
-            print(f"  No Arms Race time limit (event active or unknown)")
+            logger.info(f"  No Arms Race time limit (event active or unknown)")
 
     # Click the barrack to open training panel
     click_x, click_y = get_barrack_click_position(barrack_index)
     if debug:
-        print(f"  Opening training panel for barrack {barrack_index+1} at ({click_x}, {click_y})")
+        logger.info(f"  Opening training panel for barrack {barrack_index+1} at ({click_x}, {click_y})")
     adb.tap(click_x, click_y, source="flow:soldier_training:open_panel")
 
     # VERIFY: Wait for panel to actually open
     if not wait_for_panel_open(win, timeout=3.0, debug=debug):
         if debug:
-            print(f"  ERROR: Soldier Training panel did not open!")
+            logger.info(f"  ERROR: Soldier Training panel did not open!")
         return False
 
     if debug:
-        print(f"  Panel opened successfully")
+        logger.info(f"  Panel opened successfully")
 
     # If we have a time limit, use barracks_training_flow for precise timing
     if max_hours is not None:
         if debug:
-            print(f"  Using timed training: Lv{target_level} for max {max_hours:.2f}h")
+            logger.info(f"  Using timed training: Lv{target_level} for max {max_hours:.2f}h")
 
         from scripts.flows.barracks_training_flow import barracks_training_flow
         # barracks_training_flow expects panel to already be open (which it is)
@@ -366,12 +369,12 @@ def train_soldier_at_barrack(
         frame = win.get_screenshot_cv2()
         train_visible, train_score = is_train_button_visible(frame)
         if debug:
-            print(f"  Train button check: visible={train_visible}, score={train_score:.4f}")
+            logger.info(f"  Train button check: visible={train_visible}, score={train_score:.4f}")
 
         if train_visible:
             # Click the Train button
             if debug:
-                print(f"  Clicking Train button at {TRAIN_BUTTON_CLICK}")
+                logger.info(f"  Clicking Train button at {TRAIN_BUTTON_CLICK}")
             adb.tap(*TRAIN_BUTTON_CLICK, source="flow:soldier_training:train_button")
             time.sleep(0.5)
 
@@ -382,30 +385,30 @@ def train_soldier_at_barrack(
             if replenish_helper.poll_and_handle_replenish(adb, win, debug=debug):
                 # After replenish, re-click soldier level and Train again
                 if debug:
-                    print(f"  Re-clicking Lv{target_level} after replenishment...")
+                    logger.info(f"  Re-clicking Lv{target_level} after replenishment...")
 
                 success = find_and_click_soldier_level(adb, win, target_level, debug=debug)
                 if not success:
                     if debug:
-                        print(f"  Failed to find Lv{target_level} after replenishment")
+                        logger.info(f"  Failed to find Lv{target_level} after replenishment")
                     return False
                 time.sleep(0.5)
 
                 # Click Train button again
                 if debug:
-                    print(f"  Clicking Train button again at {TRAIN_BUTTON_CLICK}")
+                    logger.info(f"  Clicking Train button again at {TRAIN_BUTTON_CLICK}")
                 adb.tap(*TRAIN_BUTTON_CLICK, source="flow:soldier_training:train_button_retry")
                 time.sleep(0.5)
 
             if debug:
-                print(f"  Started training Lv{target_level} soldiers at barrack {barrack_index+1}")
+                logger.info(f"  Started training Lv{target_level} soldiers at barrack {barrack_index+1}")
         else:
             if debug:
-                print(f"  WARNING: Train button not visible after selecting soldier level")
+                logger.info(f"  WARNING: Train button not visible after selecting soldier level")
             return False
     else:
         if debug:
-            print(f"  Failed to find Lv{target_level} in training panel")
+            logger.info(f"  Failed to find Lv{target_level} in training panel")
         return False
 
     return success
@@ -441,7 +444,7 @@ def soldier_training_flow(
 
     try:
         if debug:
-            print(f"Soldier Training Flow - target level: Lv{target_level}")
+            logger.info(f"Soldier Training Flow - target level: Lv{target_level}")
 
         # Step 1: Detect ALL barracks states in ONE screenshot
         frame = win.get_screenshot_cv2()
@@ -450,7 +453,7 @@ def soldier_training_flow(
 
         if debug:
             state_str = " ".join([f"B{i+1}:{s.value[0].upper()}" for i, (s, _) in enumerate(states)])
-            print(f"  Barracks states: {state_str}")
+            logger.info(f"  Barracks states: {state_str}")
 
         # Build action queues - NO re-detection after this point
         ready_barracks = []
@@ -462,7 +465,7 @@ def soldier_training_flow(
                 pending_barracks.append(i)
 
         if debug:
-            print(f"  Queue: READY={ready_barracks}, PENDING={pending_barracks}")
+            logger.info(f"  Queue: READY={ready_barracks}, PENDING={pending_barracks}")
 
         # Step 2: Click ALL READY barracks rapidly (no re-detection)
         # Check override for claim enabled
@@ -473,7 +476,7 @@ def soldier_training_flow(
             claim_enabled, is_overridden = manager.get_effective('BARRACKS_CLAIM_ENABLED', True)
             if is_overridden and not claim_enabled:
                 if debug:
-                    print(f"  BARRACKS_CLAIM_ENABLED override active: skipping soldier collection")
+                    logger.info(f"  BARRACKS_CLAIM_ENABLED override active: skipping soldier collection")
         except ImportError:
             pass
 
@@ -481,7 +484,7 @@ def soldier_training_flow(
             for i in ready_barracks:
                 click_x, click_y = get_barrack_click_position(i)
                 if debug:
-                    print(f"  Collecting from barrack {i+1}")
+                    logger.info(f"  Collecting from barrack {i+1}")
                 adb.tap(click_x, click_y, source="flow:soldier_training:collect_soldiers")
                 time.sleep(0.3)  # Brief delay for animation
                 results['collected'] += 1
@@ -491,28 +494,28 @@ def soldier_training_flow(
                 time.sleep(0.3)  # Wait for state change
                 pending_barracks.extend(ready_barracks)
                 if debug:
-                    print(f"  READY→PENDING, new queue: {pending_barracks}")
+                    logger.info(f"  READY→PENDING, new queue: {pending_barracks}")
         else:
             # Skip collection - READY barracks stay READY, don't add to pending queue
             if debug and ready_barracks:
-                print(f"  Skipped collecting from {len(ready_barracks)} READY barracks (claim disabled)")
+                logger.info(f"  Skipped collecting from {len(ready_barracks)} READY barracks (claim disabled)")
 
         # Step 3: Train ALL PENDING barracks (no re-detection between each)
         for i in pending_barracks:
             if debug:
-                print(f"  Training at barrack {i+1}")
+                logger.info(f"  Training at barrack {i+1}")
             success = train_soldier_at_barrack(adb, win, i, target_level, debug=debug)
             if success:
                 results['trained'] += 1
             # NO re-detection here - just move to next barrack
 
         if debug:
-            print(f"  Flow complete: collected={results['collected']}, trained={results['trained']}")
+            logger.info(f"  Flow complete: collected={results['collected']}, trained={results['trained']}")
 
     finally:
         # ALWAYS return to base view, even if flow failed
         if debug:
-            print(f"  Cleaning up - returning to base view...")
+            logger.info(f"  Cleaning up - returning to base view...")
         return_to_base_view(adb, win, debug=debug)
 
     return results
@@ -524,4 +527,4 @@ if __name__ == "__main__":
 
     adb = ADBHelper()
     results = soldier_training_flow(adb, debug=True)
-    print(f"\nResults: {results}")
+    logger.info(f"\nResults: {results}")

@@ -393,7 +393,7 @@ BARRACKS_YELLOW_PIXEL_THRESHOLD = 1000
 
 # Default soldier level to train when NOT in Arms Race Soldier Training event
 # During Arms Race Soldier Training, this may be overridden to train higher levels
-SOLDIER_TRAINING_DEFAULT_LEVEL = 6
+SOLDIER_TRAINING_DEFAULT_LEVEL = 8  # 2026-07-11: was 6 - the Lv6 tile now renders with an upgrade-arrow overlay (stale template, undetectable) and the game itself pre-selects the highest trainable level; Lv8 detects at 0.008
 
 # =============================================================================
 # HOSPITAL STATE DETECTION (4K resolution)
