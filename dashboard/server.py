@@ -218,10 +218,11 @@ async def _api_access_log(request, call_next):
     """Log every /api request with outcome+duration - 'commands not arriving'
     disputes are settled by grep [WEB] (uvicorn access_log is off)."""
     import time as _t
+    import logging as _logging
     t0 = _t.time()
     response = await call_next(request)
     if request.url.path.startswith("/api") and request.url.path != "/api/status":
-        logging.getLogger("dashboard").info(
+        __logging.getLogger("dashboard").info(
             f"[WEB] {request.method} {request.url.path} -> {response.status_code} in {(_t.time()-t0)*1000:.0f}ms")
     return response
 
