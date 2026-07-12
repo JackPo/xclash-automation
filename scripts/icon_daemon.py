@@ -3120,23 +3120,12 @@ class IconDaemon:
                                             self.logger.info("[UNION-HEAL] briefcase gone - stopping")
                                             return
                                     return
-                                # claim / speedup: single tap, then verify the
-                                # outcome. HAZARD: the helmet is pixel-identical
-                                # to a chat-feed avatar - if the tap landed on
-                                # the avatar, CHAT opens: close it and suppress
-                                # this slot for 120s (self-correcting).
+                                # claim / speedup: just tap. No verify, no
+                                # sleep (user spec: see it -> click it). The
+                                # continuous scan picks up the next state on
+                                # the following tick.
                                 mark_daemon_action()
                                 adb.tap(*self.ASSIST_LEFT_CLICK, source=f"daemon:union_heal_{action}")
-                                time.sleep(1.0)  # icon swap + chat-guard frame; the only pacing
-                                vf = self.windows_helper.get_screenshot_cv2()
-                                if vf is not None:
-                                    v, _vs = detect_view(vf)
-                                    if v == ViewState.CHAT:
-                                        self.logger.warning(f"[UNION-HEAL] {action} tap opened CHAT (avatar look-alike) - closing + suppressing 120s")
-                                        adb.tap(1407, 2051, source="daemon:union_heal_close_chat")
-                                        time.sleep(1.5)
-                                        self._assist_left_suppress_until = time.time() + 120.0
-                                        return
                                 self.logger.info(f"[UNION-HEAL] {action} clicked")
 
                             self._run_flow("healing", _union_heal)
