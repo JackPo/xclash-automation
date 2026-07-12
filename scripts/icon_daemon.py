@@ -3056,7 +3056,13 @@ class IconDaemon:
                 # healing is enabled; 30s cooldown so a heal can finish.
                 if self.ASSIST_LEFT_ENABLED and self._can_run_flow():
                     heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
-                    if heal_on and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN:
+                    if (heal_on
+                            and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN
+                            # BRIEF pause gate (4s): clicking mid-play raced the
+                            # user's own taps - 18:47 attempt clicked while they
+                            # were navigating, panel never opened, heal lost.
+                            # 4s still feels immediate but never fights a click.
+                            and get_user_idle_seconds() >= 4.0):
                         af = self.windows_helper.get_screenshot_cv2()
                         hit, sc, _ = match_template(
                             af, self.ASSIST_LEFT_TEMPLATE,
@@ -3068,10 +3074,25 @@ class IconDaemon:
                             self._last_assist_left_click = time.time()
 
                             def _union_heal(adb: Any) -> None:
-                                mark_daemon_action()
-                                adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:union_heal_briefcase")
-                                time.sleep(2.5)  # Hospital panel opens
-                                healing_flow(adb)
+                                # Up to 2 attempts: the first tap can get
+                                # swallowed by a transition; re-verify the
+                                # briefcase is still there before retrying.
+                                for attempt in (1, 2):
+                                    mark_daemon_action()
+                                    adb.tap(*self.ASSIST_LEFT_CLICK, source="daemon:union_heal_briefcase")
+                                    time.sleep(2.5)  # Hospital panel opens
+                                    if healing_flow(adb):
+                                        return
+                                    self.logger.warning(f"[UNION-HEAL] attempt {attempt} did not heal (panel didn't open)")
+                                    rf = self.windows_helper.get_screenshot_cv2()
+                                    still, _s, _c = match_template(
+                                        rf, self.ASSIST_LEFT_TEMPLATE,
+                                        search_region=self.ASSIST_LEFT_REGION,
+                                        threshold=self.ASSIST_LEFT_THRESHOLD,
+                                    ) if rf is not None else (False, 1.0, None)
+                                    if not still:
+                                        self.logger.info("[UNION-HEAL] briefcase gone - stopping")
+                                        return
 
                             self._run_flow("healing", _union_heal)
                             continue
