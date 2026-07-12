@@ -3069,7 +3069,15 @@ class IconDaemon:
                 if self.ASSIST_LEFT_ENABLED and self._can_run_flow():
                     heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
                     claim_on, _ = get_override_manager().get_effective("HOSPITAL_SOLDIER_CLAIM_ENABLED", True)
+                    # DOCTRINE RESTORED (user): automation waits ~1 min of no
+                    # input before touching the game - the granted instant
+                    # exceptions are handshake, cobra/sandstorm, tavern claim.
+                    # Union-heal is NOT one of them: while the user plays, they
+                    # claim/heal themselves; automation covers idle time. This
+                    # also neutralizes the chat-avatar look-alike (it can match
+                    # 0.000 - no threshold separates it reliably).
                     if ((heal_on or claim_on)
+                            and get_user_idle_seconds() >= 60.0
                             and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN
                             and time.time() >= getattr(self, '_assist_left_suppress_until', 0.0)):
                         # Perception scans the fixed toolbar strip CONTINUOUSLY
