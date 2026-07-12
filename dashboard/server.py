@@ -222,7 +222,7 @@ async def _api_access_log(request, call_next):
     t0 = _t.time()
     response = await call_next(request)
     if request.url.path.startswith("/api") and request.url.path != "/api/status":
-        __logging.getLogger("dashboard").info(
+        _logging.getLogger("dashboard").info(
             f"[WEB] {request.method} {request.url.path} -> {response.status_code} in {(_t.time()-t0)*1000:.0f}ms")
     return response
 
