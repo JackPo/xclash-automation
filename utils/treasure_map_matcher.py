@@ -57,7 +57,7 @@ class TreasureMapMatcher:
 
     # Single template with mask (auto-detected by match_template)
     TEMPLATE = "treasure_map/treasure_map_4k.png"
-    DEFAULT_THRESHOLD = 0.06  # was 0.01: the icon ANIMATES - present scores range 0.004-0.037 across phases (live-measured 2026-07-12, an on-screen treasure went undetected at 0.022); absent scores >=0.10
+    DEFAULT_THRESHOLD = 0.015  # REAL treasure-map items score <0.005 (proven). 0.01->0.06 was a mis-fix: 0.022-0.045 'hits' were NOISE/transition frames - clicking them opened nothing and churned the chat feed 34x. Kept tight (0.015 = small headroom, well below the ~0.022 noise floor). The real 'not acting on treasure' fix was removing the idle gate.
 
     def __init__(self, threshold: float | None = None, debug_dir: Any = None) -> None:
         """
