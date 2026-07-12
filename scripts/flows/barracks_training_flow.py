@@ -46,11 +46,14 @@ MAX_FLOW_TIME = 60  # 60 seconds max for entire flow
 DISMISS_TAP = (500, 500)
 
 
+import logging
+_logger = logging.getLogger("barracks_training")
+
+
 def _log(msg: str, debug: bool = True) -> None:
-    """Print timestamped log message."""
-    if debug:
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        print(f"[{timestamp}] [BARRACKS] {msg}", flush=True)
+    """Log unconditionally - print() was invisible in the daemon and hid every
+    failure of this flow (2026-07-11 soldier-training outage)."""
+    _logger.info(f"[BARRACKS] {msg}")
 
 
 def ocr_time(
@@ -142,12 +145,20 @@ def barracks_training_flow(
             return False
 
         if not find_and_click_soldier_level(adb, win, soldier_level, debug=debug):
-            _log(f"Step 1 FAILED: Could not find Lv{soldier_level} tile", debug)
+            # Tile templates are selection-state-brittle (selected tiles render
+            # differently and stop matching). The game PRE-SELECTS the highest
+            # trainable level when the panel opens - proceed with it rather
+            # than abort (2026-07-11: aborting left barracks empty for days).
+            from scripts.flows.soldier_training_flow import is_train_button_visible
             frame = win.get_screenshot_cv2()
-            save_debug_screenshot(frame, "barracks", f"FAIL_step1_no_lv{soldier_level}")
-            return False
-
-        _log(f"Step 1 SUCCESS: Clicked Lv{soldier_level} tile", debug)
+            tv, ts = is_train_button_visible(frame)
+            if not tv:
+                _log(f"Step 1 FAILED: no Lv{soldier_level} tile and no Train button (score={ts:.4f})", debug)
+                save_debug_screenshot(frame, "barracks", f"FAIL_step1_no_lv{soldier_level}")
+                return False
+            _log(f"Step 1: Lv{soldier_level} tile not matchable - using the game's pre-selected level (Train visible, {ts:.4f})", debug)
+        else:
+            _log(f"Step 1 SUCCESS: Clicked Lv{soldier_level} tile", debug)
         time.sleep(0.8)
 
         # Validation: Check plus button is visible (indicates slider panel is showing)
