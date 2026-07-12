@@ -37,12 +37,12 @@ if TYPE_CHECKING:
     from utils.adb_helper import ADBHelper
 
 # Fixed positions for templates (4K)
-HEADER_REGION = (1678, 315, 480, 54)  # x, y, w, h
+HEADER_REGION = (1600, 280, 700, 140)  # widened 2026-07-11: header now centers at (1917,342)  # x, y, w, h
 TRAIN_BUTTON_REGION = (1969, 1397, 369, 65)  # cropped button without timer
 TRAIN_BUTTON_CLICK = (2153, 1462)
 
 # Thresholds - SQDIFF (lower is better)
-PANEL_THRESHOLD = 0.02
+PANEL_THRESHOLD = 0.05  # was 0.02; live header scores 0.007-0.022, closed-panel ~0.25 - huge separation
 TRAIN_BUTTON_THRESHOLD = 0.02
 
 from utils.barracks_state_matcher import BarrackState, get_matcher as get_barracks_matcher
