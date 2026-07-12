@@ -664,7 +664,7 @@ class IconDaemon:
         # tap when healing is on. Template + center measured live 2026-07-11.
         self._last_assist_left_click: float = 0.0
         self.ASSIST_LEFT_ENABLED: bool = True
-        self.ASSIST_LEFT_COOLDOWN: float = 30.0   # a heal takes a while; don't re-spam
+        self.ASSIST_LEFT_COOLDOWN: float = 2.5    # tap-rate limit only - click ON SIGHT (user spec)
         self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 220, 200)
         self.ASSIST_LEFT_CLICK: tuple[int, int] = (213, 1496)
         self.ASSIST_LEFT_THRESHOLD: float = 0.06
@@ -1003,6 +1003,18 @@ class IconDaemon:
                     DetectorSpec("assist_helmet", {WORLD}, _find_helmet),
                     DetectorSpec("map_gift_box", {WORLD},
                                  lambda f: match_template(f, "map_gift_box_4k.png", threshold=0.05)),
+                    # Union-heal toolbar slot (fixed strip right of the magnifier):
+                    # scanned CONTINUOUSLY in ANY view - the icons appear in both
+                    # TOWN and WORLD and must be clicked on sight (user spec).
+                    DetectorSpec("union_briefcase", None,
+                                 lambda f: match_template(f, "assist_help_briefcase_4k.png",
+                                                          search_region=(120, 1400, 220, 200), threshold=0.06)),
+                    DetectorSpec("union_helmet", None,
+                                 lambda f: match_template(f, "assist_help_helmet_4k.png",
+                                                          search_region=(120, 1400, 220, 200), threshold=0.06)),
+                    DetectorSpec("union_handshake", None,
+                                 lambda f: match_template(f, "assist_help_handshake_4k.png",
+                                                          search_region=(120, 1400, 220, 200), threshold=0.06)),
                     # --- stateless fixed-spot icons (C1 migration) ---
                     DetectorSpec("handshake", None, _p2(self.handshake_matcher.is_present)),  # any view
                     DetectorSpec("treasure_map", {TOWN, WORLD}, _p2(self.treasure_matcher.is_present)),
@@ -3056,35 +3068,32 @@ class IconDaemon:
                 # healing is enabled; 30s cooldown so a heal can finish.
                 if self.ASSIST_LEFT_ENABLED and self._can_run_flow():
                     heal_on, _ = get_override_manager().get_effective("HOSPITAL_HEAL_ENABLED", True)
-                    if (heal_on
+                    claim_on, _ = get_override_manager().get_effective("HOSPITAL_SOLDIER_CLAIM_ENABLED", True)
+                    if ((heal_on or claim_on)
                             and (time.time() - self._last_assist_left_click) >= self.ASSIST_LEFT_COOLDOWN
-                            # BRIEF pause gate (4s): clicking mid-play raced the
-                            # user's own taps - 18:47 attempt clicked while they
-                            # were navigating, panel never opened, heal lost.
-                            # 4s still feels immediate but never fights a click.
-                            and get_user_idle_seconds() >= 4.0):
-                        af = self.windows_helper.get_screenshot_cv2()
-                        # USER SPEC: the toolbar slot cycles THREE actions -
-                        # briefcase = HEAL (opens hospital panel), helmet =
-                        # CLAIM healed soldiers, handshake = SPEED UP healing.
-                        # All are single clicks except briefcase (runs the
-                        # healing flow after the panel opens).
+                            and time.time() >= getattr(self, '_assist_left_suppress_until', 0.0)):
+                        # Perception scans the fixed toolbar strip CONTINUOUSLY
+                        # (any view). See it -> click it. Toggle mapping:
+                        # heal_on: briefcase (heal) + handshake (speed up);
+                        # claim_on: helmet (claim healed soldiers).
                         _al_hit = None
-                        if af is not None:
-                            for _tname, _action in (
-                                ("assist_help_briefcase_4k.png", "heal"),
-                                ("assist_help_helmet_4k.png", "claim"),
-                                ("assist_help_handshake_4k.png", "speedup"),
-                            ):
-                                _h, _sc, _ = match_template(
-                                    af, _tname,
-                                    search_region=self.ASSIST_LEFT_REGION,
-                                    threshold=self.ASSIST_LEFT_THRESHOLD,
-                                )
-                                if _h:
-                                    _al_hit = (_action, _sc)
-                                    break
-                        if _al_hit is not None and time.time() >= getattr(self, '_assist_left_suppress_until', 0.0):
+                        for _spec, _tmpl, _action, _enabled in (
+                            ("union_briefcase", "assist_help_briefcase_4k.png", "heal", heal_on),
+                            ("union_helmet", "assist_help_helmet_4k.png", "claim", claim_on),
+                            ("union_handshake", "assist_help_handshake_4k.png", "speedup", heal_on),
+                        ):
+                            if not _enabled:
+                                continue
+                            _h, _sc, _ = self._sight(
+                                _spec,
+                                lambda _t=_tmpl: match_template(
+                                    frame, _t, search_region=self.ASSIST_LEFT_REGION,
+                                    threshold=self.ASSIST_LEFT_THRESHOLD),
+                            )
+                            if _h:
+                                _al_hit = (_action, _sc)
+                                break
+                        if _al_hit is not None:
                             _action, _sc = _al_hit
                             self.logger.info(f"[{iteration}] UNION-HEAL {_action} (score={_sc:.4f}) - click {self.ASSIST_LEFT_CLICK}")
                             self._last_assist_left_click = time.time()
