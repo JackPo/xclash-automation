@@ -88,24 +88,25 @@ def sandstorm_rally_flow(adb: Any, win: WindowsScreenshotHelper | None = None) -
         return None
 
     frame = win.get_screenshot_cv2()
-    attack_center = _find_attack(frame)
 
-    # If no Attack button, we're likely on the "You want to choose?" overlap
-    # chooser (the Phantom overlaps a nearby castle). Match the "Sandstorm Phantom"
-    # TEXT (search-matched so it survives the level-number width changing) and click
-    # it to split the two, which opens the Phantom's Attack panel.
-    if attack_center is None:
-        pf, ps, pc = match_template(
-            frame, "sandstorm_phantom_text_4k.png",
-            search_region=(1450, 1080, 950, 220), threshold=0.06,
-        )
-        logger.info(f"[SANDSTORM] Attack not found; Sandstorm-Phantom-text: found={pf} score={ps:.4f} center={pc}")
-        if pf and pc is not None:
-            logger.info(f"[SANDSTORM] disambiguation - clicking Sandstorm Phantom at {pc}")
-            adb.tap(*pc, source="flow:sandstorm:choose_phantom")
-            time.sleep(1.8)
-            frame = win.get_screenshot_cv2()
-            attack_center = _find_attack(frame)
+    # CHOOSER FIRST (2026-07-12): tapping the vortex usually pops the "You want
+    # to choose?" overlap menu listing the Phantom + an overlapping castle. We
+    # MUST pick "Sandstorm Phantom" here first - otherwise the attack-button
+    # matcher false-positives on the castle's UI (measured 0.068 on the chooser
+    # frame), the flow attacks the CASTLE, and march fails. Phantom TEXT is
+    # search-matched so it survives the level number changing width.
+    pf, ps, pc = match_template(
+        frame, "sandstorm_phantom_text_4k.png",
+        search_region=(1450, 1080, 950, 260), threshold=0.06,
+    )
+    logger.info(f"[SANDSTORM] chooser Sandstorm-Phantom-text: found={pf} score={ps:.4f} center={pc}")
+    if pf and pc is not None:
+        logger.info(f"[SANDSTORM] chooser present - clicking Sandstorm Phantom at {pc}")
+        adb.tap(*pc, source="flow:sandstorm:choose_phantom")
+        time.sleep(1.8)
+        frame = win.get_screenshot_cv2()
+
+    attack_center = _find_attack(frame)
 
     if attack_center is None:
         logger.info("[SANDSTORM] no ATTACK button (and no chooser) - backing out (screen now captured)")
