@@ -1389,8 +1389,9 @@ class IconDaemon:
 
         # Per-name immediate semantics (the old pre-global-gate special cases)
         if c.name == "treasure_map":
-            # short pause gate: time-sensitive but never worth fighting the user
-            prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_short_idle(10.0), 90.0, "opportunity"
+            # INSTANT per user's granted exception list (2026-07-11 plan
+            # decision): treasure expires - fire on sight, no idle gate.
+            prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_always, 90.0, "opportunity"
         elif c.name == "tavern_claim":
             prio, adm, ttl, src_ = PRIO_TIME_CRITICAL, _adm_always, 90.0, "schedule"
         elif c.name == "assist_ally":
