@@ -664,7 +664,7 @@ class IconDaemon:
         # tap when healing is on. Template + center measured live 2026-07-11.
         self._last_assist_left_click: float = 0.0
         self.ASSIST_LEFT_ENABLED: bool = True
-        self.ASSIST_LEFT_COOLDOWN: float = 2.5    # tap-rate limit only - click ON SIGHT (user spec)
+        self.ASSIST_LEFT_COOLDOWN: float = 0.5    # near-zero: the per-click verify already paces taps to the game's icon-swap speed
         self.ASSIST_LEFT_REGION: tuple[int, int, int, int] = (120, 1400, 220, 200)
         self.ASSIST_LEFT_CLICK: tuple[int, int] = (213, 1496)
         self.ASSIST_LEFT_THRESHOLD: float = 0.06
@@ -3127,7 +3127,7 @@ class IconDaemon:
                                 # this slot for 120s (self-correcting).
                                 mark_daemon_action()
                                 adb.tap(*self.ASSIST_LEFT_CLICK, source=f"daemon:union_heal_{action}")
-                                time.sleep(1.8)
+                                time.sleep(1.0)  # icon swap + chat-guard frame; the only pacing
                                 vf = self.windows_helper.get_screenshot_cv2()
                                 if vf is not None:
                                     v, _vs = detect_view(vf)
